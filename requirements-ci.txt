@@ -1,0 +1,5 @@
+# CI dependencies for l9-ci-core's own pipeline. The reusable pr-pipeline
+# installs this file (and setup-python's pip cache keys on it). Core's Python is
+# a governance script + tests whose only third-party import is PyYAML; ruff /
+# mypy / pytest are ensured by the pipeline's own tool-install steps.
+pyyaml>=6.0

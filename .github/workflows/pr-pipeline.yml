@@ -319,11 +319,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Run OpenSSF Scorecard
-        uses: ossf/scorecard-action@v2
+        uses: ossf/scorecard-action@v2.4.3
         with:
           results_file: scorecard.sarif
           results_format: sarif
-          publish_results: true
+          # Publishing requires the default branch; skip it on PRs (analysis
+          # + SARIF upload still run).
+          publish_results: ${{ github.event_name != 'pull_request' }}
       - name: Upload SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         with:
