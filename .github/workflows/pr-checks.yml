@@ -96,17 +96,17 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Detect Sonar readiness (token secret + project identifiers)
+      - name: Detect Sonar readiness (org-level token + organization)
         id: sonar
         env:
           TOK: ${{ secrets.SONAR_TOKEN }}
-          KEY: ${{ vars.SONAR_PROJECT_KEY }}
+          ORG: ${{ vars.SONAR_ORGANIZATION }}
         run: |
-          if [ -n "$TOK" ] && [ -n "$KEY" ]; then
+          if [ -n "$TOK" ] && [ -n "$ORG" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Sonar not configured — set the SONAR_TOKEN secret and the SONAR_PROJECT_KEY repo variable (plus SONAR_ORGANIZATION for SonarCloud). Skipped until then."
+            echo "::warning::Sonar not configured — set the org-level SONAR_TOKEN secret and SONAR_ORGANIZATION variable (visible to this repo). Skipped until then."
           fi
       - name: Download coverage.xml
         if: steps.sonar.outputs.present == 'true'
@@ -115,6 +115,9 @@ jobs:
           name: coverage-core
         continue-on-error: true
       - name: SonarQube scan
+        # projectKey is DERIVED from the repo (<owner>_<name> — SonarCloud's
+        # GitHub import convention) so NO per-repo variable is needed: only the
+        # org-level SONAR_TOKEN secret + SONAR_ORGANIZATION variable.
         if: steps.sonar.outputs.present == 'true'
         uses: SonarSource/sonarqube-scan-action@v4
         env:
@@ -122,5 +125,5 @@ jobs:
           SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || 'https://sonarcloud.io' }}
         with:
           args: >
-            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+            -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
