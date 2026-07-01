@@ -5,6 +5,6 @@
   "type": "module",
   "description": "CI shim: TaskDescriptor (stdin JSON) -> RoutingResult (stdout JSON) via @quantum-l9/llm-router.",
   "dependencies": {
-    "@quantum-l9/llm-router": "^1.0.0"
+    "@quantum-l9/llm-router": "1.0.0"
   }
 }

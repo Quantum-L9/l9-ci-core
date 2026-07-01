@@ -95,25 +95,54 @@ jobs:
           # LLM lane self-guards: absent keys ⇒ Null client, no findings.
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+          # Pass free-form workflow_call inputs via env (never interpolated into
+          # the shell command line) so a caller cannot smuggle extra CLI flags.
+          AGENTS_INPUT: ${{ inputs.agents }}
+          REVIEW_MODE_INPUT: ${{ inputs.review-mode }}
+          PR_CLASS_INPUT: ${{ inputs.pr-class }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          AGENT_FLAGS=""
-          MODE_FLAGS=""
-          for a in ${{ inputs.agents }}; do
-            AGENT_FLAGS="$AGENT_FLAGS --agent $a"
-            MODE_FLAGS="$MODE_FLAGS --agent-mode $a=${{ inputs.review-mode }}"
+          set -euo pipefail
+
+          # Validate review-mode against a strict allowlist. Only advisory/shadow
+          # are permitted; anything else (including a value carrying a smuggled
+          # blocking flag) is rejected. This step is ADVISORY-ONLY and must never
+          # gain merge authority via a free-form workflow_call input.
+          case "$REVIEW_MODE_INPUT" in
+            advisory|shadow) ;;
+            *)
+              echo "::error::Invalid review-mode '$REVIEW_MODE_INPUT' (allowed: advisory, shadow)."
+              exit 1
+              ;;
+          esac
+
+          # Build argv as a bash array so every token is a single, quoted element:
+          # no unquoted expansion ⇒ no word-splitting, globbing, or flag injection.
+          args=(review --root .)
+          args+=(--pr-class "$PR_CLASS_INPUT")
+
+          # Validate each agent name (identifier-like only) before it becomes an
+          # argv token, so the space-separated list cannot carry extra flags.
+          for a in $AGENTS_INPUT; do
+            if [[ "$a" =~ ^[A-Za-z0-9_-]+$ ]]; then
+              args+=(--agent "$a")
+              args+=(--agent-mode "$a=$REVIEW_MODE_INPUT")
+            else
+              echo "::error::Invalid agent name '$a' (allowed: [A-Za-z0-9_-])."
+              exit 1
+            fi
           done
+
+          args+=(--changed-files-file artifacts/changed_files.txt)
+          args+=(--diff-path artifacts/pr_diff.txt)
+          args+=(--file-mode git_tracked)
+          args+=(--trace-id "$RUN_ID")
+          args+=(--emit-json artifacts/agent_review_report.json)
+          args+=(--emit-comment artifacts/agent_review_comment.md)
+
           # Advisory: the strict flag is intentionally omitted, so this step
           # never fails the build (the PR Pipeline Gate is the merge authority).
-          l9-ci review \
-            --root . \
-            --pr-class "${{ inputs.pr-class }}" \
-            $AGENT_FLAGS $MODE_FLAGS \
-            --changed-files-file artifacts/changed_files.txt \
-            --diff-path artifacts/pr_diff.txt \
-            --file-mode git_tracked \
-            --trace-id "${{ github.run_id }}" \
-            --emit-json artifacts/agent_review_report.json \
-            --emit-comment artifacts/agent_review_comment.md
+          l9-ci "${args[@]}"
 
       - name: Upload review artifact
         uses: actions/upload-artifact@v4
@@ -133,8 +162,12 @@ jobs:
             const marker = '<!-- l9-agent-review-marker: v1 -->';
             const body = fs.readFileSync('artifacts/agent_review_comment.md', 'utf8');
             const prNumber = context.issue.number;
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner, repo: context.repo.repo, issue_number: prNumber,
+            // Paginate through ALL comments (default page size is 30): if the
+            // marker comment is older than the first page we must still find it,
+            // otherwise we'd create a duplicate and violate comment-protocol.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: prNumber, per_page: 100,
             });
             const existing = comments.find(c => c.body && c.body.includes(marker));
             if (existing) {
