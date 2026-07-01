@@ -172,6 +172,12 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
           ${{ inputs.l9-ci-install-command }}
+          # Ensure the tools the later steps invoke are present when the caller
+          # doesn't ship them (only install when missing, to keep caller pins).
+          command -v ruff >/dev/null 2>&1 || pip install ruff
+          command -v mypy >/dev/null 2>&1 || pip install mypy
+          command -v pytest >/dev/null 2>&1 || pip install pytest
+          python -c "import pytest_cov" 2>/dev/null || pip install pytest-cov
       - name: Validate Governance Thresholds
         run: l9-ci validate-thresholds --policy .github/governance/quality-thresholds.yaml
       - name: Validate Rule Modes

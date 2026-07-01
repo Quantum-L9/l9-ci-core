@@ -138,6 +138,10 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
           ${{ inputs.l9-ci-install-command }}
+          # Ensure the lint tools this job invokes are present without shadowing a
+          # caller-pinned version: only install when the command is missing.
+          command -v ruff >/dev/null 2>&1 || pip install ruff
+          command -v mypy >/dev/null 2>&1 || pip install mypy
       - name: Run L9 Lint Stage
         run: l9-ci run-pipeline --stage lint --ci github --emit-dir artifacts/ci
       - run: ruff check . --output-format=github
@@ -192,6 +196,12 @@ jobs:
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
           ${{ inputs.l9-ci-install-command }}
           pip install -e ".[dev]" || pip install -e . || echo "::notice::no local editable package to install"
+          # Ensure pytest + the plugins this job's invocation relies on are present
+          # (only when missing, so caller-pinned versions are preserved).
+          command -v pytest >/dev/null 2>&1 || pip install pytest
+          python -c "import pytest_cov" 2>/dev/null || pip install pytest-cov
+          python -c "import xdist" 2>/dev/null || pip install pytest-xdist
+          python -c "import pytest_timeout" 2>/dev/null || pip install pytest-timeout
       - name: Resolve Governance Coverage Threshold
         run: |
           python - <<'PY' >> "$GITHUB_ENV"
@@ -241,6 +251,11 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
           ${{ inputs.l9-ci-install-command }}
+          # Ensure the security CLIs this job invokes are present when the caller
+          # doesn't already ship them (only install when missing).
+          command -v pip-audit >/dev/null 2>&1 || pip install pip-audit
+          command -v safety >/dev/null 2>&1 || pip install safety
+          command -v bandit >/dev/null 2>&1 || pip install bandit
       - name: Run L9 Security Stage
         run: l9-ci run-pipeline --stage security --ci github --emit-dir artifacts/ci
       - name: Upload Security Summary
@@ -336,7 +351,7 @@ jobs:
         run: |
           l9-ci gate \
             --input-dir artifacts/ci \
-            --required validate,lint,test,security \
+            --required validate,lint,semgrep,test,security \
             --emit-agent-payload artifacts/agent_review_payload.json
       - name: Upload Gate Summary And Agent Payload
         uses: actions/upload-artifact@v4
