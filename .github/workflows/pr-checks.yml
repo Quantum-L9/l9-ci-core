@@ -96,17 +96,17 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Detect Sonar readiness (token present and projectKey configured)
+      - name: Detect Sonar readiness (token secret + project identifiers)
         id: sonar
         env:
           TOK: ${{ secrets.SONAR_TOKEN }}
+          KEY: ${{ vars.SONAR_PROJECT_KEY }}
         run: |
-          key=$(grep -E '^sonar\.projectKey=' sonar-project.properties | cut -d= -f2-)
-          if [ -n "$TOK" ] && [ -n "$key" ] && [ "${key#UNKNOWN}" = "$key" ]; then
+          if [ -n "$TOK" ] && [ -n "$KEY" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Sonar not configured (SONAR_TOKEN missing or sonar.projectKey still UNKNOWN) — analysis skipped."
+            echo "::warning::Sonar not configured — set the SONAR_TOKEN secret and the SONAR_PROJECT_KEY repo variable (plus SONAR_ORGANIZATION for SonarCloud). Skipped until then."
           fi
       - name: Download coverage.xml
         if: steps.sonar.outputs.present == 'true'
@@ -119,3 +119,8 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@v4
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
