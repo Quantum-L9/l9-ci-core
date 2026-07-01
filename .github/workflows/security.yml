@@ -1,0 +1,43 @@
+name: L9 Security
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        required: false
+        default: "3.12"
+      source-dir:
+        type: string
+        required: false
+        default: "."
+      l9-ci-install-command:
+        type: string
+        required: false
+        default: "pip install l9-ci"
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+      - run: |
+          python -m pip install --upgrade pip
+          ${{ inputs.l9-ci-install-command }}
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+      - run: pip-audit --desc
+      - run: bandit -r "${{ inputs.source-dir }}" -ll -f screen --exclude ./venv,./.venv,./tests,./build,./dist || echo "Bandit warnings are non-blocking"
+      - if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high

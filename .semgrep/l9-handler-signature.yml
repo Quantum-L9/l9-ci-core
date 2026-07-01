@@ -1,0 +1,74 @@
+# --- L9_META ---
+# l9_schema: 1
+# origin: l9-ci-universal-base
+# layer: [ci, semgrep, handler]
+# tags: [L9_TEMPLATE, TransportPacket, handler-signature, shadow-mode]
+# owner: platform
+# status: active
+# --- /L9_META ---
+rules:
+  - id: l9.handler.dict-packet-parameter
+    languages: [python]
+    severity: WARNING
+    message: Handler packet parameter must be TransportPacket, not dict.
+    metadata:
+      l9_rule_id: AST-HANDLER-001
+      mode: shadow
+      contract: handler_signature
+      autofix_safe: false
+    pattern-either:
+      - pattern: |
+          async def $F(packet: dict, ...) -> $RET:
+            ...
+      - pattern: |
+          def $F(packet: dict, ...) -> $RET:
+            ...
+
+  - id: l9.handler.raw-payload-parameter
+    languages: [python]
+    severity: WARNING
+    message: Handler must accept a TransportPacket boundary object, not raw payload/input dictionaries.
+    metadata:
+      l9_rule_id: AST-HANDLER-002
+      mode: shadow
+      contract: handler_signature
+      autofix_safe: false
+    pattern-either:
+      - pattern: |
+          async def $F(payload: $T, ...) -> $RET:
+            ...
+      - pattern: |
+          async def $F(input: $T, ...) -> $RET:
+            ...
+      - pattern: |
+          async def $F(data: $T, ...) -> $RET:
+            ...
+
+  - id: l9.handler.non-async-handler
+    languages: [python]
+    severity: WARNING
+    message: Node handler functions must be async and return TransportPacket.
+    metadata:
+      l9_rule_id: AST-HANDLER-003
+      mode: shadow
+      contract: handler_signature
+      autofix_safe: false
+    pattern: |
+      def handler(packet: TransportPacket) -> TransportPacket:
+        ...
+
+  - id: l9.handler.missing-transportpacket-return
+    languages: [python]
+    severity: WARNING
+    message: Handler return annotation should be TransportPacket.
+    metadata:
+      l9_rule_id: AST-HANDLER-004
+      mode: shadow
+      contract: handler_signature
+      autofix_safe: false
+    pattern: |
+      async def handler(packet: TransportPacket) -> $RET:
+        ...
+    metavariable-regex:
+      metavariable: $RET
+      regex: '^(?!TransportPacket$).+'

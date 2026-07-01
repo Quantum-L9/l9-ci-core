@@ -1,0 +1,373 @@
+# --- L9_META ---
+# l9_schema: 1
+# origin: l9-ci-universal-base
+# layer: [ci]
+# tags: [L9_TEMPLATE, ci, reusable-workflow]
+# owner: platform
+# status: active
+# --- /L9_META ---
+name: PR Pipeline Gate
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: "3.12"
+      source-dir:
+        required: false
+        type: string
+        default: "."
+      test-dir:
+        required: false
+        type: string
+        default: "tests/"
+      requirements-file:
+        required: false
+        type: string
+        default: "requirements-ci.txt"
+      extra-install-command:
+        required: false
+        type: string
+        default: ""
+      enable-pydantic-strict:
+        required: false
+        type: boolean
+        default: false
+      l9-ci-install-command:
+        required: false
+        type: string
+        default: "pip install l9-ci"
+      changed-files:
+        required: false
+        type: string
+        default: ""
+      pr-labels:
+        required: false
+        type: string
+        default: ""
+      labels-known:
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: l9-pr-pipeline-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Structure
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            ${{ inputs.requirements-file }}
+            pyproject.toml
+      - name: Install CI Tools
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
+          ${{ inputs.l9-ci-install-command }}
+          if [ -n "${{ inputs.extra-install-command }}" ]; then ${{ inputs.extra-install-command }}; fi
+      - name: Run L9 Validate Stage
+        run: l9-ci run-pipeline --stage validate --ci github --emit-dir artifacts/ci
+      - name: Validate YAML Files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import sys, yaml
+          errors = []
+          for path in list(Path('.github/workflows').glob('*.yml')) + list(Path('.github/workflows').glob('*.yaml')):
+              try:
+                  yaml.safe_load(path.read_text(encoding='utf-8'))
+              except Exception as exc:
+                  errors.append(f"{path}: {exc}")
+          if errors:
+              print('\n'.join(errors))
+              sys.exit(1)
+          PY
+      - name: L9 PacketEnvelope Prohibition
+        run: l9-ci check-transport-packet .
+      - name: L9 Deprecated API Check
+        run: l9-ci check-deprecated-api .
+      - name: Validate Governance Thresholds
+        run: l9-ci validate-thresholds --policy .github/governance/quality-thresholds.yaml
+      - name: Validate Rule Modes
+        run: l9-ci validate-rule-modes --policy .github/governance/rule-modes.yaml
+      - name: Upload Validate Summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-summary-validate-${{ inputs.python-version }}
+          path: artifacts/ci/*
+          if-no-files-found: error
+
+  lint:
+    name: Lint and Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            ${{ inputs.requirements-file }}
+            pyproject.toml
+      - name: Install Linting Tools
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
+          ${{ inputs.l9-ci-install-command }}
+      - name: Run L9 Lint Stage
+        run: l9-ci run-pipeline --stage lint --ci github --emit-dir artifacts/ci
+      - run: ruff check . --output-format=github
+      - run: ruff format --check .
+      - run: mypy "${{ inputs.source-dir }}" --show-error-codes --pretty --install-types --non-interactive --ignore-missing-imports
+      - name: Upload Lint Summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-summary-lint-${{ inputs.python-version }}
+          path: artifacts/ci/*
+          if-no-files-found: error
+
+  semgrep:
+    name: Semgrep Policy Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run Semgrep When Config Exists
+        run: |
+          if [ -d .semgrep ]; then
+            python -m pip install --upgrade pip semgrep
+            semgrep --config .semgrep/ --error --quiet
+          else
+            echo "No .semgrep directory; skipping semgrep policy check."
+          fi
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: validate
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            ${{ inputs.requirements-file }}
+            pyproject.toml
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
+          pip install -e ".[dev]" 2>/dev/null || pip install -e . 2>/dev/null || true
+      - name: Resolve Governance Coverage Threshold
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          from pathlib import Path
+          from l9_ci.governance.thresholds import load_threshold_policy
+          policy = load_threshold_policy(Path('.github/governance/quality-thresholds.yaml'))
+          print(f"L9_COVERAGE_THRESHOLD={policy.coverage_for()}")
+          PY
+      - name: Run L9 Test Stage
+        run: l9-ci run-pipeline --stage test --ci github --matrix python=${{ inputs.python-version }} --emit-dir artifacts/ci
+      - name: Run Tests with Coverage
+        env:
+          TESTING: "true"
+        run: |
+          PYTHONPATH=. pytest "${{ inputs.test-dir }}" -n auto --cov="${{ inputs.source-dir }}" --cov-report=xml --cov-report=term-missing --cov-fail-under="$L9_COVERAGE_THRESHOLD" --timeout=300 --tb=short -v
+      - name: Upload Test Summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-summary-test-${{ inputs.python-version }}
+          path: artifacts/ci/*
+          if-no-files-found: error
+      - name: Upload Coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: ./coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: validate
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
+          ${{ inputs.l9-ci-install-command }}
+      - name: Run L9 Security Stage
+        run: l9-ci run-pipeline --stage security --ci github --emit-dir artifacts/ci
+      - name: Upload Security Summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-summary-security-${{ inputs.python-version }}
+          path: artifacts/ci/*
+          if-no-files-found: error
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+      - name: Run pip-audit
+        run: pip-audit --desc
+      - name: Run Safety Check
+        run: safety check || echo "Safety warnings are non-blocking"
+      - name: Run Bandit
+        run: bandit -r "${{ inputs.source-dir }}" -ll -f screen --exclude ./venv,./.venv,./tests,./build,./dist || echo "Bandit warnings are non-blocking"
+      - name: Dependency Review
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Generate Software Bill of Materials
+        uses: anchore/sbom-action@v0
+        with:
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: true
+          upload-release-assets: false
+
+  scorecard:
+    name: OpenSSF Scorecard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Run OpenSSF Scorecard
+        uses: ossf/scorecard-action@v2
+        with:
+          results_file: scorecard.sarif
+          results_format: sarif
+          publish_results: true
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: scorecard.sarif
+
+  ci-gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    needs: [validate, lint, semgrep, test, security, sbom, scorecard]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install L9 CI SDK
+        run: |
+          python -m pip install --upgrade pip
+          ${{ inputs.l9-ci-install-command }}
+      - name: Download CI Summary Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ci-summary-*
+          path: artifacts/ci
+          merge-multiple: true
+      - name: Run L9 Gate Stage
+        run: l9-ci run-pipeline --stage gate --ci github --emit-dir artifacts/ci
+      - name: Render Agent Review Payload
+        run: |
+          l9-ci gate \
+            --input-dir artifacts/ci \
+            --required validate,lint,test,security \
+            --emit-agent-payload artifacts/agent_review_payload.json
+      - name: Upload Gate Summary And Agent Payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: l9-ci-agent-review-payload-${{ inputs.python-version }}
+          path: |
+            artifacts/ci/*
+            artifacts/agent_review_payload.json
+          if-no-files-found: error
+      - name: Evaluate Required Results
+        env:
+          CHANGED_FILES: ${{ inputs.changed-files }}
+          PR_LABELS: ${{ inputs.pr-labels }}
+          LABELS_KNOWN: ${{ inputs.labels-known }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          changed = [v.strip() for v in os.environ.get("CHANGED_FILES", "").split(",") if v.strip()]
+          labels = [v.strip() for v in os.environ.get("PR_LABELS", "").split(",") if v.strip()]
+          Path("changed_files.txt").write_text(chr(10).join(changed), encoding="utf-8")
+          Path("pr_labels.json").write_text(json.dumps(labels), encoding="utf-8")
+          PY
+          EXTRA_ARGS=""
+          if [ -s changed_files.txt ]; then EXTRA_ARGS="$EXTRA_ARGS --changed-files-file changed_files.txt --pr-labels-file pr_labels.json"; fi
+          if [ "$LABELS_KNOWN" != "true" ]; then EXTRA_ARGS="$EXTRA_ARGS --labels-unknown"; fi
+          l9-ci gate \
+            --required validate,lint,semgrep,test,security \
+            --result validate=${{ needs.validate.result }} \
+            --result lint=${{ needs.lint.result }} \
+            --result semgrep=${{ needs.semgrep.result }} \
+            --result test=${{ needs.test.result }} \
+            --result security=${{ needs.security.result }} \
+            --result sbom=${{ needs.sbom.result }} \
+            --result scorecard=${{ needs.scorecard.result }} \
+            $EXTRA_ARGS
