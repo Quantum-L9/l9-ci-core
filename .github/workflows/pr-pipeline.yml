@@ -311,18 +311,11 @@ jobs:
       - name: Run Bandit
         run: bandit -r "${{ inputs.source-dir }}" -ll -f screen --exclude ./venv,./.venv,./tests,./build,./dist || echo "Bandit warnings are non-blocking"
       - name: Dependency Review
-        # Reviews a PR's dependency-manifest changes for high-severity advisories.
-        # This action requires the repository's Dependency Graph to be enabled;
-        # when it is disabled the action hard-errors ("Dependency review is not
-        # supported on this repository") — a repo-configuration state, not a
-        # vulnerability. To keep the reusable pipeline usable on consumer repos
-        # that have not enabled Dependency Graph, that failure is surfaced as a
-        # non-blocking warning (continue-on-error). High-severity dependency CVEs
-        # remain BLOCKING via the pip-audit step above, which scans the declared
-        # requirements manifest. To restore this as a hard gate, enable Dependency
-        # Graph on the repo (Settings → Code security → Dependency graph).
+        # Blocks a PR that introduces a high-severity dependency advisory.
+        # Requires the repository's Dependency Graph to be enabled (Settings →
+        # Code security → Dependency graph); on private repos the dependency
+        # review API additionally requires GitHub Advanced Security.
         if: github.event_name == 'pull_request'
-        continue-on-error: true
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
