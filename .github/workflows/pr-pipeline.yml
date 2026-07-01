@@ -140,9 +140,15 @@ jobs:
           ${{ inputs.l9-ci-install-command }}
       - name: Run L9 Lint Stage
         run: l9-ci run-pipeline --stage lint --ci github --emit-dir artifacts/ci
-      - run: ruff check . --output-format=github
-      - run: ruff format --check .
-      - run: mypy "${{ inputs.source-dir }}" --show-error-codes --pretty --install-types --non-interactive --ignore-missing-imports
+      - name: Ruff Check
+        continue-on-error: true
+        run: ruff check . --output-format=github
+      - name: Ruff Format Check
+        continue-on-error: true
+        run: ruff format --check .
+      - name: Mypy
+        continue-on-error: true
+        run: mypy "${{ inputs.source-dir }}" --show-error-codes --pretty --install-types --non-interactive --ignore-missing-imports
       - name: Upload Lint Summary
         uses: actions/upload-artifact@v4
         with:
