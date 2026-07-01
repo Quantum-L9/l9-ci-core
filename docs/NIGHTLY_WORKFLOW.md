@@ -39,14 +39,13 @@ jobs:
       prerelease-python-versions: "3.13"
       source-dir: "."
       test-dir: "tests"
-      coverage-threshold: "60"
 ```
 
 ## Gates
 
 - `prepare-python-matrix`
 - `nightly-regression-<python-version>`
-- `nightly-summary`
+- `all-gates-passed`
 
 ## Unknowns
 

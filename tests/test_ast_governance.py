@@ -4,8 +4,9 @@ from pathlib import Path
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[2]
-CORE = ROOT / "l9-ci-core"
+# This test file lives at <repo>/tests/, so the repo root is parents[1].
+# (Previously assumed a nested l9-ci-core/ dir, which fails in a standard checkout.)
+CORE = Path(__file__).resolve().parents[1]
 
 RULE_FILES = [
     CORE / ".semgrep/l9-transport.yml",

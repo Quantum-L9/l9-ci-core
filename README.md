@@ -14,4 +14,4 @@ jobs:
       test-dir: "tests/"
 ```
 
-The workflow installs the SDK through the `l9-ci-install-command` input, which defaults to `python -m pip install "l9-ci[ci]"`. Override that input until your package publishing path is live.
+The workflow installs the SDK through the `l9-ci-install-command` input, which defaults to `pip install l9-ci`. Override that input until your package publishing path is live.
