@@ -81,7 +81,10 @@ jobs:
         uses: GitGuardian/ggshield-action@v1
         env:
           GITHUB_PUSH_BEFORE_SHA: ${{ github.event.before }}
-          GITHUB_PUSH_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # On push events pull_request.base.sha is undefined; GitGuardian's
+          # recommended pattern is to fall back to github.event.before so the
+          # push commit range is scanned correctly.
+          GITHUB_PUSH_BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
           GITHUB_PULL_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
@@ -112,6 +115,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: coverage-core
+          # Download into the workspace root so coverage.xml lands at ./coverage.xml,
+          # matching sonar-project.properties (default would nest it under coverage-core/).
+          path: .
         continue-on-error: true
       - name: SonarQube scan
         # projectKey is DERIVED from the repo (<owner>_<name> — SonarCloud's
