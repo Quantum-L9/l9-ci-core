@@ -93,21 +93,21 @@ jobs:
     if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     continue-on-error: true
     steps:
-      - name: Detect token availability
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Detect Sonar readiness (token present and projectKey configured)
         id: sonar
         env:
           TOK: ${{ secrets.SONAR_TOKEN }}
         run: |
-          if [ -n "$TOK" ]; then
+          key=$(grep -E '^sonar\.projectKey=' sonar-project.properties | cut -d= -f2-)
+          if [ -n "$TOK" ] && [ -n "$key" ] && [ "${key#UNKNOWN}" = "$key" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::SONAR_TOKEN not visible to this repo — Sonar analysis skipped."
+            echo "::warning::Sonar not configured (SONAR_TOKEN missing or sonar.projectKey still UNKNOWN) — analysis skipped."
           fi
-      - uses: actions/checkout@v6
-        if: steps.sonar.outputs.present == 'true'
-        with:
-          fetch-depth: 0
       - name: Download coverage.xml
         if: steps.sonar.outputs.present == 'true'
         uses: actions/download-artifact@v4
