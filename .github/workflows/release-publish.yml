@@ -1,0 +1,391 @@
+# --- L9_META ---
+# l9_schema: 1
+# origin: l9-ci-universal-base-workflow-harvest
+# layer: [ci, release]
+# tags: [L9_TEMPLATE, release, reusable-workflow, pypi, sbom]
+# owner: platform
+# status: active
+# --- /L9_META ---
+name: Release Publish Gate
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: "3.12"
+      source-dir:
+        required: false
+        type: string
+        default: "."
+      test-dir:
+        required: false
+        type: string
+        default: "tests"
+      scripts-dir:
+        required: false
+        type: string
+        default: "scripts"
+      contracts-dir:
+        required: false
+        type: string
+        default: "contracts"
+      schema-path:
+        required: false
+        type: string
+        default: ""
+      requirements-file:
+        required: false
+        type: string
+        default: "requirements-ci.txt"
+      package-name:
+        required: false
+        type: string
+        default: ""
+      enable-pypi-publish:
+        required: false
+        type: boolean
+        default: false
+      l9-ci-install-command:
+        required: false
+        type: string
+        default: "pip install l9-ci"
+      extra-install-command:
+        required: false
+        type: string
+        default: ""
+    secrets:
+      github-token:
+        required: false
+    outputs:
+      release-version:
+        description: "Version extracted from tag or pyproject.toml."
+        value: ${{ jobs.verify-tag.outputs.version }}
+  workflow_dispatch:
+    inputs:
+      python-version:
+        description: "Python version."
+        required: false
+        type: string
+        default: "3.12"
+      source-dir:
+        description: "Source directory."
+        required: false
+        type: string
+        default: "."
+      test-dir:
+        description: "Test directory."
+        required: false
+        type: string
+        default: "tests"
+      scripts-dir:
+        description: "Scripts directory for optional commands."
+        required: false
+        type: string
+        default: "scripts"
+      contracts-dir:
+        description: "Contracts directory for optional lint."
+        required: false
+        type: string
+        default: "contracts"
+      schema-path:
+        description: "Optional schema path for drift check. Empty disables."
+        required: false
+        type: string
+        default: ""
+      requirements-file:
+        description: "CI requirements file."
+        required: false
+        type: string
+        default: "requirements-ci.txt"
+      package-name:
+        description: "Optional import package name for smoke check."
+        required: false
+        type: string
+        default: ""
+      enable-pypi-publish:
+        description: "Publish to PyPI using Trusted Publisher/OIDC."
+        required: false
+        type: boolean
+        default: false
+      l9-ci-install-command:
+        description: "Command to install l9-ci."
+        required: false
+        type: string
+        default: "pip install l9-ci"
+      extra-install-command:
+        description: "Optional extra install command."
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  group: l9-release-publish-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verify-tag:
+    name: gate-1-tag-version-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+      - name: Extract and verify version
+        id: version
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          from pathlib import Path
+          import os, re, sys, tomllib
+          ref_name = os.environ.get("GITHUB_REF_NAME", "")
+          tag_version = ref_name[1:] if ref_name.startswith("v") else ""
+          version = ""
+          path = Path("pyproject.toml")
+          if path.exists():
+              data = tomllib.loads(path.read_text(encoding="utf-8"))
+              version = data.get("project", {}).get("version") or data.get("tool", {}).get("poetry", {}).get("version") or ""
+          final_version = tag_version or version
+          print(f"version={final_version}")
+          if ref_name.startswith("v") and not re.fullmatch(r"v\d+\.\d+\.\d+(?:-rc\d+)?", ref_name):
+              print(f"::error::Tag must match vX.Y.Z or vX.Y.Z-rcN, got {ref_name}", file=sys.stderr)
+              sys.exit(1)
+          if tag_version and version and tag_version != version:
+              print(f"::error::pyproject.toml version {version} does not match tag {tag_version}", file=sys.stderr)
+              sys.exit(1)
+          if not final_version:
+              print("::error::Could not determine release version from tag or pyproject.toml", file=sys.stderr)
+              sys.exit(1)
+          PY
+
+  quality-gate:
+    name: gate-2-quality
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            ${{ inputs.requirements-file }}
+            pyproject.toml
+      - name: Install release quality dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
+          ${{ inputs.l9-ci-install-command }}
+          pip install -e ".[dev]" 2>/dev/null || pip install -e .
+          if [ -n "${{ inputs.extra-install-command }}" ]; then ${{ inputs.extra-install-command }}; fi
+          # Ensure the quality-gate tools are present when the caller doesn't ship
+          # them (only install when missing, to preserve caller-pinned versions).
+          command -v ruff >/dev/null 2>&1 || pip install ruff
+          command -v mypy >/dev/null 2>&1 || pip install mypy
+          command -v pytest >/dev/null 2>&1 || pip install pytest
+          python -c "import pytest_cov" 2>/dev/null || pip install pytest-cov
+      - name: Ruff lint
+        run: ruff check "${{ inputs.source-dir }}" "${{ inputs.test-dir }}" --output-format=github
+      - name: Ruff format check
+        run: ruff format --check "${{ inputs.source-dir }}" "${{ inputs.test-dir }}"
+      - name: Mypy
+        run: mypy "${{ inputs.source-dir }}" --show-error-codes --pretty --install-types --non-interactive --ignore-missing-imports
+      - name: Optional contract spec lint
+        run: |
+          if [ -d "${{ inputs.contracts-dir }}" ]; then
+            find "${{ inputs.contracts-dir }}" -type f \( -name '*.md' -o -name '*.json' -o -name '*.yaml' -o -name '*.yml' \) -print
+          else
+            echo "Contracts directory not present; skipping contract spec lint."
+          fi
+      - name: Optional schema drift check
+        run: |
+          if [ -n "${{ inputs.schema-path }}" ] && [ -f "${{ inputs.scripts-dir }}/generate_schema.py" ]; then
+            python "${{ inputs.scripts-dir }}/generate_schema.py"
+            git diff --exit-code "${{ inputs.schema-path }}"
+          else
+            echo "Schema drift check disabled or generator missing."
+          fi
+      - name: Test release candidate
+        run: pytest "${{ inputs.test-dir }}" -q --tb=short
+
+  dep-audit:
+    name: gate-3-dep-audit
+    needs: quality-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+      - name: Install package and audit tool
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" 2>/dev/null || pip install -e .
+          pip install pip-audit
+      - name: pip-audit release gate
+        run: pip-audit --strict
+
+  build:
+    name: gate-4-build
+    needs: dep-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip setuptools wheel build twine
+          python -m build
+          twine check dist/*
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dist-${{ needs.verify-tag.outputs.version }}
+          path: dist/*
+          retention-days: 90
+
+  sbom:
+    name: gate-5-cyclonedx-sbom
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+      - name: Generate CycloneDX SBOM
+        run: |
+          python -m pip install --upgrade pip cyclonedx-bom
+          pip install -e .
+          mkdir -p sbom
+          cyclonedx-py environment --output-format json --output-file sbom/cyclonedx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-sbom-${{ needs.verify-tag.outputs.version }}
+          path: sbom/cyclonedx.json
+          retention-days: 90
+
+  clean-install-smoke:
+    name: gate-6-clean-install-smoke
+    needs: build
+    if: ${{ inputs.package-name != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist-${{ needs.verify-tag.outputs.version }}
+          path: dist
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install wheel and import package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.whl
+          python - <<'PY'
+          import importlib, os
+          importlib.import_module(os.environ["PACKAGE_NAME"])
+          PY
+        env:
+          PACKAGE_NAME: ${{ inputs.package-name }}
+
+  publish:
+    name: gate-7-pypi-publish
+    needs: [verify-tag, build, sbom, clean-install-smoke]
+    if: ${{ always() && inputs.enable-pypi-publish && needs.build.result == 'success' && needs.sbom.result == 'success' && (needs.clean-install-smoke.result == 'success' || needs.clean-install-smoke.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist-${{ needs.verify-tag.outputs.version }}
+          path: dist
+      - name: Publish to PyPI with Trusted Publisher
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  github-release:
+    name: gate-8-github-release
+    needs: [verify-tag, build, sbom]
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success' && needs.sbom.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist-${{ needs.verify-tag.outputs.version }}
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-sbom-${{ needs.verify-tag.outputs.version }}
+          path: sbom
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+            sbom/cyclonedx.json
+          generate_release_notes: true
+          prerelease: ${{ contains(needs.verify-tag.outputs.version, '-rc') }}
+
+  all-release-gates-passed:
+    name: all-release-gates-passed
+    needs: [verify-tag, quality-gate, dep-audit, build, sbom, clean-install-smoke, publish, github-release]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate release gates
+        run: |
+          FAILED=""
+          for gate in verify-tag quality-gate dep-audit build sbom; do
+            case "$gate" in
+              verify-tag) result="${{ needs.verify-tag.result }}" ;;
+              quality-gate) result="${{ needs.quality-gate.result }}" ;;
+              dep-audit) result="${{ needs.dep-audit.result }}" ;;
+              build) result="${{ needs.build.result }}" ;;
+              sbom) result="${{ needs.sbom.result }}" ;;
+            esac
+            [ "$result" = "success" ] || FAILED="$FAILED $gate=$result"
+          done
+          if [ "${{ needs.clean-install-smoke.result }}" = "failure" ]; then FAILED="$FAILED clean-install-smoke=failure"; fi
+          if [ "${{ inputs.enable-pypi-publish }}" = "true" ] && [ "${{ needs.publish.result }}" != "success" ]; then FAILED="$FAILED publish=${{ needs.publish.result }}"; fi
+          if [ -n "$FAILED" ]; then
+            echo "::error::Release gates failed:$FAILED"
+            exit 1
+          fi
+          echo "All release gates passed."
