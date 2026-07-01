@@ -368,9 +368,12 @@ jobs:
         run: l9-ci run-pipeline --stage gate --ci github --emit-dir artifacts/ci
       - name: Render Agent Review Payload
         run: |
+          # The payload aggregates SDK stage *summaries*. semgrep runs the raw
+          # semgrep binary and emits no *_ci_summary.json, so it is not a required
+          # summary stage here (it is still enforced by job-result below).
           l9-ci gate \
             --input-dir artifacts/ci \
-            --required validate,lint,semgrep,test,security \
+            --required validate,lint,test,security \
             --emit-agent-payload artifacts/agent_review_payload.json
       - name: Upload Gate Summary And Agent Payload
         uses: actions/upload-artifact@v4
