@@ -281,11 +281,20 @@ jobs:
           name: ci-summary-security-${{ inputs.python-version }}
           path: artifacts/ci/*
           if-no-files-found: error
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_CONFIG: .gitleaks.toml
+      - name: Run Gitleaks (OSS CLI)
+        # gitleaks/gitleaks-action requires a paid GITLEAKS_LICENSE for
+        # organizations. Use the OSS gitleaks CLI instead — same scanner, no
+        # license wall — pinned to a verified release. Honors .gitleaks.toml when
+        # present; fails the job on any detected leak (redacted in logs).
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION="8.30.1"
+          tmp="$(mktemp -d)"
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o "$tmp/gitleaks.tar.gz"
+          tar -xzf "$tmp/gitleaks.tar.gz" -C "$tmp" gitleaks
+          config_arg=""
+          if [ -f .gitleaks.toml ]; then config_arg="--config .gitleaks.toml"; fi
+          "$tmp/gitleaks" dir . --no-banner --redact $config_arg
       - name: Run pip-audit
         run: pip-audit --desc
       - name: Run Safety Check
