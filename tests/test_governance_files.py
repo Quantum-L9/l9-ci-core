@@ -72,3 +72,19 @@ def test_audit_policy_references_thresholds() -> None:
     policy = yaml.safe_load((ROOT / ".github/governance/audit-policy.yml").read_text())
     assert policy["thresholds"]["source"] == ".github/governance/quality-thresholds.yaml"
     assert policy["thresholds"]["missing_thresholds"] == "fail_closed"
+
+
+def test_comment_protocol_defines_agent_review_marker() -> None:
+    proto = yaml.safe_load((ROOT / ".github/governance/comment-protocol.yaml").read_text())
+    assert proto["markers"]["agent_review"] == "<!-- l9-agent-review-marker: v1 -->"
+    assert proto["comment_limits"]["max_comment_chars"] == 65336
+    assert proto["comment_limits"]["truncation_required"] is True
+    assert "never_create_duplicate_persistent_comments" in proto["update_rule"]
+
+
+def test_blocking_policy_review_promotions_start_empty_advisory_only() -> None:
+    policy = yaml.safe_load((ROOT / ".github/governance/blocking-policy.yaml").read_text())
+    # Agent Review Loop must be advisory-only until findings are explicitly promoted.
+    assert policy["review_blocking_promotions"] == []
+    assert "transport_packet_contract_break" in policy["hard_block_if_touched"]
+    assert "diff_unknown" in policy["fail_closed"]
