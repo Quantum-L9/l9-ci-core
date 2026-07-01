@@ -91,6 +91,11 @@ jobs:
           echo "changed=$(wc -l < artifacts/changed_files.txt || echo 0)" >> "$GITHUB_OUTPUT"
 
       - name: Run L9 review agents (advisory)
+        # Advisory-only: a transient install/runtime error, router import error,
+        # or CLI bug must never fail this job (and therefore the caller). Marked
+        # continue-on-error so tool/config failures degrade gracefully; the PR
+        # Pipeline Gate remains the sole merge authority.
+        continue-on-error: true
         env:
           # LLM lane self-guards: absent keys ⇒ Null client, no findings.
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -142,7 +147,23 @@ jobs:
 
           # Advisory: the strict flag is intentionally omitted, so this step
           # never fails the build (the PR Pipeline Gate is the merge authority).
-          l9-ci "${args[@]}"
+          # Guard the CLI invocation: any non-zero exit (transient install error,
+          # router import failure, CLI bug) is treated as non-fatal. When the CLI
+          # fails to emit a comment artifact, write a minimal degraded-notice so
+          # downstream steps always have a file to read.
+          if ! l9-ci "${args[@]}"; then
+            echo "::warning::l9-ci review exited non-zero; emitting degraded advisory notice."
+            if [ ! -f artifacts/agent_review_comment.md ]; then
+              {
+                echo '<!-- l9-agent-review-marker: v1 -->'
+                echo '## L9 Agent Review (advisory)'
+                echo
+                echo '_The advisory review agent could not complete this run'
+                echo '(tool or configuration error). This is non-blocking; the PR'
+                echo 'Pipeline Gate remains the merge authority._'
+              } > artifacts/agent_review_comment.md
+            fi
+          fi
 
       - name: Upload review artifact
         uses: actions/upload-artifact@v4
@@ -159,8 +180,21 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            const path = 'artifacts/agent_review_comment.md';
+            // Guard: if the review step failed to emit the comment artifact,
+            // skip cleanly instead of throwing (which would fail this job).
+            if (!fs.existsSync(path)) {
+              core.warning(`${path} not found; skipping comment update (advisory).`);
+              return;
+            }
             const marker = '<!-- l9-agent-review-marker: v1 -->';
-            const body = fs.readFileSync('artifacts/agent_review_comment.md', 'utf8');
+            let body = fs.readFileSync(path, 'utf8');
+            // Enforce GitHub's ~65536-char comment cap so an oversized body can't
+            // fail the API call.
+            const MAX = 65000;
+            if (body.length > MAX) {
+              body = body.slice(0, MAX) + '\n\n_...truncated; see the agent-review artifact._\n';
+            }
             const prNumber = context.issue.number;
             // Paginate through ALL comments (default page size is 30): if the
             // marker comment is older than the first page we must still find it,
@@ -169,7 +203,13 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo,
               issue_number: prNumber, per_page: 100,
             });
-            const existing = comments.find(c => c.body && c.body.includes(marker));
+            // Only update a comment that (a) is authored by the github-actions bot
+            // and (b) STARTS WITH the marker. `includes` on any author could match
+            // a human comment that merely quotes the marker and overwrite it.
+            const existing = comments.find(c =>
+              c.user && c.user.login === 'github-actions[bot]' &&
+              c.body && c.body.startsWith(marker)
+            );
             if (existing) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner, repo: context.repo.repo,

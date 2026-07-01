@@ -375,8 +375,17 @@ jobs:
   agent_review:
     name: Agent Review
     # Advisory L9 Agent Review Loop. Nested reusable call; never blocks the gate.
-    # Deterministic-only here (no keys); consumers may enable the LLM lane by
-    # calling code-review.yml directly with agents "audit llm" + secrets.
+    # NOTE: job-level `continue-on-error` is NOT valid on a job that calls a
+    # reusable workflow via `uses:` (GitHub only allows name/uses/with/secrets/
+    # needs/if/permissions). The advisory-only guarantee is instead enforced
+    # INSIDE code-review.yml: the review step is `continue-on-error: true` and
+    # the CLI invocation is guarded, so the reusable workflow degrades to success
+    # on tool/config errors and never fails this caller.
+    # Deterministic-only here (no keys): this lane runs only the `audit` agent,
+    # which needs no secrets. We deliberately do NOT pass `secrets: inherit`, so
+    # LLM API keys and other repo secrets are never exposed to the audit-only
+    # lane. Consumers may enable the LLM lane by calling code-review.yml directly
+    # with agents "audit llm" and the required secrets.
     uses: ./.github/workflows/code-review.yml
     with:
       python-version: ${{ inputs.python-version }}
@@ -384,4 +393,3 @@ jobs:
       agents: "audit"
       review-mode: "advisory"
       pr-class: "unknown_diff"
-    secrets: inherit
