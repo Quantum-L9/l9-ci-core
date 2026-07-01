@@ -163,7 +163,9 @@ jobs:
         run: |
           if [ -d .semgrep ]; then
             python -m pip install --upgrade pip semgrep
-            semgrep --config .semgrep/ --error --quiet
+            # Exclude the intentional "bad" contract fixtures: they exist to
+            # exercise the rules and would otherwise fail Semgrep in this repo.
+            semgrep --config .semgrep/ --error --quiet --exclude tests/fixtures/semgrep
           else
             echo "No .semgrep directory; skipping semgrep policy check."
           fi

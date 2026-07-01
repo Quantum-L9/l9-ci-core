@@ -49,4 +49,4 @@ jobs:
 
 ## Unknowns
 
-`actions/setup-python@v6` availability and Python 3.13 runtime behavior require live GitHub execution.
+The workflows pin `actions/checkout@v6` and `actions/setup-python@v6` (current majors). Python 3.13 prerelease runtime behavior is the remaining unknown that requires live GitHub execution.

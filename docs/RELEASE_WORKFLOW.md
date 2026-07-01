@@ -18,8 +18,7 @@ Harvested concepts:
 
 Rejected:
 - raw Gate_SDK paths
-- `actions/checkout@v4`
-- `actions/setup-python@v5`
+- superseded action majors `actions/checkout@v4` / `actions/setup-python@v5` (pinned to `@v6`)
 - hardcoded schema/script locations
 - release behavior without explicit publish enablement
 

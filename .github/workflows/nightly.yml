@@ -210,7 +210,7 @@ jobs:
       - name: Contract spec lint
         run: |
           if [ -d "${{ inputs.contracts-dir }}" ]; then
-            find "${{ inputs.contracts-dir }}" -type f -maxdepth 2 -print
+            find "${{ inputs.contracts-dir }}" -maxdepth 2 -type f -print
           else
             echo "Contracts directory not present; skipping."
           fi

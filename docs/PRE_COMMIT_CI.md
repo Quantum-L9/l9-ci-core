@@ -16,7 +16,7 @@ Harvested concepts:
 Rejected:
 - hardcoded `main`/`master` triggers inside the core reusable workflow
 - hardcoded Gate_SDK local hook assumptions
-- raw checkout/setup-python v4/v5 action versions
+- superseded checkout/setup-python `@v4`/`@v5` majors (pinned to `@v6`)
 
 ## Caller example
 
