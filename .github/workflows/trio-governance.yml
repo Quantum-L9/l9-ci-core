@@ -73,6 +73,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           ${{ inputs.l9-ci-install-command }}
+          # A later step imports PyYAML to validate governance files; ensure it's
+          # present when the install command doesn't already pull it in.
+          python -c "import yaml" 2>/dev/null || pip install pyyaml
       - name: Validate threshold policy
         run: l9-ci validate-thresholds --policy .github/governance/quality-thresholds.yaml
       - name: Validate rule-mode policy

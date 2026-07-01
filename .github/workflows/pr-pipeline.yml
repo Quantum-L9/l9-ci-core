@@ -85,6 +85,9 @@ jobs:
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
           ${{ inputs.l9-ci-install-command }}
           if [ -n "${{ inputs.extra-install-command }}" ]; then ${{ inputs.extra-install-command }}; fi
+          # The "Validate YAML Files" step imports PyYAML; ensure it's present
+          # when the caller's deps don't already provide it.
+          python -c "import yaml" 2>/dev/null || pip install pyyaml
       - name: Run L9 Validate Stage
         run: l9-ci run-pipeline --stage validate --ci github --emit-dir artifacts/ci
       - name: Validate YAML Files

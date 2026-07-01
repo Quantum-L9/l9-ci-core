@@ -27,6 +27,8 @@ the **L9 CI trio**:
 ## Validation
 
 ```bash
+# The governance/workflow tests import PyYAML; install the test deps first.
+python -m pip install pyyaml pytest
 python -m compileall .
 pytest -q
 ```
