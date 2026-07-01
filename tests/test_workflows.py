@@ -70,6 +70,32 @@ def test_all_action_references_are_sha_pinned() -> None:
             )
 
 
+def test_release_publish_supports_pypi_token_fallback() -> None:
+    """release-publish.yml is a reusable workflow (workflow_call), so PyPI's
+    OIDC trusted-publisher identity binding does not resolve correctly for
+    any real caller -- the workflow must also support an api-token fallback
+    so releases are not silently blocked. See docs/RELEASE_WORKFLOW.md."""
+    data = load_workflow("release-publish.yml")
+    inputs = workflow_call_inputs(data)
+    assert "pypi-publish-mode" in inputs
+    assert inputs["pypi-publish-mode"]["default"] == "trusted-publisher"
+
+    on_block = data.get(True) or data.get("on") or {}
+    call_secrets = on_block.get("workflow_call", {}).get("secrets", {})
+    assert "pypi-api-token" in call_secrets
+    assert call_secrets["pypi-api-token"].get("required") is False
+
+    publish_job = data["jobs"]["publish"]
+    step_names = [step.get("name") for step in publish_job["steps"]]
+    assert "Publish to PyPI with Trusted Publisher (OIDC)" in step_names
+    assert "Publish to PyPI with API token (reusable-workflow fallback)" in step_names
+
+    text = (WORKFLOWS / "release-publish.yml").read_text(encoding="utf-8")
+    assert "secrets.pypi-api-token" in text
+    assert "pypi-publish-mode == 'trusted-publisher'" in text
+    assert "pypi-publish-mode == 'api-token'" in text
+
+
 def test_security_declares_l9_install_input() -> None:
     inputs = workflow_call_inputs(load_workflow("security.yml"))
     assert "l9-ci-install-command" in inputs

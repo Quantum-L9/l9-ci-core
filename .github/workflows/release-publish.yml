@@ -47,6 +47,11 @@ on:
         required: false
         type: boolean
         default: false
+      pypi-publish-mode:
+        description: "How gate-7 authenticates to PyPI. 'trusted-publisher' uses OIDC and only works when this workflow is NOT invoked via workflow_call from another repo (PyPI's trusted-publisher identity binds to the direct caller). 'api-token' uses a caller-supplied secret and works for any caller, including reusable-workflow invocations."
+        required: false
+        type: string
+        default: "trusted-publisher"
       l9-ci-install-command:
         required: false
         type: string
@@ -59,6 +64,9 @@ on:
       github-token:
         required: false
       SDK_TOKEN:
+        required: false
+      pypi-api-token:
+        description: "Required only when pypi-publish-mode == api-token. Scope this token to the single PyPI project being published, not account-wide."
         required: false
     outputs:
       release-version:
@@ -349,10 +357,27 @@ jobs:
         with:
           name: release-dist-${{ needs.verify-tag.outputs.version }}
           path: dist
-      - name: Publish to PyPI with Trusted Publisher
+      - name: Validate publish mode / secret pairing
+        run: |
+          if [ "${{ inputs.pypi-publish-mode }}" = "api-token" ] && [ -z "${{ secrets.pypi-api-token }}" ]; then
+            echo "::error::pypi-publish-mode=api-token requires the caller to pass secrets.pypi-api-token."
+            exit 1
+          fi
+          if [ "${{ inputs.pypi-publish-mode }}" != "trusted-publisher" ] && [ "${{ inputs.pypi-publish-mode }}" != "api-token" ]; then
+            echo "::error::pypi-publish-mode must be 'trusted-publisher' or 'api-token', got '${{ inputs.pypi-publish-mode }}'."
+            exit 1
+          fi
+      - name: Publish to PyPI with Trusted Publisher (OIDC)
+        if: ${{ inputs.pypi-publish-mode == 'trusted-publisher' }}
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0 (release/v1 tip)
         with:
           packages-dir: dist/
+      - name: Publish to PyPI with API token (reusable-workflow fallback)
+        if: ${{ inputs.pypi-publish-mode == 'api-token' }}
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0 (release/v1 tip)
+        with:
+          packages-dir: dist/
+          password: ${{ secrets.pypi-api-token }}
 
   github-release:
     name: gate-8-github-release
