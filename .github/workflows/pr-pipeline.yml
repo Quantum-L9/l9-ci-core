@@ -371,3 +371,17 @@ jobs:
             --result sbom=${{ needs.sbom.result }} \
             --result scorecard=${{ needs.scorecard.result }} \
             $EXTRA_ARGS
+
+  agent_review:
+    name: Agent Review
+    # Advisory L9 Agent Review Loop. Nested reusable call; never blocks the gate.
+    # Deterministic-only here (no keys); consumers may enable the LLM lane by
+    # calling code-review.yml directly with agents "audit llm" + secrets.
+    uses: ./.github/workflows/code-review.yml
+    with:
+      python-version: ${{ inputs.python-version }}
+      l9-ci-install-command: ${{ inputs.l9-ci-install-command }}
+      agents: "audit"
+      review-mode: "advisory"
+      pr-class: "unknown_diff"
+    secrets: inherit

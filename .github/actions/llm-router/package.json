@@ -1,0 +1,10 @@
+{
+  "name": "l9-llm-router-shim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CI shim: TaskDescriptor (stdin JSON) -> RoutingResult (stdout JSON) via @quantum-l9/llm-router.",
+  "dependencies": {
+    "@quantum-l9/llm-router": "^1.0.0"
+  }
+}

@@ -1,0 +1,90 @@
+# --- L9_META ---
+# l9_schema: 1
+# origin: l9-ci-core
+# engine: platform
+# layer: [ci, governance, review-routing]
+# tags: [L9_CI, agent-review-loop, gating, model-routing]
+# owner: platform
+# status: active
+# --- /L9_META ---
+#
+# Gated multi-agent code-review routing. Deterministic map from PR class (from
+# classify_pr.py) + factors to the review agents that run, the LLM model tier,
+# and the rule-mode. All agents start advisory-first; nothing blocks a merge
+# until a finding rule_id is promoted in blocking-policy.yaml.
+version: 1
+
+default:
+  agents: [audit]
+  mode: advisory
+  model_tier: strong
+
+routing:
+  docs_only:
+    agents: [audit]
+    mode: advisory
+    model_tier: fast
+  tests_only:
+    agents: [audit]
+    mode: advisory
+    model_tier: fast
+  ci_workflow:
+    agents: [audit]
+    mode: advisory
+    model_tier: mid
+  dependency:
+    agents: [audit]
+    mode: advisory
+    model_tier: mid
+  dependency_python:
+    agents: [audit]
+    mode: advisory
+    model_tier: mid
+  docker:
+    agents: [audit]
+    mode: advisory
+    model_tier: mid
+  app_code:
+    agents: [audit, llm]
+    mode: advisory
+    model_tier: strong
+  security:
+    agents: [audit, llm]
+    mode: advisory
+    model_tier: strongest
+    fail_closed: true
+  compliance:
+    agents: [audit, llm]
+    mode: advisory
+    model_tier: strong
+  unknown_diff:
+    agents: [audit, llm]
+    mode: advisory
+    model_tier: strong
+    fail_closed: true
+  unknown:
+    agents: [audit, llm]
+    mode: advisory
+    model_tier: strong
+    fail_closed: true
+
+# Factors that escalate the model tier and force the security/contract lens.
+factors:
+  escalate_if_any:
+    - protected_path_touched
+    - "risk:secret"
+    - "risk:contract"
+    - security_sensitive_changed
+    - transport_sensitive_changed
+    - large_diff
+  size_limits:
+    warn_threshold: 300
+    block_threshold: 1000
+    max_files_changed: 50
+
+# LLM model tiers map to LLM-Router TaskComplexity (resolved by the shim).
+model_tiers:
+  fast: trivial
+  mid: low
+  strong: high
+  strongest: critical

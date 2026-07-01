@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9/schemas/agent-review-report.schema.json",
+  "title": "L9 Agent Review Report",
+  "description": "Output of `l9-ci review` — the gated multi-agent code-review loop. Advisory-first; consumed by PR_Repair.",
+  "type": "object",
+  "required": ["schema_version", "marker", "pr_class", "agents", "findings", "blocking_count", "advisory_count", "shadow_count"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "type": "integer" },
+    "marker": { "type": "string", "const": "<!-- l9-agent-review-marker: v1 -->" },
+    "pr_class": { "type": "string" },
+    "blocking_count": { "type": "integer", "minimum": 0 },
+    "advisory_count": { "type": "integer", "minimum": 0 },
+    "shadow_count": { "type": "integer", "minimum": 0 },
+    "agents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["agent", "role"],
+        "properties": {
+          "agent": { "type": "string" },
+          "role": { "type": "string" },
+          "model": { "type": "string" },
+          "provider": { "type": "string" },
+          "estimated_cost_usd": { "type": "number" },
+          "latency_ms": { "type": "integer" },
+          "trace_id": { "type": "string" },
+          "finding_count": { "type": "integer" },
+          "failure_reason": { "type": "string" },
+          "human_intervention": { "type": "boolean" }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["agent", "rule_id", "message", "category", "severity", "mode"],
+        "properties": {
+          "agent": { "type": "string" },
+          "rule_id": { "type": "string" },
+          "message": { "type": "string" },
+          "category": { "type": "string" },
+          "severity": { "enum": ["critical", "high", "medium", "low", "info"] },
+          "file": { "type": "string" },
+          "line": { "type": ["integer", "null"] },
+          "touched": { "type": "boolean" },
+          "recommended_mode": { "enum": ["blocking", "advisory", "shadow"] },
+          "mode": { "enum": ["blocking", "advisory", "shadow"] },
+          "autofix_safe": { "type": "boolean" },
+          "suggestion": { "type": "string" }
+        }
+      }
+    }
+  }
+}
