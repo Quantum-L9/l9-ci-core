@@ -96,17 +96,16 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Detect Sonar readiness (org-level token + organization)
+      - name: Detect Sonar readiness (org-level token)
         id: sonar
         env:
           TOK: ${{ secrets.SONAR_TOKEN }}
-          ORG: ${{ vars.SONAR_ORGANIZATION }}
         run: |
-          if [ -n "$TOK" ] && [ -n "$ORG" ]; then
+          if [ -n "$TOK" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Sonar not configured — set the org-level SONAR_TOKEN secret and SONAR_ORGANIZATION variable (visible to this repo). Skipped until then."
+            echo "::warning::Sonar skipped — org-level SONAR_TOKEN secret not visible to this repo."
           fi
       - name: Download coverage.xml
         if: steps.sonar.outputs.present == 'true'
@@ -126,4 +125,4 @@ jobs:
         with:
           args: >
             -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
-            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION || 'quantum-l9' }}
