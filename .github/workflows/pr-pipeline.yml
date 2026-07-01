@@ -80,11 +80,16 @@ jobs:
             ${{ inputs.requirements-file }}
             pyproject.toml
       - name: Install CI Tools
+        env:
+          # Read the free-form extra install command from env so an EMPTY value
+          # does not render as `then ; fi` (a bash parse error) — which broke
+          # every caller that didn't pass extra-install-command.
+          EXTRA_INSTALL_COMMAND: ${{ inputs.extra-install-command }}
         run: |
           python -m pip install --upgrade pip
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
           ${{ inputs.l9-ci-install-command }}
-          if [ -n "${{ inputs.extra-install-command }}" ]; then ${{ inputs.extra-install-command }}; fi
+          if [ -n "$EXTRA_INSTALL_COMMAND" ]; then eval "$EXTRA_INSTALL_COMMAND"; fi
           # The "Validate YAML Files" step imports PyYAML; ensure it's present
           # when the caller's deps don't already provide it.
           python -c "import yaml" 2>/dev/null || pip install pyyaml
