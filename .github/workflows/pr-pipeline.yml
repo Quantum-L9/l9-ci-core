@@ -106,7 +106,10 @@ jobs:
               sys.exit(1)
           PY
       - name: L9 PacketEnvelope Prohibition
-        run: l9-ci check-transport-packet .
+        # Exclude the intentional "bad" contract fixtures (they exist to exercise
+        # the rule); mirrors the semgrep exclude. Harmless for consumers without
+        # this path. Trailing slash = directory-prefix exclude.
+        run: l9-ci check-transport-packet . --exclude tests/fixtures/semgrep/
       - name: L9 Deprecated API Check
         run: l9-ci check-deprecated-api .
       - name: Validate Governance Thresholds
