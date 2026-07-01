@@ -16,8 +16,9 @@ shell only.
 ## Wire contract
 
 TransportPacket is the only supported wire contract. `PacketEnvelope` is
-superseded and must not be reintroduced. No `cryptoxdog` references, no public
-`check-packet-envelope` command. The Semgrep rules enforce this in shadow mode.
+superseded and must not be reintroduced. Retired legacy tooling has no
+references here, and there is no public packet-envelope command. The Semgrep
+rules enforce this in shadow mode.
 
 ## Implementer invariants (non-negotiable)
 
