@@ -296,7 +296,16 @@ jobs:
           if [ -f .gitleaks.toml ]; then config_arg="--config .gitleaks.toml"; fi
           "$tmp/gitleaks" dir . --no-banner --redact $config_arg
       - name: Run pip-audit
-        run: pip-audit --desc
+        run: |
+          # Audit the PROJECT's declared dependencies, not the ephemeral CI
+          # runner environment (which pulls in its own transitive deps for the
+          # audit/scan tools themselves). Fall back to an environment audit only
+          # when the repo ships no requirements manifest.
+          if [ -f "${{ inputs.requirements-file }}" ]; then
+            pip-audit --desc --requirement "${{ inputs.requirements-file }}"
+          else
+            pip-audit --desc
+          fi
       - name: Run Safety Check
         run: safety check || echo "Safety warnings are non-blocking"
       - name: Run Bandit
