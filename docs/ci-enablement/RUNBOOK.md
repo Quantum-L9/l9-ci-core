@@ -6,8 +6,14 @@
    `.coderabbit.yaml` tunes it. No secret for the SaaS app.
 2. **GitGuardian** — make `GITGUARDIAN_API_KEY` visible to this repo. Until then
    the job skips with a warning; once present it is blocking on same-repo PRs.
-3. **Sonar** — fill `sonar.projectKey` / `sonar.organization`; make `SONAR_TOKEN`
-   visible; for SonarCloud set `sonar.host.url`.
+3. **Sonar** (org-level, no per-repo properties edits) — `pr-checks.yml` DERIVES
+   `sonar.projectKey` as `<owner>_<name>` (SonarCloud's GitHub import convention,
+   e.g. `Quantum-L9_l9-ci-core`) and DEFAULTS `sonar.organization` to `quantum-l9`.
+   The only requirement is the org-level `SONAR_TOKEN` secret being visible to this
+   repo. Optional org-level overrides: variable `SONAR_ORGANIZATION` (overrides the
+   default org) and `SONAR_HOST_URL` (self-hosted only; defaults to
+   `https://sonarcloud.io`). The real remaining unknown is whether the Sonar project
+   is provisioned and the org-level token reaches this repo.
 4. **Payload contract (real-payload lane)** — set the repo **variable**
    `L9_CI_INSTALL_SPEC` (e.g. `git+https://github.com/Quantum-L9/l9-ci-sdk.git@v0.1.0`)
    and make `SDK_TOKEN` visible so the SDK installs. Without it, only the

@@ -31,4 +31,4 @@
 | ruff | clean | advisory (kept non-blocking; no committed ruleset baseline) |
 | mypy | pre-existing findings | advisory |
 | GitGuardian | secret visibility unconfirmed | blocking when present, else skipped |
-| Sonar | projectKey/org UNKNOWN | advisory |
+| Sonar | projectKey derived (`<owner>_<name>`), org defaults to `quantum-l9`; remaining unknown = project provisioned + org `SONAR_TOKEN` visible | advisory |

@@ -33,6 +33,6 @@ validation that was missing.
 
 | Where | Value | How to resolve |
 |---|---|---|
-| `sonar-project.properties` | `sonar.projectKey`, `sonar.organization` | from your Sonar project |
+| Sonar (org-level) | project provisioned? org `SONAR_TOKEN` visible? | `sonar.projectKey` is DERIVED (`<owner>_<name>`) and `sonar.organization` DEFAULTS to `quantum-l9` (override via `SONAR_ORGANIZATION`); provision the SonarCloud project and confirm the org token reaches this repo |
 | repo/var settings | `L9_CI_INSTALL_SPEC` + `SDK_TOKEN` visibility | set the install spec; confirm the token reaches this private repo |
 | PR_Repair | `on: repository_dispatch` handler for `l9-implementer-review` | wired on the PR_Repair side |

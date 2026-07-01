@@ -47,5 +47,9 @@ with `on`, `permissions`, `jobs`, and steps in every job. The existing
 
 ## Unknowns confirmed labeled
 
-`sonar.projectKey`/`organization` = `UNKNOWN_…`; `L9_CI_INSTALL_SPEC`, `SDK_TOKEN`
-visibility, and the PR_Repair dispatch handler enumerated in MANIFEST.md.
+Sonar is org-level: `sonar.projectKey` is DERIVED (`<owner>_<name>`) and
+`sonar.organization` DEFAULTS to `quantum-l9` (override via `SONAR_ORGANIZATION`),
+so the real remaining unknowns are whether the Sonar project is provisioned and the
+org-level `SONAR_TOKEN` is visible to this repo. Also unknown: `L9_CI_INSTALL_SPEC`
++ `SDK_TOKEN` visibility, and the PR_Repair dispatch handler — enumerated in
+MANIFEST.md.

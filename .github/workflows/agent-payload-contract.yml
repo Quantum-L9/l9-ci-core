@@ -57,16 +57,22 @@ jobs:
           print(f"schema OK — {len(req)} required fields:", ", ".join(req))
           PY
 
-      - name: Detect l9-ci install spec
+      - name: Detect l9-ci install spec and SDK token
         id: sdk
         env:
           SPEC: ${{ vars.L9_CI_INSTALL_SPEC }}
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
         run: |
-          if [ -n "$SPEC" ]; then
+          if [ -n "$SPEC" ] && [ -n "$SDK_TOKEN" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::L9_CI_INSTALL_SPEC not set — skipping real-payload generation; schema-only contract check ran."
+            if [ -z "$SPEC" ]; then
+              echo "::warning::L9_CI_INSTALL_SPEC not set — skipping real-payload generation; schema-only contract check ran."
+            fi
+            if [ -z "$SDK_TOKEN" ]; then
+              echo "::warning::SDK_TOKEN not visible to this repo — the private l9-ci SDK cannot be installed; skipping real-payload generation; schema-only contract check ran."
+            fi
           fi
 
       - name: Generate a real payload and validate it against the schema
@@ -75,6 +81,8 @@ jobs:
           SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
           L9_CI_INSTALL_SPEC: ${{ vars.L9_CI_INSTALL_SPEC }}
         run: |
+          python -m pip install --upgrade pip
+          git config --global url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
           python -m pip install "${L9_CI_INSTALL_SPEC}"
           mkdir -p artifacts/ci
           for stage in validate lint test security; do
@@ -84,6 +92,10 @@ jobs:
             --input-dir artifacts/ci \
             --required validate,lint,test,security \
             --emit-agent-payload artifacts/agent_review_payload.json || true
+          if [ ! -f artifacts/agent_review_payload.json ]; then
+            echo "::error::l9-ci did not emit artifacts/agent_review_payload.json — payload generation failed above. Cannot validate against the schema."
+            exit 1
+          fi
           python - <<'PY'
           import json
           from jsonschema import validate
