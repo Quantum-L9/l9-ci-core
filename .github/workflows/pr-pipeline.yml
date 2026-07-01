@@ -258,6 +258,12 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
+          # Match the other jobs: without an explicit dependency path, the pip
+          # cache can't resolve a file and setup-python errors on repos that lack
+          # a standard requirements/pyproject file.
+          cache-dependency-path: |
+            ${{ inputs.requirements-file }}
+            pyproject.toml
       - run: |
           python -m pip install --upgrade pip
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
