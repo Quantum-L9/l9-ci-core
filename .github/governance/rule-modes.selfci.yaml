@@ -1,0 +1,54 @@
+# --- L9_META ---
+# l9_schema: 1
+# origin: l9-ci-kernel (self-CI dogfood policy)
+# layer: [ci, governance, rule-modes, self-ci]
+# tags: [L9_TEMPLATE, self-ci, advisory, shadow, blocking]
+# owner: platform
+# status: active
+# --- /L9_META ---
+#
+# Rule-mode policy for THIS repo's own self-triggering CI (l9-self-ci.yml).
+#
+# Kept SEPARATE from the canonical .github/governance/rule-modes.yaml on
+# purpose: this repo authors the canonical (blocking-default) policy as a
+# library for other repos; its OWN dogfood pipeline runs advisory-first so a
+# self-check finding never blocks the repo that defines the rules. Only a
+# newly-introduced secret blocks merge here.
+#
+# Modes: blocking | advisory | shadow | disabled
+version: 1
+default_mode: advisory
+rules:
+  SECRET-LEAK-NEW: blocking
+  UNKNOWN-DIFF: advisory
+  PY-SYNTAX: advisory
+  TRANSPORT-PACKET-CONTRACT: advisory
+  DEPRECATED-API: advisory
+  DIRECT-NODE-DISPATCH: advisory
+  HANDLER-SIGNATURE: advisory
+  PII-LOGGING: advisory
+  OPTIONAL-STAGE-MISSING: advisory
+  SEMGREP-EXPERIMENTAL: shadow
+  AST-TRANSPORT-001: shadow
+  AST-TRANSPORT-002: shadow
+  AST-TRANSPORT-003: shadow
+  AST-TRANSPORT-004: shadow
+  AST-ROUTING-001: shadow
+  AST-ROUTING-002: shadow
+  AST-ROUTING-003: shadow
+  AST-ROUTING-004: shadow
+  AST-LOGGING-001: shadow
+  AST-LOGGING-002: shadow
+  AST-LOGGING-003: shadow
+  AST-HANDLER-001: shadow
+  AST-HANDLER-002: shadow
+  AST-HANDLER-003: shadow
+  AST-HANDLER-004: shadow
+promotion:
+  allowed_transitions:
+    - shadow_to_advisory
+    - advisory_to_blocking
+  blocking_requires:
+    - l9-validated:approve
+    - platform_owner_review
+  telemetry_artifact: artifacts/agent_review_payload.json
