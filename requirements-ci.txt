@@ -1,5 +1,14 @@
 # CI dependencies for l9-ci-core's own pipeline. The reusable pr-pipeline
-# installs this file (and setup-python's pip cache keys on it). Core's Python is
-# a governance script + tests whose only third-party import is PyYAML; ruff /
-# mypy / pytest are ensured by the pipeline's own tool-install steps.
+# installs this file FIRST (and setup-python's pip cache keys on it), then only
+# `pip install <tool>` for any tool still missing — so pinning a tool here makes
+# the pipeline use the pinned version instead of "latest".
+#
+# Core's Python is a governance script + tests whose only third-party import is
+# PyYAML. ruff + mypy are PINNED because their output is version-sensitive:
+# an unpinned `pip install ruff` silently upgraded across a release whose
+# formatter changed, breaking `ruff format --check` on unchanged code (a CI
+# fragility our own collect-all gate caught). Pin => local and CI agree and the
+# drift can't recur. Bump deliberately, reviewing the formatting/type delta.
 pyyaml>=6.0
+ruff==0.15.8
+mypy==1.19.1
