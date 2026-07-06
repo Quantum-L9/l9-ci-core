@@ -93,9 +93,21 @@ jobs:
           # The "Validate YAML Files" step imports PyYAML; ensure it's present
           # when the caller's deps don't already provide it.
           python -c "import yaml" 2>/dev/null || pip install pyyaml
+      # --- Independent checks: collect-all (fail LOUD, run EVERY check) ---
+      # These validations are independent of one another, so each runs to
+      # completion even if a prior one failed (continue-on-error), and the
+      # "Aggregate" step below fails the job loudly if ANY of them failed. This
+      # surfaces the COMPLETE failure surface in one run instead of aborting at
+      # the first failing check and forcing fix→push→hit-the-next round-trips.
+      # The setup/install steps above stay fail-fast — a broken install makes
+      # these checks noise, not signal.
       - name: Run L9 Validate Stage
+        id: l9_validate
+        continue-on-error: true
         run: l9-ci run-pipeline --stage validate --ci github --emit-dir artifacts/ci
       - name: Validate YAML Files
+        id: yaml_valid
+        continue-on-error: true
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -111,17 +123,43 @@ jobs:
               sys.exit(1)
           PY
       - name: L9 PacketEnvelope Prohibition
+        id: transport_packet
+        continue-on-error: true
         # Exclude the intentional "bad" contract fixtures (they exist to exercise
         # the rule); mirrors the semgrep exclude. Harmless for consumers without
         # this path. Trailing slash = directory-prefix exclude.
         run: l9-ci check-transport-packet . --exclude tests/fixtures/semgrep/
       - name: L9 Deprecated API Check
+        id: deprecated_api
+        continue-on-error: true
         run: l9-ci check-deprecated-api .
       - name: Validate Governance Thresholds
+        id: thresholds
+        continue-on-error: true
         run: l9-ci validate-thresholds --policy .github/governance/quality-thresholds.yaml
       - name: Validate Rule Modes
+        id: rule_modes
+        continue-on-error: true
         run: l9-ci validate-rule-modes --policy .github/governance/rule-modes.yaml
+      - name: Aggregate validate results
+        if: always()
+        run: |
+          fail=0
+          for c in "l9-validate-stage:${{ steps.l9_validate.outcome }}" \
+                   "yaml-files:${{ steps.yaml_valid.outcome }}" \
+                   "transport-packet:${{ steps.transport_packet.outcome }}" \
+                   "deprecated-api:${{ steps.deprecated_api.outcome }}" \
+                   "governance-thresholds:${{ steps.thresholds.outcome }}" \
+                   "rule-modes:${{ steps.rule_modes.outcome }}"; do
+            name="${c%%:*}"; outcome="${c##*:}"
+            case "$outcome" in
+              success|skipped) : ;;
+              *) echo "::error::validate check failed: $name ($outcome)"; fail=1 ;;
+            esac
+          done
+          exit $fail
       - name: Upload Validate Summary
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ci-summary-validate-${{ inputs.python-version }}
@@ -132,7 +170,6 @@ jobs:
     name: Lint and Type Check
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: validate
     permissions:
       contents: read
     steps:
@@ -153,12 +190,43 @@ jobs:
           # caller-pinned version: only install when the command is missing.
           command -v ruff >/dev/null 2>&1 || pip install ruff
           command -v mypy >/dev/null 2>&1 || pip install mypy
+      # --- Independent checks: collect-all (fail LOUD, run EVERY check) ---
+      # ruff-check / ruff-format / mypy are independent: a ruff failure must not
+      # hide the mypy result. Each runs to completion; the Aggregate step fails
+      # the job if ANY failed.
       - name: Run L9 Lint Stage
+        id: l9_lint
+        continue-on-error: true
         run: l9-ci run-pipeline --stage lint --ci github --emit-dir artifacts/ci
-      - run: ruff check . --output-format=github
-      - run: ruff format --check .
-      - run: mypy "${{ inputs.source-dir }}" --show-error-codes --pretty --install-types --non-interactive --ignore-missing-imports
+      - name: Ruff lint
+        id: ruff_check
+        continue-on-error: true
+        run: ruff check . --output-format=github
+      - name: Ruff format check
+        id: ruff_format
+        continue-on-error: true
+        run: ruff format --check .
+      - name: Mypy
+        id: mypy
+        continue-on-error: true
+        run: mypy "${{ inputs.source-dir }}" --show-error-codes --pretty --install-types --non-interactive --ignore-missing-imports
+      - name: Aggregate lint results
+        if: always()
+        run: |
+          fail=0
+          for c in "l9-lint-stage:${{ steps.l9_lint.outcome }}" \
+                   "ruff-check:${{ steps.ruff_check.outcome }}" \
+                   "ruff-format:${{ steps.ruff_format.outcome }}" \
+                   "mypy:${{ steps.mypy.outcome }}"; do
+            name="${c%%:*}"; outcome="${c##*:}"
+            case "$outcome" in
+              success|skipped) : ;;
+              *) echo "::error::lint check failed: $name ($outcome)"; fail=1 ;;
+            esac
+          done
+          exit $fail
       - name: Upload Lint Summary
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ci-summary-lint-${{ inputs.python-version }}
@@ -169,7 +237,6 @@ jobs:
     name: Semgrep Policy Check
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: validate
     permissions:
       contents: read
     steps:
@@ -189,7 +256,6 @@ jobs:
     name: Test Suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: validate
     permissions:
       contents: read
     steps:
@@ -227,7 +293,10 @@ jobs:
         env:
           TESTING: "true"
         run: |
-          PYTHONPATH=. pytest "${{ inputs.test-dir }}" -n auto --cov="${{ inputs.source-dir }}" --cov-report=xml --cov-report=term-missing --cov-fail-under="$L9_COVERAGE_THRESHOLD" --timeout=300 --tb=short -v
+          # Collect-all within pytest: no -x/--exitfirst (run the whole suite);
+          # -rA reports every outcome; --continue-on-collection-errors surfaces
+          # all import/collection failures instead of aborting at the first.
+          PYTHONPATH=. pytest "${{ inputs.test-dir }}" -n auto --cov="${{ inputs.source-dir }}" --cov-report=xml --cov-report=term-missing --cov-fail-under="$L9_COVERAGE_THRESHOLD" --timeout=300 --tb=short -rA --continue-on-collection-errors -v
       - name: Upload Test Summary
         uses: actions/upload-artifact@v4
         with:
@@ -245,7 +314,6 @@ jobs:
     name: Security Scanning
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: validate
     permissions:
       contents: read
       security-events: write
@@ -273,19 +341,23 @@ jobs:
           command -v pip-audit >/dev/null 2>&1 || pip install pip-audit
           command -v safety >/dev/null 2>&1 || pip install safety
           command -v bandit >/dev/null 2>&1 || pip install bandit
+      # --- Independent scanners: collect-all (fail LOUD, run EVERY scanner) ---
+      # A gitleaks failure must not hide a pip-audit or dependency-review result.
+      # Each scanner runs to completion; the Aggregate step fails the job if any
+      # BLOCKING scanner failed. safety + bandit are ADVISORY: they run and their
+      # outcome is surfaced, but they never fail the job (they were previously
+      # `|| echo`-swallowed — same non-blocking intent, now explicit and visible).
       - name: Run L9 Security Stage
+        id: l9_security
+        continue-on-error: true
         run: l9-ci run-pipeline --stage security --ci github --emit-dir artifacts/ci
-      - name: Upload Security Summary
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-summary-security-${{ inputs.python-version }}
-          path: artifacts/ci/*
-          if-no-files-found: error
       - name: Run Gitleaks (OSS CLI)
+        id: gitleaks
+        continue-on-error: true
         # gitleaks/gitleaks-action requires a paid GITLEAKS_LICENSE for
         # organizations. Use the OSS gitleaks CLI instead — same scanner, no
         # license wall — pinned to a verified release. Honors .gitleaks.toml when
-        # present; fails the job on any detected leak (redacted in logs).
+        # present; fails on any detected leak (redacted in logs).
         run: |
           set -euo pipefail
           GITLEAKS_VERSION="8.30.1"
@@ -296,6 +368,8 @@ jobs:
           if [ -f .gitleaks.toml ]; then config_arg="--config .gitleaks.toml"; fi
           "$tmp/gitleaks" dir . --no-banner --redact $config_arg
       - name: Run pip-audit
+        id: pip_audit
+        continue-on-error: true
         run: |
           # Audit the PROJECT's declared dependencies, not the ephemeral CI
           # runner environment (which pulls in its own transitive deps for the
@@ -306,11 +380,17 @@ jobs:
           else
             pip-audit --desc
           fi
-      - name: Run Safety Check
-        run: safety check || echo "Safety warnings are non-blocking"
-      - name: Run Bandit
-        run: bandit -r "${{ inputs.source-dir }}" -ll -f screen --exclude ./venv,./.venv,./tests,./build,./dist || echo "Bandit warnings are non-blocking"
+      - name: Run Safety Check (advisory)
+        id: safety
+        continue-on-error: true
+        run: safety check
+      - name: Run Bandit (advisory)
+        id: bandit
+        continue-on-error: true
+        run: bandit -r "${{ inputs.source-dir }}" -ll -f screen --exclude ./venv,./.venv,./tests,./build,./dist
       - name: Dependency Review
+        id: dep_review
+        continue-on-error: true
         # Blocks a PR that introduces a high-severity dependency advisory.
         # Requires the repository's Dependency Graph to be enabled (Settings →
         # Code security → Dependency graph); on private repos the dependency
@@ -319,12 +399,37 @@ jobs:
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
+      - name: Aggregate security results
+        if: always()
+        run: |
+          fail=0
+          # Blocking scanners — counted in the tally (skipped is not a failure:
+          # dependency-review is PR-only, so it is 'skipped' on push events).
+          for c in "l9-security-stage:${{ steps.l9_security.outcome }}" \
+                   "gitleaks:${{ steps.gitleaks.outcome }}" \
+                   "pip-audit:${{ steps.pip_audit.outcome }}" \
+                   "dependency-review:${{ steps.dep_review.outcome }}"; do
+            name="${c%%:*}"; outcome="${c##*:}"
+            case "$outcome" in
+              success|skipped) : ;;
+              *) echo "::error::security scanner failed: $name ($outcome)"; fail=1 ;;
+            esac
+          done
+          # Advisory scanners — surfaced but NEVER block.
+          echo "::notice::advisory scanners: safety=${{ steps.safety.outcome }} bandit=${{ steps.bandit.outcome }}"
+          exit $fail
+      - name: Upload Security Summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-summary-security-${{ inputs.python-version }}
+          path: artifacts/ci/*
+          if-no-files-found: error
 
   sbom:
     name: Generate SBOM
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: validate
     permissions:
       contents: read
       id-token: write
@@ -380,15 +485,24 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           ${{ inputs.l9-ci-install-command }}
+      # The steps below (download, gate-stage, payload render) are intermediate
+      # reporting artifacts. They are continue-on-error so the AUTHORITATIVE
+      # "Evaluate Required Results" step always runs and emits the single
+      # complete pass/fail report — a failure in a reporting step must not hide
+      # the aggregate verdict. (The SDK install step above stays fail-fast: no
+      # l9-ci means no verdict.)
       - name: Download CI Summary Artifacts
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: ci-summary-*
           path: artifacts/ci
           merge-multiple: true
       - name: Run L9 Gate Stage
+        continue-on-error: true
         run: l9-ci run-pipeline --stage gate --ci github --emit-dir artifacts/ci
       - name: Render Agent Review Payload
+        continue-on-error: true
         run: |
           # The payload aggregates SDK stage *summaries*. semgrep runs the raw
           # semgrep binary and emits no *_ci_summary.json, so it is not a required
@@ -398,6 +512,8 @@ jobs:
             --required validate,lint,test,security \
             --emit-agent-payload artifacts/agent_review_payload.json
       - name: Upload Gate Summary And Agent Payload
+        if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: l9-ci-agent-review-payload-${{ inputs.python-version }}
@@ -406,6 +522,7 @@ jobs:
             artifacts/agent_review_payload.json
           if-no-files-found: error
       - name: Evaluate Required Results
+        if: always()
         env:
           CHANGED_FILES: ${{ inputs.changed-files }}
           PR_LABELS: ${{ inputs.pr-labels }}

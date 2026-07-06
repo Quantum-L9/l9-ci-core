@@ -35,13 +35,55 @@ jobs:
           # caller doesn't already ship them (only install when missing).
           command -v pip-audit >/dev/null 2>&1 || pip install pip-audit
           command -v bandit >/dev/null 2>&1 || pip install bandit
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_CONFIG: .gitleaks.toml
-      - run: pip-audit --desc
-      - run: bandit -r "${{ inputs.source-dir }}" -ll -f screen --exclude ./venv,./.venv,./tests,./build,./dist || echo "Bandit warnings are non-blocking"
-      - if: github.event_name == 'pull_request'
+      # --- Independent scanners: collect-all (fail LOUD, run EVERY scanner) ---
+      # Each scanner runs to completion even if a prior one failed; the Aggregate
+      # step fails the job if any BLOCKING scanner failed. bandit is advisory
+      # (surfaced, never blocks). Setup/install above stays fail-fast.
+      - name: Run Gitleaks (OSS CLI)
+        id: gitleaks
+        continue-on-error: true
+        # gitleaks/gitleaks-action requires a paid GITLEAKS_LICENSE for
+        # organizations. Use the OSS gitleaks CLI instead — same scanner, no
+        # license wall — pinned to a verified release. Honors .gitleaks.toml when
+        # present; fails on any detected leak (redacted in logs).
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION="8.30.1"
+          tmp="$(mktemp -d)"
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o "$tmp/gitleaks.tar.gz"
+          tar -xzf "$tmp/gitleaks.tar.gz" -C "$tmp" gitleaks
+          config_arg=""
+          if [ -f .gitleaks.toml ]; then config_arg="--config .gitleaks.toml"; fi
+          "$tmp/gitleaks" dir . --no-banner --redact $config_arg
+      - name: Run pip-audit
+        id: pip_audit
+        continue-on-error: true
+        run: pip-audit --desc
+      - name: Run Bandit (advisory)
+        id: bandit
+        continue-on-error: true
+        run: bandit -r "${{ inputs.source-dir }}" -ll -f screen --exclude ./venv,./.venv,./tests,./build,./dist
+      - name: Dependency Review
+        id: dep_review
+        continue-on-error: true
+        if: github.event_name == 'pull_request'
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
+      - name: Aggregate security results
+        if: always()
+        run: |
+          fail=0
+          # Blocking scanners — counted (skipped is not a failure: dependency-
+          # review is PR-only, so it is 'skipped' on push events).
+          for c in "gitleaks:${{ steps.gitleaks.outcome }}" \
+                   "pip-audit:${{ steps.pip_audit.outcome }}" \
+                   "dependency-review:${{ steps.dep_review.outcome }}"; do
+            name="${c%%:*}"; outcome="${c##*:}"
+            case "$outcome" in
+              success|skipped) : ;;
+              *) echo "::error::security scanner failed: $name ($outcome)"; fail=1 ;;
+            esac
+          done
+          echo "::notice::advisory scanners: bandit=${{ steps.bandit.outcome }}"
+          exit $fail
