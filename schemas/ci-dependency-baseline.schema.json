@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://l9/schemas/ci-dependency-baseline.schema.json",
+  "title": "CI dependency legacy-observation baseline",
+  "description": "Checked-in baseline of pre-existing, non-bootstrap pip-install findings recorded as legacy observations under phased enforcement. Wildcards are forbidden; growth is blocked by the gate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "phase", "entries", "baseline_digest"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "description": { "type": "string" },
+    "phase": { "type": "string", "minLength": 1 },
+    "baseline_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "job", "step", "violation_code", "command_sha256", "status"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^\\.github/workflows/[^*]+\\.ya?ml$"
+          },
+          "job": { "type": "string", "minLength": 1, "not": { "pattern": "\\*" } },
+          "step": { "type": "string", "minLength": 1, "not": { "pattern": "\\*" } },
+          "violation_code": {
+            "type": "string",
+            "enum": [
+              "UNPINNED_PIP_INSTALL",
+              "UNCONDITIONAL_PIP_UPGRADE",
+              "UNBOUNDED_PIP_INSTALL",
+              "BRANCH_URL_INSTALL"
+            ]
+          },
+          "command_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "status": { "type": "string", "const": "legacy_observation" }
+        }
+      }
+    }
+  }
+}

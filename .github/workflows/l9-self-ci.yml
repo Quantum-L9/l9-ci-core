@@ -80,10 +80,10 @@ jobs:
       sbom_relevant: ${{ steps.c.outputs.sbom_relevant }}
       security_sensitive_changed: ${{ steps.c.outputs.security_sensitive_changed }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install classifier deps
@@ -173,14 +173,18 @@ jobs:
     outputs:
       findings: ${{ steps.scan.outputs.findings }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: Install gitleaks CLI
         run: |
           set -euo pipefail
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o gitleaks.tar.gz
+          # l9-download: gitleaks-linux-x64
+          TOOL_URL="https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz"
+          TOOL_SHA256="ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d"
+          curl --fail --silent --show-error --location "$TOOL_URL" --output gitleaks.tar.gz
+          sha256sum --check --strict <<< "$TOOL_SHA256  gitleaks.tar.gz"
           tar -xzf gitleaks.tar.gz gitleaks
           chmod +x gitleaks
       - name: Scan PR commit range for NEW secrets
@@ -217,7 +221,7 @@ jobs:
           exit 0
       - name: Upload gitleaks report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gitleaks-report
           path: gitleaks.json
@@ -233,8 +237,8 @@ jobs:
     timeout-minutes: 10
     needs: classify
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install validation tools
@@ -294,8 +298,8 @@ jobs:
     needs: classify
     if: needs.classify.outputs.python_changed == 'true'
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install ruff
@@ -315,8 +319,8 @@ jobs:
     needs: classify
     if: needs.classify.outputs.semgrep_relevant == 'true'
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Run semgrep (advisory; L9 AST rules are shadow-mode)
@@ -330,7 +334,7 @@ jobs:
           semgrep --config .semgrep/ --quiet || echo "::warning::semgrep findings (advisory / shadow telemetry)"
       - name: Upload semgrep telemetry
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: semgrep-telemetry
           path: semgrep.json
@@ -346,8 +350,8 @@ jobs:
     timeout-minutes: 10
     needs: classify
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Run audit engine (advisory)
@@ -370,8 +374,8 @@ jobs:
     needs: classify
     if: needs.classify.outputs.sbom_relevant == 'true'
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Generate SBOM (advisory)
@@ -393,7 +397,7 @@ jobs:
           fi
       - name: Upload SBOM
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sbom
           path: artifacts/sbom.json
@@ -417,8 +421,8 @@ jobs:
       - audit
       - supply_chain
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Assemble CI context
@@ -491,7 +495,7 @@ jobs:
         run: python3 .github/scripts/agent_review_payload.py
       - name: Upload CI state artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: l9-ci-state
           path: |

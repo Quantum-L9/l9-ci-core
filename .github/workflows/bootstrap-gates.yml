@@ -1,0 +1,63 @@
+# --- L9_META ---
+# l9_schema: 1
+# origin: l9-ci-core-pr-a
+# layer: [ci]
+# tags: [L9_TEMPLATE, ci, bootstrap, supply-chain]
+# owner: platform
+# status: active
+# --- /L9_META ---
+name: L9 Bootstrap Security Gates
+
+on:
+  workflow_call:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".github/scripts/**"
+      - ".github/governance/**"
+      - "schemas/**"
+      - "requirements/bootstrap.*"
+      - "tests/bootstrap/**"
+
+concurrency:
+  group: l9-bootstrap-gates-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap-gates:
+    name: Bootstrap supply-chain gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Install bootstrap runtime (hash-pinned)
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --no-deps -r requirements/bootstrap.lock
+      - name: Run bootstrap security gate orchestrator
+        run: |
+          set -euo pipefail
+          python .github/scripts/run_bootstrap_validators.py \
+            --root . --output-dir bootstrap-results
+      - name: Run bootstrap gate unit tests
+        run: |
+          set -euo pipefail
+          python -m pytest tests/bootstrap -q
+      - name: Upload bootstrap gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bootstrap-gate-results
+          path: bootstrap-results/
+          if-no-files-found: error
+          retention-days: 14

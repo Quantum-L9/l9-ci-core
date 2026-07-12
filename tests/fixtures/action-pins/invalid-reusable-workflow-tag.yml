@@ -1,0 +1,4 @@
+on: push
+jobs:
+  call:
+    uses: owner/repo/.github/workflows/ci.yml@v1

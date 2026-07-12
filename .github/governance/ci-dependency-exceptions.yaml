@@ -1,0 +1,15 @@
+schema_version: "1.0"
+# CI dependency exceptions are temporary, narrowly scoped, and fail closed.
+#
+# Each future entry must include:
+#   path: repository-relative workflow path
+#   line_or_step: stable job/step identifier
+#   violation_code: validator violation being excepted
+#   reason: specific technical justification
+#   owner: accountable GitHub user or team
+#   created_at: YYYY-MM-DD
+#   expires_on: YYYY-MM-DD, no more than 30 days after created_at
+#   tracking_issue: issue or ticket reference
+#
+# Wildcard paths and permanent exceptions are forbidden.
+exceptions: []

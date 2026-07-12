@@ -1,0 +1,8 @@
+name: Intended reusable pipeline
+on:
+  pull_request:
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "This fixture is intended to be reusable but lacks workflow_call."

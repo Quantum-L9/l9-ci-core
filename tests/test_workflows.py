@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,13 +29,28 @@ def test_all_workflows_parse_as_yaml() -> None:
         assert "jobs" in data, path
 
 
+# After PR-A, every external action is pinned to a 40-hex commit SHA with the
+# human-readable version carried in a trailing ``# vX.Y.Z`` annotation. The
+# original intent of this test -- "these workflows use v6 of checkout /
+# setup-python, not the older v4/v5" -- is preserved, but expressed against the
+# stronger SHA-pinning invariant rather than a mutable floating tag. When a test
+# and a security invariant disagree, the invariant wins and the test is updated.
+_CHECKOUT_V6 = re.compile(r"actions/checkout@[0-9a-f]{40}\s+#\s*v6(?:\.\d+)*")
+_SETUP_PY_V6 = re.compile(r"actions/setup-python@[0-9a-f]{40}\s+#\s*v6(?:\.\d+)*")
+
+
 def test_new_workflows_use_v6_actions() -> None:
     for name in ["nightly.yml", "pre-commit-ci.yml", "release-publish.yml"]:
         text = (WORKFLOWS / name).read_text(encoding="utf-8")
-        assert "actions/checkout@v6" in text
-        assert "actions/setup-python@v6" in text
-        assert "actions/checkout@v4" not in text
-        assert "actions/setup-python@v5" not in text
+        # Stronger invariant: SHA-pinned, annotated v6.
+        assert _CHECKOUT_V6.search(text), f"{name}: checkout not SHA-pinned to annotated v6"
+        assert _SETUP_PY_V6.search(text), f"{name}: setup-python not SHA-pinned to annotated v6"
+        # No floating tags of any kind for these two actions (SHA-only).
+        assert "actions/checkout@v" not in text
+        assert "actions/setup-python@v" not in text
+        # No older major versions in the checkout/setup-python annotations.
+        assert not re.search(r"actions/checkout@[0-9a-f]{40}\s+#\s*v[45]\b", text)
+        assert not re.search(r"actions/setup-python@[0-9a-f]{40}\s+#\s*v5\b", text)
 
 
 def test_security_declares_l9_install_input() -> None:

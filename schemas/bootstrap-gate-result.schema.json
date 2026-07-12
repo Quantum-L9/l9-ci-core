@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9.github.io/l9-ci-core/schemas/bootstrap-gate-result.schema.json",
+  "title": "L9 Bootstrap Gate Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "gate_id",
+    "result",
+    "violations",
+    "warnings",
+    "metadata"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "gate_id": {
+      "enum": [
+        "workflow/action-pins",
+        "workflow/download-integrity",
+        "dependencies/ci-lock",
+        "workflow/contracts"
+      ]
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "failed",
+        "error"
+      ]
+    },
+    "violations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Finding"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Finding"
+      }
+    },
+    "metadata": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "Finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reference": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "passed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "violations": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "enum": [
+              "failed",
+              "error"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "violations": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
+}

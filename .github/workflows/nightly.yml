@@ -157,10 +157,10 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -234,7 +234,7 @@ jobs:
           pip-audit --strict
       - name: Optional TruffleHog verified secret scan
         if: ${{ inputs.enable-trufflehog }}
-        uses: trufflesecurity/trufflehog@main
+        uses: trufflesecurity/trufflehog@8feb77b20aeb64366d106b08f2941287755c173b # main
         with:
           path: ./
           base: ${{ github.event.repository.default_branch }}

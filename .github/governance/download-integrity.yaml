@@ -1,0 +1,8 @@
+schema_version: "1.0"
+downloads:
+  gitleaks-linux-x64:
+    version: "8.18.4"
+    url: "https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz"
+    sha256: "ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d"
+    workflows:
+      - ".github/workflows/l9-self-ci.yml"
