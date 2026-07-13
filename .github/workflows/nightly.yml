@@ -54,7 +54,10 @@ on:
       l9-ci-install-command:
         required: false
         type: string
-        default: "pip install l9-ci"
+        default: 'python -m pip install "l9-ci @ git+https://github.com/Quantum-L9/l9-ci-sdk.git@d32e84b7c00fc88b85f2639471dd64126251e09e"'
+    secrets:
+      SDK_TOKEN:
+        required: false
   workflow_dispatch:
     inputs:
       python-versions:
@@ -111,7 +114,7 @@ on:
         description: "Command to install l9-ci."
         required: false
         type: string
-        default: "pip install l9-ci"
+        default: 'python -m pip install "l9-ci @ git+https://github.com/Quantum-L9/l9-ci-sdk.git@d32e84b7c00fc88b85f2639471dd64126251e09e"'
 
 concurrency:
   group: l9-nightly-${{ github.workflow }}-${{ github.ref }}
@@ -157,16 +160,32 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: |
             ${{ inputs.requirements-file }}
             pyproject.toml
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
+          # git transport so the pinned git+https SDK install authenticates. The
+          # token is read from env and never echoed.
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
+            # not persisted in the runner's global git config. Export the path for
+            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
+            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
+            export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
+            echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
+          fi
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -178,9 +197,17 @@ jobs:
           command -v mypy >/dev/null 2>&1 || pip install mypy
           command -v pytest >/dev/null 2>&1 || pip install pytest
           python -c "import pytest_cov" 2>/dev/null || pip install pytest-cov
+      # --- Independent checks: collect-all (fail LOUD, run EVERY check). Each
+      # runs to completion; the Aggregate step fails the job if any did. The
+      # "Resolve …Threshold" step below stays fail-fast — it sets the coverage
+      # env + installs the package the test step depends on (a prerequisite). ---
       - name: Validate Governance Thresholds
+        id: thresholds
+        continue-on-error: true
         run: l9-ci validate-thresholds --policy .github/governance/quality-thresholds.yaml
       - name: Validate Rule Modes
+        id: rule_modes
+        continue-on-error: true
         run: l9-ci validate-rule-modes --policy .github/governance/rule-modes.yaml
       - name: Resolve Governance Coverage Threshold
         run: |
@@ -192,17 +219,26 @@ jobs:
           PY
           pip install -e ".[dev]" 2>/dev/null || pip install -e .
       - name: Lint and type smoke
+        id: lint_smoke
+        continue-on-error: true
         run: |
-          ruff check "${{ inputs.source-dir }}" --output-format=github
-          mypy "${{ inputs.source-dir }}" --show-error-codes --pretty --install-types --non-interactive --ignore-missing-imports
+          # Collect-all within the step: a ruff failure must not hide mypy.
+          fail=0
+          ruff check "${{ inputs.source-dir }}" --output-format=github || { echo "::error::ruff failed"; fail=1; }
+          mypy "${{ inputs.source-dir }}" --show-error-codes --pretty --install-types --non-interactive --ignore-missing-imports || { echo "::error::mypy failed"; fail=1; }
+          exit $fail
       - name: Run nightly tests
+        id: tests
+        continue-on-error: true
         run: |
           if [ "$L9_COVERAGE_THRESHOLD" = "0" ]; then
-            pytest "${{ inputs.test-dir }}" -q --tb=short
+            pytest "${{ inputs.test-dir }}" -q --tb=short -rA --continue-on-collection-errors
           else
-            pytest "${{ inputs.test-dir }}" -q --tb=short --cov="${{ inputs.source-dir }}" --cov-report=xml --cov-report=term-missing --cov-fail-under="$L9_COVERAGE_THRESHOLD"
+            pytest "${{ inputs.test-dir }}" -q --tb=short -rA --continue-on-collection-errors --cov="${{ inputs.source-dir }}" --cov-report=xml --cov-report=term-missing --cov-fail-under="$L9_COVERAGE_THRESHOLD"
           fi
       - name: Clean install import smoke
+        id: clean_install
+        continue-on-error: true
         if: ${{ inputs.package-name != '' }}
         run: |
           python -m pip uninstall -y "${{ inputs.package-name }}" || true
@@ -214,6 +250,8 @@ jobs:
         env:
           PACKAGE_NAME: ${{ inputs.package-name }}
       - name: Contract spec lint
+        id: contract_lint
+        continue-on-error: true
         run: |
           if [ -d "${{ inputs.contracts-dir }}" ]; then
             find "${{ inputs.contracts-dir }}" -maxdepth 2 -type f -print
@@ -221,6 +259,8 @@ jobs:
             echo "Contracts directory not present; skipping."
           fi
       - name: Optional schema drift check
+        id: schema_drift
+        continue-on-error: true
         run: |
           if [ -n "${{ inputs.schema-path }}" ] && [ -f "${{ inputs.scripts-dir }}/generate_schema.py" ]; then
             python "${{ inputs.scripts-dir }}/generate_schema.py"
@@ -229,17 +269,41 @@ jobs:
             echo "Schema drift check disabled or generator missing."
           fi
       - name: Strict nightly pip-audit
+        id: pip_audit
+        continue-on-error: true
         run: |
           python -m pip install pip-audit
           pip-audit --strict
       - name: Optional TruffleHog verified secret scan
+        id: trufflehog
+        continue-on-error: true
         if: ${{ inputs.enable-trufflehog }}
-        uses: trufflesecurity/trufflehog@8feb77b20aeb64366d106b08f2941287755c173b # main
+        uses: trufflesecurity/trufflehog@f446421baf832d6356c42c1743d99abff52ff334  # v3.95.7
         with:
           path: ./
           base: ${{ github.event.repository.default_branch }}
           head: HEAD
           extra_args: --only-verified
+      - name: Aggregate nightly regression results
+        if: always()
+        run: |
+          fail=0
+          for c in "thresholds:${{ steps.thresholds.outcome }}" \
+                   "rule-modes:${{ steps.rule_modes.outcome }}" \
+                   "lint-smoke:${{ steps.lint_smoke.outcome }}" \
+                   "tests:${{ steps.tests.outcome }}" \
+                   "clean-install:${{ steps.clean_install.outcome }}" \
+                   "contract-lint:${{ steps.contract_lint.outcome }}" \
+                   "schema-drift:${{ steps.schema_drift.outcome }}" \
+                   "pip-audit:${{ steps.pip_audit.outcome }}" \
+                   "trufflehog:${{ steps.trufflehog.outcome }}"; do
+            name="${c%%:*}"; outcome="${c##*:}"
+            case "$outcome" in
+              success|skipped) : ;;
+              *) echo "::error::nightly regression check failed: $name ($outcome)"; fail=1 ;;
+            esac
+          done
+          exit $fail
 
   all-gates-passed:
     name: all-gates-passed

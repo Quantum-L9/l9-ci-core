@@ -47,16 +47,26 @@ on:
         required: false
         type: boolean
         default: false
+      pypi-publish-mode:
+        description: "How gate-7 authenticates to PyPI. 'trusted-publisher' uses OIDC and only works when this workflow is NOT invoked via workflow_call from another repo (PyPI's trusted-publisher identity binds to the direct caller). 'api-token' uses a caller-supplied secret and works for any caller, including reusable-workflow invocations."
+        required: false
+        type: string
+        default: "trusted-publisher"
       l9-ci-install-command:
         required: false
         type: string
-        default: "pip install l9-ci"
+        default: 'python -m pip install "l9-ci @ git+https://github.com/Quantum-L9/l9-ci-sdk.git@d32e84b7c00fc88b85f2639471dd64126251e09e"'
       extra-install-command:
         required: false
         type: string
         default: ""
     secrets:
       github-token:
+        required: false
+      SDK_TOKEN:
+        required: false
+      pypi-api-token:
+        description: "Required only when pypi-publish-mode == api-token. Scope this token to the single PyPI project being published, not account-wide."
         required: false
     outputs:
       release-version:
@@ -113,7 +123,7 @@ on:
         description: "Command to install l9-ci."
         required: false
         type: string
-        default: "pip install l9-ci"
+        default: 'python -m pip install "l9-ci @ git+https://github.com/Quantum-L9/l9-ci-sdk.git@d32e84b7c00fc88b85f2639471dd64126251e09e"'
       extra-install-command:
         description: "Optional extra install command."
         required: false
@@ -140,10 +150,10 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
@@ -179,16 +189,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
           cache-dependency-path: |
             ${{ inputs.requirements-file }}
             pyproject.toml
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
+          # git transport so the pinned git+https SDK install authenticates. The
+          # token is read from env and never echoed.
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
+            # not persisted in the runner's global git config. Export the path for
+            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
+            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
+            export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
+            echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
+          fi
       - name: Install release quality dependencies
         run: |
           python -m pip install --upgrade pip
@@ -232,8 +258,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
@@ -251,8 +277,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
@@ -262,7 +288,7 @@ jobs:
           python -m build
           twine check dist/*
       - name: Upload dist artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: release-dist-${{ needs.verify-tag.outputs.version }}
           path: dist/*
@@ -274,8 +300,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
@@ -285,7 +311,7 @@ jobs:
           pip install -e .
           mkdir -p sbom
           cyclonedx-py environment --output-format json --output-file sbom/cyclonedx.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: release-sbom-${{ needs.verify-tag.outputs.version }}
           path: sbom/cyclonedx.json
@@ -298,11 +324,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: release-dist-${{ needs.verify-tag.outputs.version }}
           path: dist
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
       - name: Install wheel and import package
@@ -327,14 +353,36 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: release-dist-${{ needs.verify-tag.outputs.version }}
           path: dist
-      - name: Publish to PyPI with Trusted Publisher
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+      - name: Validate publish mode / secret pairing
+        run: |
+          if [ "${{ inputs.pypi-publish-mode }}" = "api-token" ] && [ -z "${{ secrets.pypi-api-token }}" ]; then
+            echo "::error::pypi-publish-mode=api-token requires the caller to pass secrets.pypi-api-token."
+            exit 1
+          fi
+          # An empty mode (e.g. a workflow_dispatch run, where pypi-publish-mode
+          # is not among the dispatch inputs) defaults to trusted-publisher and
+          # is valid. Only a non-empty, unrecognized value fails closed.
+          if [ -n "${{ inputs.pypi-publish-mode }}" ] && [ "${{ inputs.pypi-publish-mode }}" != "trusted-publisher" ] && [ "${{ inputs.pypi-publish-mode }}" != "api-token" ]; then
+            echo "::error::pypi-publish-mode must be 'trusted-publisher' or 'api-token', got '${{ inputs.pypi-publish-mode }}'."
+            exit 1
+          fi
+      - name: Publish to PyPI with Trusted Publisher (OIDC)
+        # Runs for trusted-publisher and for an unset mode (default). Only
+        # api-token diverts to the token step below.
+        if: ${{ inputs.pypi-publish-mode != 'api-token' }}
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0 (release/v1 tip)
         with:
           packages-dir: dist/
+      - name: Publish to PyPI with API token (reusable-workflow fallback)
+        if: ${{ inputs.pypi-publish-mode == 'api-token' }}
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0 (release/v1 tip)
+        with:
+          packages-dir: dist/
+          password: ${{ secrets.pypi-api-token }}
 
   github-release:
     name: gate-8-github-release
@@ -345,16 +393,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: release-dist-${{ needs.verify-tag.outputs.version }}
           path: dist
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: release-sbom-${{ needs.verify-tag.outputs.version }}
           path: sbom
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
           files: |
             dist/*

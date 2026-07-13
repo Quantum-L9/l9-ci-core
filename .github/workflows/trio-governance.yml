@@ -46,7 +46,7 @@ on:
       l9-ci-install-command:
         required: false
         type: string
-        default: "pip install l9-ci"
+        default: 'python -m pip install "l9-ci @ git+https://github.com/Quantum-L9/l9-ci-sdk.git@d32e84b7c00fc88b85f2639471dd64126251e09e"'
       pr-labels:
         required: false
         type: string
@@ -55,6 +55,9 @@ on:
         required: false
         type: boolean
         default: true
+    secrets:
+      SDK_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -65,10 +68,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
+          # git transport so the pinned git+https SDK install authenticates. The
+          # token is read from env and never echoed.
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
+            # not persisted in the runner's global git config. Export the path for
+            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
+            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
+            export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
+            echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
+          fi
       - name: Install L9 CI SDK
         run: |
           python -m pip install --upgrade pip
@@ -76,11 +95,20 @@ jobs:
           # A later step imports PyYAML to validate governance files; ensure it's
           # present when the install command doesn't already pull it in.
           python -c "import yaml" 2>/dev/null || pip install pyyaml
+      # --- Independent governance checks: collect-all (fail LOUD, run EVERY
+      # check). Each runs to completion even if a prior one failed; the Aggregate
+      # step fails the job if ANY did. Setup/install above stays fail-fast. ---
       - name: Validate threshold policy
+        id: thresholds
+        continue-on-error: true
         run: l9-ci validate-thresholds --policy .github/governance/quality-thresholds.yaml
       - name: Validate rule-mode policy
+        id: rule_modes
+        continue-on-error: true
         run: l9-ci validate-rule-modes --policy .github/governance/rule-modes.yaml
       - name: Validate governance approval for protected edits
+        id: gov_approval
+        continue-on-error: true
         env:
           CHANGED_FILES: ${{ inputs.changed-files }}
           PR_LABELS: ${{ inputs.pr-labels }}
@@ -99,6 +127,8 @@ jobs:
           if [ "$LABELS_KNOWN" != "true" ]; then EXTRA_ARGS="--labels-unknown"; fi
           l9-ci validate-governance-approval --changed-files-file changed_files.txt --pr-labels-file pr_labels.json $EXTRA_ARGS
       - name: Validate governance files
+        id: gov_files
+        continue-on-error: true
         run: |
           python - <<'PY'
           import json
@@ -136,6 +166,8 @@ jobs:
           print("Governance files valid.")
           PY
       - name: Validate distinct trio token names
+        id: distinct_tokens
+        continue-on-error: true
         run: |
           python - <<'PY'
           import sys
@@ -150,6 +182,8 @@ jobs:
           print("Trio token secret names are distinct.")
           PY
       - name: Classify changed files
+        id: classify
+        continue-on-error: true
         env:
           CHANGED_FILES: ${{ inputs.changed-files }}
         run: |
@@ -160,6 +194,8 @@ jobs:
             python "${{ inputs.classifier-path }}" .github/workflows/example.yml --plain | grep -x ci_workflow
           fi
       - name: Validate trio marker separation
+        id: marker_separation
+        continue-on-error: true
         run: |
           python - <<'PY'
           import sys
@@ -180,6 +216,24 @@ jobs:
                   raise SystemExit(1)
           print("Trio marker separation valid.")
           PY
+      - name: Aggregate trio governance results
+        if: always()
+        run: |
+          fail=0
+          for c in "thresholds:${{ steps.thresholds.outcome }}" \
+                   "rule-modes:${{ steps.rule_modes.outcome }}" \
+                   "governance-approval:${{ steps.gov_approval.outcome }}" \
+                   "governance-files:${{ steps.gov_files.outcome }}" \
+                   "distinct-tokens:${{ steps.distinct_tokens.outcome }}" \
+                   "classify:${{ steps.classify.outcome }}" \
+                   "marker-separation:${{ steps.marker_separation.outcome }}"; do
+            name="${c%%:*}"; outcome="${c##*:}"
+            case "$outcome" in
+              success|skipped) : ;;
+              *) echo "::error::trio governance check failed: $name ($outcome)"; fail=1 ;;
+            esac
+          done
+          exit $fail
   trio-governance-passed:
     name: trio-governance-passed
     runs-on: ubuntu-latest
