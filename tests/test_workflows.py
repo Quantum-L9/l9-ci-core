@@ -115,7 +115,11 @@ def test_aggregator_jobs_exist() -> None:
 
 
 def test_no_hardcoded_gate_sdk_paths_in_new_workflows() -> None:
-    forbidden = ["contracts/transport-packet.schema.json", "scripts/generate_schema.py", "scripts/validate_contracts.py"]
+    forbidden = [
+        "contracts/transport-packet.schema.json",
+        "scripts/generate_schema.py",
+        "scripts/validate_contracts.py",
+    ]
     for name in ["nightly.yml", "pre-commit-ci.yml", "release-publish.yml"]:
         text = (WORKFLOWS / name).read_text(encoding="utf-8")
         for item in forbidden:

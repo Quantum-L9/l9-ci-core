@@ -17,7 +17,10 @@ sys.modules["classify_pr"] = classify_pr
 spec.loader.exec_module(classify_pr)
 
 
-def policy() -> classify_pr.ClassifierPolicy:
+# NOTE: `classify_pr` is loaded dynamically via importlib, so a static return
+# annotation of `classify_pr.ClassifierPolicy` is unresolvable to mypy. The type
+# is exercised at runtime by the assertions below; the annotation is omitted.
+def policy():
     return classify_pr.load_policy(POLICY)
 
 

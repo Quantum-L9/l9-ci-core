@@ -197,9 +197,17 @@ jobs:
           command -v mypy >/dev/null 2>&1 || pip install mypy
           command -v pytest >/dev/null 2>&1 || pip install pytest
           python -c "import pytest_cov" 2>/dev/null || pip install pytest-cov
+      # --- Independent checks: collect-all (fail LOUD, run EVERY check). Each
+      # runs to completion; the Aggregate step fails the job if any did. The
+      # "Resolve …Threshold" step below stays fail-fast — it sets the coverage
+      # env + installs the package the test step depends on (a prerequisite). ---
       - name: Validate Governance Thresholds
+        id: thresholds
+        continue-on-error: true
         run: l9-ci validate-thresholds --policy .github/governance/quality-thresholds.yaml
       - name: Validate Rule Modes
+        id: rule_modes
+        continue-on-error: true
         run: l9-ci validate-rule-modes --policy .github/governance/rule-modes.yaml
       - name: Resolve Governance Coverage Threshold
         run: |
@@ -211,17 +219,26 @@ jobs:
           PY
           pip install -e ".[dev]" 2>/dev/null || pip install -e .
       - name: Lint and type smoke
+        id: lint_smoke
+        continue-on-error: true
         run: |
-          ruff check "${{ inputs.source-dir }}" --output-format=github
-          mypy "${{ inputs.source-dir }}" --show-error-codes --pretty --install-types --non-interactive --ignore-missing-imports
+          # Collect-all within the step: a ruff failure must not hide mypy.
+          fail=0
+          ruff check "${{ inputs.source-dir }}" --output-format=github || { echo "::error::ruff failed"; fail=1; }
+          mypy "${{ inputs.source-dir }}" --show-error-codes --pretty --install-types --non-interactive --ignore-missing-imports || { echo "::error::mypy failed"; fail=1; }
+          exit $fail
       - name: Run nightly tests
+        id: tests
+        continue-on-error: true
         run: |
           if [ "$L9_COVERAGE_THRESHOLD" = "0" ]; then
-            pytest "${{ inputs.test-dir }}" -q --tb=short
+            pytest "${{ inputs.test-dir }}" -q --tb=short -rA --continue-on-collection-errors
           else
-            pytest "${{ inputs.test-dir }}" -q --tb=short --cov="${{ inputs.source-dir }}" --cov-report=xml --cov-report=term-missing --cov-fail-under="$L9_COVERAGE_THRESHOLD"
+            pytest "${{ inputs.test-dir }}" -q --tb=short -rA --continue-on-collection-errors --cov="${{ inputs.source-dir }}" --cov-report=xml --cov-report=term-missing --cov-fail-under="$L9_COVERAGE_THRESHOLD"
           fi
       - name: Clean install import smoke
+        id: clean_install
+        continue-on-error: true
         if: ${{ inputs.package-name != '' }}
         run: |
           python -m pip uninstall -y "${{ inputs.package-name }}" || true
@@ -233,6 +250,8 @@ jobs:
         env:
           PACKAGE_NAME: ${{ inputs.package-name }}
       - name: Contract spec lint
+        id: contract_lint
+        continue-on-error: true
         run: |
           if [ -d "${{ inputs.contracts-dir }}" ]; then
             find "${{ inputs.contracts-dir }}" -maxdepth 2 -type f -print
@@ -240,6 +259,8 @@ jobs:
             echo "Contracts directory not present; skipping."
           fi
       - name: Optional schema drift check
+        id: schema_drift
+        continue-on-error: true
         run: |
           if [ -n "${{ inputs.schema-path }}" ] && [ -f "${{ inputs.scripts-dir }}/generate_schema.py" ]; then
             python "${{ inputs.scripts-dir }}/generate_schema.py"
@@ -248,10 +269,14 @@ jobs:
             echo "Schema drift check disabled or generator missing."
           fi
       - name: Strict nightly pip-audit
+        id: pip_audit
+        continue-on-error: true
         run: |
           python -m pip install pip-audit
           pip-audit --strict
       - name: Optional TruffleHog verified secret scan
+        id: trufflehog
+        continue-on-error: true
         if: ${{ inputs.enable-trufflehog }}
         uses: trufflesecurity/trufflehog@f446421baf832d6356c42c1743d99abff52ff334  # v3.95.7
         with:
@@ -259,6 +284,26 @@ jobs:
           base: ${{ github.event.repository.default_branch }}
           head: HEAD
           extra_args: --only-verified
+      - name: Aggregate nightly regression results
+        if: always()
+        run: |
+          fail=0
+          for c in "thresholds:${{ steps.thresholds.outcome }}" \
+                   "rule-modes:${{ steps.rule_modes.outcome }}" \
+                   "lint-smoke:${{ steps.lint_smoke.outcome }}" \
+                   "tests:${{ steps.tests.outcome }}" \
+                   "clean-install:${{ steps.clean_install.outcome }}" \
+                   "contract-lint:${{ steps.contract_lint.outcome }}" \
+                   "schema-drift:${{ steps.schema_drift.outcome }}" \
+                   "pip-audit:${{ steps.pip_audit.outcome }}" \
+                   "trufflehog:${{ steps.trufflehog.outcome }}"; do
+            name="${c%%:*}"; outcome="${c##*:}"
+            case "$outcome" in
+              success|skipped) : ;;
+              *) echo "::error::nightly regression check failed: $name ($outcome)"; fail=1 ;;
+            esac
+          done
+          exit $fail
 
   all-gates-passed:
     name: all-gates-passed

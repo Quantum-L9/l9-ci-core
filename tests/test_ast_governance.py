@@ -34,7 +34,9 @@ def test_ast_semgrep_rules_parse_and_have_shadow_metadata() -> None:
 
 
 def test_rule_modes_register_all_ast_rules_as_shadow() -> None:
-    rule_modes = yaml.safe_load((CORE / ".github/governance/rule-modes.yaml").read_text(encoding="utf-8"))
+    rule_modes = yaml.safe_load(
+        (CORE / ".github/governance/rule-modes.yaml").read_text(encoding="utf-8")
+    )
     rules = rule_modes["rules"]
     for path in RULE_FILES:
         for rule in yaml.safe_load(path.read_text(encoding="utf-8"))["rules"]:
@@ -58,7 +60,9 @@ def test_ast_fixture_inventory_has_good_and_bad_examples() -> None:
 
 
 def test_audit_policy_declares_ast_governance_shadow_only() -> None:
-    policy = yaml.safe_load((CORE / ".github/governance/audit-policy.yml").read_text(encoding="utf-8"))
+    policy = yaml.safe_load(
+        (CORE / ".github/governance/audit-policy.yml").read_text(encoding="utf-8")
+    )
     ast = policy["ast_governance"]
     assert ast["status"] == "shadow_only"
     assert ast["autonomous_repair"] == "disabled"

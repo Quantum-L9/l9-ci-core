@@ -95,11 +95,20 @@ jobs:
           # A later step imports PyYAML to validate governance files; ensure it's
           # present when the install command doesn't already pull it in.
           python -c "import yaml" 2>/dev/null || pip install pyyaml
+      # --- Independent governance checks: collect-all (fail LOUD, run EVERY
+      # check). Each runs to completion even if a prior one failed; the Aggregate
+      # step fails the job if ANY did. Setup/install above stays fail-fast. ---
       - name: Validate threshold policy
+        id: thresholds
+        continue-on-error: true
         run: l9-ci validate-thresholds --policy .github/governance/quality-thresholds.yaml
       - name: Validate rule-mode policy
+        id: rule_modes
+        continue-on-error: true
         run: l9-ci validate-rule-modes --policy .github/governance/rule-modes.yaml
       - name: Validate governance approval for protected edits
+        id: gov_approval
+        continue-on-error: true
         env:
           CHANGED_FILES: ${{ inputs.changed-files }}
           PR_LABELS: ${{ inputs.pr-labels }}
@@ -118,6 +127,8 @@ jobs:
           if [ "$LABELS_KNOWN" != "true" ]; then EXTRA_ARGS="--labels-unknown"; fi
           l9-ci validate-governance-approval --changed-files-file changed_files.txt --pr-labels-file pr_labels.json $EXTRA_ARGS
       - name: Validate governance files
+        id: gov_files
+        continue-on-error: true
         run: |
           python - <<'PY'
           import json
@@ -155,6 +166,8 @@ jobs:
           print("Governance files valid.")
           PY
       - name: Validate distinct trio token names
+        id: distinct_tokens
+        continue-on-error: true
         run: |
           python - <<'PY'
           import sys
@@ -169,6 +182,8 @@ jobs:
           print("Trio token secret names are distinct.")
           PY
       - name: Classify changed files
+        id: classify
+        continue-on-error: true
         env:
           CHANGED_FILES: ${{ inputs.changed-files }}
         run: |
@@ -179,6 +194,8 @@ jobs:
             python "${{ inputs.classifier-path }}" .github/workflows/example.yml --plain | grep -x ci_workflow
           fi
       - name: Validate trio marker separation
+        id: marker_separation
+        continue-on-error: true
         run: |
           python - <<'PY'
           import sys
@@ -199,6 +216,24 @@ jobs:
                   raise SystemExit(1)
           print("Trio marker separation valid.")
           PY
+      - name: Aggregate trio governance results
+        if: always()
+        run: |
+          fail=0
+          for c in "thresholds:${{ steps.thresholds.outcome }}" \
+                   "rule-modes:${{ steps.rule_modes.outcome }}" \
+                   "governance-approval:${{ steps.gov_approval.outcome }}" \
+                   "governance-files:${{ steps.gov_files.outcome }}" \
+                   "distinct-tokens:${{ steps.distinct_tokens.outcome }}" \
+                   "classify:${{ steps.classify.outcome }}" \
+                   "marker-separation:${{ steps.marker_separation.outcome }}"; do
+            name="${c%%:*}"; outcome="${c##*:}"
+            case "$outcome" in
+              success|skipped) : ;;
+              *) echo "::error::trio governance check failed: $name ($outcome)"; fail=1 ;;
+            esac
+          done
+          exit $fail
   trio-governance-passed:
     name: trio-governance-passed
     runs-on: ubuntu-latest
