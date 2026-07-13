@@ -68,6 +68,8 @@ Required invariants
 Validation
 
 python .github/scripts/validate_action_pins.py
+```
+
 ---
 # 8. `docs/BOOTSTRAP_RUNTIME.md`
 ```markdown
@@ -270,6 +272,7 @@ The validators remain permanently unaware of:
 * remediation agents
 
 That separation is the runtime-primitive boundary.
+```
 
 ---
 # 9. CI dependency exception fixtures

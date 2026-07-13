@@ -78,12 +78,12 @@ Every gate emits a `bootstrap-gate-result.schema.json`-compliant JSON file:
 
 | Limit | Value |
 |-------|-------|
-| Max workflow files per repo | 50 |
-| Max workflow file size | 1 MiB |
-| Max total scan bytes | 50 MiB |
-| Max run block bytes | 256 KiB |
-| Max registry entries | 200 |
-| Max result file bytes | 5 MiB |
+| Max workflow files per repo | 200 |
+| Max workflow file size | 1 MiB (1,048,576 bytes) |
+| Max total scan bytes | 24 MiB (25,165,824 bytes) |
+| Max run block bytes | 256 KiB (262,144 bytes) |
+| Max registry entries | 500 |
+| Max result file bytes | 1 MiB (1,048,576 bytes) |
 
 All limits are runtime-configurable via `l9_bootstrap.limits` module attributes.
 

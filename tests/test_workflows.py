@@ -35,8 +35,10 @@ def test_all_workflows_parse_as_yaml() -> None:
 # setup-python, not the older v4/v5" -- is preserved, but expressed against the
 # stronger SHA-pinning invariant rather than a mutable floating tag. When a test
 # and a security invariant disagree, the invariant wins and the test is updated.
-_CHECKOUT_V6 = re.compile(r"actions/checkout@[0-9a-f]{40}\s+#\s*v6(?:\.\d+)*")
-_SETUP_PY_V6 = re.compile(r"actions/setup-python@[0-9a-f]{40}\s+#\s*v6(?:\.\d+)*")
+# Git commit SHAs are hex and case-insensitive, so accept A-F as well as a-f to
+# avoid brittle failures if a pin is pasted with uppercase characters.
+_CHECKOUT_V6 = re.compile(r"actions/checkout@[0-9a-fA-F]{40}\s+#\s*v6(?:\.\d+)*")
+_SETUP_PY_V6 = re.compile(r"actions/setup-python@[0-9a-fA-F]{40}\s+#\s*v6(?:\.\d+)*")
 
 
 def test_new_workflows_use_v6_actions() -> None:
@@ -49,8 +51,8 @@ def test_new_workflows_use_v6_actions() -> None:
         assert "actions/checkout@v" not in text
         assert "actions/setup-python@v" not in text
         # No older major versions in the checkout/setup-python annotations.
-        assert not re.search(r"actions/checkout@[0-9a-f]{40}\s+#\s*v[45]\b", text)
-        assert not re.search(r"actions/setup-python@[0-9a-f]{40}\s+#\s*v5\b", text)
+        assert not re.search(r"actions/checkout@[0-9a-fA-F]{40}\s+#\s*v[45]\b", text)
+        assert not re.search(r"actions/setup-python@[0-9a-fA-F]{40}\s+#\s*v5\b", text)
 
 
 def test_security_declares_l9_install_input() -> None:

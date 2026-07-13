@@ -14,9 +14,9 @@ from l9_bootstrap import schema_loader
 
 GATE_ID = "workflow/contracts"
 _RE_UNSAFE_SHELL = re.compile(r"\bset\s+\+e\b")
-# Broadened failure-swallowing patterns: `|| true`, `|| :`, `|| echo ::warning::`,
-# and a trailing `; exit 0`.
-_RE_SWALLOW      = re.compile(r"\|\|\s*true\b|\|\|\s*:|\|\|\s*echo\s+::warning::|;\s*exit\s+0\b")
+# Broadened failure-swallowing patterns: `|| true`, `|| :`, `|| echo ::warning::`
+# (quoted or unquoted, e.g. `|| echo "::warning::..."`), and a trailing `; exit 0`.
+_RE_SWALLOW      = re.compile(r"\|\|\s*true\b|\|\|\s*:|\|\|\s*echo\s+[\"']?::warning::|;\s*exit\s+0\b")
 # A strict-shell preamble: `set -euo pipefail` (order/spacing tolerant).
 _RE_STRICT_SHELL = re.compile(r"set\s+-euo\s+pipefail|set\s+-e\b.*-o\s+pipefail", re.DOTALL)
 _MAX_DEBT_WINDOW_DAYS = 30
