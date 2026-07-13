@@ -125,6 +125,7 @@ jobs:
           curl -fsS -X POST \
             -H "Authorization: Bearer ${HANDOFF_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
             https://api.github.com/repos/Quantum-L9/PR_Repair/dispatches \
             -d "$(printf '{"event_type":"l9-implementer-review","client_payload":{"source_repo":"%s","run_id":"%s","pr_number":"%s"}}' \
                   "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$PR_NUMBER")"
