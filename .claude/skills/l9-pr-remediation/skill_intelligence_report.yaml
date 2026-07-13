@@ -6,7 +6,7 @@
 # tags: [pr, ci, review, intelligence-report, exemplary, gate-results]
 # owner: igor_beylin
 # status: active
-# version: 3.3.0
+# version: 3.3.1
 # updated: 2026-07-13
 # Purpose: Exemplary-tier intelligence report for l9-pr-remediation. Validated by
 # scripts/validate_exemplary_skill.py (all exemplary gates must be pass).

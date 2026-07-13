@@ -7,7 +7,7 @@ role: skill_entrypoint
 tags: [l9, pr, ci, code-review, recursive, remediation, review-resolver, github, convergence, exemplary]
 owner: igor_beylin
 status: active
-version: 3.3.0
+version: 3.3.1
 updated: 2026-07-13
 sources:
   - l9-pr-remediation@2.1.0 (skill)
@@ -159,6 +159,24 @@ review_agents: [gemini-code-assist, coderabbitai, copilot, sonarcloud]
 auto_fix_nits: false
 skip_bot_discussions: true
 parallel_triage_threshold: 3
+
+# Review-source registry (see references/review-sources.md). This is the ACTIVE
+# default: GitHub-native sources + SonarCloud are enabled. SONAR_TOKEN is assumed
+# present in the environment (repo Actions secret / web env). Runtime stays
+# fail-open — if a source's token is missing it is skipped and recorded in the
+# run report (summary.review_sources[].queried:false), never blocking the run.
+review_sources:
+  - github_comments           # always on
+  - check_run_annotations     # always on — needs GITHUB_TOKEN `checks: read`
+  - code_scanning             # always on — needs GITHUB_TOKEN `security_events: read`
+  - sonarcloud                # ENABLED — SONAR_TOKEN assumed set in env
+  # - snyk                    # enable: uncomment + set SNYK_TOKEN
+  # - semgrep                 # enable: uncomment + set SEMGREP_APP_TOKEN
+sonar:
+  token_env: SONAR_TOKEN
+  project_key_env: SONAR_PROJECT_KEY   # optional — else auto-discovered (sonar-project.properties / check-run details_url)
+  org_env: SONAR_ORG                   # optional
+  gate_precedence: gate_blocking_issues_review
 ```
 
 ## Validation

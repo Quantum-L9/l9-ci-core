@@ -6,7 +6,7 @@ role: review_sources
 tags: [pr, review, sources, sonarcloud, snyk, semgrep, sarif, check-runs, secrets]
 owner: igor_beylin
 status: active
-version: 3.3.0
+version: 3.3.1
 updated: 2026-07-13
 /L9_META -->
 
@@ -51,6 +51,8 @@ review_sources:
 ```
 
 A source is **enabled** when `enabled_when: always` (Tier 1) or its `token_env` is present in the environment (Tier 2). A disabled or unreachable source is **skipped and recorded** in the run report (`summary.review_sources[].queried: false`) — it never blocks the run (fail-open per source).
+
+**Active default (assumes `SONAR_TOKEN` is configured):** the shipped default in `SKILL.md` §Configuration enables the three GitHub-native sources **and `sonarcloud`** — SonarCloud is treated as a first-class source, not an opt-in example, with `SONAR_TOKEN` expected in the environment (repo Actions secret or web env). `snyk`/`semgrep` remain opt-in (uncomment + set their token). Because ingestion is fail-open, a missing `SONAR_TOKEN` at runtime degrades to "sonarcloud skipped, queried:false" rather than an error — so the default is safe in repos that don't use Sonar.
 
 ## Fetch → normalize contract
 
