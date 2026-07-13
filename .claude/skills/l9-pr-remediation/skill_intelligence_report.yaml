@@ -6,7 +6,7 @@
 # tags: [pr, ci, review, intelligence-report, exemplary, gate-results]
 # owner: igor_beylin
 # status: active
-# version: 3.1.0
+# version: 3.2.0
 # updated: 2026-07-13
 # Purpose: Exemplary-tier intelligence report for l9-pr-remediation. Validated by
 # scripts/validate_exemplary_skill.py (all exemplary gates must be pass).
@@ -128,6 +128,8 @@ skill_intelligence_report:
         score: 20
       - point: machine_readable_report_schema
         score: 19
+      - point: run_report_validator
+        score: 21   # /25 — converts prose gates into a deterministic check; drift-reduction + reuse
     exemplary_threshold: "at least one leverage point scores >=18/25"
     threshold_met: true
 
@@ -141,6 +143,9 @@ skill_intelligence_report:
     routes_to:
       - finding-classifier.md (confidence gate + reject signals)
       - activation_signals (trigger precision)
+    telemetry:
+      - bot_false_positive_rate feeds the confidence-gate self-tuning rule (compounds FP suppression per reviewer)
+      - cycles_exhausted is a risk signal emitted when max_cycles is hit without convergence
 
   exemplary_gate_results:
     activation_precision: pass       # specificity 5>=4, FP-risk 1<=1, reject signals present

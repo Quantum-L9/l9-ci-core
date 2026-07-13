@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9.github.io/l9-ci-core/schemas/run-report.schema.json",
+  "title": "L9 PR Remediation Run Report",
+  "description": "Canonical machine-readable artifact emitted by the l9-pr-remediation skill for one PR. Unifies the runtime gate artifacts (A-G), the per-PR run report, the convergence report, and drift signals into one normative shape. Human views in the reference docs are non-normative; this schema is the source of truth.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run",
+    "gates",
+    "findings",
+    "convergence",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "repo", "pr"],
+      "properties": {
+        "run_id": { "type": "string", "minLength": 1 },
+        "repo": { "type": "string", "minLength": 1 },
+        "pr": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["number", "branch", "cycles_run"],
+          "properties": {
+            "number": { "type": "integer", "minimum": 1 },
+            "branch": { "type": "string", "minLength": 1 },
+            "cycles_run": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_registry",
+        "classified_findings",
+        "local_verify_log",
+        "push_record",
+        "reply_record",
+        "report_record"
+      ],
+      "properties": {
+        "gate_registry": { "$ref": "#/$defs/GateRegistry" },
+        "classified_findings": { "$ref": "#/$defs/ClassifiedFindings" },
+        "local_verify_log": { "$ref": "#/$defs/LocalVerifyLog" },
+        "push_record": { "$ref": "#/$defs/PushRecord" },
+        "reply_record": { "$ref": "#/$defs/ReplyRecord" },
+        "report_record": { "$ref": "#/$defs/ReportRecord" }
+      }
+    },
+    "findings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applied", "deferred", "rejected"],
+      "properties": {
+        "applied": { "type": "array", "items": { "$ref": "#/$defs/AppliedFinding" } },
+        "deferred": { "type": "array", "items": { "$ref": "#/$defs/DeferredFinding" } },
+        "rejected": { "type": "array", "items": { "$ref": "#/$defs/RejectedFinding" } }
+      }
+    },
+    "convergence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "convergence_status",
+        "pushes_total",
+        "commits_pushed",
+        "cycles_exhausted",
+        "protocol_violations",
+        "minimum_safe_next_action"
+      ],
+      "properties": {
+        "convergence_status": { "enum": ["converged", "partial", "blocked"] },
+        "pushes_total": { "type": "integer", "minimum": 0 },
+        "commits_pushed": { "type": "array", "items": { "$ref": "#/$defs/Sha" } },
+        "cycles_exhausted": { "type": "boolean" },
+        "protocol_violations": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "minimum_safe_next_action": { "type": "string", "minLength": 1 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fixes_applied", "deferred", "rejected"],
+      "properties": {
+        "fixes_applied": { "type": "integer", "minimum": 0 },
+        "deferred": { "type": "integer", "minimum": 0 },
+        "rejected": { "type": "integer", "minimum": 0 },
+        "bot_false_positive_rate": {
+          "type": "object",
+          "description": "Per-reviewer false-positive rate = rejected / (applied + rejected) over this run. Drift signal read by the confidence-gate self-tuning rule.",
+          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "Sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "GateRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pr_scope_total", "total_gates", "gates"],
+      "properties": {
+        "pr_scope_total": { "type": "integer", "minimum": 1 },
+        "total_gates": { "type": "integer", "minimum": 1 },
+        "gates": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "command", "source"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "command": { "type": "string", "minLength": 1 },
+              "source": { "type": "string", "minLength": 1 },
+              "can_run_locally": { "type": "boolean" },
+              "requires_secrets": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "ClassifiedFindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "cycle_scope"],
+      "properties": {
+        "blocking": { "type": "integer", "minimum": 0 },
+        "auto_apply": { "type": "integer", "minimum": 0 },
+        "validate": { "type": "integer", "minimum": 0 },
+        "discussion": { "type": "integer", "minimum": 0 },
+        "deferred": { "type": "integer", "minimum": 0 },
+        "ignored": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 },
+        "cycle_scope": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "LocalVerifyLog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["iteration", "gates_run", "gates_passed", "all_green", "results"],
+      "properties": {
+        "iteration": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "gates_run": { "type": "integer", "minimum": 1 },
+        "gates_passed": { "type": "integer", "minimum": 0 },
+        "all_green": { "type": "boolean" },
+        "results": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["gate", "command", "exit_code"],
+            "properties": {
+              "gate": { "type": "string", "minLength": 1 },
+              "command": { "type": "string", "minLength": 1 },
+              "exit_code": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+    "PushRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_sha", "commit_message", "push_count_this_cycle", "branch"],
+      "properties": {
+        "commit_sha": { "$ref": "#/$defs/Sha" },
+        "commit_message": { "type": "string", "minLength": 1 },
+        "files_in_commit": { "type": "integer", "minimum": 1 },
+        "push_count_this_cycle": { "type": "integer", "minimum": 1, "maximum": 1 },
+        "branch": { "type": "string", "minLength": 1 },
+        "idempotency_trailer": {
+          "type": "string",
+          "description": "Remediation-Cycle: {repo}#{pr}/cycle-{n} — the commit trailer used to detect an already-completed cycle."
+        }
+      }
+    },
+    "ReplyRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threads_total", "threads_replied", "threads_resolved", "batch_summary_posted"],
+      "properties": {
+        "threads_total": { "type": "integer", "minimum": 0 },
+        "threads_replied": { "type": "integer", "minimum": 0 },
+        "threads_resolved": { "type": "integer", "minimum": 0 },
+        "issues_created": { "type": "integer", "minimum": 0 },
+        "batch_summary_posted": { "type": "boolean" },
+        "reply_breakdown": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fixed": { "type": "integer", "minimum": 0 },
+            "deferred": { "type": "integer", "minimum": 0 },
+            "acknowledged": { "type": "integer", "minimum": 0 },
+            "disagreed": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "ReportRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_report_emitted"],
+      "properties": {
+        "run_report_emitted": { "type": "boolean" }
+      }
+    },
+    "AppliedFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer", "file", "commit"],
+      "properties": {
+        "reviewer": { "type": "string", "minLength": 1 },
+        "file": { "type": "string", "minLength": 1 },
+        "lines": { "type": "string" },
+        "commit": { "$ref": "#/$defs/Sha" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "disposition": { "enum": ["AUTO_APPLY", "VALIDATE"] },
+        "tests": { "enum": ["pass", "fail"] }
+      }
+    },
+    "DeferredFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer", "file", "reason"],
+      "properties": {
+        "reviewer": { "type": "string", "minLength": 1 },
+        "file": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "issue": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "RejectedFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer", "file", "reason"],
+      "properties": {
+        "reviewer": { "type": "string", "minLength": 1 },
+        "file": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

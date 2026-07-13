@@ -6,7 +6,7 @@
 # tags: [pr, ci, review, expertise, exemplary, intelligence-layer]
 # owner: igor_beylin
 # status: active
-# version: 3.1.0
+# version: 3.2.0
 # updated: 2026-07-13
 # Purpose: Compressed judgment extracted from the l9-pr-remediation skill and the
 # pr-review-resolver agent, filtered through the L9 Compounding Leverage and
@@ -28,6 +28,7 @@ expertise_model:
     - Reply to and resolve every thread; a rejection needs an explicit reason, never silence.
     - Reject bots' false positives explicitly so the correction compounds (bot training + audit trail).
     - Emit machine-readable run and convergence reports so downstream automation can consume state.
+    - A run is trustworthy only when validate_run_report.py accepts its emitted report against the canonical schema.
     - Prefer the smallest diff that satisfies the finding; never bundle unrelated change.
 
   invariants:
@@ -77,5 +78,5 @@ expertise_model:
     - Gate registry: reusable CI-gate map that accelerates every future cycle and every other L9 repo skill.
     - Finding taxonomy + confidence gate: compounding false-positive suppression across reviews.
     - Canonical reply templates: searchable decisions + bot training signal per reply.
-    - Machine-readable run/convergence report schema: lets downstream agents route on PR state without re-parsing.
+    - Canonical run-report schema + validate_run_report.py: machine-enforced gate artifacts (schema + hard invariants) so autonomy is verified, not trusted; downstream agents route on PR state without re-parsing.
     - Local-verify-first loop: removes CI ping-pong friction, converting remote CI from discovery to confirmation.

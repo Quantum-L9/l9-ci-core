@@ -6,7 +6,7 @@ role: finding_classifier
 tags: [pr, classification, triage, severity, validation-doctrine, confidence-gate]
 owner: igor_beylin
 status: active
-version: 3.0.0
+version: 3.2.0
 updated: 2026-07-13
 /L9_META -->
 
@@ -72,6 +72,21 @@ Read the **actual current file** (never the comment snippet). Reject or defer a 
 ## Confidence Gate
 
 Assign each `VALIDATE` finding a confidence score `0.0–1.0`. If `confidence < confidence_gate` (default `0.75`) → reclassify as **DEFER**. Score from: suggestion specificity, agreement with repo conventions, and whether the referenced code still matches.
+
+### Confidence-Gate Self-Tuning (drift signal)
+
+The gate is not a static `0.75` — it reads the `bot_false_positive_rate` drift signal so a chronically-wrong reviewer earns less trust automatically:
+
+- Over a run, compute per reviewer `fp_rate = rejected / (applied + rejected)` (0 when no decided findings). This is emitted in the run report at `summary.bot_false_positive_rate` (see `references/review-replies.md` and `schemas/run-report.schema.json`).
+- Raise the **effective** gate for a reviewer as its FP rate climbs, bounded to `[0.60, 0.90]`:
+
+  ```text
+  effective_gate(reviewer) = clamp(confidence_gate + 0.30 * fp_rate, 0.60, 0.90)
+  ```
+
+  A reviewer with `fp_rate = 0` keeps the base gate; one at `fp_rate = 0.5` needs ≥ `0.90` confidence to auto-apply.
+- Apply only to bot reviewers; human suggestions are not down-weighted by this rule (authority order still puts human first).
+- This makes false-positive suppression **compound**: every explicit rejection (a `Disagree` reply) tightens the gate for that bot on future cycles instead of being a one-off.
 
 ## Conflict Precedence
 

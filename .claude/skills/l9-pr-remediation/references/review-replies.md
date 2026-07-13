@@ -6,7 +6,7 @@ role: review_replies
 tags: [pr, review, replies, threads, resolution, run-report, leverage]
 owner: igor_beylin
 status: active
-version: 3.0.0
+version: 3.2.0
 updated: 2026-07-13
 /L9_META -->
 
@@ -23,6 +23,17 @@ After pushing fixes, reply to every review thread with a canonical response, res
 3. **Resolve threads after replying.**
 4. **Deferred items get linked issues** — never defer without a trackable artifact.
 5. **Batch summary posted as the final PR comment.**
+6. **Every reply carries an idempotency marker** (see below) so re-runs never double-post.
+
+## Idempotency Marker
+
+Append a hidden HTML-comment marker to every canonical reply:
+
+```markdown
+<!-- l9-remediation:{pr}:{finding_id} -->
+```
+
+**Before posting a reply, scan the thread for this exact marker.** If it is already present, the finding was replied to on a prior cycle — skip it (do not re-post, do not re-resolve). Combined with thread-resolved state and the commit `Remediation-Cycle:` trailer (`fix-engine.md`), this makes a re-run produce **zero duplicate artifacts**. The marker is invisible in rendered GitHub markdown.
 
 ## Canonical Reply Formats
 
@@ -109,29 +120,29 @@ gh issue create --repo {owner}/{repo} \
 
 ## Machine-Readable Run Report (per PR — Gate G input)
 
-Emit once per PR at convergence so other agents/dashboards can consume state without re-parsing GitHub:
+Emit once per PR at convergence so other agents/dashboards can consume state without re-parsing GitHub. **Normative shape:** [`schemas/run-report.schema.json`](../schemas/run-report.schema.json) — the example below is a human view; the schema is the source of truth, and the emitted file MUST pass [`scripts/validate_run_report.py`](../scripts/validate_run_report.py). The report also carries the drift signals (`summary.bot_false_positive_rate`, `convergence.cycles_exhausted`).
 
 ```json
 {
-  "run_id": "<timestamp>",
-  "repo": "OWNER/REPO",
-  "pr": {
-    "number": 0,
-    "branch": "",
-    "cycles_run": 0,
-    "threads_total": 0,
-    "applied": [
-      {"reviewer": "", "file": "", "lines": "", "commit": "<sha>",
-       "confidence": 0.0, "disposition": "AUTO_APPLY|VALIDATE", "tests": "pass"}
-    ],
-    "deferred": [{"reviewer": "", "file": "", "reason": "", "issue": 0}],
-    "rejected": [{"reviewer": "", "file": "", "reason": ""}],
-    "commits_pushed": ["<sha>"],
-    "ci_status": "success|failure|skipped"
+  "schema_version": "1.0",
+  "run": { "run_id": "<timestamp>", "repo": "OWNER/REPO",
+           "pr": { "number": 0, "branch": "", "cycles_run": 0 } },
+  "gates": { "gate_registry": {}, "classified_findings": {}, "local_verify_log": {},
+             "push_record": {}, "reply_record": {}, "report_record": {"run_report_emitted": true} },
+  "findings": {
+    "applied": [ {"reviewer": "", "file": "", "lines": "", "commit": "<sha>",
+                  "confidence": 0.0, "disposition": "AUTO_APPLY", "tests": "pass"} ],
+    "deferred": [ {"reviewer": "", "file": "", "reason": "", "issue": 0} ],
+    "rejected": [ {"reviewer": "", "file": "", "reason": ""} ]
   },
-  "summary": {"fixes_applied": 0, "deferred": 0, "rejected": 0}
+  "convergence": { "convergence_status": "converged", "pushes_total": 0, "commits_pushed": ["<sha>"],
+                   "cycles_exhausted": false, "protocol_violations": [], "minimum_safe_next_action": "merge" },
+  "summary": { "fixes_applied": 0, "deferred": 0, "rejected": 0,
+               "bot_false_positive_rate": {"coderabbitai": 0.0} }
 }
 ```
+
+`summary.bot_false_positive_rate[reviewer] = rejected / (applied + rejected)` for that reviewer over the run. It is a drift signal consumed by the confidence-gate self-tuning rule in `finding-classifier.md`.
 
 ## Downstream Leverage
 

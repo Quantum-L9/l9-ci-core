@@ -7,7 +7,7 @@ role: skill_entrypoint
 tags: [l9, pr, ci, code-review, recursive, remediation, review-resolver, github, convergence, exemplary]
 owner: igor_beylin
 status: active
-version: 3.1.0
+version: 3.2.0
 updated: 2026-07-13
 sources:
   - l9-pr-remediation@2.1.0 (skill)
@@ -35,7 +35,19 @@ This skill consolidates two predecessors into one control plane: the **CI conver
 | Thread resolution state | GraphQL `reviewThreads` | `gh api graphql` |
 | CI gate definitions | `.github/workflows/*.yml` + `package.json` | File read (gate discovery) |
 
-**Tooling portability:** commands are shown with the `gh` CLI for concreteness, but the *operation* is the contract, not the CLI. In an environment without `gh` (e.g. GitHub MCP tools or the REST/GraphQL API directly), use the equivalent operation — list PRs, read failed-run logs, fetch/reply/resolve review threads, create issues. Do not treat a missing `gh` binary as a blocker.
+**Tooling portability — capability map.** Commands are shown with the `gh` CLI for concreteness, but the *operation* is the contract, not the CLI. In an environment without `gh` (e.g. GitHub MCP tools, or the REST/GraphQL API directly), select the row by operation — do not treat a missing `gh` binary as a blocker. Exact GitHub MCP tool names vary by server; match on the operation, not the literal name.
+
+| Operation | `gh` CLI | GitHub MCP tool (typical) | REST / GraphQL |
+|-----------|----------|---------------------------|----------------|
+| List PRs in scope | `gh pr list` | `list_pull_requests` | `GET /repos/{o}/{r}/pulls` |
+| Get run status | `gh run list --branch` | `actions_list` | `GET /repos/{o}/{r}/actions/runs` |
+| Get failed-run logs | `gh run view --log-failed` | `get_job_logs` | `GET …/actions/runs/{id}/logs` |
+| List reviews | `gh api …/pulls/{n}/reviews` | `pull_request_read` (reviews) | `GET …/pulls/{n}/reviews` |
+| List inline comments | `gh api …/pulls/{n}/comments` | `pull_request_read` (comments) | `GET …/pulls/{n}/comments` |
+| Reply to inline comment | `gh api …/comments/{id}/replies` | `add_reply_to_pull_request_comment` | `POST …/pulls/{n}/comments/{id}/replies` |
+| PR-level comment | `gh pr comment` | `add_issue_comment` | `POST …/issues/{n}/comments` |
+| Resolve a thread | `gh api graphql` (mutation) | `resolve_review_thread` | GraphQL `resolveReviewThread` |
+| Create deferred issue | `gh issue create` | `issue_write` | `POST /repos/{o}/{r}/issues` |
 
 **Single ingress:** `SKILL.md` is the single control plane. Scope is normalized and validated once (Step 1), then routed to the per-PR loop; per-PR state is tracked independently and never shared across PRs. No module is entered except through this workflow.
 
@@ -67,7 +79,7 @@ This skill consolidates two predecessors into one control plane: the **CI conver
 6. **Every thread gets a reply and is resolved.** No silent fixes. Deferred items get a linked issue.
 7. **One logical fix = one focused change.** Never bundle unrelated changes; keep the diff to the referenced file/lines unless the fix legitimately requires related code.
 8. **Never force-push, never rewrite shared history, never touch a PR outside scope.**
-9. **Idempotent.** Re-running must not duplicate commits or re-apply already-resolved threads.
+9. **Idempotent.** Re-running must not duplicate commits or re-apply already-resolved threads. The idempotency key is the triple **(resolved thread state, reply marker `<!-- l9-remediation:{pr}:{finding_id} -->`, commit trailer `Remediation-Cycle: {repo}#{pr}/cycle-{N}`)** — checked during ingestion (`references/signal-ingestion.md` §Idempotency).
 10. **Preserve attribution:** reference the review thread/commit in each fix.
 11. **MUST NOT loop more than `max_cycles`** (default 3). When CI is the task ("get it green"), re-diagnose and re-kick each cycle rather than giving up after one.
 12. **MUST NOT fix "discussion"/"question" comments** without user confirmation.
@@ -98,6 +110,8 @@ Each step produces a required gate artifact (`references/enforcement-gates.md`).
 - [references/review-replies.md](references/review-replies.md) — canonical reply formats, thread resolution, deferred issues, batch summary, **machine-readable run report**, downstream leverage.
 - [references/convergence-loop.md](references/convergence-loop.md) — wait/poll/re-check, convergence gate, cycle tracking, stop conditions, configuration.
 - [references/enforcement-gates.md](references/enforcement-gates.md) — **runtime enforcement layer**: required proof-of-compliance artifact at each step; protocol-violation detection.
+- [schemas/run-report.schema.json](schemas/run-report.schema.json) — **canonical machine artifact**: the single normative shape for the gate artifacts, the per-PR run report, the convergence block, and the drift signals. The reference-doc snippets are non-normative views of this schema.
+- [scripts/validate_run_report.py](scripts/validate_run_report.py) — deterministic run validator: checks an emitted run report against the schema + cross-field hard invariants. `python3 scripts/validate_run_report.py <run-report.json>`.
 
 ## Exemplary Provenance & Self-Improvement
 
@@ -106,6 +120,8 @@ This pack was compiled through the L9 exemplary pipeline: `parse_source → extr
 - [expertise_model.yaml](expertise_model.yaml) — experts, doctrine, invariants, authority hierarchy, activation/reject signals, adapters, failure modes, leverage points (the `extract_expertise` / `compress_expertise` output).
 - [skill_intelligence_report.yaml](skill_intelligence_report.yaml) — activation model (with measured specificity + false-positive-risk scores), authority model, expert heuristics, adapter map, evidence hierarchy, `exemplary_gate` results, and the tier decision.
 - Deterministic gate: [scripts/validate_exemplary_skill.py](scripts/validate_exemplary_skill.py) — run `python3 scripts/validate_exemplary_skill.py .` from the pack root; `tier: exemplary` is claimed only because this validator passes.
+
+**Run validation (machine-enforced rails):** a remediation run is not trustworthy because the doctrine says so — it is trustworthy because [`scripts/validate_run_report.py`](scripts/validate_run_report.py) accepts the emitted run report against [`schemas/run-report.schema.json`](schemas/run-report.schema.json). The validator enforces the cross-field invariants the gates promise (`push_count_this_cycle == 1`, `local_verify_log.all_green`, `gates_run == gate_registry.total_gates`, `threads_replied == threads_total`, every rejection/deferral carries a reason). It degrades gracefully: full JSON-Schema validation when `jsonschema` is installed, structural + invariant checks otherwise.
 
 **Leverage & friction filters applied** (per the two L9 leverage kernels): every reference must accelerate future PR cycles and emit a reusable primitive — the gate registry, the finding taxonomy, the canonical reply templates, and the machine-readable run/convergence report schemas are those primitives. Friction removed: deterministic gate discovery (no blind fixing), local-verify-before-push (no CI ping-pong), one-commit-per-cycle (clean history), explicit reject reasons (bot false-positive suppression compounds over time).
 

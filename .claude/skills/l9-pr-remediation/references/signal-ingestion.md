@@ -6,7 +6,7 @@ role: signal_ingestion
 tags: [pr, ci, review, ingestion, scope-discovery, github-api, gate-discovery]
 owner: igor_beylin
 status: active
-version: 3.0.0
+version: 3.2.0
 updated: 2026-07-13
 /L9_META -->
 
@@ -142,6 +142,16 @@ findings:
 ## Deduplication
 
 When a review comment references the same file+line as a CI error, merge into one finding: keep the CI error message (more precise), retain the review comment's suggested fix if present.
+
+## Idempotency (skip already-done work)
+
+A re-run MUST NOT duplicate commits or replies. Drop a signal from the finding list when ANY of these hold:
+
+- its review thread is already **resolved** (GraphQL `isResolved: true`);
+- the thread already contains the reply marker `<!-- l9-remediation:{pr}:{finding_id} -->` (see `references/review-replies.md`);
+- a commit on the branch already carries the trailer `Remediation-Cycle: {repo}#{pr}/cycle-{N}` for the cycle that would address it (see `references/fix-engine.md`).
+
+The idempotency key is therefore the triple **(resolved thread state, reply marker, commit trailer)** — check all three during ingestion so re-entry is safe and unattended re-runs converge instead of re-doing work.
 
 ## Ingestion Completeness Check
 

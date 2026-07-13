@@ -190,7 +190,10 @@ def _scan_skill_md(path: Path) -> list[str]:
     for term in required_terms:
         if term not in text:
             errors.append(f"SKILL.md missing required exemplary term: {term}")
-    if re.search(r"tier\s*:\s*exemplary", text, re.IGNORECASE) and "validate_exemplary_skill.py" not in text:
+    if (
+        re.search(r"tier\s*:\s*exemplary", text, re.IGNORECASE)
+        and "validate_exemplary_skill.py" not in text
+    ):
         errors.append("SKILL.md claims exemplary without validator reference")
     # Enforcement gates check: SKILL.md must reference enforcement-gates
     if "enforcement-gates" not in text:
@@ -229,7 +232,9 @@ def validate(skill_folder: Path) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate a compiled skill's exemplary-tier evidence.")
+    parser = argparse.ArgumentParser(
+        description="Validate a compiled skill's exemplary-tier evidence."
+    )
     parser.add_argument("skill_folder", help="Path to compiled skill folder")
     args = parser.parse_args()
     folder = Path(args.skill_folder)

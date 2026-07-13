@@ -6,7 +6,7 @@ role: convergence_loop
 tags: [pr, convergence, loop, polling, ci, local-verify, stop-conditions]
 owner: igor_beylin
 status: active
-version: 3.1.0
+version: 3.2.0
 updated: 2026-07-13
 /L9_META -->
 
@@ -80,19 +80,17 @@ cycle_state:
 
 ## Convergence Report
 
+The convergence block is the `convergence` section of the canonical run report. **Normative shape:** [`schemas/run-report.schema.json`](../schemas/run-report.schema.json) (`convergence` + `summary`); the YAML below is a non-normative human view. Set `cycles_exhausted: true` when `cycles_run >= max_cycles` without convergence.
+
 ```yaml
 convergence_status: converged | partial | blocked
 cycles_run: {int}
-pushes_total: {int}      # should equal cycles_run
-commits_total: {int}     # should equal cycles_run
+pushes_total: {int}       # should equal cycles_run
+commits_pushed: ["{sha}"]
+cycles_exhausted: false   # true when cycles_run >= max_cycles without convergence (risk signal)
 findings_summary: { total_ingested: {int}, fixed: {int}, deferred: {int}, remaining: {int} }
-ci_gates_discovered: {int}
-local_verify_iterations: {int}
-local_verify_green_before_every_push: true | false
 ci_status: success | failure
 new_comments_after_final_push: {int}
-deferred_items:
-  - { id: "review-7", reason: "Requires architectural decision" }
 protocol_violations: ["None"]
 minimum_safe_next_action: "merge" | "manual review of deferred items" | "run another cycle"
 ```

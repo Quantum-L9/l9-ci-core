@@ -1,0 +1,120 @@
+{
+  "schema_version": "1.0",
+  "run": {
+    "run_id": "2026-07-13T10:00:00Z",
+    "repo": "quantum-l9/l9-ci-core",
+    "pr": {
+      "number": 42,
+      "branch": "feat/x",
+      "cycles_run": 1
+    }
+  },
+  "gates": {
+    "gate_registry": {
+      "pr_scope_total": 1,
+      "total_gates": 2,
+      "gates": [
+        {
+          "name": "type",
+          "command": "mypy .",
+          "source": "ci.yml:type",
+          "can_run_locally": true
+        },
+        {
+          "name": "test",
+          "command": "pytest",
+          "source": "ci.yml:test",
+          "can_run_locally": true
+        }
+      ]
+    },
+    "classified_findings": {
+      "total": 2,
+      "cycle_scope": [
+        "ci-1",
+        "review-3"
+      ]
+    },
+    "local_verify_log": {
+      "iteration": 1,
+      "gates_run": 2,
+      "gates_passed": 2,
+      "all_green": true,
+      "results": [
+        {
+          "gate": "type",
+          "command": "mypy .",
+          "exit_code": 0
+        },
+        {
+          "gate": "test",
+          "command": "pytest",
+          "exit_code": 0
+        }
+      ]
+    },
+    "push_record": {
+      "commit_sha": "a3f8c21",
+      "commit_message": "fix(pr-remediation): cycle 1",
+      "files_in_commit": 3,
+      "push_count_this_cycle": 1,
+      "branch": "feat/x",
+      "idempotency_trailer": "Remediation-Cycle: quantum-l9/l9-ci-core#42/cycle-1"
+    },
+    "reply_record": {
+      "threads_total": 1,
+      "threads_replied": 1,
+      "threads_resolved": 1,
+      "issues_created": 0,
+      "batch_summary_posted": true,
+      "reply_breakdown": {
+        "fixed": 1,
+        "deferred": 0,
+        "acknowledged": 0,
+        "disagreed": 0
+      }
+    },
+    "report_record": {
+      "run_report_emitted": true
+    }
+  },
+  "findings": {
+    "applied": [
+      {
+        "reviewer": "coderabbitai",
+        "file": "src/x.ts",
+        "lines": "40-47",
+        "commit": "a3f8c21",
+        "confidence": 0.9,
+        "disposition": "VALIDATE",
+        "tests": "pass"
+      }
+    ],
+    "deferred": [],
+    "rejected": [
+      {
+        "reviewer": "gemini-code-assist",
+        "file": "src/y.ts",
+        "reason": ""
+      }
+    ]
+  },
+  "convergence": {
+    "convergence_status": "converged",
+    "pushes_total": 1,
+    "commits_pushed": [
+      "a3f8c21"
+    ],
+    "cycles_exhausted": false,
+    "protocol_violations": [],
+    "minimum_safe_next_action": "merge"
+  },
+  "summary": {
+    "fixes_applied": 1,
+    "deferred": 0,
+    "rejected": 1,
+    "bot_false_positive_rate": {
+      "coderabbitai": 0.0
+    }
+  }
+}

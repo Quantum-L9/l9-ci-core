@@ -6,7 +6,7 @@ role: enforcement_gates
 tags: [pr, validation, enforcement, checkpoints, artifacts, protocol-violation]
 owner: igor_beylin
 status: active
-version: 3.0.0
+version: 3.2.0
 updated: 2026-07-13
 /L9_META -->
 
@@ -15,6 +15,8 @@ updated: 2026-07-13
 ## Purpose
 
 Prevent protocol violations by requiring a concrete artifact at each workflow step. Rules without enforcement are suggestions. Each gate below defines the **proof-of-compliance** artifact the agent MUST produce before advancing. If the artifact is missing or invalid, do NOT proceed.
+
+**Canonical shape:** every gate artifact below is a section of the single machine-readable run report. Its normative schema is [`schemas/run-report.schema.json`](../schemas/run-report.schema.json) (JSON Schema Draft 2020-12). The YAML/JSON snippets in this file and the sibling references are **non-normative human views** — when they disagree with the schema, the schema wins. Validate an emitted report with [`scripts/validate_run_report.py`](../scripts/validate_run_report.py).
 
 ## Gate Map
 
@@ -113,7 +115,7 @@ report_record:
   pushes_total: {int}            # should equal cycles_run
   unknowns: ["none" | ...]
 ```
-Validation: run report emitted per PR; convergence block present with all fields; `pushes_total == cycles_run`.
+Validation: run report emitted per PR; convergence block present with all fields; `pushes_total == cycles_run`. **The emitted report MUST pass** `python3 scripts/validate_run_report.py <run-report.json>` (exit 0) — this is the machine check that the whole run honored gates A–F (schema + cross-field invariants: `push_count_this_cycle == 1`, `local_verify_log.all_green`, `gates_run == gate_registry.total_gates`, `threads_replied == threads_total`, every rejection/deferral has a reason).
 
 ## Protocol Violation Detection
 

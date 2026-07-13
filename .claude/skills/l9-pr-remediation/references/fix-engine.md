@@ -6,7 +6,7 @@ role: fix_engine
 tags: [pr, fix, code, methodology, local-verify, batch, rollback]
 owner: igor_beylin
 status: active
-version: 3.0.0
+version: 3.2.0
 updated: 2026-07-13
 /L9_META -->
 
@@ -115,7 +115,11 @@ Fixes:
 Local verify: all {N} gates passed
 Deferred:
 - {finding-id}: {reason}
+
+Remediation-Cycle: {repo}#{pr}/cycle-{N}
 ```
+
+The **`Remediation-Cycle:` trailer is the idempotency key.** Before starting a cycle, check the branch history for a commit already carrying this exact trailer (`git log --format=%B | grep -F "Remediation-Cycle: {repo}#{pr}/cycle-{N}"`). If present, that cycle already ran — do not re-apply it. See the idempotency rule in `references/signal-ingestion.md`.
 
 ## Rollback Protocol
 
