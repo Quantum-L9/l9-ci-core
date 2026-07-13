@@ -24,12 +24,17 @@ def _load(name: str) -> dict:
     return json.loads((_FIXTURES / name).read_text(encoding="utf-8"))
 
 
-def test_valid_report_has_no_errors() -> None:
-    assert vrr.validate(_load("valid-basic.json")) == []
+_VALID = ["valid-basic.json", "valid-multisource.json"]
 
 
-def test_valid_report_exits_zero() -> None:
-    result = subprocess.run([sys.executable, str(_SCRIPT), str(_FIXTURES / "valid-basic.json")])
+@pytest.mark.parametrize("fixture", _VALID)
+def test_valid_report_has_no_errors(fixture: str) -> None:
+    assert vrr.validate(_load(fixture)) == []
+
+
+@pytest.mark.parametrize("fixture", _VALID)
+def test_valid_report_exits_zero(fixture: str) -> None:
+    result = subprocess.run([sys.executable, str(_SCRIPT), str(_FIXTURES / fixture)])
     assert result.returncode == 0
 
 

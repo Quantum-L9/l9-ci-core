@@ -6,7 +6,7 @@
 # tags: [pr, ci, review, expertise, exemplary, intelligence-layer]
 # owner: igor_beylin
 # status: active
-# version: 3.2.0
+# version: 3.3.0
 # updated: 2026-07-13
 # Purpose: Compressed judgment extracted from the l9-pr-remediation skill and the
 # pr-review-resolver agent, filtered through the L9 Compounding Leverage and
@@ -29,6 +29,7 @@ expertise_model:
     - Reject bots' false positives explicitly so the correction compounds (bot training + audit trail).
     - Emit machine-readable run and convergence reports so downstream automation can consume state.
     - A run is trustworthy only when validate_run_report.py accepts its emitted report against the canonical schema.
+    - Read full scanner detail from check annotations, SARIF, and vendor APIs; the PR-page summary alone is insufficient.
     - Prefer the smallest diff that satisfies the finding; never bundle unrelated change.
 
   invariants:
@@ -79,4 +80,4 @@ expertise_model:
     - Finding taxonomy + confidence gate: compounding false-positive suppression across reviews.
     - Canonical reply templates: searchable decisions + bot training signal per reply.
     - Canonical run-report schema + validate_run_report.py: machine-enforced gate artifacts (schema + hard invariants) so autonomy is verified, not trusted; downstream agents route on PR state without re-parsing.
-    - Local-verify-first loop: removes CI ping-pong friction, converting remote CI from discovery to confirmation.
+    - Multi-source review registry: reads full scanner detail (check annotations, SARIF, vendor APIs) as data-driven sources, so any new tool is one registry row.

@@ -6,7 +6,7 @@ role: fix_engine
 tags: [pr, fix, code, methodology, local-verify, batch, rollback]
 owner: igor_beylin
 status: active
-version: 3.2.0
+version: 3.3.0
 updated: 2026-07-13
 /L9_META -->
 

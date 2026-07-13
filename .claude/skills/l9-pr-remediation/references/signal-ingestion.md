@@ -6,7 +6,7 @@ role: signal_ingestion
 tags: [pr, ci, review, ingestion, scope-discovery, github-api, gate-discovery]
 owner: igor_beylin
 status: active
-version: 3.2.0
+version: 3.3.0
 updated: 2026-07-13
 /L9_META -->
 
@@ -130,18 +130,37 @@ findings:
     thread_id: "PRRT_..."       # for review threads (to resolve later)
     has_suggestion_block: true | false
     message: "Type error: Property 'foo' does not exist on type 'Bar'"
+    rule: "typescript:S1128"    # vendor rule id when present — used for cross-source dedup
     gate: "type-check"          # null for review comments
     local_verify_command: "npx tsc --noEmit"
     raw: "full original text"
 ```
 
+## Review Sources (multi-tool) — beyond PR comments
+
+PR comments are only one source. The GitHub PR page shows a scanner's *summary + gate*; its **full findings live in check-run annotations, code-scanning/SARIF, or the vendor API**. After ingesting comments, walk the source registry in [references/review-sources.md](review-sources.md):
+
+1. **Tier 1 (always on, `GITHUB_TOKEN` with `checks: read` + `security_events: read`):**
+   - `check_run_annotations` — `GET /repos/{o}/{r}/commits/{sha}/check-runs` then `/check-runs/{id}/annotations` (file+line findings from tools that annotate but don't comment).
+   - `code_scanning` — `GET /repos/{o}/{r}/code-scanning/alerts?ref=refs/pull/{n}/head` (SARIF uploaders: Snyk, Semgrep, CodeQL, Trivy).
+2. **Tier 2 (enabled iff the source's `token_env` is set):** e.g. SonarCloud —
+   ```bash
+   curl -sS -u "$SONAR_TOKEN:" "https://sonarcloud.io/api/issues/search?componentKeys=$SONAR_PROJECT_KEY&pullRequest={pr}&resolved=false"
+   curl -sS -u "$SONAR_TOKEN:" "https://sonarcloud.io/api/qualitygates/project_status?projectKey=$SONAR_PROJECT_KEY&pullRequest={pr}"
+   ```
+   `projectKey` auto-discovers from `sonar-project.properties` or the Sonar check-run `details_url`.
+
+For each **enabled** source, normalize results into the unified finding format below (set `source`/`author` to the registry id, keep the vendor `rule`). A source with no token or no data is **skipped and recorded** (`summary.review_sources[].queried: false`) — never a blocker. Capture each scanner's gate status for the run report. **Never read, log, or store the token value** — reference `$SONAR_TOKEN` only.
+
 ## Bot Detection
 
-`gemini-code-assist[bot]` → Gemini · `coderabbitai[bot]` → CodeRabbit · `copilot[bot]` → GitHub Copilot · `sonarcloud[bot]` → SonarCloud · `github-actions[bot]` → CI · all others → human.
+`gemini-code-assist[bot]` → Gemini · `coderabbitai[bot]` → CodeRabbit · `copilot[bot]` → GitHub Copilot · `sonarcloud[bot]` → SonarCloud · `github-actions[bot]` → CI · all others → human. Vendor-API sources use their registry id as the reviewer (`sonarcloud`, `snyk`, `semgrep`) so `bot_false_positive_rate` tracks them.
 
 ## Deduplication
 
 When a review comment references the same file+line as a CI error, merge into one finding: keep the CI error message (more precise), retain the review comment's suggested fix if present.
+
+**Cross-source dedup:** the same issue often arrives from multiple sources (a Sonar issue posted both as a check annotation and via the vendor API). Merge findings with the same `(file, line, rule)` — or `(file, line, message)` when no rule id — into one, keeping the vendor `rule` and the most precise message. Count the merged finding once for that reviewer's `bot_false_positive_rate`.
 
 ## Idempotency (skip already-done work)
 

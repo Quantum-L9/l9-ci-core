@@ -6,7 +6,7 @@ role: finding_classifier
 tags: [pr, classification, triage, severity, validation-doctrine, confidence-gate]
 owner: igor_beylin
 status: active
-version: 3.2.0
+version: 3.3.0
 updated: 2026-07-13
 /L9_META -->
 
@@ -88,15 +88,24 @@ The gate is not a static `0.75` — it reads the `bot_false_positive_rate` drift
 - Apply only to bot reviewers; human suggestions are not down-weighted by this rule (authority order still puts human first).
 - This makes false-positive suppression **compound**: every explicit rejection (a `Disagree` reply) tightens the gate for that bot on future cycles instead of being a one-off.
 
+## Scanner Sources (SonarCloud, Snyk, Semgrep)
+
+Findings ingested from the multi-tool registry (`references/review-sources.md`) are classified by **precedence**, default:
+
+- **Quality-gate pass/fail → `blocking`.** A failing SonarCloud/Snyk quality gate is treated like a CI failure — it must be fixed or explicitly deferred to converge. (`gate_status: failed` from `summary.review_sources`.)
+- **Individual line issues → review-tier (`VALIDATE`).** A scanner's specific issues are validated against the current code, confidence-gated, and false-positive-rejectable — same as a bot comment. Scanners have false positives too; do not auto-trust.
+
+Per-source override via the registry `precedence` field (`gate_blocking | review_tier | gate_blocking_issues_review`). Scanner issues feed `bot_false_positive_rate` under their source id, so a noisy scanner tightens its own gate over time.
+
 ## Conflict Precedence
 
 When findings conflict on the same lines, resolve deterministically:
 
 ```text
-human > blocking(CI) > higher_confidence > more_recent
+human > blocking(CI or scanner gate) > higher_confidence > more_recent
 ```
 
-- CI requirement always beats a review suggestion (CI blocks merge).
+- CI requirement and a failing scanner **gate** beat a review suggestion (both block merge).
 - Two humans conflicting with no precedence → **DEFER** to user.
 
 ## Execution Priority

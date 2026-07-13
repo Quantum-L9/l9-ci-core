@@ -7,7 +7,7 @@ role: skill_entrypoint
 tags: [l9, pr, ci, code-review, recursive, remediation, review-resolver, github, convergence, exemplary]
 owner: igor_beylin
 status: active
-version: 3.2.0
+version: 3.3.0
 updated: 2026-07-13
 sources:
   - l9-pr-remediation@2.1.0 (skill)
@@ -32,6 +32,7 @@ This skill consolidates two predecessors into one control plane: the **CI conver
 | CI failures | GitHub Actions logs | `gh run view --log-failed` |
 | Review comments | PR review threads | `gh api …/pulls/{pr}/reviews` + `gh pr view --comments` |
 | Inline suggestions | PR diff comments | `gh api …/pulls/{pr}/comments` |
+| Scanner findings (full detail) | check-run annotations, code-scanning/SARIF, vendor APIs (SonarCloud, Snyk, Semgrep) | `references/review-sources.md` registry |
 | Thread resolution state | GraphQL `reviewThreads` | `gh api graphql` |
 | CI gate definitions | `.github/workflows/*.yml` + `package.json` | File read (gate discovery) |
 
@@ -48,6 +49,20 @@ This skill consolidates two predecessors into one control plane: the **CI conver
 | PR-level comment | `gh pr comment` | `add_issue_comment` | `POST …/issues/{n}/comments` |
 | Resolve a thread | `gh api graphql` (mutation) | `resolve_review_thread` | GraphQL `resolveReviewThread` |
 | Create deferred issue | `gh issue create` | `issue_write` | `POST /repos/{o}/{r}/issues` |
+
+**Secrets & CI wiring.** Vendor-scanner tokens are supplied as env vars, never stored in this pack. Add the token as a GitHub Actions **secret**, then expose it to the job — the skill reads it by name (`$SONAR_TOKEN`). Tier-1 GitHub-native sources need only the workflow token with `checks: read` + `security_events: read`.
+
+```yaml
+# .github/workflows/pr-remediation.yml (excerpt) — placeholders only, no real secret
+permissions: { contents: write, pull-requests: write, checks: read, security-events: read }
+jobs:
+  remediate:
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}   # set in repo Settings → Secrets → Actions
+      # SNYK_TOKEN / SEMGREP_APP_TOKEN: same pattern, only if enabling those sources
+```
+
+Full setup + token rotation: [references/review-sources.md](references/review-sources.md) §Setup & Secret Rotation.
 
 **Single ingress:** `SKILL.md` is the single control plane. Scope is normalized and validated once (Step 1), then routed to the per-PR loop; per-PR state is tracked independently and never shared across PRs. No module is entered except through this workflow.
 
@@ -110,6 +125,7 @@ Each step produces a required gate artifact (`references/enforcement-gates.md`).
 - [references/review-replies.md](references/review-replies.md) — canonical reply formats, thread resolution, deferred issues, batch summary, **machine-readable run report**, downstream leverage.
 - [references/convergence-loop.md](references/convergence-loop.md) — wait/poll/re-check, convergence gate, cycle tracking, stop conditions, configuration.
 - [references/enforcement-gates.md](references/enforcement-gates.md) — **runtime enforcement layer**: required proof-of-compliance artifact at each step; protocol-violation detection.
+- [references/review-sources.md](references/review-sources.md) — **multi-tool review-source registry**: GitHub-native (comments, check annotations, SARIF) + vendor APIs (SonarCloud, Snyk, Semgrep); fetch/normalize contract, precedence, env-var secret model, and SonarCloud setup + token rotation.
 - [schemas/run-report.schema.json](schemas/run-report.schema.json) — **canonical machine artifact**: the single normative shape for the gate artifacts, the per-PR run report, the convergence block, and the drift signals. The reference-doc snippets are non-normative views of this schema.
 - [scripts/validate_run_report.py](scripts/validate_run_report.py) — deterministic run validator: checks an emitted run report against the schema + cross-field hard invariants. `python3 scripts/validate_run_report.py <run-report.json>`.
 

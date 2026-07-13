@@ -98,11 +98,29 @@
           "type": "object",
           "description": "Per-reviewer false-positive rate = rejected / (applied + rejected) over this run. Drift signal read by the confidence-gate self-tuning rule.",
           "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "review_sources": {
+          "type": "array",
+          "description": "Which review-source registry entries ran this PR and each scanner's gate verdict. A skipped/unreachable source is recorded with queried:false and never blocks the run.",
+          "items": { "$ref": "#/$defs/ReviewSource" }
         }
       }
     }
   },
   "$defs": {
+    "ReviewSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "enabled", "queried"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "enabled": { "type": "boolean" },
+        "queried": { "type": "boolean" },
+        "gate_status": { "enum": ["passed", "failed", "none"] },
+        "issues_ingested": { "type": "integer", "minimum": 0 },
+        "skip_reason": { "type": "string" }
+      }
+    },
     "Sha": {
       "type": "string",
       "pattern": "^[0-9a-f]{7,40}$"
