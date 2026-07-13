@@ -1,0 +1,81 @@
+schema_version: "1.0"
+# Deterministic risk classification policy. Highest matching tier wins; a label
+# may raise but never lower path-derived risk; an unknown diff yields high risk.
+default_tier: standard
+tiers:
+  low:
+    rank: 10
+    description: Documentation-only or non-executable metadata changes.
+  standard:
+    rank: 20
+    description: Normal source, tests, schemas, or low-blast-radius changes.
+  high:
+    rank: 30
+    description: >
+      Workflow, dependency, security, release, executor, or trusted
+      runtime changes.
+  regulated:
+    rank: 40
+    description: >
+      Changes to promotion authority, policy ownership, audit controls,
+      evidence identity, or repository enforcement contracts.
+classification:
+  regulated:
+    any_paths:
+      - ".github/governance/gate-registry.yaml"
+      - ".github/governance/risk-tiers.yaml"
+      - ".github/governance/rule-modes*.yaml"
+      - ".github/governance/audit-policy.yml"
+      - ".github/rulesets/**"
+      - ".github/scripts/evaluate_ci_gate.py"
+      - "src/l9_ci_core/control_plane/evaluator.py"
+      - "schemas/promotion-decision.schema.json"
+    any_labels:
+      - "risk:regulated"
+      - "governance:override"
+  high:
+    any_paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - ".github/scripts/plan_gates.py"
+      - ".github/scripts/classify_risk.py"
+      - ".github/scripts/enrich_gate_result.py"
+      - ".github/scripts/normalize_event_context.py"
+      - ".github/scripts/collect_changed_files.py"
+      - "src/l9_ci_core/control_plane/**"
+      - "requirements/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "poetry.lock"
+      - ".gitleaks.toml"
+      - ".semgrep/**"
+      - "schemas/gate-*.schema.json"
+      - "schemas/event-context.schema.json"
+      - "schemas/risk-tiers.schema.json"
+    any_labels:
+      - "risk:high"
+      - "security-sensitive"
+  low:
+    all_paths:
+      - "docs/**"
+      - "**/*.md"
+      - "LICENSE"
+      - "NOTICE"
+    forbidden_paths:
+      - ".github/**"
+      - "requirements/**"
+      - "schemas/**"
+      - "src/**"
+      - "tests/**"
+fallback: standard
+precedence:
+  - regulated
+  - high
+  - standard
+  - low
+label_rules:
+  label_may_raise: true
+  label_may_lower: false
+unknown_diff_behavior:
+  risk_tier: high
+  classification_reason: unknown_diff_fail_closed

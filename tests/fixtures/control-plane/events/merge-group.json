@@ -1,0 +1,13 @@
+{
+  "event_name": "merge_group",
+  "repository": {
+    "full_name": "Quantum-L9/l9-ci-core"
+  },
+  "actor": "octocat",
+  "run_id": "456",
+  "run_attempt": 1,
+  "merge_group": {
+    "head_sha": "3333333333333333333333333333333333333333",
+    "base_sha": "4444444444444444444444444444444444444444"
+  }
+}

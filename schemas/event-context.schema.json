@@ -72,7 +72,14 @@
               "$ref": "#/$defs/sha"
             },
             "base_sha": {
-              "$ref": "#/$defs/sha"
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/sha"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           }
         }

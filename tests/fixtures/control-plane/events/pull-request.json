@@ -1,0 +1,23 @@
+{
+  "event_name": "pull_request",
+  "repository": {
+    "full_name": "Quantum-L9/l9-ci-core"
+  },
+  "actor": "octocat",
+  "run_id": "123",
+  "run_attempt": 1,
+  "pull_request": {
+    "number": 1,
+    "head": {
+      "sha": "1111111111111111111111111111111111111111"
+    },
+    "base": {
+      "sha": "2222222222222222222222222222222222222222"
+    },
+    "labels": [
+      {
+        "name": "risk:high"
+      }
+    ]
+  }
+}
