@@ -92,7 +92,10 @@ def test_release_publish_supports_pypi_token_fallback() -> None:
 
     text = (WORKFLOWS / "release-publish.yml").read_text(encoding="utf-8")
     assert "secrets.pypi-api-token" in text
-    assert "pypi-publish-mode == 'trusted-publisher'" in text
+    # The Trusted Publisher (OIDC) step is the default path: it runs whenever the
+    # mode is not api-token, so an unset mode (e.g. a workflow_dispatch run) still
+    # publishes instead of skipping both steps.
+    assert "pypi-publish-mode != 'api-token'" in text
     assert "pypi-publish-mode == 'api-token'" in text
 
 
