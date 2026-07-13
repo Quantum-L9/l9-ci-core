@@ -1,7 +1,6 @@
 from __future__ import annotations
-import json, shutil, sys
+import json, shutil
 from pathlib import Path
-import pytest
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "action-pins"
 import validate_action_pins as vap
 

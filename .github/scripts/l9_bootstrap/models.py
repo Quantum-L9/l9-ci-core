@@ -1,6 +1,5 @@
 from __future__ import annotations
 import dataclasses, enum
-from typing import Any
 
 
 class ResultStatus(str, enum.Enum):

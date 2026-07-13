@@ -266,8 +266,13 @@ def run(root, output_json, fmt, quiet):
     if result.result == ResultStatus.passed:
         result.finalize(); exit_code = 0
     else:
-        try: result.finalize()
-        except ValueError: pass
+        try:
+            result.finalize()
+        except ValueError:
+            # finalize() may raise when the result carries no recorded findings
+            # yet is not in the passed state; the exit code is derived directly
+            # from result.result below, so this is intentionally ignored.
+            pass
         exit_code = 1 if result.result == ResultStatus.failed else 2
     return _emit(result, output_json, fmt, quiet, exit_code)
 

@@ -18,8 +18,13 @@ def write_json(data: Any, path) -> None:
             fh.write(payload)
         os.replace(tmp, dest)
     except Exception:
-        try: os.unlink(tmp)
-        except OSError: pass
+        try:
+            os.unlink(tmp)
+        except OSError:
+            # Best-effort cleanup of the temp file: if unlink fails (already
+            # gone, or filesystem error) there is nothing further we can do,
+            # so swallow it and re-raise the original write/replace error below.
+            pass
         raise
 
 

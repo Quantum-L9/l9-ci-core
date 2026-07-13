@@ -1,7 +1,6 @@
 from __future__ import annotations
-import json, os, shutil, subprocess
+import json, shutil, subprocess
 from pathlib import Path
-import pytest
 import validate_ci_dependencies as vcd
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "ci-dependencies"
 FAKE_HASH = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
