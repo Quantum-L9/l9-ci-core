@@ -25,10 +25,10 @@ jobs:
       security-events: write
       pull-requests: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
       - name: Configure private SDK access
@@ -54,13 +54,13 @@ jobs:
           # caller doesn't already ship them (only install when missing).
           command -v pip-audit >/dev/null 2>&1 || pip install pip-audit
           command -v bandit >/dev/null 2>&1 || pip install bandit
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
       - run: pip-audit --desc
       - run: bandit -r "${{ inputs.source-dir }}" -ll -f screen --exclude ./venv,./.venv,./tests,./build,./dist || echo "Bandit warnings are non-blocking"
       - if: github.event_name == 'pull_request'
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48  # v4.9.0
         with:
           fail-on-severity: high
