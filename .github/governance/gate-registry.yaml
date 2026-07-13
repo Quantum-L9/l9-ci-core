@@ -1,0 +1,137 @@
+schema_version: "1.0"
+# Authoritative registry of L9 CI gates. The registry — not workflow YAML — is
+# the source of truth for gate identity, owner layer, executor/result adapter,
+# enforcement mode, applicable risk tiers, path selectors, always-run behavior,
+# timeout, cost class, evidence requirement, and lifecycle state.
+#
+# PR-B2 registers the four stable PR-A bootstrap gates. The generic executor
+# (later PR) invokes only the allowlisted command_key; raw commands are never
+# read from this file.
+registry:
+  id: l9-ci-core-gates
+  owner: l9_ci_core
+  default_mode: blocking
+gates:
+  workflow/action-pins:
+    display_name: Immutable action references
+    description: >
+      Verifies that remote Actions, reusable workflows, and container
+      actions use immutable commit or image-digest references.
+    owner_layer: l9_policy_runtime
+    executor:
+      type: local_cli
+      command_key: validate_action_pins
+    result_adapter: bootstrap_v1
+    base_result_schema: schemas/bootstrap-gate-result.schema.json
+    canonical_result_schema: schemas/gate-result.schema.json
+    mode: blocking
+    risk_tiers: [low, standard, high, regulated]
+    selection:
+      always_run: false
+      paths:
+        - ".github/workflows/**"
+        - ".github/actions/**"
+        - ".github/governance/action-pins.lock.json"
+        - ".github/scripts/validate_action_pins.py"
+        - ".github/scripts/l9_bootstrap/**"
+        - "schemas/bootstrap-gate-result.schema.json"
+    timeout_minutes: 3
+    cost_class: cheap
+    evidence_required: true
+    local_cli_compatible: true
+    lifecycle:
+      status: active
+      warn_since: null
+      auto_retire_after_days: null
+  workflow/download-integrity:
+    display_name: Direct download integrity
+    description: >
+      Verifies registered downloads, immutable URLs, checksum validation,
+      and checksum-before-execution ordering.
+    owner_layer: l9_policy_runtime
+    executor:
+      type: local_cli
+      command_key: validate_download_integrity
+    result_adapter: bootstrap_v1
+    base_result_schema: schemas/bootstrap-gate-result.schema.json
+    canonical_result_schema: schemas/gate-result.schema.json
+    mode: blocking
+    risk_tiers: [low, standard, high, regulated]
+    selection:
+      always_run: false
+      paths:
+        - ".github/workflows/**"
+        - ".github/governance/download-integrity.yaml"
+        - ".github/scripts/validate_download_integrity.py"
+        - ".github/scripts/l9_bootstrap/**"
+    timeout_minutes: 3
+    cost_class: cheap
+    evidence_required: true
+    local_cli_compatible: true
+    lifecycle:
+      status: active
+      warn_since: null
+      auto_retire_after_days: null
+  dependencies/ci-lock:
+    display_name: CI dependency lock integrity
+    description: >
+      Verifies required CI dependency installation uses exact-version,
+      hash-locked profiles or explicitly approved compatibility forms.
+    owner_layer: l9_policy_runtime
+    executor:
+      type: local_cli
+      command_key: validate_ci_dependencies
+    result_adapter: bootstrap_v1
+    base_result_schema: schemas/bootstrap-gate-result.schema.json
+    canonical_result_schema: schemas/gate-result.schema.json
+    mode: blocking
+    risk_tiers: [low, standard, high, regulated]
+    selection:
+      always_run: false
+      paths:
+        - ".github/workflows/**"
+        - "requirements/**"
+        - "requirements*.txt"
+        - "pyproject.toml"
+        - "uv.lock"
+        - "poetry.lock"
+        - ".github/governance/ci-dependency-exceptions.yaml"
+        - ".github/scripts/validate_ci_dependencies.py"
+    timeout_minutes: 3
+    cost_class: cheap
+    evidence_required: true
+    local_cli_compatible: true
+    lifecycle:
+      status: active
+      warn_since: null
+      auto_retire_after_days: null
+  workflow/contracts:
+    display_name: Workflow contract integrity
+    description: >
+      Verifies reusable workflow interfaces, bootstrap evidence behavior,
+      workflow structure, permissions, timeouts, and shell safety.
+    owner_layer: l9_assurance
+    executor:
+      type: local_cli
+      command_key: validate_workflow_contracts
+    result_adapter: bootstrap_v1
+    base_result_schema: schemas/bootstrap-gate-result.schema.json
+    canonical_result_schema: schemas/gate-result.schema.json
+    mode: blocking
+    risk_tiers: [low, standard, high, regulated]
+    selection:
+      always_run: true
+      paths:
+        - ".github/workflows/**"
+        - "tests/fixtures/workflow-contracts/**"
+        - ".github/governance/workflow-contract-debt.yaml"
+        - ".github/scripts/validate_workflow_contracts.py"
+        - ".github/scripts/l9_bootstrap/**"
+    timeout_minutes: 5
+    cost_class: cheap
+    evidence_required: true
+    local_cli_compatible: true
+    lifecycle:
+      status: active
+      warn_since: null
+      auto_retire_after_days: null
