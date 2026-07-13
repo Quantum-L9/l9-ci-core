@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9.github.io/l9-ci-core/schemas/event-context.schema.json",
+  "title": "L9 Event Context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository",
+    "event_type",
+    "subject_sha",
+    "base_sha",
+    "pull_request_numbers",
+    "merge_group",
+    "labels",
+    "labels_known",
+    "actor",
+    "run_id",
+    "run_attempt"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$"
+    },
+    "event_type": {
+      "enum": [
+        "pull_request",
+        "merge_group",
+        "push",
+        "workflow_dispatch"
+      ]
+    },
+    "subject_sha": {
+      "$ref": "#/$defs/sha"
+    },
+    "base_sha": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pull_request_numbers": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "uniqueItems": true
+    },
+    "merge_group": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "head_sha",
+            "base_sha"
+          ],
+          "properties": {
+            "head_sha": {
+              "$ref": "#/$defs/sha"
+            },
+            "base_sha": {
+              "$ref": "#/$defs/sha"
+            }
+          }
+        }
+      ]
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "labels_known": {
+      "type": "boolean"
+    },
+    "actor": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "run_attempt": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    }
+  }
+}

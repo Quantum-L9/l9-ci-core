@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9.github.io/l9-ci-core/schemas/gate-plan.schema.json",
+  "title": "L9 Gate Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository",
+    "subject_sha",
+    "base_sha",
+    "risk",
+    "registry",
+    "risk_policy",
+    "rule_modes",
+    "selected",
+    "not_selected",
+    "legacy_requirements",
+    "plan_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$"
+    },
+    "subject_sha": {
+      "$ref": "#/$defs/sha"
+    },
+    "base_sha": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "risk_tier",
+        "rank",
+        "reasons",
+        "unknown_diff"
+      ],
+      "properties": {
+        "risk_tier": {
+          "$ref": "#/$defs/tier"
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unknown_diff": {
+          "type": "boolean"
+        }
+      }
+    },
+    "registry": {
+      "$ref": "#/$defs/policyRef"
+    },
+    "risk_policy": {
+      "$ref": "#/$defs/policyRef"
+    },
+    "rule_modes": {
+      "$ref": "#/$defs/policyRef"
+    },
+    "selected": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/selectedGate"
+      }
+    },
+    "not_selected": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/notSelectedGate"
+      }
+    },
+    "legacy_requirements": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "plan_digest": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "tier": {
+      "enum": [
+        "low",
+        "standard",
+        "high",
+        "regulated"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "blocking",
+        "advisory",
+        "shadow",
+        "disabled"
+      ]
+    },
+    "policyRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "source_digest",
+        "semantic_digest"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "semantic_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "selectedGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_id",
+        "command_key",
+        "owner_layer",
+        "mode",
+        "timeout_minutes",
+        "reason"
+      ],
+      "properties": {
+        "gate_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "command_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner_layer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "$ref": "#/$defs/mode"
+        },
+        "timeout_minutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cost_class": {
+          "type": "string"
+        },
+        "evidence_required": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "notSelectedGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_id",
+        "reason"
+      ],
+      "properties": {
+        "gate_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

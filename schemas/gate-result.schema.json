@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9.github.io/l9-ci-core/schemas/gate-result.schema.json",
+  "title": "L9 Canonical Gate Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "identity",
+    "subject",
+    "policy",
+    "execution",
+    "outcome",
+    "base_result",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_id",
+        "owner_layer",
+        "mode"
+      ],
+      "properties": {
+        "gate_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner_layer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "enum": [
+            "blocking",
+            "advisory",
+            "shadow",
+            "disabled"
+          ]
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "subject_sha",
+        "base_sha",
+        "event_type"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[^/]+/[^/]+$"
+        },
+        "subject_sha": {
+          "$ref": "#/$defs/sha"
+        },
+        "base_sha": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event_type": {
+          "enum": [
+            "pull_request",
+            "merge_group",
+            "push",
+            "workflow_dispatch"
+          ]
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_registry_digest",
+        "risk_policy_digest",
+        "rule_modes_digest",
+        "gate_plan_digest"
+      ],
+      "properties": {
+        "gate_registry_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "risk_policy_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "rule_modes_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "gate_plan_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executor",
+        "run_id",
+        "run_attempt",
+        "job_id",
+        "started_at",
+        "completed_at",
+        "duration_ms",
+        "tool"
+      ],
+      "properties": {
+        "executor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "run_attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "job_id": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "version"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result",
+        "violations",
+        "warnings",
+        "metadata"
+      ],
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/resultStatus"
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
+        },
+        "metadata": {
+          "type": "object"
+        }
+      }
+    },
+    "base_result": {
+      "$ref": "#/$defs/baseResult"
+    },
+    "content_hash": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "resultStatus": {
+      "enum": [
+        "passed",
+        "failed",
+        "error"
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reference": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object"
+        }
+      }
+    },
+    "baseResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "gate_id",
+        "result",
+        "violations",
+        "warnings",
+        "metadata"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.0"
+        },
+        "gate_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "$ref": "#/$defs/resultStatus"
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
+        },
+        "metadata": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

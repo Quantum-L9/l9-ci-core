@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "l9-ci-core"
 version = "1.0.0"
-description = "L9 bootstrap security gate validators"
+description = "L9 bootstrap security gate validators and declarative CI control plane"
 requires-python = ">=3.11"
 dependencies = [
     "ruamel.yaml>=0.18,<0.19",
@@ -14,6 +14,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+
+# src-layout package: installed with `python -m pip install --no-deps -e .`
+# so `import l9_ci_core.control_plane` resolves without any sys.path shims.
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

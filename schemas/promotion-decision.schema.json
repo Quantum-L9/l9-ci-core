@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9.github.io/l9-ci-core/schemas/promotion-decision.schema.json",
+  "title": "L9 Promotion Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "subject",
+    "risk_tier",
+    "decision",
+    "merge_meaning",
+    "policy",
+    "required",
+    "advisory",
+    "shadow",
+    "legacy_required",
+    "not_selected",
+    "missing_results",
+    "unexpected_results",
+    "control_plane_errors",
+    "decision_hash"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "subject_sha",
+        "base_sha",
+        "event_type"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[^/]+/[^/]+$"
+        },
+        "subject_sha": {
+          "$ref": "#/$defs/sha"
+        },
+        "base_sha": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event_type": {
+          "enum": [
+            "pull_request",
+            "merge_group",
+            "push",
+            "workflow_dispatch"
+          ]
+        }
+      }
+    },
+    "risk_tier": {
+      "enum": [
+        "low",
+        "standard",
+        "high",
+        "regulated"
+      ]
+    },
+    "decision": {
+      "enum": [
+        "passed",
+        "blocked"
+      ]
+    },
+    "merge_meaning": {
+      "enum": [
+        "all_required_gates_passed",
+        "required_gate_failed",
+        "legacy_required_job_failed",
+        "control_plane_failure"
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_registry_digest",
+        "risk_policy_digest",
+        "rule_modes_digest",
+        "gate_plan_digest"
+      ],
+      "properties": {
+        "gate_registry_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "risk_policy_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "rule_modes_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "gate_plan_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "required": {
+      "$ref": "#/$defs/verdictList"
+    },
+    "advisory": {
+      "$ref": "#/$defs/verdictList"
+    },
+    "shadow": {
+      "$ref": "#/$defs/verdictList"
+    },
+    "legacy_required": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "job",
+          "state"
+        ],
+        "properties": {
+          "job": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "not_selected": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "missing_results": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "unexpected_results": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "control_plane_errors": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "decision_hash": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "verdictList": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gate_id",
+          "state"
+        ],
+        "properties": {
+          "gate_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

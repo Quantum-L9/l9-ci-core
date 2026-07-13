@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9.github.io/l9-ci-core/schemas/control-plane-migration.schema.json",
+  "title": "L9 Control-Plane Migration Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "migration_id",
+    "subject",
+    "before",
+    "after",
+    "reason",
+    "owner",
+    "tracking_issue"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "migration_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject": {
+      "type": "string",
+      "minLength": 1
+    },
+    "before": {
+      "type": "string",
+      "minLength": 1
+    },
+    "after": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 10
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tracking_issue": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
