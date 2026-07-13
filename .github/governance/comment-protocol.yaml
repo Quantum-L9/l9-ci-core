@@ -1,0 +1,43 @@
+# --- L9_META ---
+# l9_schema: 1
+# origin: l9-ci-core
+# engine: platform
+# layer: [ci, governance, comment-protocol]
+# tags: [L9_CI, comment-protocol, markers, agent-review-loop]
+# owner: platform
+# status: active
+# --- /L9_META ---
+#
+# Canonical PR comment protocol (L9 CI Kernel). Persistent comments are
+# update-safe governance state, addressed by a stable marker, never duplicated.
+version: 1
+principle: "Persistent comments are update-safe governance state."
+required_marker_format: "<!-- l9-{agent_id}-marker: v{version} -->"
+
+markers:
+  ci_summary: "<!-- l9-ci-summary-marker: v1 -->"
+  audit: "<!-- l9-audit-marker: v1 -->"
+  contract_control: "<!-- l9-contract-control-marker: v1 -->"
+  constitution: "<!-- l9-constitution-marker: v1 -->"
+  security: "<!-- l9-security-marker: v1 -->"
+  agent_review: "<!-- l9-agent-review-marker: v1 -->"
+
+update_rule:
+  - search_existing_comment_by_exact_marker
+  - update_existing_comment
+  - create_only_if_marker_absent
+  - never_match_by_vague_title
+  - never_create_duplicate_persistent_comments
+
+comment_limits:
+  github_limit_chars: 65536
+  required_buffer_chars: 200
+  max_comment_chars: 65336
+  max_line_chars: 500
+  truncation_required: true
+
+large_reports:
+  strategy:
+    - summarize_in_comment
+    - upload_artifact
+    - link_artifact

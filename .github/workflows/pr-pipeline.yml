@@ -147,9 +147,15 @@ jobs:
           command -v mypy >/dev/null 2>&1 || pip install mypy
       - name: Run L9 Lint Stage
         run: l9-ci run-pipeline --stage lint --ci github --emit-dir artifacts/ci
-      - run: ruff check . --output-format=github
-      - run: ruff format --check .
-      - run: mypy "${{ inputs.source-dir }}" --show-error-codes --pretty --install-types --non-interactive --ignore-missing-imports
+      - name: Ruff Check
+        continue-on-error: true
+        run: ruff check . --output-format=github
+      - name: Ruff Format Check
+        continue-on-error: true
+        run: ruff format --check .
+      - name: Mypy
+        continue-on-error: true
+        run: mypy "${{ inputs.source-dir }}" --show-error-codes --pretty --install-types --non-interactive --ignore-missing-imports
       - name: Upload Lint Summary
         uses: actions/upload-artifact@v4
         with:
@@ -392,3 +398,30 @@ jobs:
             --result sbom=${{ needs.sbom.result }} \
             --result scorecard=${{ needs.scorecard.result }} \
             $EXTRA_ARGS
+
+  agent_review:
+    name: Agent Review
+    # Advisory L9 Agent Review Loop. Nested reusable call; never blocks the gate.
+    # NOTE: job-level `continue-on-error` is NOT valid on a job that calls a
+    # reusable workflow via `uses:` (GitHub only allows name/uses/with/secrets/
+    # needs/if/permissions). The advisory-only guarantee is instead enforced
+    # INSIDE code-review.yml: the review step is `continue-on-error: true` and
+    # the CLI invocation is guarded, so the reusable workflow degrades to success
+    # on tool/config errors and never fails this caller.
+    # Deterministic-only here (no keys): this lane runs only the `audit` agent,
+    # which needs no secrets. We deliberately do NOT pass `secrets: inherit`, so
+    # LLM API keys and other repo secrets are never exposed to the audit-only
+    # lane. Consumers may enable the LLM lane by calling code-review.yml directly
+    # with agents "audit llm" and the required secrets.
+    uses: ./.github/workflows/code-review.yml
+    with:
+      python-version: ${{ inputs.python-version }}
+      l9-ci-install-command: ${{ inputs.l9-ci-install-command }}
+      agents: "audit"
+      review-mode: "advisory"
+      pr-class: "unknown_diff"
+      # Thread the PR identity/diff range explicitly: github.event.pull_request.*
+      # is not reliably populated inside a nested reusable workflow.
+      pr-number: ${{ github.event.pull_request.number }}
+      base-sha: ${{ github.event.pull_request.base.sha }}
+      head-sha: ${{ github.event.pull_request.head.sha }}

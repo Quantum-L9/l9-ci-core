@@ -1,0 +1,51 @@
+# --- L9_META ---
+# l9_schema: 1
+# origin: l9-ci-core
+# engine: platform
+# layer: [ci, governance, blocking-policy]
+# tags: [L9_CI, blocking-policy, finding-policy, agent-review-loop]
+# owner: platform
+# status: active
+# --- /L9_META ---
+#
+# Blocking vs advisory finding policy (L9 CI Kernel). Determines which findings
+# hard-block a PR when touched, which stay advisory, which must never be hidden,
+# and which fail closed. Extended with review-agent promotion controls.
+version: 1
+
+hard_block_if_touched:
+  - secret_leak
+  - sql_injection
+  - auth_bypass
+  - security_boundary_weakening
+  - chassis_isolation_violation
+  - transport_packet_contract_break
+  - runtime_attestation_break
+  - contract_bound_change_without_contract_update
+  - malformed_governance_baseline
+  - unknown_high_or_critical_security_finding
+
+advisory_if_untouched:
+  - inherited_flatcase_findings
+  - inherited_docstring_findings
+  - inherited_architecture_smells
+  - historical_non_touched_high_findings
+  - low_risk_maintainability_issues
+
+never_hide:
+  - security_findings
+  - secret_findings
+  - contract_violations
+  - runtime_attestation_failures
+  - dependency_auth_failures
+
+fail_closed:
+  - diff_unknown
+  - malformed_baseline
+  - classifier_failure
+  - missing_required_ci_context
+
+# Agent Review Loop promotion. Review-agent findings are advisory-only until a
+# rule_id is explicitly promoted here (kernel: "no new governance semantics
+# without updating the kernel"). Empty = the review loop can never block a merge.
+review_blocking_promotions: []

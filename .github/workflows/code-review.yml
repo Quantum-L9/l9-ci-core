@@ -1,0 +1,243 @@
+# --- L9_META ---
+# l9_schema: 1
+# origin: l9-ci-core
+# engine: platform
+# layer: [ci, agent-review-loop]
+# tags: [L9_CI, agent-review-loop, gated-review, llm-router, advisory]
+# owner: platform
+# status: active
+# --- /L9_META ---
+#
+# L9 Agent Review Loop (reusable). Gated multi-agent code review: the l9-ci SDK
+# runs the selected review agents (deterministic audit + optional LLM reviewer),
+# choosing the LLM model per PR class via @quantum-l9/llm-router. ADVISORY-ONLY —
+# it never fails the build and has no merge authority (the PR Pipeline Gate is
+# the merge authority). Findings are posted as ONE idempotent comment under the
+# stable marker and uploaded as an artifact for PR_Repair.
+
+name: L9 Agent Review
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: "3.12"
+      l9-ci-install-command:
+        required: false
+        type: string
+        default: 'pip install "l9-ci"'
+      pr-class:
+        required: false
+        type: string
+        default: "unknown_diff"
+      agents:
+        description: "Space-separated review agents (e.g. 'audit llm')."
+        required: false
+        type: string
+        default: "audit"
+      review-mode:
+        description: "shadow | advisory (blocking requires blocking-policy promotion)."
+        required: false
+        type: string
+        default: "advisory"
+      pr-number:
+        description: "PR number the review targets. Pass explicitly from the caller: github.event.pull_request.number is empty when this workflow is invoked via workflow_call, which would otherwise skip the comment step."
+        required: false
+        type: string
+        default: ""
+      base-sha:
+        description: "Base commit SHA for the diff. Pass explicitly from the caller: github.event.pull_request.base.sha is empty in workflow_call, which forces a wrong HEAD~1 fallback for multi-commit PRs."
+        required: false
+        type: string
+        default: ""
+      head-sha:
+        description: "Head commit SHA for the diff. Pass explicitly from the caller: github.event.pull_request.head.sha is empty in workflow_call."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: l9-agent-review-${{ inputs.pr-number || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  agent-review:
+    name: Agent Review (advisory)
+    runs-on: ubuntu-latest
+    # Advisory loop: never blocks the merge. Same-repo only (needs no fork secrets
+    # for the deterministic lane; the LLM lane self-guards on missing keys).
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install l9-ci SDK
+        run: |
+          python -m pip install --upgrade pip
+          ${{ inputs.l9-ci-install-command }}
+
+      - name: Compute changed files and diff
+        id: diff
+        env:
+          # Prefer the explicit inputs (populated by the caller); fall back to the
+          # event payload for a direct pull_request trigger. Only when neither is
+          # available do we drop to the approximate HEAD~1 diff.
+          BASE: ${{ inputs.base-sha || github.event.pull_request.base.sha }}
+          HEAD: ${{ inputs.head-sha || github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p artifacts
+          if [ -n "$BASE" ] && [ -n "$HEAD" ]; then
+            git diff --name-only "$BASE" "$HEAD" > artifacts/changed_files.txt || true
+            git diff "$BASE" "$HEAD" > artifacts/pr_diff.txt || true
+          else
+            git diff --name-only HEAD~1...HEAD > artifacts/changed_files.txt || true
+            git diff HEAD~1...HEAD > artifacts/pr_diff.txt || true
+          fi
+          echo "changed=$(wc -l < artifacts/changed_files.txt || echo 0)" >> "$GITHUB_OUTPUT"
+
+      - name: Run L9 review agents (advisory)
+        # Advisory-only: a transient install/runtime error, router import error,
+        # or CLI bug must never fail this job (and therefore the caller). Marked
+        # continue-on-error so tool/config failures degrade gracefully; the PR
+        # Pipeline Gate remains the sole merge authority.
+        continue-on-error: true
+        env:
+          # LLM lane self-guards: absent keys ⇒ Null client, no findings.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+          # Pass free-form workflow_call inputs via env (never interpolated into
+          # the shell command line) so a caller cannot smuggle extra CLI flags.
+          AGENTS_INPUT: ${{ inputs.agents }}
+          REVIEW_MODE_INPUT: ${{ inputs.review-mode }}
+          PR_CLASS_INPUT: ${{ inputs.pr-class }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # Validate review-mode against a strict allowlist. Only advisory/shadow
+          # are permitted; anything else (including a value carrying a smuggled
+          # blocking flag) is rejected. This step is ADVISORY-ONLY and must never
+          # gain merge authority via a free-form workflow_call input.
+          case "$REVIEW_MODE_INPUT" in
+            advisory|shadow) ;;
+            *)
+              echo "::error::Invalid review-mode '$REVIEW_MODE_INPUT' (allowed: advisory, shadow)."
+              exit 1
+              ;;
+          esac
+
+          # Build argv as a bash array so every token is a single, quoted element:
+          # no unquoted expansion ⇒ no word-splitting, globbing, or flag injection.
+          args=(review --root .)
+          args+=(--pr-class "$PR_CLASS_INPUT")
+
+          # Validate each agent name (identifier-like only) before it becomes an
+          # argv token, so the space-separated list cannot carry extra flags.
+          for a in $AGENTS_INPUT; do
+            if [[ "$a" =~ ^[A-Za-z0-9_-]+$ ]]; then
+              args+=(--agent "$a")
+              args+=(--agent-mode "$a=$REVIEW_MODE_INPUT")
+            else
+              echo "::error::Invalid agent name '$a' (allowed: [A-Za-z0-9_-])."
+              exit 1
+            fi
+          done
+
+          args+=(--changed-files-file artifacts/changed_files.txt)
+          args+=(--diff-path artifacts/pr_diff.txt)
+          args+=(--file-mode git_tracked)
+          args+=(--trace-id "$RUN_ID")
+          args+=(--emit-json artifacts/agent_review_report.json)
+          args+=(--emit-comment artifacts/agent_review_comment.md)
+
+          # Advisory: the strict flag is intentionally omitted, so this step
+          # never fails the build (the PR Pipeline Gate is the merge authority).
+          # Guard the CLI invocation: any non-zero exit (transient install error,
+          # router import failure, CLI bug) is treated as non-fatal. When the CLI
+          # fails to emit a comment artifact, write a minimal degraded-notice so
+          # downstream steps always have a file to read.
+          if ! l9-ci "${args[@]}"; then
+            echo "::warning::l9-ci review exited non-zero; emitting degraded advisory notice."
+            if [ ! -f artifacts/agent_review_comment.md ]; then
+              {
+                echo '<!-- l9-agent-review-marker: v1 -->'
+                echo '## L9 Agent Review (advisory)'
+                echo
+                echo '_The advisory review agent could not complete this run'
+                echo '(tool or configuration error). This is non-blocking; the PR'
+                echo 'Pipeline Gate remains the merge authority._'
+              } > artifacts/agent_review_comment.md
+            fi
+          fi
+
+      - name: Upload review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-review-report
+          path: |
+            artifacts/agent_review_report.json
+            artifacts/agent_review_comment.md
+          if-no-files-found: warn
+
+      - name: Post or update the agent-review comment
+        if: ${{ inputs.pr-number || github.event.pull_request.number }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'artifacts/agent_review_comment.md';
+            // Guard: if the review step failed to emit the comment artifact,
+            // skip cleanly instead of throwing (which would fail this job).
+            if (!fs.existsSync(path)) {
+              core.warning(`${path} not found; skipping comment update (advisory).`);
+              return;
+            }
+            const marker = '<!-- l9-agent-review-marker: v1 -->';
+            let body = fs.readFileSync(path, 'utf8');
+            // Enforce GitHub's ~65536-char comment cap so an oversized body can't
+            // fail the API call.
+            const MAX = 65000;
+            if (body.length > MAX) {
+              body = body.slice(0, MAX) + '\n\n_...truncated; see the agent-review artifact._\n';
+            }
+            // Prefer the explicit pr-number input (set by the caller); fall back to
+            // the event context for a direct pull_request trigger.
+            const prNumber = Number('${{ inputs.pr-number }}') || context.issue.number;
+            // Paginate through ALL comments (default page size is 30): if the
+            // marker comment is older than the first page we must still find it,
+            // otherwise we'd create a duplicate and violate comment-protocol.
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: prNumber, per_page: 100,
+            });
+            // Only update a comment that (a) is authored by the github-actions bot
+            // and (b) STARTS WITH the marker. `includes` on any author could match
+            // a human comment that merely quotes the marker and overwrite it.
+            const existing = comments.find(c =>
+              c.user && c.user.login === 'github-actions[bot]' &&
+              c.body && c.body.startsWith(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: prNumber, body,
+              });
+            }
