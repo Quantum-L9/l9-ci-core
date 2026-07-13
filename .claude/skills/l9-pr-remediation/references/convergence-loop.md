@@ -6,7 +6,7 @@ role: convergence_loop
 tags: [pr, convergence, loop, polling, ci, local-verify, stop-conditions]
 owner: igor_beylin
 status: active
-version: 3.0.0
+version: 3.1.0
 updated: 2026-07-13
 /L9_META -->
 
@@ -107,14 +107,4 @@ minimum_safe_next_action: "merge" | "manual review of deferred items" | "run ano
 
 ## Configuration
 
-```yaml
-max_cycles: 3
-confidence_gate: 0.75
-poll_interval_seconds: 45
-max_wait_per_cycle_minutes: 10
-max_local_verify_iterations: 5
-auto_fix_nits: false
-skip_bot_discussions: true
-parallel_triage_threshold: 3
-branch_policy: push_to_head   # or follow_up_pr
-```
+Canonical defaults live in `SKILL.md` §Configuration (single source of truth — do not restate values here to avoid drift). Loop-relevant keys consumed by this reference: `max_cycles`, `poll_interval_seconds`, `max_wait_per_cycle_minutes`, `max_local_verify_iterations`. All are user-overridable.

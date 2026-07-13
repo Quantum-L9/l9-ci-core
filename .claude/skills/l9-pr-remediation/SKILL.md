@@ -7,7 +7,7 @@ role: skill_entrypoint
 tags: [l9, pr, ci, code-review, recursive, remediation, review-resolver, github, convergence, exemplary]
 owner: igor_beylin
 status: active
-version: 3.0.0
+version: 3.1.0
 updated: 2026-07-13
 sources:
   - l9-pr-remediation@2.1.0 (skill)
@@ -34,6 +34,10 @@ This skill consolidates two predecessors into one control plane: the **CI conver
 | Inline suggestions | PR diff comments | `gh api …/pulls/{pr}/comments` |
 | Thread resolution state | GraphQL `reviewThreads` | `gh api graphql` |
 | CI gate definitions | `.github/workflows/*.yml` + `package.json` | File read (gate discovery) |
+
+**Tooling portability:** commands are shown with the `gh` CLI for concreteness, but the *operation* is the contract, not the CLI. In an environment without `gh` (e.g. GitHub MCP tools or the REST/GraphQL API directly), use the equivalent operation — list PRs, read failed-run logs, fetch/reply/resolve review threads, create issues. Do not treat a missing `gh` binary as a blocker.
+
+**Single ingress:** `SKILL.md` is the single control plane. Scope is normalized and validated once (Step 1), then routed to the per-PR loop; per-PR state is tracked independently and never shared across PRs. No module is entered except through this workflow.
 
 | Output | Condition |
 |--------|-----------|
@@ -81,7 +85,7 @@ Each step produces a required gate artifact (`references/enforcement-gates.md`).
 4. **Classify & validate** — `references/finding-classifier.md`. Route CI failures by type; classify review comments `AUTO_APPLY | VALIDATE | DEFER | IGNORE`; validate each against current code; score confidence; reject false positives with reasons. → **Gate B.**
 5. **Apply ALL accepted fixes** — `references/fix-engine.md`. Fix blocking CI items + accepted review items; skip discussion/deferred; do NOT commit yet. → **Gate C** (`git diff --stat`).
 6. **Local verify (BLOCKING GATE)** — run EVERY CI gate command locally; on any failure, fix and re-run ALL gates (max 5 iterations); proceed only when fully green. → **Gate D** (all exit codes 0).
-7. **Commit & push (ONCE)** — single conventional commit, single push to the PR head branch. → **Gate E** (commit SHA, push count = 1).
+7. **Commit & push (ONCE)** — single conventional commit, single push to the PR head branch (or, when `branch_policy: follow_up_pr`, open one follow-up PR targeting the original branch). → **Gate E** (commit SHA, push count = 1).
 8. **Reply & resolve** — `references/review-replies.md`. Canonical reply on every thread (Fixed/Deferred/Acknowledged/Disagreed), create deferred issues, resolve all threads, post batch summary. → **Gate F.**
 9. **Wait & confirm** — `references/convergence-loop.md`. Poll CI to completion; check for new comments after push; if new actionable signals → loop to step 3; if CI green AND none → converge.
 10. **Report** — emit the machine-readable run report (per PR) + convergence block. → **Gate G.**
