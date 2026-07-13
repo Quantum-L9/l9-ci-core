@@ -1,0 +1,131 @@
+# --- L9_META ---
+# origin: l9-ci-enablement (adapted for l9-ci-core)
+# layer: [ci, implementer, handoff]
+# tags: [pr-repair, implementer-bot, payload-source, proposal-only]
+# owner: platform
+# status: active
+# --- /L9_META ---
+#
+# L9 Implementer handoff — PAYLOAD SOURCE ONLY.
+#
+# The Implementer Bot lives in Quantum-L9/PR_Repair and is NOT vendored here.
+# This workflow emits agent_review_payload.json (installing the l9-ci SDK via
+# L9_CI_INSTALL_SPEC, since this repo is not the SDK) and optionally notifies
+# PR_Repair. It never applies fixes, never pushes, never merges. Manual only.
+
+name: PR Repair (handoff to PR_Repair)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number the payload describes (for the handoff event)."
+        required: false
+        type: string
+      dispatch:
+        description: "Notify Quantum-L9/PR_Repair that a payload is ready (requires L9_IMPLEMENTER_BOT_TOKEN)."
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-repair-${{ github.event.inputs.pr_number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  emit-and-handoff:
+    name: Emit payload, hand off to PR_Repair
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Preflight — governance doc
+        run: |
+          if [ ! -f AGENT.md ]; then
+            echo "::error::AGENT.md is required by the L9 Implementer contract but is missing."
+            exit 1
+          fi
+
+      - name: Preflight — l9-ci install spec
+        env:
+          SPEC: ${{ vars.L9_CI_INSTALL_SPEC }}
+        run: |
+          if [ -z "$SPEC" ]; then
+            echo "::error::L9_CI_INSTALL_SPEC is not set. This repo is not the SDK; set the pip spec for l9-ci (e.g. git+https://github.com/Quantum-L9/l9-ci-sdk.git@v0.1.0)."
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install l9-ci (via install spec)
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+          L9_CI_INSTALL_SPEC: ${{ vars.L9_CI_INSTALL_SPEC }}
+        run: |
+          python -m pip install --upgrade pip
+          if [ -z "$SDK_TOKEN" ]; then
+            echo "::error::SDK_TOKEN is not visible to this repo — the private l9-ci SDK cannot be installed. Make the org-level SDK_TOKEN secret available to this repo."
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
+          python -m pip install "${L9_CI_INSTALL_SPEC}"
+
+      - name: Emit agent_review_payload.json and validate against the schema
+        run: |
+          mkdir -p artifacts/ci
+          for stage in validate lint test security; do
+            l9-ci run-pipeline --stage "$stage" --ci github --emit-dir artifacts/ci || true
+          done
+          l9-ci gate \
+            --input-dir artifacts/ci \
+            --required validate,lint,test,security \
+            --emit-agent-payload artifacts/agent_review_payload.json || true
+          if [ ! -f artifacts/agent_review_payload.json ]; then
+            echo "::error::l9-ci did not emit artifacts/agent_review_payload.json — payload generation failed above. Cannot validate against the schema."
+            exit 1
+          fi
+          python -m pip install jsonschema
+          python - <<'PY'
+          import json
+          from jsonschema import validate
+          schema = json.load(open("schemas/agent-review-payload.schema.json"))
+          payload = json.load(open("artifacts/agent_review_payload.json"))
+          validate(payload, schema)
+          print("payload validates against schemas/agent-review-payload.schema.json")
+          PY
+
+      - name: Upload payload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-review-payload
+          path: artifacts/agent_review_payload.json
+          if-no-files-found: error
+
+      - name: Notify PR_Repair (guarded)
+        if: ${{ github.event.inputs.dispatch == 'true' || github.event.inputs.dispatch == true }}
+        env:
+          HANDOFF_TOKEN: ${{ secrets.L9_IMPLEMENTER_BOT_TOKEN }}
+          PR_NUMBER: ${{ github.event.inputs.pr_number }}
+        run: |
+          if [ -z "$HANDOFF_TOKEN" ]; then
+            echo "::warning::L9_IMPLEMENTER_BOT_TOKEN absent — skipping cross-repo dispatch. Payload available as the 'agent-review-payload' artifact."
+            exit 0
+          fi
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::error::dispatch=true requires a non-empty pr_number so PR_Repair can correlate the handoff."
+            exit 1
+          fi
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${HANDOFF_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            https://api.github.com/repos/Quantum-L9/PR_Repair/dispatches \
+            -d "$(printf '{"event_type":"l9-implementer-review","client_payload":{"source_repo":"%s","run_id":"%s","pr_number":"%s"}}' \
+                  "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$PR_NUMBER")"

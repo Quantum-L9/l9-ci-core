@@ -1,0 +1,50 @@
+# CodeRabbit configuration for l9-ci-core.
+# Schema: https://docs.coderabbit.ai/reference/configuration
+#
+# CodeRabbit runs as a GitHub App — install it from
+# https://github.com/apps/coderabbitai. CODERABBIT_TOKEN is only needed for the
+# API/self-hosted plan, not the SaaS app.
+
+language: en-US
+early_access: false
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+  path_filters:
+    - "!**/__pycache__/**"
+    - "!**/*.pyc"
+    - "!tests/fixtures/**"
+  path_instructions:
+    - path: ".github/workflows/**"
+      instructions: >
+        These are the reusable workflow source of truth. Flag any reusable
+        workflow that is missing `on`, `permissions`, or `jobs`, that grants
+        `contents: write` outside an explicit push/release mode, that reaches
+        secrets on fork PRs (e.g. via `pull_request_target`), or that pins
+        actions below the repo standard (checkout@v6 / setup-python@v6).
+    - path: ".github/governance/**"
+      instructions: >
+        Governance policies are fail-closed. Flag changes that relax a threshold,
+        move an AST rule out of shadow mode without justification, or weaken the
+        classifier's unknown-diff handling.
+    - path: "schemas/**"
+      instructions: >
+        The agent-review-payload schema is a cross-repo contract consumed by the
+        l9-ci SDK and PR_Repair. Flag removed/renamed required fields.
+    - path: ".semgrep/**"
+      instructions: >
+        TransportPacket enforcement. Flag rules that stop forbidding
+        PacketEnvelope or that leave shadow metadata inconsistent.
+
+chat:
+  auto_reply: true

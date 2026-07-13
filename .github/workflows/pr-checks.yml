@@ -1,0 +1,134 @@
+# --- L9_META ---
+# origin: l9-ci-enablement (adapted for l9-ci-core)
+# layer: [ci, quality, security]
+# tags: [pr-gate, ruff, mypy, pytest, gitguardian, sonar]
+# owner: platform
+# status: active
+# --- /L9_META ---
+#
+# PR quality + security gate for l9-ci-core.
+#
+# This repo is a reusable-workflow + governance platform (no installable package):
+# the quality job byte-compiles and runs the governance/workflow/classifier tests.
+# Blocking: pytest (30 tests). Advisory: ruff (clean today), mypy, Sonar.
+# GitGuardian is blocking when its secret is visible, else skipped.
+
+name: PR Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint / Types / Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install test tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyyaml pytest pytest-cov ruff mypy
+      - name: Ruff (advisory — clean today)
+        continue-on-error: true
+        run: ruff check .
+      - name: Mypy (advisory — pre-existing findings)
+        continue-on-error: true
+        run: mypy .github/scripts
+      - name: Pytest (blocking gate) with coverage
+        run: pytest -q --cov=.github/scripts --cov-report=xml --cov-report=term-missing
+      - name: Upload coverage.xml
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-core
+          path: coverage.xml
+          if-no-files-found: warn
+
+  gitguardian:
+    name: GitGuardian secret scan
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - name: Detect secret availability
+        id: gg
+        env:
+          GG: ${{ secrets.GITGUARDIAN_API_KEY }}
+        run: |
+          if [ -n "$GG" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::GITGUARDIAN_API_KEY not visible to this repo — secret scan skipped (see docs/ci-enablement/RUNBOOK.md)."
+          fi
+      - uses: actions/checkout@v6
+        if: steps.gg.outputs.present == 'true'
+        with:
+          fetch-depth: 0
+      - name: ggshield secret scan (blocking when secret is present)
+        if: steps.gg.outputs.present == 'true'
+        uses: GitGuardian/ggshield-action@v1
+        env:
+          GITHUB_PUSH_BEFORE_SHA: ${{ github.event.before }}
+          # On push events pull_request.base.sha is undefined; GitGuardian's
+          # recommended pattern is to fall back to github.event.before so the
+          # push commit range is scanned correctly.
+          GITHUB_PUSH_BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
+          GITHUB_PULL_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
+
+  sonar:
+    name: SonarCloud/SonarQube analysis (advisory)
+    runs-on: ubuntu-latest
+    needs: quality
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Detect Sonar readiness (org-level token)
+        id: sonar
+        env:
+          TOK: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -n "$TOK" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Sonar skipped — org-level SONAR_TOKEN secret not visible to this repo."
+          fi
+      - name: Download coverage.xml
+        if: steps.sonar.outputs.present == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-core
+          # Download into the workspace root so coverage.xml lands at ./coverage.xml,
+          # matching sonar-project.properties (default would nest it under coverage-core/).
+          path: .
+        continue-on-error: true
+      - name: SonarQube scan
+        # projectKey is DERIVED from the repo (<owner>_<name> — SonarCloud's
+        # GitHub import convention) so NO per-repo variable is needed: only the
+        # org-level SONAR_TOKEN secret + SONAR_ORGANIZATION variable.
+        if: steps.sonar.outputs.present == 'true'
+        uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION || 'quantum-l9' }}

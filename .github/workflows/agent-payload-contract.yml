@@ -1,0 +1,114 @@
+# --- L9_META ---
+# origin: l9-ci-enablement (adapted for l9-ci-core)
+# layer: [ci, contract]
+# tags: [agent-review-payload, schema, l9-ci]
+# owner: platform
+# status: active
+# --- /L9_META ---
+#
+# Agent-review-payload contract check.
+#
+# This repo owns schemas/agent-review-payload.schema.json — the contract that
+# the l9-ci SDK emits and PR_Repair consumes. This workflow:
+#   1. (always) validates that the schema is itself a valid JSON Schema.
+#   2. (when l9-ci is installable) generates a real payload with the SDK and
+#      validates it against the schema, then uploads it.
+# Step 2 needs the SDK, which is private — it is guarded on L9_CI_INSTALL_SPEC
+# and skips with a warning when absent, so a missing install spec never turns a
+# PR red.
+
+name: Agent Payload Contract
+
+on:
+  pull_request:
+    paths:
+      - "schemas/agent-review-payload.schema.json"
+      - ".github/workflows/agent-payload-contract.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  schema-contract:
+    name: Validate payload schema (and a real payload when possible)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install validator
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install jsonschema
+
+      - name: Validate the schema is a valid JSON Schema (blocking)
+        run: |
+          python - <<'PY'
+          import json
+          from jsonschema import Draft202012Validator
+          schema = json.load(open("schemas/agent-review-payload.schema.json"))
+          Draft202012Validator.check_schema(schema)
+          req = schema.get("required", [])
+          assert req, "schema must declare required fields"
+          print(f"schema OK — {len(req)} required fields:", ", ".join(req))
+          PY
+
+      - name: Detect l9-ci install spec and SDK token
+        id: sdk
+        env:
+          SPEC: ${{ vars.L9_CI_INSTALL_SPEC }}
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          if [ -n "$SPEC" ] && [ -n "$SDK_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            if [ -z "$SPEC" ]; then
+              echo "::warning::L9_CI_INSTALL_SPEC not set — skipping real-payload generation; schema-only contract check ran."
+            fi
+            if [ -z "$SDK_TOKEN" ]; then
+              echo "::warning::SDK_TOKEN not visible to this repo — the private l9-ci SDK cannot be installed; skipping real-payload generation; schema-only contract check ran."
+            fi
+          fi
+
+      - name: Generate a real payload and validate it against the schema
+        if: steps.sdk.outputs.present == 'true'
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+          L9_CI_INSTALL_SPEC: ${{ vars.L9_CI_INSTALL_SPEC }}
+        run: |
+          python -m pip install --upgrade pip
+          git config --global url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
+          python -m pip install "${L9_CI_INSTALL_SPEC}"
+          mkdir -p artifacts/ci
+          for stage in validate lint test security; do
+            l9-ci run-pipeline --stage "$stage" --ci github --emit-dir artifacts/ci || true
+          done
+          l9-ci gate \
+            --input-dir artifacts/ci \
+            --required validate,lint,test,security \
+            --emit-agent-payload artifacts/agent_review_payload.json || true
+          if [ ! -f artifacts/agent_review_payload.json ]; then
+            echo "::error::l9-ci did not emit artifacts/agent_review_payload.json — payload generation failed above. Cannot validate against the schema."
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          from jsonschema import validate
+          schema = json.load(open("schemas/agent-review-payload.schema.json"))
+          payload = json.load(open("artifacts/agent_review_payload.json"))
+          validate(payload, schema)
+          print("real payload validates against schemas/agent-review-payload.schema.json")
+          PY
+
+      - name: Upload payload artifact
+        if: steps.sdk.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-review-payload
+          path: artifacts/agent_review_payload.json
+          if-no-files-found: warn
