@@ -1,0 +1,9 @@
+on: push
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: no-marker
+        run: |
+          curl --fail --location "$URL" --output "$RUNNER_TEMP/tool.tar.gz"
+          sha256sum --check <<< "$SHA  $RUNNER_TEMP/tool.tar.gz"

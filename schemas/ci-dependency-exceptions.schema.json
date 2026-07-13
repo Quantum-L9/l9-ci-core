@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ci-dependency-exceptions.schema.json",
+  "title": "CIDependencyExceptions",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "exceptions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "line_or_step",
+          "violation_code",
+          "reason",
+          "owner",
+          "created_at",
+          "expires_on",
+          "tracking_issue"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^\\.github/workflows/[^*?\\[\\]]+\\.ya?ml$"
+          },
+          "line_or_step": {
+            "type": "string",
+            "minLength": 1
+          },
+          "violation_code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date"
+          },
+          "expires_on": {
+            "type": "string",
+            "format": "date"
+          },
+          "tracking_issue": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

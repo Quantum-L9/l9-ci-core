@@ -1,0 +1,7 @@
+schema_version: "1.0"
+# Existing workflow-contract violations may be deferred only when a complete,
+# time-bounded debt record exists.
+#
+# New violations must not be added silently. Each entry requires an owner,
+# tracking issue, and expiry no more than 30 days after creation.
+debt: []

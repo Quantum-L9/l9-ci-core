@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9.github.io/l9-ci-core/schemas/workflow-contract-debt.schema.json",
+  "title": "L9 Workflow Contract Debt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "debt"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "debt": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/debtEntry"
+      }
+    }
+  },
+  "$defs": {
+    "debtEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "job",
+        "step",
+        "rule",
+        "reason",
+        "owner",
+        "created_at",
+        "expires_on",
+        "tracking_issue"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^\\.github/workflows/[^*?\\[\\]]+\\.ya?ml$"
+        },
+        "job": {
+          "type": "string",
+          "minLength": 1
+        },
+        "step": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule": {
+          "enum": [
+            "EXPLICIT_PERMISSIONS_REQUIRED",
+            "JOB_TIMEOUT_REQUIRED",
+            "STRICT_SHELL_REQUIRED",
+            "ARTIFACT_ALWAYS_REQUIRED",
+            "ARTIFACT_REQUIRED",
+            "FAILURE_SWALLOW_FORBIDDEN"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 10
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date"
+        },
+        "expires_on": {
+          "type": "string",
+          "format": "date"
+        },
+        "tracking_issue": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

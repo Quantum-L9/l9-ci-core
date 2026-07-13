@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9.github.io/l9-ci-core/schemas/action-pins-lock.schema.json",
+  "title": "L9 Action Pin Inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date"
+    },
+    "entries": {
+      "type": "object",
+      "maxProperties": 500,
+      "additionalProperties": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/githubReference"
+        },
+        {
+          "$ref": "#/$defs/dockerReference"
+        }
+      ]
+    },
+    "common": {
+      "type": "object",
+      "required": [
+        "action",
+        "kind",
+        "version",
+        "verification_method",
+        "verified_at"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "action",
+            "reusable_workflow",
+            "docker_action"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification_method": {
+          "enum": [
+            "upstream-tag-resolution",
+            "upstream-release-resolution",
+            "verified-image-digest",
+            "manual-upstream-commit-review"
+          ]
+        },
+        "verified_at": {
+          "type": "string",
+          "format": "date"
+        },
+        "upstream_repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "githubReference": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "kind",
+            "version",
+            "commit_sha",
+            "upstream_repository",
+            "verification_method",
+            "verified_at"
+          ],
+          "properties": {
+            "action": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "enum": [
+                "action",
+                "reusable_workflow"
+              ]
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "commit_sha": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{40}$"
+            },
+            "upstream_repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "verification_method": {
+              "enum": [
+                "upstream-tag-resolution",
+                "upstream-release-resolution",
+                "manual-upstream-commit-review"
+              ]
+            },
+            "verified_at": {
+              "type": "string",
+              "format": "date"
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "dockerReference": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "kind",
+            "version",
+            "digest",
+            "verification_method",
+            "verified_at"
+          ],
+          "properties": {
+            "action": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "const": "docker_action"
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-fA-F]{64}$"
+            },
+            "upstream_repository": {
+              "type": "string"
+            },
+            "verification_method": {
+              "const": "verified-image-digest"
+            },
+            "verified_at": {
+              "type": "string",
+              "format": "date"
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

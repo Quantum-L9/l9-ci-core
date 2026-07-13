@@ -1,0 +1,216 @@
+{
+  "schema_version": "1.0",
+  "description": "Phased dependency enforcement baseline (PR-A). Pre-existing, unchanged, non-bootstrap pip-install findings recorded as legacy observations. Growth is blocked; PR-C must eliminate this baseline.",
+  "phase": "PR-A",
+  "entries": [
+    {
+      "path": ".github/workflows/l9-self-ci.yml",
+      "job": "audit",
+      "step": "Run audit engine (advisory)",
+      "violation_code": "UNPINNED_PIP_INSTALL",
+      "command_sha256": "f94d94a9ceb972c33781f9f68c942106e60aa3b5f433a074231bf4fb9eb61f2c",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/l9-self-ci.yml",
+      "job": "classify",
+      "step": "Install classifier deps",
+      "violation_code": "UNPINNED_PIP_INSTALL",
+      "command_sha256": "db90504c85fd308b29a54214ff375a0ca5185b1bee128a459239081712c2655a",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/l9-self-ci.yml",
+      "job": "lint",
+      "step": "Install ruff",
+      "violation_code": "UNPINNED_PIP_INSTALL",
+      "command_sha256": "10b861704cb08cf17f7ce3ec3f8cd192c64fb5980d326c11ae08056fc15cc3fd",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/l9-self-ci.yml",
+      "job": "semgrep",
+      "step": "Run semgrep (advisory; L9 AST rules are shadow-mode)",
+      "violation_code": "UNPINNED_PIP_INSTALL",
+      "command_sha256": "055edc52a7b3f1926a153b72190253100dc5aa13cadb0b64a8d71bd72b3ef6b1",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/l9-self-ci.yml",
+      "job": "supply_chain",
+      "step": "Generate SBOM (advisory)",
+      "violation_code": "UNPINNED_PIP_INSTALL",
+      "command_sha256": "91f343f35879004bcf3927f43758a4d5d37f3e4606478c00b20cbe43deaa2ad7",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/l9-self-ci.yml",
+      "job": "validate",
+      "step": "Install validation tools",
+      "violation_code": "UNPINNED_PIP_INSTALL",
+      "command_sha256": "9f74dfef77ecb3e7a43d6a26dd599939a9129332d058ce8c241002422390a5aa",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/nightly.yml",
+      "job": "regression",
+      "step": "Clean install import smoke",
+      "violation_code": "UNPINNED_PIP_INSTALL",
+      "command_sha256": "a76e3db049ccf41d879f1719a0c086844b3ad8c98e603adda13260604d4b9f0c",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/nightly.yml",
+      "job": "regression",
+      "step": "Install dependencies",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "331af904ca0a223c9a2b375cf13f212f4d8be94309cab1c5b2a49850afc7803f",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/nightly.yml",
+      "job": "regression",
+      "step": "Resolve Governance Coverage Threshold",
+      "violation_code": "UNPINNED_PIP_INSTALL",
+      "command_sha256": "6394477b1cf0481ea915d0b9ce53a6f724cdb7754345dfeb6326f03d6c22727e",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/nightly.yml",
+      "job": "regression",
+      "step": "Strict nightly pip-audit",
+      "violation_code": "UNBOUNDED_PIP_INSTALL",
+      "command_sha256": "9b8678a58673fadc1b140ece4f70b90928f0e36a84e0e8050e8394d4645e7ddf",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/pr-pipeline.yml",
+      "job": "ci-gate",
+      "step": "Install L9 CI SDK",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "51b999101d51acc2126057fd4bd32dd3cf35c39e8996899d894afb3751636ecb",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/pr-pipeline.yml",
+      "job": "lint",
+      "step": "Install Linting Tools",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "a57ae97dc8d924d38fa2686b2122bf6ce2b93aede9ec0e938dedff1ef0fac4db",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/pr-pipeline.yml",
+      "job": "security",
+      "step": "step-2",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "87be9d536c49a2cea7a8c792db1b77e58691f0542c413e5c0be092e203509798",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/pr-pipeline.yml",
+      "job": "semgrep",
+      "step": "Run Semgrep When Config Exists",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "280c8e8e4c55a1dfe557dea044fef0ade6e1efb3fe652002e9e117c197d259ec",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/pr-pipeline.yml",
+      "job": "test",
+      "step": "Install Dependencies",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "b853b57c80e270d063e50243709ab97eaf0f549886805cacbac8f6bb2c92e7b9",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/pr-pipeline.yml",
+      "job": "validate",
+      "step": "Install CI Tools",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "6c0794875d223917b54f2ae28d081ff635c09534a79abfa4b7befc94bad821d5",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/pre-commit-ci.yml",
+      "job": "hook-version-drift",
+      "step": "Install package dependencies",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "77c076c446833488df5fbdb7e1e0674d4cfe641b4635879bbed85643db91ef7e",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/pre-commit-ci.yml",
+      "job": "pre-commit-run",
+      "step": "Install pre-commit and package dependencies",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "e2ac9143568fd33d92bcad137abb484d3d7e1bd2af299216c7203ef7021787bf",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/pre-commit-ci.yml",
+      "job": "validate-hook-config",
+      "step": "Install pre-commit",
+      "violation_code": "UNPINNED_PIP_INSTALL",
+      "command_sha256": "ef94f48b81cca2c26604ce6763590abbd9c088b7112b8c1a56afb5d58e53d5d0",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/release-publish.yml",
+      "job": "build",
+      "step": "Build sdist and wheel",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "f4f3449b75324f14378091d9176ec515030eac3108062b9c134cb084f1b6d01e",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/release-publish.yml",
+      "job": "clean-install-smoke",
+      "step": "Install wheel and import package",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "a2a11b5e6cd1fa27a7b716c1d0142ab9ef72759c59da8701c38b647cbd258d89",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/release-publish.yml",
+      "job": "dep-audit",
+      "step": "Install package and audit tool",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "0ed3bb3c87264b629c28b332739ac8642ece4a4f779227e7a738b80cb04a2a4d",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/release-publish.yml",
+      "job": "quality-gate",
+      "step": "Install release quality dependencies",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "3c2fa6133452e3765fdc9baa65605959f0190a995aa6fdfade33821ddfd666ae",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/release-publish.yml",
+      "job": "sbom",
+      "step": "Generate CycloneDX SBOM",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "bbc7d46f7c60ce35158b882c666a2d96c3ec40c1d5413174db0c90fa3a77583f",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/security.yml",
+      "job": "security",
+      "step": "step-2",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "c27fce906dd62fe25063b7591306bbfd823dd007d248b3bd189a987a0561696d",
+      "status": "legacy_observation"
+    },
+    {
+      "path": ".github/workflows/trio-governance.yml",
+      "job": "trio-governance",
+      "step": "Install L9 CI SDK",
+      "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
+      "command_sha256": "65e06e00bf4143ee8e3aabfd6b6472ed6215fd1adb3c8a58d4e3861811c40c76",
+      "status": "legacy_observation"
+    }
+  ],
+  "baseline_digest": "sha256:5708a3f0181c5305ae4fd4296618c3389c71e91c8765d7586ada273c9ebd7715"
+}

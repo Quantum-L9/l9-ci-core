@@ -1,0 +1,13 @@
+on: push
+jobs:
+  bootstrap-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Run nontrivial bootstrap logic
+        run: |
+          mkdir -p "$RUNNER_TEMP/results"
+          python .github/scripts/run_bootstrap_validators.py \
+            --output-dir "$RUNNER_TEMP/results"

@@ -1,0 +1,12 @@
+on: push
+jobs:
+  bootstrap-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: unsafe
+        run: |
+          set +e
+          some-command-that-might-fail-so-we-suppress-it-here

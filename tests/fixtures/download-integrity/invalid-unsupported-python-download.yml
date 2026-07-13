@@ -1,0 +1,18 @@
+on: push
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Unsupported inline Python retrieval
+        run: |
+          set -euo pipefail
+          # l9-download: gitleaks-linux-x64
+          python - <<'PY'
+          from urllib.request import urlretrieve
+          urlretrieve(
+              "https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz",
+              "/tmp/gitleaks.tar.gz",
+          )
+          PY
+          sha256sum --check --strict <<< \
+            "$TOOL_SHA256  /tmp/gitleaks.tar.gz"

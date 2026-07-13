@@ -1,0 +1,10 @@
+schema_version: "1.0"
+exceptions:
+  - path: ".github/workflows/example.yml"
+    line_or_step: "validate/install-legacy-tool"
+    violation_code: "UNPINNED_PIP_INSTALL"
+    reason: "Temporary compatibility bridge while the upstream wheel lock is generated."
+    owner: "@quantum-l9/platform"
+    created_at: "2026-07-11"
+    expires_on: "2026-08-10"
+    tracking_issue: "Quantum-L9/l9-ci-core#100"

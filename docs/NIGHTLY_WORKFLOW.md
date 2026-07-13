@@ -33,7 +33,10 @@ on:
 
 jobs:
   nightly:
-    uses: Quantum-L9/l9-ci-core/.github/workflows/nightly.yml@v1
+    # Pin the reusable workflow to a 40-character commit SHA (a release tag such
+    # as `@v1` is mutable and can be moved after review). The `# v1.x.y` comment
+    # records the human-readable release the SHA corresponds to.
+    uses: Quantum-L9/l9-ci-core/.github/workflows/nightly.yml@<40-char-commit-sha> # v1.x.y
     with:
       python-versions: "3.12"
       prerelease-python-versions: "3.13"
@@ -49,4 +52,4 @@ jobs:
 
 ## Unknowns
 
-The workflows pin `actions/checkout@v6` and `actions/setup-python@v6` (current majors). Python 3.13 prerelease runtime behavior is the remaining unknown that requires live GitHub execution.
+The workflows pin `actions/checkout` and `actions/setup-python` to full 40-character commit SHAs (with the resolved major recorded in a trailing comment), per [ADR-001](adr-001-sha-pinning.md); mutable major tags such as `@v6` are never used. Python 3.13 prerelease runtime behavior is the remaining unknown that requires live GitHub execution.
