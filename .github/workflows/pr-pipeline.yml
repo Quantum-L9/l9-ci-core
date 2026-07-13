@@ -399,3 +399,8 @@ jobs:
       agents: "audit"
       review-mode: "advisory"
       pr-class: "unknown_diff"
+      # Thread the PR identity/diff range explicitly: github.event.pull_request.*
+      # is not reliably populated inside a nested reusable workflow.
+      pr-number: ${{ github.event.pull_request.number }}
+      base-sha: ${{ github.event.pull_request.base.sha }}
+      head-sha: ${{ github.event.pull_request.head.sha }}
