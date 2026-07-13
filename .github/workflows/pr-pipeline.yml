@@ -38,7 +38,7 @@ on:
       l9-ci-install-command:
         required: false
         type: string
-        default: "pip install l9-ci"
+        default: 'python -m pip install "l9-ci @ git+https://github.com/Quantum-L9/l9-ci-sdk.git@d32e84b7c00fc88b85f2639471dd64126251e09e"'
       changed-files:
         required: false
         type: string
@@ -51,6 +51,9 @@ on:
         required: false
         type: boolean
         default: true
+    secrets:
+      SDK_TOKEN:
+        required: false
 
 concurrency:
   group: l9-pr-pipeline-${{ github.workflow }}-${{ github.ref }}
@@ -68,17 +71,33 @@ jobs:
       contents: read
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
           cache-dependency-path: |
             ${{ inputs.requirements-file }}
             pyproject.toml
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
+          # git transport so the pinned git+https SDK install authenticates. The
+          # token is read from env and never echoed.
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
+            # not persisted in the runner's global git config. Export the path for
+            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
+            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
+            export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
+            echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
+          fi
       - name: Install CI Tools
         env:
           # Read the free-form extra install command from env so an EMPTY value
@@ -164,7 +183,7 @@ jobs:
           exit $fail
       - name: Upload Validate Summary
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ci-summary-validate-${{ inputs.python-version }}
           path: artifacts/ci/*
@@ -177,14 +196,30 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
           cache-dependency-path: |
             ${{ inputs.requirements-file }}
             pyproject.toml
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
+          # git transport so the pinned git+https SDK install authenticates. The
+          # token is read from env and never echoed.
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
+            # not persisted in the runner's global git config. Export the path for
+            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
+            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
+            export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
+            echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
+          fi
       - name: Install Linting Tools
         run: |
           python -m pip install --upgrade pip
@@ -231,7 +266,7 @@ jobs:
           exit $fail
       - name: Upload Lint Summary
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ci-summary-lint-${{ inputs.python-version }}
           path: artifacts/ci/*
@@ -244,7 +279,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
       - name: Run Semgrep When Config Exists
         run: |
           if [ -d .semgrep ]; then
@@ -263,14 +298,30 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
           cache-dependency-path: |
             ${{ inputs.requirements-file }}
             pyproject.toml
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
+          # git transport so the pinned git+https SDK install authenticates. The
+          # token is read from env and never echoed.
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
+            # not persisted in the runner's global git config. Export the path for
+            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
+            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
+            export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
+            echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
+          fi
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
@@ -302,13 +353,13 @@ jobs:
           # all import/collection failures instead of aborting at the first.
           PYTHONPATH=. pytest "${{ inputs.test-dir }}" -n auto --cov="${{ inputs.source-dir }}" --cov-report=xml --cov-report=term-missing --cov-fail-under="$L9_COVERAGE_THRESHOLD" --timeout=300 --tb=short -rA --continue-on-collection-errors -v
       - name: Upload Test Summary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ci-summary-test-${{ inputs.python-version }}
           path: artifacts/ci/*
           if-no-files-found: error
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v6.0.2
         with:
           files: ./coverage.xml
           flags: unittests
@@ -323,10 +374,10 @@ jobs:
       security-events: write
       pull-requests: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
@@ -336,6 +387,22 @@ jobs:
           cache-dependency-path: |
             ${{ inputs.requirements-file }}
             pyproject.toml
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
+          # git transport so the pinned git+https SDK install authenticates. The
+          # token is read from env and never echoed.
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
+            # not persisted in the runner's global git config. Export the path for
+            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
+            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
+            export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
+            echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
+          fi
       - run: |
           python -m pip install --upgrade pip
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
@@ -407,7 +474,7 @@ jobs:
         # Code security → Dependency graph); on private repos the dependency
         # review API additionally requires GitHub Advanced Security.
         if: github.event_name == 'pull_request'
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48  # v4.9.0
         with:
           fail-on-severity: high
       - name: Aggregate security results
@@ -431,7 +498,7 @@ jobs:
           exit $fail
       - name: Upload Security Summary
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ci-summary-security-${{ inputs.python-version }}
           path: artifacts/ci/*
@@ -445,9 +512,9 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
       - name: Generate Software Bill of Materials
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
         with:
           format: spdx-json
           output-file: sbom.spdx.json
@@ -464,11 +531,11 @@ jobs:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
       - name: Run OpenSSF Scorecard
-        uses: ossf/scorecard-action@v2.4.3
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a  # v2.4.3
         with:
           results_file: scorecard.sarif
           results_format: sarif
@@ -476,7 +543,7 @@ jobs:
           # + SARIF upload still run).
           publish_results: ${{ github.event_name != 'pull_request' }}
       - name: Upload SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e  # v4.36.2
         with:
           sarif_file: scorecard.sarif
 
@@ -489,9 +556,25 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
+          # git transport so the pinned git+https SDK install authenticates. The
+          # token is read from env and never echoed.
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
+            # not persisted in the runner's global git config. Export the path for
+            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
+            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
+            export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
+            echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
+          fi
       - name: Install L9 CI SDK
         run: |
           python -m pip install --upgrade pip
@@ -504,7 +587,7 @@ jobs:
       # l9-ci means no verdict.)
       - name: Download CI Summary Artifacts
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           pattern: ci-summary-*
           path: artifacts/ci
@@ -525,7 +608,7 @@ jobs:
       - name: Upload Gate Summary And Agent Payload
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: l9-ci-agent-review-payload-${{ inputs.python-version }}
           path: |

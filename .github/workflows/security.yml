@@ -13,7 +13,10 @@ on:
       l9-ci-install-command:
         type: string
         required: false
-        default: "pip install l9-ci"
+        default: 'python -m pip install "l9-ci @ git+https://github.com/Quantum-L9/l9-ci-sdk.git@d32e84b7c00fc88b85f2639471dd64126251e09e"'
+    secrets:
+      SDK_TOKEN:
+        required: false
 jobs:
   security:
     runs-on: ubuntu-latest
@@ -22,12 +25,28 @@ jobs:
       security-events: write
       pull-requests: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
           python-version: ${{ inputs.python-version }}
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
+          # git transport so the pinned git+https SDK install authenticates. The
+          # token is read from env and never echoed.
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
+            # not persisted in the runner's global git config. Export the path for
+            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
+            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
+            export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
+            echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
+          fi
       - run: |
           python -m pip install --upgrade pip
           ${{ inputs.l9-ci-install-command }}
@@ -85,7 +104,7 @@ jobs:
         id: dep_review
         continue-on-error: true
         if: github.event_name == 'pull_request'
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48  # v4.9.0
         with:
           fail-on-severity: high
       - name: Aggregate security results
