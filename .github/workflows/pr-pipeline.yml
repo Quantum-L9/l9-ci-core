@@ -89,7 +89,11 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
           ${{ inputs.l9-ci-install-command }}
-          if [ -n "$EXTRA_INSTALL_COMMAND" ]; then eval "$EXTRA_INSTALL_COMMAND"; fi
+          # Run the caller's extra install command via `bash -c` rather than
+          # `eval`: this executes the exact command string in a subshell without
+          # the additional re-parsing/expansion pass that `eval` performs, while
+          # still allowing multi-command strings.
+          if [ -n "$EXTRA_INSTALL_COMMAND" ]; then bash -c "$EXTRA_INSTALL_COMMAND"; fi
           # The "Validate YAML Files" step imports PyYAML; ensure it's present
           # when the caller's deps don't already provide it.
           python -c "import yaml" 2>/dev/null || pip install pyyaml
@@ -361,9 +365,16 @@ jobs:
         run: |
           set -euo pipefail
           GITLEAKS_VERSION="8.30.1"
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
           tmp="$(mktemp -d)"
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o "$tmp/gitleaks.tar.gz"
-          tar -xzf "$tmp/gitleaks.tar.gz" -C "$tmp" gitleaks
+          curl -fsSL "${base}/${tarball}" -o "$tmp/${tarball}"
+          # Verify the download against the release-published SHA256 checksums
+          # BEFORE executing the binary (supply-chain integrity). Fail closed on a
+          # mismatch or a missing checksum entry (grep miss -> pipefail non-zero).
+          curl -fsSL "${base}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" -o "$tmp/checksums.txt"
+          ( cd "$tmp" && grep " ${tarball}\$" checksums.txt | sha256sum -c - )
+          tar -xzf "$tmp/${tarball}" -C "$tmp" gitleaks
           config_arg=""
           if [ -f .gitleaks.toml ]; then config_arg="--config .gitleaks.toml"; fi
           "$tmp/gitleaks" dir . --no-banner --redact $config_arg
