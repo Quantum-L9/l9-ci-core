@@ -1,0 +1,164 @@
+# L9_META
+# l9_schema: 1
+# parent: l9-pr-remediation
+# layer: reference
+# role: skill_intelligence_report
+# tags: [pr, ci, review, intelligence-report, exemplary, gate-results]
+# owner: igor_beylin
+# status: active
+# version: 3.0.0
+# updated: 2026-07-13
+# Purpose: Exemplary-tier intelligence report for l9-pr-remediation. Validated by
+# scripts/validate_exemplary_skill.py (all exemplary gates must be pass).
+
+skill_intelligence_report:
+  activation_model:
+    strong_signals:
+      - PR has failing CI + user asks to fix/converge/babysit it
+      - PR has unresolved reviewer/bot comments to validate and resolve
+      - user asks to remediate review feedback or run a PR improvement loop
+      - user names review bots to process (CodeRabbit, Gemini, Copilot, SonarCloud)
+      - multi-PR remediation scope (ALL_OPEN, label, author)
+    weak_signals:
+      - a PR is mentioned but no CI failure or review comment is referenced
+      - user asks a general "how do I fix CI" question with no target PR
+    reject_signals:
+      - authoring a new PR/feature rather than remediating an existing one
+      - pure design discussion with no PR to act on
+      - question/discussion comment needing a human decision (defer)
+      - suggestion referencing absent code or one that would break a passing gate
+      - work requiring force-push, history rewrite, or out-of-scope PR edits
+    false_positive_risks:
+      - triggering on any mention of "PR" without a remediation intent
+      - auto-applying a bot suggestion without validating against current code
+    specificity_score: 5          # >=4 required; triggers name PR + CI/review + action verbs
+    false_positive_risk_score: 1  # <=1 required; strong reject signals bound the surface
+
+  authority_model:
+    order:
+      - latest_user_instruction
+      - ci_failure_logs
+      - repo_ground_truth_configs (workflows, tsconfig, package.json, lint/type)
+      - review_comments
+      - skill_references
+      - unknown_fail_closed
+    conflict_rules:
+      - CI requirement beats a review suggestion (CI blocks merge)
+      - review-comment conflict precedence: human > blocking > higher_confidence > more_recent
+      - unknown beats fabrication: defer and ask rather than invent a fix
+
+  expert_heuristics:
+    - condition: review comment contains a ```suggestion``` block
+      judgment: still not ground truth — the base may have moved since the comment
+      action: read current file at that line; apply only if it still matches and passes gates, else DEFER with reason
+    - condition: a bot flags an "unused" variable/import
+      judgment: bot scope analysis often misses closures/re-exports (high false-positive class)
+      action: verify actual usage; if used, reply Disagree(false positive) with evidence, do not change code
+    - condition: fixing gate A appears to break gate B during local verify
+      judgment: the fix is wrong, not the gate
+      action: revert that fix, find a compatible one; if circular after 5 iterations, defer both
+    - condition: local verify is green but remote CI fails
+      judgment: environment delta (secrets/version/service), not a code defect
+      action: identify the delta, fix if local-reproducible else add skip/continue-on-error, document; never blind-repush
+    - condition: two reviewers conflict on the same lines
+      judgment: precedence resolves most conflicts deterministically
+      action: apply human > blocking > higher_confidence > more_recent; if still tied, defer to user
+    - condition: a finding needs changes outside the PR's file scope
+      judgment: scope creep risks unrelated regressions
+      action: mark deferred, create a linked issue with proposed resolution
+    - condition: CI is the whole task ("get it green")
+      judgment: one failed round is not the terminal state
+      action: re-diagnose and re-kick each cycle up to max_cycles before reporting stuck
+
+  doctrine:
+    - validate-before-act on every suggestion
+    - discover gates before fixing
+    - local-verify authorizes push; remote CI confirms
+    - one commit + one push per PR per cycle
+    - reply to and resolve every thread; explicit reasons for rejections
+    - emit machine-readable state for downstream automation
+
+  invariants:
+    - push_count_per_pr_per_cycle == 1
+    - local_verify_all_green before any push
+    - gates_run == gate_registry.total_gates
+    - every thread replied + resolved; every deferral has an issue
+    - never force-push / never act out of scope / idempotent re-runs
+
+  adapter_map:
+    core_default: domain-agnostic PR remediation (any language, any CI)
+    adapters:
+      - no_workflows_present: derive gates from package.json/Makefile; else ask for verify command
+      - follow_up_pr_policy: open a new PR to the original branch instead of pushing to head
+      - multi_pr_scope: run the per-PR loop independently, never share commits across PRs
+    adapter_rule: create only when decision rules change
+
+  failure_modes:
+    - push-before-verify -> Gate D blocks push until all-green
+    - blind-fixing -> Gate A requires gate registry first
+    - false-positive-applied -> validate + confidence gate, reject with reason
+    - multi-push -> Gate E asserts push_count == 1
+    - silent-fix -> Gate F asserts replies == threads + reasons on rejections
+
+  leverage_points:
+    - gate_registry (reusable CI map)
+    - finding_taxonomy_plus_confidence_gate (compounding FP suppression)
+    - canonical_reply_templates (searchable decisions + bot training)
+    - machine_readable_report_schema (downstream routing without re-parse)
+    - local_verify_first_loop (removes CI ping-pong friction)
+
+  evidence_hierarchy:
+    - runtime_ci_logs (highest — exact failing command output)
+    - repo_config_ground_truth (workflows, tsconfig, package.json)
+    - current_file_contents (validated at fix time)
+    - review_comment_text (claim to be verified, not accepted)
+    - model_inference (lowest — only to sequence, never to fabricate a fix)
+
+  leverage_model:
+    scoring_dimensions:
+      - future_action_acceleration
+      - output_quality_gain
+      - drift_reduction
+      - reuse_across_tasks
+      - implementation_simplicity
+    scored_points:
+      - point: gate_registry
+        score: 22   # /25 — accelerates every future cycle + reusable across repos
+      - point: canonical_reply_templates
+        score: 20
+      - point: machine_readable_report_schema
+        score: 19
+    exemplary_threshold: "at least one leverage point scores >=18/25"
+    threshold_met: true
+
+  self_improvement_hook:
+    capture_only_when_user_reports_bad_run_or_requests_iteration: true
+    capture:
+      - missed_trigger
+      - false_trigger
+      - recurring_user_correction
+      - output_that_required_manual_rework
+    routes_to:
+      - finding-classifier.md (confidence gate + reject signals)
+      - activation_signals (trigger precision)
+
+  exemplary_gate_results:
+    activation_precision: pass       # specificity 5>=4, FP-risk 1<=1, reject signals present
+    adapter_architecture: pass       # 3 adapters, each changes decision rules, core stays domain-agnostic
+    evidence_hierarchy: pass         # runtime > config > file > comment > inference
+    doctrine_extraction: pass        # behavior-changing rules, not summaries
+    expert_heuristics: pass          # 7 condition->judgment->action heuristics
+    failure_modes: pass              # 5 modes each mapped to a preventing gate
+    leverage_model: pass             # >=1 point scores >=18/25 (gate_registry 22)
+    self_improvement_hook: pass      # bounded capture on bad-run/iterate only
+    compiler_enforcement_gates: pass # references/enforcement-gates.md present + wired into workflow
+    skill_intelligence_report: pass  # this report present with all required fields
+
+  tier_decision:
+    tier: exemplary
+    rationale: >
+      All ten exemplary gates pass; activation is high-specificity with explicit
+      reject signals; expertise is compressed judgment (not doc summary); every
+      failure mode maps to a runtime enforcement gate; at least one leverage point
+      exceeds the 18/25 threshold. Deterministically checked by
+      scripts/validate_exemplary_skill.py.

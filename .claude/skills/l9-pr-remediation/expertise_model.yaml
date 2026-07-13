@@ -1,0 +1,81 @@
+# L9_META
+# l9_schema: 1
+# parent: l9-pr-remediation
+# layer: reference
+# role: expertise_model
+# tags: [pr, ci, review, expertise, exemplary, intelligence-layer]
+# owner: igor_beylin
+# status: active
+# version: 3.0.0
+# updated: 2026-07-13
+# Purpose: Compressed judgment extracted from the l9-pr-remediation skill and the
+# pr-review-resolver agent, filtered through the L9 Compounding Leverage and
+# Minimize-Friction kernels. Consumed by scripts/validate_exemplary_skill.py.
+
+expertise_model:
+  experts:
+    - release-engineer (CI gate topology, local-verify-first discipline)
+    - staff-code-reviewer (validates suggestions, rejects false positives)
+    - autonomous-remediation-agent (unattended, idempotent, scoped writes)
+    - github-workflow-operator (Actions logs, review threads, GraphQL resolution)
+    - leverage-strategist (each cycle emits reusable primitives, removes friction)
+
+  doctrine:
+    - Validate every suggestion against the current file before acting; the comment snippet is not ground truth.
+    - Discover all CI gates from workflow YAML before fixing; never fix blind.
+    - Local verify is the only gate that authorizes a push; remote CI only confirms.
+    - Batch all fixes for a cycle into one commit and one push per PR.
+    - Reply to and resolve every thread; a rejection needs an explicit reason, never silence.
+    - Reject bots' false positives explicitly so the correction compounds (bot training + audit trail).
+    - Emit machine-readable run and convergence reports so downstream automation can consume state.
+    - Prefer the smallest diff that satisfies the finding; never bundle unrelated change.
+
+  invariants:
+    - push_count_per_pr_per_cycle == 1
+    - local_verify_all_green == true before any push
+    - gates_run == gate_registry.total_gates (no gate skipped)
+    - every_unresolved_thread has exactly one canonical reply and is resolved
+    - never force-push or rewrite shared history
+    - never act on a PR outside the resolved scope
+    - every deferred finding has a linked issue and a stated reason
+    - re-running the loop is idempotent (no duplicate commits or replies)
+
+  authority_hierarchy:
+    - latest_user_instruction > ci_failure_logs
+    - ci_failure_logs > repo_ground_truth_configs
+    - repo_ground_truth_configs > review_comments
+    - review_comment_conflict: human > blocking > higher_confidence > more_recent
+    - unknown > fabrication (fail closed; defer and ask)
+
+  activation_signals:
+    - PR has failing CI and the user asks to fix/converge/babysit it
+    - PR has unresolved reviewer or bot comments to validate and resolve
+    - user asks to remediate review feedback or run a PR improvement loop
+    - user names review bots (CodeRabbit, Gemini, Copilot, SonarCloud) to process
+    - user gives a multi-PR scope (ALL_OPEN, label, author) to remediate
+
+  reject_signals:
+    - request is to author a brand-new PR or feature (not remediate an existing one)
+    - request is pure design discussion with no PR to act on
+    - comment is a question/discussion needing a human decision (defer, do not auto-fix)
+    - suggestion references code that no longer exists or would break a passing gate
+    - work requires force-push, history rewrite, or acting outside the PR scope
+
+  adapters:
+    - "no .github/workflows present -> derive gates from package.json/Makefile scripts; if none, ask user for the verify command before fixing"
+    - "branch_policy=follow_up_pr -> open a new PR targeting the original branch instead of pushing to head"
+    - "multi-PR scope -> run the full per-PR loop independently per PR; never share a commit across PRs"
+
+  failure_modes:
+    - "push-before-verify: pushing without all-green local verify -> Gate D blocks push until exit codes are 0"
+    - "blind-fixing: fixing before enumerating gates -> Gate A requires the gate registry first"
+    - "false-positive-applied: trusting a bot suggestion -> validate against current file + confidence gate, reject with reason"
+    - "multi-push: more than one push per cycle -> Gate E asserts push_count==1"
+    - "silent-fix: resolving a thread with no reply -> Gate F asserts replies==threads and every rejection states a reason"
+
+  leverage_points:
+    - Gate registry: reusable CI-gate map that accelerates every future cycle and every other L9 repo skill.
+    - Finding taxonomy + confidence gate: compounding false-positive suppression across reviews.
+    - Canonical reply templates: searchable decisions + bot training signal per reply.
+    - Machine-readable run/convergence report schema: lets downstream agents route on PR state without re-parsing.
+    - Local-verify-first loop: removes CI ping-pong friction, converting remote CI from discovery to confirmation.
