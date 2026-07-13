@@ -1,0 +1,151 @@
+smart_exemplary_spec:
+  version: "3.0.0"
+  purpose: >
+    Canonical guide SPEC for generating smarter skills from compressed expertise,
+    not from summarized documentation. Use this as the template for the internal
+    or emitted intelligence layer before writing SKILL.md or references.
+
+  compiler_pipeline:
+    required_order:
+      - parse_source
+      - extract_expertise
+      - compress_expertise
+      - design_skill
+      - run_exemplary_gate
+      - package
+    summarize_then_generate_rejected: true
+
+  expertise_model:
+    experts:
+      max: 5
+      required: true
+      items: []
+    doctrine:
+      max: 10
+      required: true
+      items: []
+    invariants:
+      max: 10
+      required: true
+      items: []
+    authority_hierarchy:
+      max: 5
+      required: true
+      items:
+        - latest_user_instruction
+        - uploaded_or_connected_source_artifact
+        - contracts_and_invariants
+        - architecture_and_adrs
+        - implementation_or_runtime_evidence
+    activation_signals:
+      max: 5
+      required: true
+      items: []
+    reject_signals:
+      max: 5
+      required: true
+      items: []
+    adapters:
+      max: 3
+      required: true
+      items: []
+    failure_modes:
+      max: 5
+      required: true
+      items: []
+    leverage_points:
+      max: 5
+      required: true
+      items: []
+
+  activation_model:
+    strong_signals: []
+    weak_signals: []
+    reject_signals: []
+    false_positive_risks: []
+    specificity_score: null
+    false_positive_risk_score: null
+    pass_thresholds:
+      specificity_score: ">=4"
+      false_positive_risk_score: "<=1"
+      reject_signals_present: true
+
+  authority_order:
+    - latest_user_instruction
+    - uploaded_or_connected_source_artifact
+    - contracts_and_invariants
+    - adrs_and_architecture
+    - implementation_or_runtime_evidence
+    - docs_and_comments
+    - model_inference
+
+  expert_heuristics:
+    max: 7
+    item_shape:
+      condition: observable_trigger
+      judgment: expert_interpretation
+      action: required_model_behavior
+    items: []
+
+  adapter_map:
+    core_default: domain_agnostic_behavior
+    adapters: []
+    adapter_rule: create_only_when_decision_rules_change
+
+  failure_modes:
+    max: 5
+    item_shape:
+      mode: string
+      prevention_rule: string
+    items: []
+
+  leverage_model:
+    leverage_points: []
+    scoring_dimensions:
+      - future_action_acceleration
+      - output_quality_gain
+      - drift_reduction
+      - reuse_across_tasks
+      - implementation_simplicity
+    exemplary_threshold: "at least one leverage point scores >=18/25"
+
+  self_improvement_hook:
+    capture_only_when_user_reports_bad_run_or_requests_iteration: true
+    capture:
+      - missed_trigger
+      - false_trigger
+      - recurring_user_correction
+      - output_that_required_manual_rework
+
+  skill_intelligence_report:
+    required: true
+    fields:
+      activation_model: required
+      authority_model: required
+      expert_heuristics: required
+      doctrine: required
+      invariants: required
+      adapter_map: required
+      failure_modes: required
+      leverage_points: required
+      evidence_hierarchy: required
+      exemplary_gate_results: required
+      tier_decision: required
+
+  exemplary_gate:
+    activation_precision: Unknown
+    adapter_architecture: Unknown
+    evidence_hierarchy: Unknown
+    doctrine_extraction: Unknown
+    expert_heuristics: Unknown
+    failure_modes: Unknown
+    leverage_model: Unknown
+    self_improvement_hook: Unknown
+    compiler_enforcement_gates: Unknown
+    skill_intelligence_report: Unknown
+
+  tier_award_policy:
+    exemplary_allowed_only_if_all_gates_pass: true
+    unknown_fails_exemplary: true
+    documentation_only_gate_fails: true
+    validation_required: true
