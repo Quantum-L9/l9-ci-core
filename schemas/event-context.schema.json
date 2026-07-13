@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://l9-ci-core/schemas/event-context.schema.json",
+  "title": "L9 Control Plane Event Context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository",
+    "event_type",
+    "subject_sha",
+    "base_sha",
+    "pull_request_numbers",
+    "merge_group",
+    "labels",
+    "labels_known",
+    "actor",
+    "run_id",
+    "run_attempt"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "repository": { "type": "string", "minLength": 1 },
+    "event_type": {
+      "type": "string",
+      "enum": ["pull_request", "merge_group", "push", "workflow_dispatch"]
+    },
+    "subject_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "base_sha": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "pull_request_numbers": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 }
+    },
+    "merge_group": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["head_sha", "base_sha"],
+      "properties": {
+        "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "base_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    },
+    "labels": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "labels_known": { "type": "boolean" },
+    "actor": { "type": "string" },
+    "run_id": { "type": "string" },
+    "run_attempt": { "type": "integer", "minimum": 1 },
+    "initial_branch_creation": { "type": "boolean" }
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://l9-ci-core/schemas/gate-plan.schema.json",
+  "title": "L9 Control Plane Gate Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository",
+    "subject_sha",
+    "base_sha",
+    "risk",
+    "registry",
+    "risk_policy",
+    "rule_modes",
+    "selected",
+    "not_selected",
+    "legacy_requirements",
+    "plan_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "repository": { "type": "string", "minLength": 1 },
+    "subject_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "base_sha": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["risk_tier", "rank", "reasons", "unknown_diff"],
+      "properties": {
+        "risk_tier": {
+          "type": "string",
+          "enum": ["low", "standard", "high", "regulated"]
+        },
+        "rank": { "type": "integer", "minimum": 0 },
+        "reasons": { "type": "array", "items": { "type": "string" } },
+        "unknown_diff": { "type": "boolean" }
+      }
+    },
+    "registry": { "$ref": "#/$defs/policy_ref" },
+    "risk_policy": { "$ref": "#/$defs/policy_ref" },
+    "rule_modes": { "$ref": "#/$defs/policy_ref" },
+    "selected": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/selected_gate" }
+    },
+    "not_selected": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/not_selected_gate" }
+    },
+    "legacy_requirements": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "plan_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "policy_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "source_digest", "semantic_digest"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "source_digest": { "$ref": "#/$defs/digest" },
+        "semantic_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "selected_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_id",
+        "owner_layer",
+        "mode",
+        "command_key",
+        "timeout_minutes",
+        "reason"
+      ],
+      "properties": {
+        "gate_id": { "type": "string", "minLength": 1 },
+        "owner_layer": {
+          "type": "string",
+          "enum": ["l9_policy_runtime", "l9_assurance"]
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["blocking", "advisory", "shadow", "disabled"]
+        },
+        "command_key": { "type": "string", "minLength": 1 },
+        "timeout_minutes": { "type": "integer", "minimum": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "not_selected_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate_id", "reason"],
+      "properties": {
+        "gate_id": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

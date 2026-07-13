@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://l9-ci-core/schemas/changed-files.schema.json",
+  "title": "L9 Control Plane Changed Files",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "files", "unknown_diff", "reason"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^/].*$"
+      }
+    },
+    "unknown_diff": { "type": "boolean" },
+    "reason": { "type": ["string", "null"] }
+  }
+}

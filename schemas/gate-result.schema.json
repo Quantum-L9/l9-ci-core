@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://l9-ci-core/schemas/gate-result.schema.json",
+  "title": "L9 Control Plane Canonical Gate Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "identity",
+    "subject",
+    "policy",
+    "execution",
+    "outcome",
+    "base_result",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate_id", "owner_layer", "mode"],
+      "properties": {
+        "gate_id": { "type": "string", "minLength": 1 },
+        "owner_layer": {
+          "type": "string",
+          "enum": ["l9_policy_runtime", "l9_assurance"]
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["blocking", "advisory", "shadow", "disabled"]
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "subject_sha", "base_sha", "event_type"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "subject_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "base_sha": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "event_type": {
+          "type": "string",
+          "enum": ["pull_request", "merge_group", "push", "workflow_dispatch"]
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_registry_digest",
+        "risk_policy_digest",
+        "rule_modes_digest",
+        "gate_plan_digest"
+      ],
+      "properties": {
+        "gate_registry_digest": { "$ref": "#/$defs/digest" },
+        "risk_policy_digest": { "$ref": "#/$defs/digest" },
+        "rule_modes_digest": { "$ref": "#/$defs/digest" },
+        "gate_plan_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executor",
+        "run_id",
+        "run_attempt",
+        "job_id",
+        "started_at",
+        "completed_at",
+        "duration_ms",
+        "tool"
+      ],
+      "properties": {
+        "executor": { "type": "string", "minLength": 1 },
+        "run_id": { "type": "string" },
+        "run_attempt": { "type": "integer", "minimum": 1 },
+        "job_id": { "type": "string" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "tool": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "violations", "warnings", "metadata"],
+      "properties": {
+        "result": { "$ref": "#/$defs/outcome_value" },
+        "violations": { "type": "array" },
+        "warnings": { "type": "array" },
+        "metadata": { "type": "object" }
+      }
+    },
+    "base_result": { "$ref": "#/$defs/base_result" },
+    "content_hash": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "outcome_value": {
+      "type": "string",
+      "enum": ["passed", "failed", "error"]
+    },
+    "base_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "gate_id",
+        "result",
+        "violations",
+        "warnings",
+        "metadata"
+      ],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "gate_id": { "type": "string", "minLength": 1 },
+        "result": { "$ref": "#/$defs/outcome_value" },
+        "violations": { "type": "array" },
+        "warnings": { "type": "array" },
+        "metadata": { "type": "object" }
+      }
+    }
+  }
+}

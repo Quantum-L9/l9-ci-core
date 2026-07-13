@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://l9-ci-core/schemas/legacy-job-results.schema.json",
+  "title": "L9 Control Plane Legacy Job Results",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "subject_sha", "jobs"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "subject_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "jobs": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "enum": [
+          "success",
+          "failure",
+          "cancelled",
+          "skipped",
+          "timed_out",
+          "action_required",
+          "missing",
+          "unknown"
+        ]
+      }
+    }
+  }
+}

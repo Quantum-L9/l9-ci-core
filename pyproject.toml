@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "l9-ci-core"
+version = "0.1.0"
+description = "L9 CI Core declarative gate control plane"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+# Runtime dependencies (PyYAML, jsonschema, ...) are intentionally NOT declared
+# here. In CI they are provided by PR-A's hash-locked bootstrap profile
+# (requirements/bootstrap.lock, installed with --require-hashes), after which
+# this package is installed with `python -m pip install --no-deps -e .`.
+# Keeping this list empty preserves the "no unbounded installs" guarantee.
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
