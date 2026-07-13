@@ -2,6 +2,7 @@
 "Bootstrap gate: workflow/action-pins"
 from __future__ import annotations
 import argparse, json, re, sys
+from datetime import date
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from l9_bootstrap.models import GateResult, ResultStatus
@@ -68,6 +69,43 @@ def _validate_local(ref: str, root: Path):
     return None
 
 
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _is_real_iso_date(value) -> bool:
+    """True iff ``value`` is a string ``YYYY-MM-DD`` naming a real calendar
+    date. ``date.fromisoformat`` rejects impossible dates such as 2026-13-40
+    and 2026-02-30, so a schema-level string/pattern check is insufficient.
+    """
+    if not isinstance(value, str) or not _ISO_DATE_RE.match(value):
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _validate_inventory_dates(raw) -> list:
+    """Return a list of (field, value) tuples for every date field in the
+    inventory that is not a real ISO-8601 calendar date. Covers the top-level
+    ``generated_at`` and each entry's ``verified_at``.
+    """
+    bad = []
+    if isinstance(raw, dict):
+        gen = raw.get("generated_at")
+        if not _is_real_iso_date(gen):
+            bad.append(("generated_at", gen))
+        entries = raw.get("entries", {})
+        if isinstance(entries, dict):
+            for key, entry in entries.items():
+                if isinstance(entry, dict):
+                    va = entry.get("verified_at")
+                    if not _is_real_iso_date(va):
+                        bad.append((f"entries.{key}.verified_at", va))
+    return bad
+
+
 def _validate_inventory_schema(raw, root: Path):
     """Return a list of schema error messages for the inventory document.
 
@@ -104,6 +142,16 @@ def run(root, workflow_dir, output_json, fmt, quiet):
             for msg in schema_errors:
                 result.add_violation(code="INVENTORY_SCHEMA_INVALID", message=msg,
                                      path=str(inventory_path.relative_to(root)))
+            result.result = ResultStatus.error
+            return _emit(result, output_json, fmt, quiet, 2)
+        # Date fields must name real calendar dates. A schema string/pattern
+        # match still admits impossible values (e.g. 2026-13-40); reject them.
+        bad_dates = _validate_inventory_dates(raw)
+        if bad_dates:
+            for field, value in bad_dates:
+                result.add_violation(code="INVENTORY_DATE_INVALID",
+                    message=f"{field}={value!r} is not a valid ISO-8601 calendar date.",
+                    path=str(inventory_path.relative_to(root)))
             result.result = ResultStatus.error
             return _emit(result, output_json, fmt, quiet, 2)
     try:

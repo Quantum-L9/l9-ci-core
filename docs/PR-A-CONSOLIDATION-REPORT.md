@@ -61,6 +61,10 @@ The `dependencies/ci-lock` gate correctly finds that **26 pre-existing `pip inst
 - is **fail-closed against growth**: a new finding, a changed command, a stale entry, a wildcard entry, or a self-digest that does not match the recomputed digest all block (violation / error),
 - exposes deterministic metadata on every run: `legacy_observation_count`, `new_violation_count`, `baseline_digest`.
 
+The baseline's integrity model is **digest-bound and trusted-base compared, not cryptographically signed**. Two independent controls apply:
+- **Digest binding** — the file carries `baseline_digest`, a SHA-256 over its canonicalized `entries`; the validator recomputes it every run and errors on any mismatch (`BASELINE_DIGEST_MISMATCH`). This detects in-place tampering but is self-referential — it does not, on its own, prevent an author from re-signing an expanded baseline by recomputing the digest.
+- **Trusted-base comparison** — when CI exposes the PR base commit via `L9_TRUSTED_BASE_SHA`, the candidate baseline is diffed (through `git show`) against the baseline that existed at that trusted base. Growth is forbidden unless the exact finding and normalized command already existed in the trusted base workflow (`BASELINE_GROWTH_FORBIDDEN`), and command-hash mutation of an existing entry is forbidden (`BASELINE_MUTATION_FORBIDDEN`). This is what prevents a PR from laundering a brand-new finding by writing its own baseline. No commit signature or GPG attestation is involved.
+
 **PR-C** is expected to eliminate this baseline as the remaining gates and dependency profiles are migrated to hash-pinned installs.
 
 ---

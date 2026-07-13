@@ -56,18 +56,59 @@ _RUN_ARTIFACT = re.compile(r'"\$RUNNER_TEMP/[^"]+"\s+(?!\\\s*$)[^\s\\]')
 _DATA_MARSHAL = re.compile(r"\bprintf\b|\becho\b")
 
 
-def _has_get_filehash_sha256(run_block: str) -> bool:
-    """True if a *structurally correct* PowerShell Get-FileHash verification is
-    present: an explicit ``-Path <target>`` and ``-Algorithm SHA256``.
+# PowerShell verification structure. Continuations (backtick + newline) are
+# normalized to spaces before matching so arguments may span lines.
+_PWSH_GETFILEHASH = re.compile(
+    r"Get-FileHash\b(?=[^\n]*?-Path\s+(?P<path>\S+))(?=[^\n]*?-Algorithm\s+SHA256\b)",
+    re.IGNORECASE)
+# Capture of the computed hash: `.Hash` property is read (directly, or via an
+# assignment such as `$computed = (Get-FileHash ...).Hash`).
+_PWSH_HASH_CAPTURE = re.compile(r"\.Hash\b", re.IGNORECASE)
+# Comparison of the computed hash against the expected ToolSha256, e.g.
+# `if ($computed -ne $ToolSha256)` or `-eq $ToolSha256`.
+_PWSH_HASH_COMPARE = re.compile(r"-(?:ne|eq)\b[^\n]*ToolSha256", re.IGNORECASE)
+# A failure action on mismatch: throw, or exit with a nonzero code.
+_PWSH_FAIL_ACTION = re.compile(r"\bthrow\b|\bexit\s+[1-9]", re.IGNORECASE)
 
-    Backtick continuations are normalized to spaces first so the arguments can
-    span lines. Presence of the bare tokens is insufficient; the structure must
-    bind a target path and the SHA256 algorithm.
+
+def _powershell_verification(run_block: str):
+    """Return (ok, detail) for a PowerShell download-verification block.
+
+    A compliant PowerShell verification MUST:
+      * call ``Get-FileHash -Path <target> -Algorithm SHA256`` where ``<target>``
+        resolves to the download destination,
+      * capture the ``.Hash`` property,
+      * compare it against ``$ToolSha256``, and
+      * ``throw`` / ``exit <nonzero>`` on mismatch.
+
+    Any PowerShell fetch that does not present this exact structure fails closed
+    (returns ``(False, detail)``) rather than being treated as verified.
     """
     normalized = re.sub(r"`\s*\n\s*", " ", run_block)
-    return bool(re.search(
-        r"Get-FileHash\b(?=[^\n]*?-Path\s+\S)(?=[^\n]*?-Algorithm\s+SHA256\b)",
-        normalized, re.IGNORECASE))
+    gm = _PWSH_GETFILEHASH.search(normalized)
+    if gm is None:
+        return False, "no Get-FileHash -Path <dest> -Algorithm SHA256"
+    # The hashed path must resolve to the download destination.
+    out_m = _DL_OUTPUT_TARGET.search(normalized)
+    if out_m is not None:
+        assigns = _assignments(run_block)
+        dest = _resolve_target(out_m.group(1), assigns)
+        hashed = _resolve_target(gm.group("path"), assigns)
+        if hashed != dest:
+            return False, f"Get-FileHash target {hashed!r} != download dest {dest!r}"
+    if not _PWSH_HASH_CAPTURE.search(normalized):
+        return False, "Get-FileHash result .Hash is never captured"
+    if not _PWSH_HASH_COMPARE.search(normalized):
+        return False, "computed hash is not compared against $ToolSha256"
+    if not _PWSH_FAIL_ACTION.search(normalized):
+        return False, "no throw/exit on hash mismatch"
+    return True, ""
+
+
+def _has_get_filehash_sha256(run_block: str) -> bool:
+    """Back-compat boolean wrapper around :func:`_powershell_verification`."""
+    ok, _ = _powershell_verification(run_block)
+    return ok
 
 
 def _load_registry(path):
@@ -106,13 +147,31 @@ def _load_registry_with_schema(path, root):
     return downloads, None
 
 
-# --- Checksum target identity (HIGH-04) -------------------------------------
+# --- Artifact target identity (HIGH-04) -------------------------------------
+# Each of the three roles -- download destination, checksum-verified target,
+# and extraction/execution target -- is parsed *separately* and then required
+# to resolve to the same concrete artifact. Shell variable assignments are
+# resolved so that `$Archive` referring to `gitleaks.tar.gz` compares equal to
+# a literal `gitleaks.tar.gz`.
 _DL_OUTPUT_TARGET = re.compile(r'(?:--output|-o|-O|-OutFile)\s+"?([^"\s]+)"?', re.IGNORECASE)
-_POSIX_CHECK_TARGET = re.compile(r'sha(?:256|512)sum\b[^\n]*?(["\$][^"\s]*|/[^"\s]+)', re.IGNORECASE)
+# POSIX sha256sum/sha512sum invoked with a file argument, e.g.
+# `sha256sum --check --strict <<< "$SHA  gitleaks.tar.gz"` or
+# `echo "$SHA  gitleaks.tar.gz" | sha256sum -c`.
+# The expected-digest token may be a hex literal or a shell variable
+# ($TOOL_SHA256); the file argument is the last whitespace-delimited token
+# inside the quoted "<digest>  <file>" pair.
+_POSIX_CHECK_HEREDOC = re.compile(
+    r'(?:sha(?:256|512)sum\b[^\n]*?<<<\s*"(?:[0-9a-fA-F]{64}|\$[^\s"]+)\s+([^"\s]+)"'
+    r'|"(?:[0-9a-fA-F]{64}|\$[^\s"]+)\s+([^"\s]+)"\s*\|\s*sha(?:256|512)sum\b)',
+    re.IGNORECASE)
 _UNPACK_TARGET = re.compile(
     r'(?:tar\b[^\n]*?-[a-zA-Z]*f\s+"?([^"\s]+)"?'
     r'|unzip\s+"?([^"\s]+)"?'
     r'|Expand-Archive\b[^\n]*?-Path\s+"?([^"\s]+)"?)', re.IGNORECASE)
+# A simple shell/PowerShell variable assignment: NAME="value" or $Name = "value".
+_VAR_ASSIGN = re.compile(
+    r'^\s*\$?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"?([^"\n]+?)"?\s*$',
+    re.MULTILINE)
 
 
 def _norm_target(tok: str) -> str:
@@ -130,28 +189,56 @@ def _norm_target(tok: str) -> str:
     return t
 
 
-def _checksum_target_identity(run_block: str):
-    """Return (ok, detail). ``ok`` is False when the download destination, the
-    checksum target, and any unpack target are not the same path.
+def _assignments(run_block: str) -> dict:
+    """Map assigned variable names (normalized, $-prefixed) to their values."""
+    out = {}
+    for m in _VAR_ASSIGN.finditer(run_block):
+        out["$" + m.group(1)] = _norm_target(m.group(2))
+    return out
 
-    Only enforced when a download output target can be identified. Returns
-    (True, "") when there is nothing to compare (e.g. checksum via heredoc that
-    names the same var as the output, or no unpack step).
+
+def _resolve_target(tok: str, assigns: dict) -> str:
+    """Resolve a normalized target through one level of variable assignment."""
+    norm = _norm_target(tok)
+    return assigns.get(norm, norm)
+
+
+def _checksum_target_identity(run_block: str):
+    """Return (ok, detail). ``ok`` is False when the parsed download
+    destination, checksum target, and extraction target do not all resolve to
+    the same artifact.
+
+    Each role is parsed independently and then compared after variable
+    resolution. If a download destination is present, a POSIX checksum target
+    and an extraction target (when present) must resolve to it exactly.
     """
     out_m = _DL_OUTPUT_TARGET.search(run_block)
     if not out_m:
         return True, ""
-    dest = _norm_target(out_m.group(1))
-    targets = {dest}
-    # Unpack target (if any) must match the download destination.
+    assigns = _assignments(run_block)
+    dest = _resolve_target(out_m.group(1), assigns)
+
+    # Extraction/execution target (if any) must equal the download destination.
     for um in _UNPACK_TARGET.finditer(run_block):
-        unpacked = _norm_target(next(g for g in um.groups() if g))
+        unpacked = _resolve_target(next(g for g in um.groups() if g), assigns)
         if unpacked and unpacked != dest:
-            return False, f"unpack target {unpacked!r} != download dest {dest!r}"
-    # POSIX checksum target: the file argument fed to sha256sum. When a heredoc
-    # form is used ("<<< \"$SHA  $DEST\"") the dest appears verbatim in the block.
-    if _EXEC_CHK.search(run_block) and dest not in _norm_target(run_block):
-        return False, f"checksum does not reference download dest {dest!r}"
+            return False, f"extraction target {unpacked!r} != download dest {dest!r}"
+
+    # POSIX checksum target: the file argument bound to sha256sum/sha512sum.
+    # When a checksum verification is present we require that its explicit file
+    # argument resolves to the download destination -- verifying a different
+    # file than the one downloaded is the exact gap CHECKSUM_TARGET_MISMATCH
+    # guards against.
+    if _EXEC_CHK.search(run_block):
+        cm = _POSIX_CHECK_HEREDOC.search(run_block)
+        if cm is None:
+            return False, (
+                "checksum verification present but no explicit file target "
+                f"could be parsed to compare against download dest {dest!r}"
+            )
+        checked = _resolve_target(next(g for g in cm.groups() if g), assigns)
+        if checked != dest:
+            return False, f"checksum target {checked!r} != download dest {dest!r}"
     return True, ""
 
 
@@ -306,13 +393,24 @@ def run(root, registry_path, output_json, fmt, quiet):
                         message=f"{wf_path.name}: job={jid} step={name!r}: digest {inline_sha!r} != registry.",
                         path=rel, line=line_no or None)
                     result.result = ResultStatus.failed
-            # Verification must be present (sha256sum on POSIX, Get-FileHash on
-            # PowerShell) ...
-            has_verify = bool(_EXEC_CHK.search(run_block) or _has_get_filehash_sha256(run_block))
+            # Verification must be present (sha256sum on POSIX, a structurally
+            # complete Get-FileHash comparison on PowerShell). Unsupported or
+            # incomplete PowerShell verification forms fail closed with detail.
+            posix_verify = bool(_EXEC_CHK.search(run_block))
+            pwsh_ok, pwsh_detail = _powershell_verification(run_block)
+            has_verify = posix_verify or pwsh_ok
             if not has_verify:
-                result.add_violation(code="DOWNLOAD_CHECKSUM_MISSING",
-                    message=f"{wf_path.name}: job={jid} step={name!r}: no sha256 verification (sha256sum/Get-FileHash).",
-                    path=rel, line=line_no or None)
+                # If this is a PowerShell fetch, surface *why* its verification
+                # was rejected rather than a generic "missing" message.
+                if has_pwsh and not posix_verify:
+                    detail = pwsh_detail or "unsupported PowerShell verification form"
+                    result.add_violation(code="DOWNLOAD_CHECKSUM_MISSING",
+                        message=f"{wf_path.name}: job={jid} step={name!r}: PowerShell verification rejected: {detail}.",
+                        path=rel, line=line_no or None)
+                else:
+                    result.add_violation(code="DOWNLOAD_CHECKSUM_MISSING",
+                        message=f"{wf_path.name}: job={jid} step={name!r}: no sha256 verification (sha256sum/Get-FileHash).",
+                        path=rel, line=line_no or None)
                 result.result = ResultStatus.failed
             # ... and must occur before the artifact is executed or unpacked.
             elif _verified_too_late(run_block):

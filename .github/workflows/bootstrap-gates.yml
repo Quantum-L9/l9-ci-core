@@ -10,14 +10,19 @@ name: L9 Bootstrap Security Gates
 
 on:
   workflow_call:
+  push:
+    branches: [main]
   pull_request:
     paths:
       - ".github/workflows/**"
+      - ".github/actions/**"
       - ".github/scripts/**"
       - ".github/governance/**"
       - "schemas/**"
-      - "requirements/bootstrap.*"
+      - "requirements/**"
       - "tests/bootstrap/**"
+      - "tests/fixtures/**"
+      - "pyproject.toml"
 
 concurrency:
   group: l9-bootstrap-gates-${{ github.workflow }}-${{ github.ref }}
@@ -33,10 +38,19 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    env:
+      # Trusted PR base SHA: the commit the PR is being merged into, taken from
+      # the event payload rather than any candidate-controlled input. Empty on
+      # push/workflow_call, in which case dependency baseline growth checks are
+      # proven against the base workflow content instead.
+      L9_TRUSTED_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+          # Full history is required so validate_ci_dependencies.py can read the
+          # trusted base commit (git show <base>:<path>) for baseline checks.
+          fetch-depth: 0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
@@ -49,10 +63,10 @@ jobs:
           set -euo pipefail
           python .github/scripts/run_bootstrap_validators.py \
             --root . --output-dir bootstrap-results
-      - name: Run bootstrap gate unit tests
-        run: |
-          set -euo pipefail
-          python -m pytest tests/bootstrap -q
+      # NOTE: bootstrap gate unit tests (tests/bootstrap) run in the normal test
+      # workflow, not here. The bootstrap runtime job installs only the
+      # hash-pinned validator runtime (no pytest) and must stay minimal so the
+      # security gates themselves have no extra, unpinned dependencies.
       - name: Upload bootstrap gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

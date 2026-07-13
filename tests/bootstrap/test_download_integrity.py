@@ -132,6 +132,75 @@ def test_powershell_nonstructural_filehash_fails(tmp_path):
     assert ec == 1 and any(v["code"] == "DOWNLOAD_CHECKSUM_MISSING" for v in d["violations"])
 
 
+def test_checksum_of_another_file_fails(tmp_path):
+    # Downloads gl.tar.gz but the sha256sum verification targets a *different*
+    # file -> verifying one artifact while using another (CHECKSUM_TARGET_MISMATCH).
+    body = (
+        "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - run: |\n          set -euo pipefail\n"
+        "          # l9-download: gitleaks-linux-x64\n"
+        f'          TOOL_URL="{_URL}"\n'
+        f'          TOOL_SHA256="{_SHA}"\n'
+        '          curl --fail -L "$TOOL_URL" --output "$RUNNER_TEMP/gl.tar.gz"\n'
+        '          sha256sum --check --strict <<< "$TOOL_SHA256  $RUNNER_TEMP/decoy.tar.gz"\n'
+    )
+    ec, d = _inline_step(body, tmp_path)
+    assert ec == 1 and any(v["code"] == "CHECKSUM_TARGET_MISMATCH" for v in d["violations"])
+
+
+def test_extraction_of_another_file_fails(tmp_path):
+    # Verifies gl.tar.gz correctly but then extracts a different archive that was
+    # never checksum-verified (CHECKSUM_TARGET_MISMATCH on the extraction leg).
+    body = (
+        "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - run: |\n          set -euo pipefail\n"
+        "          # l9-download: gitleaks-linux-x64\n"
+        f'          TOOL_URL="{_URL}"\n'
+        f'          TOOL_SHA256="{_SHA}"\n'
+        '          curl --fail -L "$TOOL_URL" --output "$RUNNER_TEMP/gl.tar.gz"\n'
+        '          sha256sum --check --strict <<< "$TOOL_SHA256  $RUNNER_TEMP/gl.tar.gz"\n'
+        '          tar -xzf "$RUNNER_TEMP/unverified.tar.gz" -C "$RUNNER_TEMP"\n'
+    )
+    ec, d = _inline_step(body, tmp_path)
+    assert ec == 1 and any(v["code"] == "CHECKSUM_TARGET_MISMATCH" for v in d["violations"])
+
+
+def test_powershell_hash_without_comparison_fails(tmp_path):
+    # Structurally correct Get-FileHash -Path <dest> -Algorithm SHA256 whose
+    # .Hash is captured but NEVER compared against $ToolSha256 -> fail closed.
+    body = (
+        "on: push\njobs:\n  d:\n    runs-on: windows-latest\n    steps:\n"
+        "      - shell: pwsh\n        run: |\n"
+        "          # l9-download: gitleaks-linux-x64\n"
+        f'          $ToolUrl = "{_URL}"\n'
+        f'          $ToolSha256 = "{_SHA}"\n'
+        '          $Archive = "gl.tar.gz"\n'
+        '          Invoke-WebRequest -Uri $ToolUrl -OutFile $Archive -UseBasicParsing\n'
+        '          $Actual = (Get-FileHash -Path $Archive -Algorithm SHA256).Hash\n'
+        '          Write-Host $Actual\n'
+    )
+    ec, d = _inline_step(body, tmp_path)
+    assert ec == 1 and any(v["code"] == "DOWNLOAD_CHECKSUM_MISSING" for v in d["violations"])
+
+
+def test_powershell_full_verification_passes(tmp_path):
+    # Get-FileHash -Path <dest> -Algorithm SHA256, .Hash captured, compared to
+    # $ToolSha256, and throws on mismatch -> accepted as verification.
+    body = (
+        "on: push\njobs:\n  d:\n    runs-on: windows-latest\n    steps:\n"
+        "      - shell: pwsh\n        run: |\n"
+        "          # l9-download: gitleaks-linux-x64\n"
+        f'          $ToolUrl = "{_URL}"\n'
+        f'          $ToolSha256 = "{_SHA}"\n'
+        '          $Archive = "gl.tar.gz"\n'
+        '          Invoke-WebRequest -Uri $ToolUrl -OutFile $Archive -UseBasicParsing\n'
+        '          $Actual = (Get-FileHash -Path $Archive -Algorithm SHA256).Hash\n'
+        '          if ($Actual -ne $ToolSha256) { throw "hash mismatch" }\n'
+    )
+    ec, d = _inline_step(body, tmp_path)
+    assert ec == 0 and d["result"] == "passed", d
+
+
 def test_schema_unavailable_fails_closed(tmp_path, monkeypatch):
     import l9_bootstrap.schema_loader as sl
     def _boom(root, name):

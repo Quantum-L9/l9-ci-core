@@ -51,11 +51,91 @@ def test_manifest_has_all_four_gates(tmp_path):
         capture_output=True
     )
     mpath = out_dir / "bootstrap-manifest.json"
-    if not mpath.exists():
-        pytest.skip("manifest not produced")
+    # The manifest is a required artifact of a completed run; its absence is a
+    # hard failure, never a skip.
+    assert mpath.exists(), f"manifest not produced\nout={out_dir}"
     m = json.loads(mpath.read_text())
     for g in ["workflow/action-pins","workflow/download-integrity","dependencies/ci-lock","workflow/contracts"]:
         assert g in m["expected_gates"]
+
+
+_ALL_FILES = [
+    ("action-pins.json", "workflow/action-pins"),
+    ("download-integrity.json", "workflow/download-integrity"),
+    ("ci-dependencies.json", "dependencies/ci-lock"),
+    ("workflow-contracts.json", "workflow/contracts"),
+]
+_RESULT_TO_EXIT = {"passed": 0, "failed": 1, "error": 2}
+
+
+def _write_results(rd, results):
+    """Write the four per-gate result files. ``results`` maps filename->result."""
+    for fname, gid in _ALL_FILES:
+        rv = results[fname]
+        (rd / fname).write_text(json.dumps({
+            "schema_version": "1.0", "gate_id": gid, "result": rv,
+            "violations": [] if rv == "passed" else [{"code": "X", "message": "m"}],
+            "warnings": [], "metadata": {},
+        }))
+
+
+def _manifest(results, complete, overall):
+    return {
+        "schema_version": "1.0",
+        "expected_gates": [g for _, g in _ALL_FILES],
+        "results": [
+            {"gate_id": gid, "file": fname, "result": results[fname],
+             "exit_code": _RESULT_TO_EXIT[results[fname]]}
+            for fname, gid in _ALL_FILES
+        ],
+        "complete": complete,
+        "overall_result": overall,
+    }
+
+
+def test_manifest_result_mismatch_is_rejected(tmp_path):
+    """A schema-valid manifest whose per-gate claim disagrees with the actual
+    result evidence file must be rejected (MANIFEST_RESULT_MISMATCH)."""
+    import validate_bootstrap_results as vbr
+    rd = tmp_path / "results"
+    rd.mkdir()
+    actual = {f: "passed" for f, _ in _ALL_FILES}
+    _write_results(rd, actual)
+    # Manifest lies: claims download-integrity failed though the evidence passed.
+    lying = dict(actual)
+    lying["download-integrity.json"] = "failed"
+    manifest = _manifest(lying, complete=True, overall="failed")
+    (rd / "bootstrap-manifest.json").write_text(json.dumps(manifest))
+    ec = vbr.run(rd, tmp_path, quiet=True)
+    assert ec != 0
+
+
+def test_manifest_overall_mismatch_is_rejected(tmp_path):
+    """A manifest that agrees per-gate but records the wrong overall_result is
+    rejected (MANIFEST_OVERALL_MISMATCH)."""
+    import validate_bootstrap_results as vbr
+    rd = tmp_path / "results"
+    rd.mkdir()
+    actual = {f: "passed" for f, _ in _ALL_FILES}
+    _write_results(rd, actual)
+    # All gates passed, but the manifest claims overall failed.
+    manifest = _manifest(actual, complete=True, overall="failed")
+    (rd / "bootstrap-manifest.json").write_text(json.dumps(manifest))
+    ec = vbr.run(rd, tmp_path, quiet=True)
+    assert ec != 0
+
+
+def test_manifest_matching_actual_passes(tmp_path):
+    """Sanity: a truthful manifest over four passing gates validates cleanly."""
+    import validate_bootstrap_results as vbr
+    rd = tmp_path / "results"
+    rd.mkdir()
+    actual = {f: "passed" for f, _ in _ALL_FILES}
+    _write_results(rd, actual)
+    manifest = _manifest(actual, complete=True, overall="passed")
+    (rd / "bootstrap-manifest.json").write_text(json.dumps(manifest))
+    ec = vbr.run(rd, tmp_path, quiet=True)
+    assert ec == 0
 
 def test_missing_result_file_fails_validator(tmp_path):
     import validate_bootstrap_results as vbr

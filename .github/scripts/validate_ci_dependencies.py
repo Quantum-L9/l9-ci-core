@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bootstrap gate: dependencies/ci-lock"""
 from __future__ import annotations
-import argparse, hashlib, json, re, sys
+import argparse, hashlib, json, os, re, subprocess, sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -9,7 +9,7 @@ from l9_bootstrap.models import GateResult, ResultStatus
 from l9_bootstrap.output import write_json, write_json_stdout
 from l9_bootstrap.paths import repo_root
 from l9_bootstrap.workflow_scan import iter_run_blocks, iter_workflow_files
-from l9_bootstrap.yaml_loader import load_yaml_file
+from l9_bootstrap.yaml_loader import load_yaml_file, parse_yaml_string
 from l9_bootstrap import schema_loader
 
 GATE_ID = "dependencies/ci-lock"
@@ -279,6 +279,159 @@ def _load_baseline(root: Path, result: GateResult):
     return index, recomputed
 
 
+def _classify_finding_code(run_block: str):
+    """Return the single violation code this run block would raise, or None.
+
+    This is the authoritative classification used by BOTH the live workflow
+    scan and the trusted-base re-derivation, so a candidate baseline entry can
+    only be justified by reproducing the *exact* finding from the trusted base.
+    """
+    if not _PIP_INSTALL_RE.search(run_block):
+        return None
+    if _REQUIRE_HASHES.search(run_block):
+        return None
+    if _EDITABLE_NO_DEPS.search(run_block):
+        return None
+    if _UPGRADE_RE.search(run_block):
+        return "UNCONDITIONAL_PIP_UPGRADE"
+    if _BRANCH_URL_RE.search(run_block):
+        return "BRANCH_URL_INSTALL"
+    if _UNBOUNDED_RE.search(run_block):
+        return "UNBOUNDED_PIP_INSTALL"
+    return "UNPINNED_PIP_INSTALL"
+
+
+def _trusted_base_sha() -> str:
+    """The PR base commit, taken only from the CI-provided environment.
+
+    Empty string means "no trusted base available" (push / workflow_call /
+    local run), in which case initial baseline entries are proven directly
+    against the base workflow content that git can still reach.
+    """
+    return os.environ.get("L9_TRUSTED_BASE_SHA", "").strip()
+
+
+def _git_show(root: Path, ref: str, rel_path: str):
+    """Return the bytes of ``<ref>:<rel_path>`` via ``git show`` or None."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "show", f"{ref}:{rel_path}"],
+        check=False, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+
+def _load_trusted_baseline(root: Path, base_sha: str, result: GateResult):
+    """Load the dependency baseline as it existed at the trusted base commit.
+
+    Returns a mapping ``(code, path, job, step) -> command_sha256`` for the
+    trusted-base baseline, or ``{}`` when the trusted base carried no baseline
+    (the initial PR-A bootstrap case). Returns ``None`` and marks the result as
+    error when the trusted baseline exists but is malformed, schema-invalid, or
+    digest-inconsistent -- a tampered trusted baseline must fail closed.
+    """
+    baseline_rel = ".github/governance/ci-dependency-baseline.json"
+    raw = _git_show(root, base_sha, baseline_rel)
+    if raw is None:
+        # No baseline in the trusted base: initial creation. Each candidate
+        # entry must instead be proven against the base workflow content.
+        return {}
+    try:
+        data = json.loads(raw)
+    except Exception as exc:
+        result.add_violation(code="TRUSTED_BASELINE_MALFORMED",
+            message=f"trusted baseline at {base_sha} is invalid JSON: {exc}")
+        result.result = ResultStatus.error
+        return None
+    try:
+        validator = schema_loader.load_validator(root, "ci-dependency-baseline")
+    except schema_loader.SchemaUnavailable as exc:
+        result.add_violation(code="SCHEMA_UNAVAILABLE", message=str(exc))
+        result.result = ResultStatus.error
+        return None
+    errors = schema_loader.schema_errors(validator, data)
+    if errors:
+        for err in errors:
+            result.add_violation(code="TRUSTED_BASELINE_SCHEMA_INVALID",
+                message=schema_loader.format_error(err))
+        result.result = ResultStatus.error
+        return None
+    entries = data.get("entries", [])
+    canon = json.dumps(entries, sort_keys=True, separators=(",", ":"))
+    recomputed = "sha256:" + hashlib.sha256(canon.encode()).hexdigest()
+    if data.get("baseline_digest") != recomputed:
+        result.add_violation(code="TRUSTED_BASELINE_DIGEST_MISMATCH",
+            message=f"trusted baseline at {base_sha} declares "
+                    f"{data.get('baseline_digest')!r}, recomputed {recomputed!r}")
+        result.result = ResultStatus.error
+        return None
+    return {
+        (e["violation_code"], e["path"], e["job"], e["step"]): e["command_sha256"]
+        for e in entries
+    }
+
+
+def _trusted_workflow_entry_matches(root: Path, base_sha: str, key, command_sha256: str) -> bool:
+    """True if the exact finding+command in ``key`` existed in the trusted base.
+
+    Reads the workflow file at the trusted base commit, re-derives the finding
+    for the named job/step, and requires both the classification code and the
+    normalized command hash to match. This is the ONLY justification for an
+    initial baseline entry that is not yet present in the trusted baseline.
+    """
+    code, rel, expected_job, expected_step = key
+    raw = _git_show(root, base_sha, rel)
+    if raw is None:
+        return False
+    try:
+        workflow = parse_yaml_string(raw, source=f"{base_sha}:{rel}")
+    except Exception:
+        return False
+    if not isinstance(workflow, dict):
+        return False
+    try:
+        blocks = list(iter_run_blocks(workflow))
+    except Exception:
+        return False
+    for jid, _idx, name, run_block, _line in blocks:
+        if jid != expected_job or name != expected_step:
+            continue
+        return (
+            _classify_finding_code(run_block) == code
+            and _command_sha256(run_block) == command_sha256
+        )
+    return False
+
+
+def _enforce_trusted_baseline(root: Path, candidate_index, trusted_index, result: GateResult):
+    """Forbid candidate baseline growth or command-hash mutation vs the base.
+
+    - An entry present in the trusted baseline may remain only with an
+      identical command hash; a changed hash is BASELINE_MUTATION_FORBIDDEN.
+    - An entry absent from the trusted baseline (growth) is permitted only when
+      the exact finding and command already existed in the trusted base
+      workflow; otherwise it is BASELINE_GROWTH_FORBIDDEN.
+    """
+    base_sha = _trusted_base_sha()
+    if not base_sha or trusted_index is None:
+        return
+    for key, candidate_hash in sorted(candidate_index.items()):
+        trusted_hash = trusted_index.get(key)
+        if trusted_hash is None:
+            if not _trusted_workflow_entry_matches(root, base_sha, key, candidate_hash):
+                result.add_violation(code="BASELINE_GROWTH_FORBIDDEN",
+                    message=f"candidate baseline adds an entry not proven to exist "
+                            f"in trusted base {base_sha}: {key!r}")
+                result.result = ResultStatus.failed
+            continue
+        if trusted_hash != candidate_hash:
+            result.add_violation(code="BASELINE_MUTATION_FORBIDDEN",
+                message=f"candidate baseline changes command identity for {key!r}: "
+                        f"trusted={trusted_hash} candidate={candidate_hash}")
+            result.result = ResultStatus.failed
+
+
 def run(root, output_json, fmt, quiet):
     result = GateResult(gate_id=GATE_ID, result=ResultStatus.passed)
     lock_path = root / 'requirements' / 'bootstrap.lock'
@@ -300,6 +453,19 @@ def run(root, output_json, fmt, quiet):
     # legacy findings, so it must be trustworthy before we consult it.
     if result.result == ResultStatus.error:
         return _emit(result, output_json, fmt, quiet, 2)
+
+    # Trusted-base enforcement: when CI exposes the PR base SHA, the candidate
+    # baseline may not grow or mutate command identities relative to the
+    # baseline that existed at that base commit. A tampered trusted baseline is
+    # fatal (fail closed) before we consult it.
+    base_sha = _trusted_base_sha()
+    trusted_baseline_index = None
+    if base_sha:
+        trusted_baseline_index = _load_trusted_baseline(root, base_sha, result)
+        if result.result == ResultStatus.error:
+            return _emit(result, output_json, fmt, quiet, 2)
+        _enforce_trusted_baseline(root, baseline_index, trusted_baseline_index, result)
+
     try:
         workflow_files = list(iter_workflow_files(root / '.github' / 'workflows', root))
     except ValueError as exc:
@@ -369,22 +535,19 @@ def run(root, output_json, fmt, quiet):
         if not isinstance(wf, dict):
             continue
         for jid, idx, name, run_block, line_no in iter_run_blocks(wf):
-            if not _PIP_INSTALL_RE.search(run_block):
+            code = _classify_finding_code(run_block)
+            if code is None:
                 continue
-            if _REQUIRE_HASHES.search(run_block):
-                continue
-            if _EDITABLE_NO_DEPS.search(run_block):
-                continue
-            if _UPGRADE_RE.search(run_block):
+            if code == 'UNCONDITIONAL_PIP_UPGRADE':
                 _handle('UNCONDITIONAL_PIP_UPGRADE', rel, jid, name, run_block, line_no,
                         'pip install --upgrade/-U without --require-hashes')
                 continue
-            if _BRANCH_URL_RE.search(run_block):
+            if code == 'BRANCH_URL_INSTALL':
                 _handle('BRANCH_URL_INSTALL', rel, jid, name, run_block, line_no,
                         'git+https://...@<branch> install forbidden')
                 continue
-            m = _UNBOUNDED_RE.search(run_block)
-            if m:
+            if code == 'UNBOUNDED_PIP_INSTALL':
+                m = _UNBOUNDED_RE.search(run_block)
                 _handle('UNBOUNDED_PIP_INSTALL', rel, jid, name, run_block, line_no,
                         f'unbounded pip install {m.group(1)!r}')
                 continue
@@ -409,6 +572,7 @@ def run(root, output_json, fmt, quiet):
         'legacy_observation_count': len(legacy_observations),
         'new_violation_count': new_violation_count,
         'baseline_digest': baseline_digest,
+        'trusted_baseline_checked': bool(base_sha) and trusted_baseline_index is not None,
         'legacy_observations': sorted(legacy_observations, key=lambda o: (o['path'], o['job'], o['step'], o['violation_code'])),
     }
     if result.result == ResultStatus.passed:

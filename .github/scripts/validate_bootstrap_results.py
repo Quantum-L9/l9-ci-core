@@ -39,10 +39,15 @@ def _load_json(path: Path) -> dict:
     return value
 
 
+# Canonical exit code each result value must carry (mirrors the orchestrator).
+_RESULT_TO_EXIT = {"passed": 0, "failed": 1, "error": 2}
+
+
 def run(results_dir, root, quiet=False):
     results_dir = Path(results_dir)
     overall_ok = True
     seen: dict = {}
+    actual_by_file: dict = {}
     # Required schemas: their absence is fatal (fail closed, exit 2). Evidence
     # cannot be trusted without the contract that describes it.
     try:
@@ -85,6 +90,14 @@ def run(results_dir, root, quiet=False):
             continue
         seen[actual] = fname
         result_val = data.get("result", "")
+        # Record the authoritative view of this result derived from the actual
+        # evidence file, for later cross-check against the manifest's claims.
+        actual_by_file[fname] = {
+            "gate_id": actual,
+            "file": fname,
+            "result": result_val,
+            "exit_code": _RESULT_TO_EXIT[result_val],
+        }
         if result_val in ("failed", "error"):
             overall_ok = False
         if not quiet:
@@ -106,6 +119,73 @@ def run(results_dir, root, quiet=False):
                 )
             if manifest_errors:
                 overall_ok = False
+            else:
+                # Cross-check every manifest result entry against the actual
+                # result file it references. The manifest is a claim; the
+                # per-gate evidence files are the ground truth.
+                manifest_results = {
+                    entry.get("file"): entry
+                    for entry in manifest.get("results", [])
+                }
+
+                if set(manifest_results) != set(actual_by_file):
+                    print(
+                        "[MANIFEST_RESULT_SET_MISMATCH] manifest result files "
+                        f"{sorted(manifest_results)} != actual result files "
+                        f"{sorted(actual_by_file)}",
+                        file=sys.stderr,
+                    )
+                    overall_ok = False
+
+                for fname, actual_entry in actual_by_file.items():
+                    manifest_entry = manifest_results.get(fname)
+                    if manifest_entry is None:
+                        # Already reported by the set mismatch above.
+                        continue
+                    # Compare gate_id, file, result, and canonical exit code.
+                    if manifest_entry != actual_entry:
+                        print(
+                            f"[MANIFEST_RESULT_MISMATCH] {fname}: "
+                            f"manifest={manifest_entry!r} "
+                            f"actual={actual_entry!r}",
+                            file=sys.stderr,
+                        )
+                        overall_ok = False
+
+                # Recompute complete/overall_result from ground truth and
+                # reject any manifest that disagrees.
+                expected_complete = (
+                    len(actual_by_file) == len(EXPECTED)
+                    and set(actual_by_file) == {f for f, _ in EXPECTED}
+                )
+                if bool(manifest.get("complete")) != expected_complete:
+                    print(
+                        "[MANIFEST_COMPLETENESS_MISMATCH] "
+                        f"manifest={manifest.get('complete')!r} "
+                        f"actual={expected_complete!r}",
+                        file=sys.stderr,
+                    )
+                    overall_ok = False
+
+                expected_overall = (
+                    "passed"
+                    if (
+                        expected_complete
+                        and all(
+                            entry["result"] == "passed"
+                            for entry in actual_by_file.values()
+                        )
+                    )
+                    else "failed"
+                )
+                if manifest.get("overall_result") != expected_overall:
+                    print(
+                        "[MANIFEST_OVERALL_MISMATCH] "
+                        f"manifest={manifest.get('overall_result')!r} "
+                        f"actual={expected_overall!r}",
+                        file=sys.stderr,
+                    )
+                    overall_ok = False
         except Exception as exc:
             print(f"[MANIFEST_MALFORMED] {exc}", file=sys.stderr)
             overall_ok = False

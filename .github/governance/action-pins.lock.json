@@ -118,7 +118,7 @@
       "version": "release/v1",
       "commit_sha": "cef221092ed1bacb1cc03d23a2d87d1d172e277b",
       "upstream_repository": "pypa/gh-action-pypi-publish",
-      "verification_method": "upstream-tag-resolution",
+      "verification_method": "manual-upstream-commit-review",
       "verified_at": "2026-07-12",
       "notes": "Resolved from release/v1 branch head via GitHub commits API."
     },

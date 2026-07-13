@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, shutil
+import json, os, shutil, subprocess
 from pathlib import Path
 import pytest
 import validate_ci_dependencies as vcd
@@ -269,6 +269,98 @@ def test_wildcard_baseline_entry_is_error(tmp_path):
     ec, d = _run_wf(tmp_path, _UNBOUNDED_WF, baseline=bl)
     assert ec == 2 and d["result"] == "error"
     assert any(v["code"] in ("BASELINE_WILDCARD_FORBIDDEN", "BASELINE_SCHEMA_INVALID") for v in d["violations"])
+
+
+# --- Trusted-base enforcement (PR-A remediation 4) -------------------------
+
+def _git(root, *args):
+    subprocess.run(["git", "-C", str(root), *args], check=True,
+                   capture_output=True, text=True)
+
+
+def _init_git_repo(root):
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "t@example.com")
+    _git(root, "config", "user.name", "t")
+    _git(root, "config", "commit.gpgsign", "false")
+
+
+def _commit_all(root, message):
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", message)
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                          check=True, capture_output=True, text=True)
+    return head.stdout.strip()
+
+
+_CLEAN_WF = (
+    "on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n"
+    "      - run: pip install --require-hashes -r requirements/bootstrap.lock\n"
+)
+
+
+def test_candidate_baseline_self_expansion_forbidden(tmp_path, monkeypatch):
+    """A candidate that ADDS a baseline entry for a finding that never existed
+    in the trusted base workflow must be rejected (BASELINE_GROWTH_FORBIDDEN).
+
+    The trusted base carries a clean (--require-hashes) workflow and no
+    baseline. The candidate introduces both an unbounded-install finding AND a
+    baseline entry claiming it as legacy -- i.e. it tries to launder a brand-new
+    finding by writing its own baseline. Because the finding was not present in
+    the base, self-expansion is forbidden.
+    """
+    root = tmp_path
+    _init_git_repo(root)
+    wdir = root / ".github" / "workflows"; wdir.mkdir(parents=True)
+    (wdir / "w.yml").write_text(_CLEAN_WF)
+    req = root / "requirements"; req.mkdir()
+    (req / "bootstrap.lock").write_text(GOOD_LOCK)
+    base_sha = _commit_all(root, "base: clean workflow, no baseline")
+
+    # Candidate: unbounded install + self-written baseline that launders it.
+    (wdir / "w.yml").write_text(_UNBOUNDED_WF)
+    sha = _cmd_sha(_UNBOUNDED_WF, "w.yml", tmp_path)
+    gov = root / ".github" / "governance"; gov.mkdir(parents=True)
+    bl = _mk_baseline([{"path": ".github/workflows/w.yml", "job": "build",
+                        "step": "Install ruff", "violation_code": "UNBOUNDED_PIP_INSTALL",
+                        "command_sha256": sha, "status": "legacy_observation"}])
+    (gov / "ci-dependency-baseline.json").write_text(json.dumps(bl))
+    _commit_all(root, "candidate: launder finding via self-written baseline")
+
+    monkeypatch.setenv("L9_TRUSTED_BASE_SHA", base_sha)
+    out = root / "result.json"
+    ec = vcd.run(root, out, "text", True)
+    d = json.loads(out.read_text())
+    assert ec == 1 and d["result"] == "failed", d
+    assert any(v["code"] == "BASELINE_GROWTH_FORBIDDEN" for v in d["violations"]), d
+
+
+def test_candidate_baseline_matching_trusted_base_allowed(tmp_path, monkeypatch):
+    """When the exact finding + command existed in the trusted base workflow, an
+    initial baseline entry for it is permitted (no growth violation)."""
+    root = tmp_path
+    _init_git_repo(root)
+    wdir = root / ".github" / "workflows"; wdir.mkdir(parents=True)
+    # The finding exists in the base itself.
+    (wdir / "w.yml").write_text(_UNBOUNDED_WF)
+    req = root / "requirements"; req.mkdir()
+    (req / "bootstrap.lock").write_text(GOOD_LOCK)
+    base_sha = _commit_all(root, "base: workflow already has the finding")
+
+    sha = _cmd_sha(_UNBOUNDED_WF, "w.yml", tmp_path)
+    gov = root / ".github" / "governance"; gov.mkdir(parents=True)
+    bl = _mk_baseline([{"path": ".github/workflows/w.yml", "job": "build",
+                        "step": "Install ruff", "violation_code": "UNBOUNDED_PIP_INSTALL",
+                        "command_sha256": sha, "status": "legacy_observation"}])
+    (gov / "ci-dependency-baseline.json").write_text(json.dumps(bl))
+    _commit_all(root, "candidate: baseline the pre-existing finding")
+
+    monkeypatch.setenv("L9_TRUSTED_BASE_SHA", base_sha)
+    out = root / "result.json"
+    ec = vcd.run(root, out, "text", True)
+    d = json.loads(out.read_text())
+    assert not any(v["code"] == "BASELINE_GROWTH_FORBIDDEN" for v in d["violations"]), d
+    assert ec == 0 and d["result"] == "passed", d
 
 
 def test_bootstrap_managed_install_never_baselined(tmp_path):
