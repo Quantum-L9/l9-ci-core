@@ -72,7 +72,7 @@ _FULL_IFACE = (
     '      requirements-file: {type: string, required: false, default: "requirements-ci.txt"}\n'
     '      extra-install-command: {type: string, required: false, default: ""}\n'
     "      enable-pydantic-strict: {type: boolean, required: false, default: false}\n"
-    '      l9-ci-install-command: {type: string, required: false, default: "pip install l9-ci"}\n'
+    "      l9-ci-install-command: {type: string, required: false, default: 'python -m pip install \"l9-ci @ git+https://github.com/Quantum-L9/l9-ci-sdk.git@d32e84b7c00fc88b85f2639471dd64126251e09e\"'}\n"
     '      changed-files: {type: string, required: false, default: ""}\n'
     '      pr-labels: {type: string, required: false, default: ""}\n'
     "      labels-known: {type: boolean, required: false, default: true}\n"

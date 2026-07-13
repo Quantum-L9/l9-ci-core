@@ -6,3 +6,5 @@ downloads:
     sha256: "ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d"
     workflows:
       - ".github/workflows/l9-self-ci.yml"
+      - ".github/workflows/pr-pipeline.yml"
+      - ".github/workflows/security.yml"

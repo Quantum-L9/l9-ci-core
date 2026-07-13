@@ -36,7 +36,7 @@
     "l9-ci-install-command": {
       "type": "string",
       "required": false,
-      "default": "pip install l9-ci"
+      "default": "python -m pip install \"l9-ci @ git+https://github.com/Quantum-L9/l9-ci-sdk.git@d32e84b7c00fc88b85f2639471dd64126251e09e\""
     },
     "changed-files": {
       "type": "string",

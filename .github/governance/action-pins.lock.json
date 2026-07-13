@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-07-12",
+  "generated_at": "2026-07-13",
   "entries": {
     "actions/cache": {
       "action": "actions/cache",
@@ -85,12 +85,12 @@
     "github/codeql-action/upload-sarif": {
       "action": "github/codeql-action/upload-sarif",
       "kind": "action",
-      "version": "v4.37.0",
-      "commit_sha": "99df26d4f13ea111d4ec1a7dddef6063f76b97e9",
+      "version": "v4.36.2",
+      "commit_sha": "8aad20d150bbac5944a9f9d289da16a4b0d87c1e",
       "upstream_repository": "github/codeql-action",
       "verification_method": "upstream-tag-resolution",
-      "verified_at": "2026-07-12",
-      "notes": "Sub-action of github/codeql-action; commit resolved from floating tag v4."
+      "verified_at": "2026-07-13",
+      "notes": "Sub-action of github/codeql-action; annotated tag v4.36.2 dereferences to this commit (refs/tags/v4.36.2^{})."
     },
     "gitleaks/gitleaks-action": {
       "action": "gitleaks/gitleaks-action",
@@ -135,12 +135,12 @@
     "trufflesecurity/trufflehog": {
       "action": "trufflesecurity/trufflehog",
       "kind": "action",
-      "version": "main",
-      "commit_sha": "8feb77b20aeb64366d106b08f2941287755c173b",
+      "version": "v3.95.7",
+      "commit_sha": "f446421baf832d6356c42c1743d99abff52ff334",
       "upstream_repository": "trufflesecurity/trufflehog",
-      "verification_method": "manual-upstream-commit-review",
-      "verified_at": "2026-07-12",
-      "notes": "Upstream references main; pinned to reviewed commit HEAD of main at verification time."
+      "verification_method": "upstream-tag-resolution",
+      "verified_at": "2026-07-13",
+      "notes": "Resolved from release tag v3.95.7 via upstream git ref (refs/tags/v3.95.7)."
     }
   }
 }

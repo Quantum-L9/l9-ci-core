@@ -102,7 +102,7 @@
     {
       "path": ".github/workflows/pr-pipeline.yml",
       "job": "security",
-      "step": "step-2",
+      "step": "step-3",
       "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
       "command_sha256": "87be9d536c49a2cea7a8c792db1b77e58691f0542c413e5c0be092e203509798",
       "status": "legacy_observation"
@@ -128,7 +128,7 @@
       "job": "validate",
       "step": "Install CI Tools",
       "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
-      "command_sha256": "6c0794875d223917b54f2ae28d081ff635c09534a79abfa4b7befc94bad821d5",
+      "command_sha256": "4d132971439bdb131f7a4243fe89ac0f63568af4d5c8d26c4db4156f88ee8c55",
       "status": "legacy_observation"
     },
     {
@@ -198,7 +198,7 @@
     {
       "path": ".github/workflows/security.yml",
       "job": "security",
-      "step": "step-2",
+      "step": "step-3",
       "violation_code": "UNCONDITIONAL_PIP_UPGRADE",
       "command_sha256": "c27fce906dd62fe25063b7591306bbfd823dd007d248b3bd189a987a0561696d",
       "status": "legacy_observation"
@@ -212,5 +212,5 @@
       "status": "legacy_observation"
     }
   ],
-  "baseline_digest": "sha256:5708a3f0181c5305ae4fd4296618c3389c71e91c8765d7586ada273c9ebd7715"
+  "baseline_digest": "sha256:47f8612895455aa05be3dd63e0456ccf3bc214c6d629c878a103a546e79ac9d8"
 }

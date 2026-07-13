@@ -31,6 +31,7 @@ env/
 
 # L9 CI / pipeline output (emitted by l9-ci run-pipeline and dogfood runs)
 artifacts/
+.artifacts/
 *_ci_summary.json
 agent_review_payload.json
 sbom.spdx.json
