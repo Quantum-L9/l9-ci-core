@@ -1,7 +1,6 @@
 from __future__ import annotations
 import json, shutil
 from pathlib import Path
-import pytest
 import validate_workflow_contracts as vwc
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "workflow-contracts"
 

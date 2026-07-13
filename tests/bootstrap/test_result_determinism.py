@@ -1,6 +1,5 @@
 from __future__ import annotations
 import json
-from pathlib import Path
 import validate_action_pins as vap
 import validate_ci_dependencies as vcd
 FAKE_HASH = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

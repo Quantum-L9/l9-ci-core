@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bootstrap gate: workflow/download-integrity"""
 from __future__ import annotations
-import argparse, json, re, sys
+import argparse, re, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from l9_bootstrap.models import GateResult, ResultStatus
@@ -25,16 +25,6 @@ _EXEC_CHK     = re.compile(r"\bsha(?:256|512)sum\b")
 # PowerShell verification primitive (may span continuation lines, so matched
 # per-line for ordering and block-wide for presence).
 _GET_FILEHASH_LINE = re.compile(r"\bGet-FileHash\b", re.IGNORECASE)
-_SHA256_TOKEN      = re.compile(r"\bSHA256\b", re.IGNORECASE)
-# Structural PowerShell verification: Get-FileHash must name an explicit -Path
-# target and select the SHA256 algorithm. Backtick line continuations mean the
-# arguments may be spread across lines, so we normalize continuations before
-# matching. This rejects a bare `Get-FileHash $x` (default algorithm) or a
-# Get-FileHash with no -Path binding.
-_GET_FILEHASH_STRUCTURAL = re.compile(
-    r"Get-FileHash\b(?=(?:[^\n]|`\s*\n)*?-Path\s+\S)(?=(?:[^\n]|`\s*\n)*?-Algorithm\s+SHA256\b)",
-    re.IGNORECASE,
-)
 _SHA_RE       = re.compile(r"^[0-9a-fA-F]{64}$")
 _MUTABLE_URL  = re.compile(r"https://[^/]+/[^/]+/[^/]+/releases/latest/download/")
 # Quoted assignments of the download URL / expected digest, POSIX and PowerShell.

@@ -1,7 +1,6 @@
 from __future__ import annotations
 import json, shutil
 from pathlib import Path
-import pytest
 import validate_download_integrity as vdi
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "download-integrity"
 REGISTRY = '''schema_version: "1.0"

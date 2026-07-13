@@ -37,12 +37,6 @@ _UNBOUNDED_RE     = re.compile(r"pip(?:3)?\s+install\s+(?!-)([a-zA-Z][a-zA-Z0-9_
 _EXACT_PIN_RE     = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?==[^\s]+")
 
 # Workflow-level codes that a signed, time-bounded exception may waive.
-_EXCEPTABLE_CODES = frozenset({
-    "UNCONDITIONAL_PIP_UPGRADE",
-    "BRANCH_URL_INSTALL",
-    "UNBOUNDED_PIP_INSTALL",
-    "UNPINNED_PIP_INSTALL",
-})
 _MAX_EXCEPTION_WINDOW_DAYS = 30
 
 
