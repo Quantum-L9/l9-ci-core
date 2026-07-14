@@ -1,0 +1,523 @@
+# --- L9_META ---
+# l9_schema: 1
+# origin: l9-ci-universal-base
+# layer: [ci]
+# tags: [L9_TEMPLATE, ci, reusable-workflow]
+# owner: platform
+# status: active
+# --- /L9_META ---
+name: Node PR Pipeline Gate
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version used by the pipeline.
+        required: false
+        type: string
+        default: "20"
+      working-directory:
+        description: Directory containing package.json and package-lock.json.
+        required: false
+        type: string
+        default: "."
+      install-command:
+        description: Trusted dependency installation command.
+        required: false
+        type: string
+        default: "npm ci"
+      lint-script:
+        description: npm script used for linting. Empty disables linting.
+        required: false
+        type: string
+        default: "lint"
+      typecheck-script:
+        description: npm script used for type checking. Empty disables type checking.
+        required: false
+        type: string
+        default: "typecheck"
+      build-script:
+        description: npm script used for the build. Empty disables the build.
+        required: false
+        type: string
+        default: "build"
+      test-script:
+        description: npm script used for tests.
+        required: false
+        type: string
+        default: "test"
+      require-tests:
+        description: Fail when the configured test script is absent.
+        required: false
+        type: boolean
+        default: true
+      audit-level:
+        description: Minimum npm audit severity that fails the security job.
+        required: false
+        type: string
+        default: "high"
+      audit-production-only:
+        description: Audit runtime dependencies only.
+        required: false
+        type: boolean
+        default: false
+      upload-sbom:
+        description: Generate and upload an SPDX JSON SBOM.
+        required: false
+        type: boolean
+        default: true
+concurrency:
+  group: l9-node-pr-pipeline-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  validate:
+    name: Validate Node Project
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - name: Validate Project Contract
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        env:
+          L9_AUDIT_LEVEL: ${{ inputs.audit-level }}
+          L9_BUILD_SCRIPT: ${{ inputs.build-script }}
+          L9_LINT_SCRIPT: ${{ inputs.lint-script }}
+          L9_REQUIRE_TESTS: ${{ inputs.require-tests }}
+          L9_TEST_SCRIPT: ${{ inputs.test-script }}
+          L9_TYPECHECK_SCRIPT: ${{ inputs.typecheck-script }}
+        run: |
+          set -euo pipefail
+          if [ ! -f package.json ]; then
+            echo "::error::package.json is required in working-directory"
+            exit 1
+          fi
+          if [ ! -f package-lock.json ]; then
+            echo "::error::package-lock.json is required for deterministic npm installs"
+            exit 1
+          fi
+          case "$L9_AUDIT_LEVEL" in
+            low|moderate|high|critical)
+              ;;
+            *)
+              echo "::error::audit-level must be one of: low, moderate, high, critical"
+              exit 1
+              ;;
+          esac
+          node <<'NODE'
+          const fs = require("node:fs");
+          const packageJson = JSON.parse(
+            fs.readFileSync("package.json", "utf8"),
+          );
+          const scripts = packageJson.scripts || {};
+          const configuredScripts = [
+            ["lint", process.env.L9_LINT_SCRIPT, false],
+            ["typecheck", process.env.L9_TYPECHECK_SCRIPT, false],
+            ["build", process.env.L9_BUILD_SCRIPT, false],
+            [
+              "test",
+              process.env.L9_TEST_SCRIPT,
+              process.env.L9_REQUIRE_TESTS === "true",
+            ],
+          ];
+          let failed = false;
+          for (const [label, script, required] of configuredScripts) {
+            if (!script) {
+              console.log(`::notice::${label} check disabled`);
+              continue;
+            }
+            if (scripts[script]) {
+              console.log(`Found npm ${label} script '${script}'`);
+              continue;
+            }
+            if (required) {
+              console.error(
+                `::error::Required npm ${label} script '${script}' is missing`,
+              );
+              failed = true;
+            } else {
+              console.log(
+                `::notice::Optional npm ${label} script '${script}' is missing`,
+              );
+            }
+          }
+          if (failed) {
+            process.exit(1);
+          }
+          NODE
+  lint:
+    name: Lint and Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: validate
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - name: Install Dependencies
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        env:
+          L9_INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: |
+          set -euo pipefail
+          bash -euo pipefail -c "$L9_INSTALL_COMMAND"
+      - name: Run Lint
+        id: lint_check
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        env:
+          L9_SCRIPT: ${{ inputs.lint-script }}
+        run: |
+          set -euo pipefail
+          if [ -z "$L9_SCRIPT" ]; then
+            echo "::notice::Lint check disabled"
+            exit 0
+          fi
+          if ! npm pkg get "scripts.${L9_SCRIPT}" | grep -vq '^{}$'; then
+            echo "::notice::Optional npm lint script '$L9_SCRIPT' is missing"
+            exit 0
+          fi
+          npm run "$L9_SCRIPT"
+      - name: Run Type Check
+        id: typecheck
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        env:
+          L9_SCRIPT: ${{ inputs.typecheck-script }}
+        run: |
+          set -euo pipefail
+          if [ -z "$L9_SCRIPT" ]; then
+            echo "::notice::Type-checking disabled"
+            exit 0
+          fi
+          if ! npm pkg get "scripts.${L9_SCRIPT}" | grep -vq '^{}$'; then
+            echo "::notice::Optional npm typecheck script '$L9_SCRIPT' is missing"
+            exit 0
+          fi
+          npm run "$L9_SCRIPT"
+      - name: Aggregate Lint Results
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for result in \
+            "lint:${{ steps.lint_check.outcome }}" \
+            "typecheck:${{ steps.typecheck.outcome }}"
+          do
+            name="${result%%:*}"
+            outcome="${result##*:}"
+            case "$outcome" in
+              success|skipped)
+                ;;
+              *)
+                echo "::error::$name check failed with outcome '$outcome'"
+                fail=1
+                ;;
+            esac
+          done
+          exit "$fail"
+  test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: validate
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - name: Install Dependencies
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        env:
+          L9_INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: |
+          set -euo pipefail
+          bash -euo pipefail -c "$L9_INSTALL_COMMAND"
+      - name: Run Build
+        id: build
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        env:
+          L9_SCRIPT: ${{ inputs.build-script }}
+        run: |
+          set -euo pipefail
+          if [ -z "$L9_SCRIPT" ]; then
+            echo "::notice::Build disabled"
+            exit 0
+          fi
+          if ! npm pkg get "scripts.${L9_SCRIPT}" | grep -vq '^{}$'; then
+            echo "::notice::Optional npm build script '$L9_SCRIPT' is missing"
+            exit 0
+          fi
+          npm run "$L9_SCRIPT"
+      - name: Run Tests
+        id: tests
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        env:
+          L9_REQUIRE_TESTS: ${{ inputs.require-tests }}
+          L9_SCRIPT: ${{ inputs.test-script }}
+        run: |
+          set -euo pipefail
+          if [ -z "$L9_SCRIPT" ]; then
+            if [ "$L9_REQUIRE_TESTS" = "true" ]; then
+              echo "::error::Tests are required but test-script is empty"
+              exit 1
+            fi
+            echo "::notice::Tests disabled"
+            exit 0
+          fi
+          if ! npm pkg get "scripts.${L9_SCRIPT}" | grep -vq '^{}$'; then
+            if [ "$L9_REQUIRE_TESTS" = "true" ]; then
+              echo "::error::Required npm test script '$L9_SCRIPT' is missing"
+              exit 1
+            fi
+            echo "::notice::Optional npm test script '$L9_SCRIPT' is missing"
+            exit 0
+          fi
+          npm run "$L9_SCRIPT"
+      - name: Write Test Summary
+        if: always()
+        shell: bash
+        env:
+          L9_BUILD_OUTCOME: ${{ steps.build.outcome }}
+          L9_TEST_OUTCOME: ${{ steps.tests.outcome }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Node build and test"
+            echo
+            echo "| Check | Outcome |"
+            echo "| --- | --- |"
+            echo "| Build | $L9_BUILD_OUTCOME |"
+            echo "| Tests | $L9_TEST_OUTCOME |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Aggregate Test Results
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for result in \
+            "build:${{ steps.build.outcome }}" \
+            "tests:${{ steps.tests.outcome }}"
+          do
+            name="${result%%:*}"
+            outcome="${result##*:}"
+            case "$outcome" in
+              success|skipped)
+                ;;
+              *)
+                echo "::error::$name check failed with outcome '$outcome'"
+                fail=1
+                ;;
+            esac
+          done
+          exit "$fail"
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: validate
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0  # Required by Gitleaks for full history secret scan; depth 1 would miss prior commits on long-lived branches
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - name: Install Dependencies
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        env:
+          L9_INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: |
+          set -euo pipefail
+          bash -euo pipefail -c "$L9_INSTALL_COMMAND"
+      - name: Run npm Audit
+        id: npm_audit
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        env:
+          L9_AUDIT_LEVEL: ${{ inputs.audit-level }}
+          L9_PRODUCTION_ONLY: ${{ inputs.audit-production-only }}
+        run: |
+          set -euo pipefail
+          args=(audit "--audit-level=${L9_AUDIT_LEVEL}")
+          if [ "$L9_PRODUCTION_ONLY" = "true" ]; then
+            args+=(--omit=dev)
+          fi
+          npm "${args[@]}"
+      - name: Run Gitleaks
+        id: gitleaks
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION="8.30.1"
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          base_url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          temporary_directory="$(mktemp -d)"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            "${base_url}/${archive}" \
+            --output "${temporary_directory}/${archive}"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            "${base_url}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" \
+            --output "${temporary_directory}/checksums.txt"
+          (
+            cd "$temporary_directory"
+            grep " ${archive}\$" checksums.txt | sha256sum --check -
+          )
+          tar \
+            --extract \
+            --gzip \
+            --file "${temporary_directory}/${archive}" \
+            --directory "$temporary_directory" \
+            gitleaks
+          config_args=()
+          if [ -f .gitleaks.toml ]; then
+            config_args+=(--config .gitleaks.toml)
+          fi
+          "$temporary_directory/gitleaks" dir . \
+            --no-banner \
+            --redact \
+            "${config_args[@]}"
+      - name: Dependency Review
+        id: dependency_review
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: high
+      - name: Aggregate Security Results
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for result in \
+            "npm-audit:${{ steps.npm_audit.outcome }}" \
+            "gitleaks:${{ steps.gitleaks.outcome }}" \
+            "dependency-review:${{ steps.dependency_review.outcome }}"
+          do
+            name="${result%%:*}"
+            outcome="${result##*:}"
+            case "$outcome" in
+              success|skipped)
+                ;;
+              *)
+                echo "::error::$name failed with outcome '$outcome'"
+                fail=1
+                ;;
+            esac
+          done
+          exit "$fail"
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Generate Software Bill of Materials
+        if: ${{ inputs.upload-sbom }}
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: ${{ inputs.working-directory }}
+          format: spdx-json
+          output-file: node-sbom.spdx.json
+          upload-artifact: true
+          artifact-name: node-sbom-${{ inputs.node-version }}
+          upload-release-assets: false
+      - name: Report Disabled SBOM
+        if: ${{ !inputs.upload-sbom }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::notice::SBOM generation disabled by caller"
+  ci-gate:
+    name: Node CI Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    needs:
+      - validate
+      - lint
+      - test
+      - security
+      - sbom
+    permissions:
+      contents: read
+    steps:
+      - name: Evaluate Required Results
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for result in \
+            "validate:${{ needs.validate.result }}" \
+            "lint:${{ needs.lint.result }}" \
+            "test:${{ needs.test.result }}" \
+            "security:${{ needs.security.result }}" \
+            "sbom:${{ needs.sbom.result }}"
+          do
+            name="${result%%:*}"
+            status="${result##*:}"
+            if [ "$status" != "success" ]; then
+              echo "::error::$name completed with result '$status'"
+              fail=1
+            else
+              echo "$name: success"
+            fi
+          done
+          exit "$fail"
