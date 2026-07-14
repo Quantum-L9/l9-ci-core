@@ -6,6 +6,7 @@ from . import limits as _lim
 
 def iter_workflow_files(workflow_dir=None, root=None) -> Generator[Path, None, None]:
     from .paths import repo_root as _rr
+
     if root is None:
         root = _rr()
     root = Path(root).resolve()
@@ -32,9 +33,7 @@ def iter_workflow_files(workflow_dir=None, root=None) -> Generator[Path, None, N
         # Per-file hard cap (hardening): reject any single oversized workflow
         # before it is parsed, independent of the aggregate scan budget.
         if file_size > _lim.MAX_WORKFLOW_FILE_BYTES:
-            raise ValueError(
-                f"{p} exceeds per-file workflow limit {_lim.MAX_WORKFLOW_FILE_BYTES}"
-            )
+            raise ValueError(f"{p} exceeds per-file workflow limit {_lim.MAX_WORKFLOW_FILE_BYTES}")
         total += file_size
         if total > _lim.MAX_TOTAL_SCAN_BYTES:
             raise ValueError(f"Total scan bytes exceeded limit {_lim.MAX_TOTAL_SCAN_BYTES}")
@@ -83,7 +82,14 @@ def iter_uses_references(workflow) -> Iterator[tuple[str, int, str, str, int, st
             if "uses" in step:
                 lc = getattr(step, "lc", None)
                 line = (lc.line + 1) if lc else 0
-                yield jid, idx, str(step.get("name", f"step-{idx}")), str(step["uses"]), line, _trailing_comment(step, "uses")
+                yield (
+                    jid,
+                    idx,
+                    str(step.get("name", f"step-{idx}")),
+                    str(step["uses"]),
+                    line,
+                    _trailing_comment(step, "uses"),
+                )
 
 
 def iter_run_blocks(workflow) -> Iterator[tuple[str, int, str, str, int]]:

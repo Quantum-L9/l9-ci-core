@@ -1,4 +1,5 @@
 """PR-B2: deterministic risk classification (PR §6)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,10 +33,7 @@ def test_workflow_change_is_high(policy):
 
 
 def test_gate_registry_is_regulated(policy):
-    assert (
-        risk.classify(policy, [".github/governance/gate-registry.yaml"]).risk_tier
-        == "regulated"
-    )
+    assert risk.classify(policy, [".github/governance/gate-registry.yaml"]).risk_tier == "regulated"
 
 
 def test_evaluator_is_regulated(policy):
@@ -80,7 +78,8 @@ def test_mixed_docs_and_workflow_is_high(policy):
 def test_empty_push_diff_failure_is_high(policy):
     # An empty diff produced by a failed collection is unknown_diff -> high.
     r = risk.classify_changed_files(
-        policy, {"schema_version": "1.0", "files": [], "unknown_diff": True, "reason": "git_diff_failed"}
+        policy,
+        {"schema_version": "1.0", "files": [], "unknown_diff": True, "reason": "git_diff_failed"},
     )
     assert r.risk_tier == "high"
 

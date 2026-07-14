@@ -6,11 +6,11 @@ repository-relative POSIX paths. A diff failure — or a missing base SHA — yi
 an ``unknown_diff`` result instead of raising, so the planner can still build a
 conservative fail-closed (high-risk) plan.
 """
+
 from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Any
 
 from .models import ChangedFiles, EventContext
 

@@ -1,4 +1,5 @@
 """PR-B2: event-context normalization (PR §7)."""
+
 from __future__ import annotations
 
 import json

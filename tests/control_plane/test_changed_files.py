@@ -1,4 +1,5 @@
 """PR-B2: changed-file acquisition (PR §8)."""
+
 from __future__ import annotations
 
 import subprocess
@@ -23,7 +24,9 @@ def repo(tmp_path):
     _git(tmp_path, "commit", "-q", "-m", "base")
     base = subprocess.run(
         ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
-        check=True, capture_output=True, text=True,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
     (tmp_path / "a.txt").write_text("two\n")
     (tmp_path / "docs").mkdir()
@@ -32,7 +35,9 @@ def repo(tmp_path):
     _git(tmp_path, "commit", "-q", "-m", "subject")
     subject = subprocess.run(
         ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
-        check=True, capture_output=True, text=True,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
     return tmp_path, base, subject
 

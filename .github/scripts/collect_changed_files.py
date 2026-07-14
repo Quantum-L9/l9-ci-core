@@ -7,6 +7,7 @@ against ``schemas/changed-files.schema.json``, and writes the file. A diff
 failure is reported as ``unknown_diff`` (exit 0) so downstream planning can
 still fail closed; only genuine invocation errors exit non-zero.
 """
+
 from __future__ import annotations
 
 import argparse

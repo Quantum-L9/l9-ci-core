@@ -1,9 +1,11 @@
 from __future__ import annotations
-import json, shutil
+import json
+import shutil
 from pathlib import Path
 import validate_download_integrity as vdi
+
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "download-integrity"
-REGISTRY = '''schema_version: "1.0"
+REGISTRY = """schema_version: "1.0"
 downloads:
   gitleaks-linux-x64:
     version: "8.18.4"
@@ -11,7 +13,8 @@ downloads:
     sha256: "a1b2c3d4e5f60718293a4b5c6d7e8f901234567890abcdef1234567890abcdef"
     workflows:
       - ".github/workflows/valid-curl-sha256.yml"
-'''
+"""
+
 
 def _run(fixture, tmp_path, registry=REGISTRY):
     wdir = tmp_path / ".github" / "workflows"
@@ -24,25 +27,31 @@ def _run(fixture, tmp_path, registry=REGISTRY):
     ec = vdi.run(tmp_path, gov / "download-integrity.yaml", out, "text", True)
     return ec, json.loads(out.read_text())
 
+
 def test_valid_curl_passes(tmp_path):
     ec, d = _run("valid-curl-sha256.yml", tmp_path)
     assert ec == 0 and d["result"] == "passed"
+
 
 def test_pipe_bash_forbidden(tmp_path):
     ec, d = _run("invalid-curl-pipe-bash.yml", tmp_path)
     assert ec == 1 and any(v["code"] == "STREAMED_EXECUTION_FORBIDDEN" for v in d["violations"])
 
+
 def test_wget_pipe_shell_forbidden(tmp_path):
     ec, d = _run("invalid-wget-pipe-shell.yml", tmp_path)
     assert ec == 1 and any(v["code"] == "STREAMED_EXECUTION_FORBIDDEN" for v in d["violations"])
+
 
 def test_missing_marker_fails(tmp_path):
     ec, d = _run("invalid-missing-marker.yml", tmp_path)
     assert ec == 1 and any(v["code"] == "MISSING_DOWNLOAD_MARKER" for v in d["violations"])
 
+
 def test_missing_registry_key_fails(tmp_path):
     ec, d = _run("invalid-missing-registry.yml", tmp_path)
     assert ec == 1 and any(v["code"] == "UNREGISTERED_DOWNLOAD" for v in d["violations"])
+
 
 def test_mutable_latest_url_fails(tmp_path):
     ec, d = _run("invalid-mutable-latest-url.yml", tmp_path)
@@ -50,10 +59,13 @@ def test_mutable_latest_url_fails(tmp_path):
 
 
 def test_valid_powershell_passes(tmp_path):
-    ec, d = _run("valid-powershell-sha256.yml", tmp_path,
-                 registry=REGISTRY.replace("gitleaks-linux-x64", "gitleaks-windows-x64")
-                 .replace('_linux_x64.tar.gz', '_windows_x64.zip')
-                 .replace("valid-curl-sha256.yml", "valid-powershell-sha256.yml"))
+    ec, d = _run(
+        "valid-powershell-sha256.yml",
+        tmp_path,
+        registry=REGISTRY.replace("gitleaks-linux-x64", "gitleaks-windows-x64")
+        .replace("_linux_x64.tar.gz", "_windows_x64.zip")
+        .replace("valid-curl-sha256.yml", "valid-powershell-sha256.yml"),
+    )
     assert ec == 0 and d["result"] == "passed"
 
 
@@ -124,8 +136,8 @@ def test_powershell_nonstructural_filehash_fails(tmp_path):
         f'          $ToolUrl = "{_URL}"\n'
         f'          $ToolSha256 = "{_SHA}"\n'
         '          $Archive = Join-Path $env:RUNNER_TEMP "gl.zip"\n'
-        '          Invoke-WebRequest -Uri $ToolUrl -OutFile $Archive -UseBasicParsing\n'
-        '          $Actual = (Get-FileHash $Archive).Hash\n'
+        "          Invoke-WebRequest -Uri $ToolUrl -OutFile $Archive -UseBasicParsing\n"
+        "          $Actual = (Get-FileHash $Archive).Hash\n"
     )
     ec, d = _inline_step(body, tmp_path)
     assert ec == 1 and any(v["code"] == "DOWNLOAD_CHECKSUM_MISSING" for v in d["violations"])
@@ -174,9 +186,9 @@ def test_powershell_hash_without_comparison_fails(tmp_path):
         f'          $ToolUrl = "{_URL}"\n'
         f'          $ToolSha256 = "{_SHA}"\n'
         '          $Archive = "gl.tar.gz"\n'
-        '          Invoke-WebRequest -Uri $ToolUrl -OutFile $Archive -UseBasicParsing\n'
-        '          $Actual = (Get-FileHash -Path $Archive -Algorithm SHA256).Hash\n'
-        '          Write-Host $Actual\n'
+        "          Invoke-WebRequest -Uri $ToolUrl -OutFile $Archive -UseBasicParsing\n"
+        "          $Actual = (Get-FileHash -Path $Archive -Algorithm SHA256).Hash\n"
+        "          Write-Host $Actual\n"
     )
     ec, d = _inline_step(body, tmp_path)
     assert ec == 1 and any(v["code"] == "DOWNLOAD_CHECKSUM_MISSING" for v in d["violations"])
@@ -192,8 +204,8 @@ def test_powershell_full_verification_passes(tmp_path):
         f'          $ToolUrl = "{_URL}"\n'
         f'          $ToolSha256 = "{_SHA}"\n'
         '          $Archive = "gl.tar.gz"\n'
-        '          Invoke-WebRequest -Uri $ToolUrl -OutFile $Archive -UseBasicParsing\n'
-        '          $Actual = (Get-FileHash -Path $Archive -Algorithm SHA256).Hash\n'
+        "          Invoke-WebRequest -Uri $ToolUrl -OutFile $Archive -UseBasicParsing\n"
+        "          $Actual = (Get-FileHash -Path $Archive -Algorithm SHA256).Hash\n"
         '          if ($Actual -ne $ToolSha256) { throw "hash mismatch" }\n'
     )
     ec, d = _inline_step(body, tmp_path)
@@ -202,8 +214,10 @@ def test_powershell_full_verification_passes(tmp_path):
 
 def test_schema_unavailable_fails_closed(tmp_path, monkeypatch):
     import l9_bootstrap.schema_loader as sl
+
     def _boom(root, name):
         raise sl.SchemaUnavailable("missing")
+
     monkeypatch.setattr(sl, "load_validator", _boom)
     ec, d = _run("valid-curl-sha256.yml", tmp_path)
     assert ec == 2 and any(v["code"] == "SCHEMA_UNAVAILABLE" for v in d["violations"])

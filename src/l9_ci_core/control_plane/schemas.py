@@ -12,6 +12,7 @@ All control-plane schemas are JSON Schema Draft 2020-12. A missing schema file
 is always fatal to the caller — the control plane never silently skips
 validation because a schema is absent.
 """
+
 from __future__ import annotations
 
 import json

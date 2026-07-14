@@ -5,6 +5,7 @@ no PYTHONPATH. They cover the B1 deliverables: the package skeleton, the nine
 control-plane schemas, and the canonical-json / digest / schema-loader
 foundations that PR-B2 builds on.
 """
+
 from __future__ import annotations
 
 import importlib

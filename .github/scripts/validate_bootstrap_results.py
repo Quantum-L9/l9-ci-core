@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, json, sys
+import argparse
+import json
+import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent))
 from l9_bootstrap import limits
 from l9_bootstrap.paths import repo_root
@@ -20,9 +23,9 @@ EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_ERROR = 2
 EXPECTED = [
-    ("action-pins.json",        "workflow/action-pins"),
+    ("action-pins.json", "workflow/action-pins"),
     ("download-integrity.json", "workflow/download-integrity"),
-    ("ci-dependencies.json",    "dependencies/ci-lock"),
+    ("ci-dependencies.json", "dependencies/ci-lock"),
     ("workflow-contracts.json", "workflow/contracts"),
 ]
 
@@ -30,9 +33,7 @@ EXPECTED = [
 def _load_json(path: Path) -> dict:
     """Read a JSON object with a hard size cap; reject non-object roots."""
     if path.stat().st_size > limits.MAX_RESULT_FILE_BYTES:
-        raise ValueError(
-            f"{path.name} exceeds result-size limit {limits.MAX_RESULT_FILE_BYTES}"
-        )
+        raise ValueError(f"{path.name} exceeds result-size limit {limits.MAX_RESULT_FILE_BYTES}")
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError(f"{path.name} root must be a JSON object")
@@ -56,7 +57,10 @@ def run(results_dir, root, quiet=False):
     except SchemaUnavailable as exc:
         print(f"[SCHEMA_UNAVAILABLE] {exc}", file=sys.stderr)
         if not quiet:
-            print("[ERROR] Bootstrap result validation cannot run without required schemas.", file=sys.stderr)
+            print(
+                "[ERROR] Bootstrap result validation cannot run without required schemas.",
+                file=sys.stderr,
+            )
         return EXIT_ERROR
     for fname, expected_gid in EXPECTED:
         fpath = results_dir / fname
@@ -81,7 +85,10 @@ def run(results_dir, root, quiet=False):
             continue
         actual = data.get("gate_id", "")
         if actual != expected_gid:
-            print(f"[WRONG_GATE_ID] {fname}: expected={expected_gid!r} got={actual!r}", file=sys.stderr)
+            print(
+                f"[WRONG_GATE_ID] {fname}: expected={expected_gid!r} got={actual!r}",
+                file=sys.stderr,
+            )
             overall_ok = False
             continue
         if actual in seen:
@@ -124,8 +131,7 @@ def run(results_dir, root, quiet=False):
                 # result file it references. The manifest is a claim; the
                 # per-gate evidence files are the ground truth.
                 manifest_results = {
-                    entry.get("file"): entry
-                    for entry in manifest.get("results", [])
+                    entry.get("file"): entry for entry in manifest.get("results", [])
                 }
 
                 if set(manifest_results) != set(actual_by_file):
@@ -154,10 +160,9 @@ def run(results_dir, root, quiet=False):
 
                 # Recompute complete/overall_result from ground truth and
                 # reject any manifest that disagrees.
-                expected_complete = (
-                    len(actual_by_file) == len(EXPECTED)
-                    and set(actual_by_file) == {f for f, _ in EXPECTED}
-                )
+                expected_complete = len(actual_by_file) == len(EXPECTED) and set(
+                    actual_by_file
+                ) == {f for f, _ in EXPECTED}
                 if bool(manifest.get("complete")) != expected_complete:
                     print(
                         "[MANIFEST_COMPLETENESS_MISMATCH] "
@@ -171,10 +176,7 @@ def run(results_dir, root, quiet=False):
                     "passed"
                     if (
                         expected_complete
-                        and all(
-                            entry["result"] == "passed"
-                            for entry in actual_by_file.values()
-                        )
+                        and all(entry["result"] == "passed" for entry in actual_by_file.values())
                     )
                     else "failed"
                 )
@@ -198,6 +200,7 @@ def run(results_dir, root, quiet=False):
         print("[PASS] All bootstrap gate results validated.")
     return EXIT_OK
 
+
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--results-dir", required=True)
@@ -206,6 +209,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     _root = repo_root(args.root)
     return run(Path(args.results_dir), _root, args.quiet)
+
 
 if __name__ == "__main__":
     sys.exit(main())

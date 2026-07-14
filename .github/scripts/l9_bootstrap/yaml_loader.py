@@ -8,10 +8,7 @@ from . import limits as _lim
 
 def _validate_depth(value, *, source: str, depth: int = 0) -> None:
     if depth > _lim.MAX_YAML_DEPTH:
-        raise ValueError(
-            f"YAML from {source} exceeds maximum depth "
-            f"{_lim.MAX_YAML_DEPTH}"
-        )
+        raise ValueError(f"YAML from {source} exceeds maximum depth {_lim.MAX_YAML_DEPTH}")
 
     if isinstance(value, dict):
         for key, child in value.items():

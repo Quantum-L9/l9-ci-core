@@ -6,4 +6,5 @@ PR-A base-result JSON. Never executes raw commands read from YAML.
 
 Implemented in a later PR.
 """
+
 from __future__ import annotations

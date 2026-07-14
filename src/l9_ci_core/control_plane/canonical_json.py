@@ -13,6 +13,7 @@ the same bytes, on any platform, so hashes are comparable across runs and
 machines. There are therefore no timestamps, randomness, or environment
 inputs anywhere in this module.
 """
+
 from __future__ import annotations
 
 import hashlib

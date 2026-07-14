@@ -9,7 +9,7 @@ def repo_root(start=None) -> Path:
 def safe_resolve(base: Path, rel) -> Path:
     base_real = base.resolve()
     # Pre-check symlink escape before full resolve
-    candidate_unresolved = (base / rel)
+    candidate_unresolved = base / rel
     check = candidate_unresolved
     while check != check.parent:
         if check.is_symlink():
@@ -43,7 +43,5 @@ def validate_output_path(dest, base: Path) -> Path:
     try:
         destination.relative_to(approved)
     except ValueError as exc:
-        raise ValueError(
-            f"Output path escapes approved output root: {destination}"
-        ) from exc
+        raise ValueError(f"Output path escapes approved output root: {destination}") from exc
     return destination

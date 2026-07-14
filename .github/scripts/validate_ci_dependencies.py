@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """Bootstrap gate: dependencies/ci-lock"""
+
 from __future__ import annotations
-import argparse, hashlib, json, os, re, subprocess, sys
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent))
 from l9_bootstrap.models import GateResult, ResultStatus
 from l9_bootstrap.output import write_json, write_json_stdout
@@ -18,23 +26,32 @@ GATE_ID = "dependencies/ci-lock"
 # lock. This is the deterministic, content-based signal for PR-A-managed
 # bootstrap jobs.
 _BOOTSTRAP_LOCK_MARKER = "requirements/bootstrap.lock"
-_PIP_INSTALL_RE   = re.compile(r"\bpip(?:3)?\s+install\b")
-_REQUIRE_HASHES   = re.compile(r"--require-hashes")
+_PIP_INSTALL_RE = re.compile(r"\bpip(?:3)?\s+install\b")
+_REQUIRE_HASHES = re.compile(r"--require-hashes")
 # Options that, if present in the production lock, subvert hash-pinned resolution
 # from the default TLS index. A compliant lock must not carry any of these.
-_FORBIDDEN_LOCK_OPTIONS = frozenset({
-    "--index-url", "-i", "--extra-index-url", "--find-links", "-f",
-    "--trusted-host", "--pre", "--editable", "-e",
-})
+_FORBIDDEN_LOCK_OPTIONS = frozenset(
+    {
+        "--index-url",
+        "-i",
+        "--extra-index-url",
+        "--find-links",
+        "-f",
+        "--trusted-host",
+        "--pre",
+        "--editable",
+        "-e",
+    }
+)
 # Exact hash length per algorithm: sha256 -> 64 hex, sha512 -> 128 hex.
-_HASH_LINE        = re.compile(r"--hash=(?:sha256:[0-9a-fA-F]{64}|sha512:[0-9a-fA-F]{128})")
+_HASH_LINE = re.compile(r"--hash=(?:sha256:[0-9a-fA-F]{64}|sha512:[0-9a-fA-F]{128})")
 _EDITABLE_NO_DEPS = re.compile(r"--no-deps\s+-e\b|-e\b.*--no-deps")
-_UPGRADE_RE       = re.compile(r"--upgrade\b|-U\b")
-_BRANCH_URL_RE    = re.compile(r"git\+https://[^@]+@(?!refs/tags/)[a-zA-Z]")
-_UNBOUNDED_RE     = re.compile(r"pip(?:3)?\s+install\s+(?!-)([a-zA-Z][a-zA-Z0-9_\-\.]+)(?:\s|$)")
+_UPGRADE_RE = re.compile(r"--upgrade\b|-U\b")
+_BRANCH_URL_RE = re.compile(r"git\+https://[^@]+@(?!refs/tags/)[a-zA-Z]")
+_UNBOUNDED_RE = re.compile(r"pip(?:3)?\s+install\s+(?!-)([a-zA-Z][a-zA-Z0-9_\-\.]+)(?:\s|$)")
 # A pinned requirement: name==version (extras allowed) at the start of a
 # logical line.
-_EXACT_PIN_RE     = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?==[^\s]+")
+_EXACT_PIN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?==[^\s]+")
 
 # Workflow-level codes that a signed, time-bounded exception may waive.
 _MAX_EXCEPTION_WINDOW_DAYS = 30
@@ -70,19 +87,22 @@ def _check_lock_file(lock_path: Path):
     violations = []
     if not lock_path.exists():
         return [{"code": "LOCK_FILE_MISSING", "message": f"{lock_path} not found"}]
-    text = lock_path.read_text(encoding='utf-8')
+    text = lock_path.read_text(encoding="utf-8")
     logical = [
         (line_no, body)
         for line_no, body in _logical_requirement_lines(text)
         if body and not body.lstrip().startswith("#")
     ]
     if not logical:
-        return [{"code": "LOCK_FILE_EMPTY",
-                 "message": f"{lock_path} declares no requirements"}]
+        return [{"code": "LOCK_FILE_EMPTY", "message": f"{lock_path} declares no requirements"}]
     has_any_hash = _HASH_LINE.search(text)
     if not has_any_hash:
-        violations.append({"code": "LOCK_MISSING_HASH",
-                           "message": f"{lock_path} has no --hash= entries; regenerate with --generate-hashes"})
+        violations.append(
+            {
+                "code": "LOCK_MISSING_HASH",
+                "message": f"{lock_path} has no --hash= entries; regenerate with --generate-hashes",
+            }
+        )
     for line_no, body in logical:
         # Option lines are not requirements, but they are not all benign. A
         # locked, hash-verified install must resolve only from the default index
@@ -92,24 +112,40 @@ def _check_lock_file(lock_path: Path):
         if body.startswith("-"):
             opt = body.split("=", 1)[0].split()[0].strip().lower()
             if opt in _FORBIDDEN_LOCK_OPTIONS:
-                violations.append({"code": "LOCK_FORBIDDEN_OPTION",
-                                   "message": f"{lock_path}: forbidden lock option {opt!r} "
-                                              f"(index/source overrides defeat hash-pinned resolution): {body!r}",
-                                   "line": line_no})
+                violations.append(
+                    {
+                        "code": "LOCK_FORBIDDEN_OPTION",
+                        "message": f"{lock_path}: forbidden lock option {opt!r} "
+                        f"(index/source overrides defeat hash-pinned resolution): {body!r}",
+                        "line": line_no,
+                    }
+                )
             continue
         if not _EXACT_PIN_RE.match(body):
-            violations.append({"code": "LOCK_REQUIREMENT_NOT_EXACT",
-                               "message": f"{lock_path}: requirement not exactly pinned: {body!r}",
-                               "line": line_no})
+            violations.append(
+                {
+                    "code": "LOCK_REQUIREMENT_NOT_EXACT",
+                    "message": f"{lock_path}: requirement not exactly pinned: {body!r}",
+                    "line": line_no,
+                }
+            )
             continue
         if "--hash=" not in body:
-            violations.append({"code": "LOCK_MISSING_HASH",
-                               "message": f"{lock_path}: requirement missing --hash=: {body!r}",
-                               "line": line_no})
+            violations.append(
+                {
+                    "code": "LOCK_MISSING_HASH",
+                    "message": f"{lock_path}: requirement missing --hash=: {body!r}",
+                    "line": line_no,
+                }
+            )
         elif not _HASH_LINE.search(body):
-            violations.append({"code": "LOCK_MISSING_HASH",
-                               "message": f"{lock_path}: requirement has malformed --hash=: {body!r}",
-                               "line": line_no})
+            violations.append(
+                {
+                    "code": "LOCK_MISSING_HASH",
+                    "message": f"{lock_path}: requirement has malformed --hash=: {body!r}",
+                    "line": line_no,
+                }
+            )
     return violations
 
 
@@ -131,8 +167,9 @@ def _load_exceptions(root: Path, result: GateResult):
         else:
             data = load_yaml_file(path)
     except Exception as exc:
-        result.add_violation(code="EXCEPTION_FILE_MALFORMED",
-                             message=f"{path.name}: {exc}", path=str(path.name))
+        result.add_violation(
+            code="EXCEPTION_FILE_MALFORMED", message=f"{path.name}: {exc}", path=str(path.name)
+        )
         result.result = ResultStatus.error
         return set()
     # Schema validation is mandatory: the exception registry is a security
@@ -147,8 +184,11 @@ def _load_exceptions(root: Path, result: GateResult):
     errors = schema_loader.schema_errors(validator, data)
     if errors:
         for err in errors:
-            result.add_violation(code="EXCEPTION_SCHEMA_INVALID",
-                                 message=schema_loader.format_error(err), path=str(path.name))
+            result.add_violation(
+                code="EXCEPTION_SCHEMA_INVALID",
+                message=schema_loader.format_error(err),
+                path=str(path.name),
+            )
         result.result = ResultStatus.error
         return set()
     active = set()
@@ -162,21 +202,27 @@ def _load_exceptions(root: Path, result: GateResult):
         # Wildcards are forbidden even though the schema pattern already blocks
         # them; kept as defense in depth for JSON inputs bypassing the pattern.
         if "*" in path_val or "*" in line_or_step:
-            result.add_violation(code="EXCEPTION_WILDCARD_FORBIDDEN",
-                                 message=f"wildcard exception not allowed: {path_val}/{line_or_step}")
+            result.add_violation(
+                code="EXCEPTION_WILDCARD_FORBIDDEN",
+                message=f"wildcard exception not allowed: {path_val}/{line_or_step}",
+            )
             result.result = ResultStatus.failed
             continue
         try:
             expires = date.fromisoformat(expires_raw)
             created = date.fromisoformat(created_raw)
         except Exception:
-            result.add_violation(code="EXCEPTION_SCHEMA_INVALID",
-                                 message=f"invalid created_at/expires_on: {created_raw!r}/{expires_raw!r}")
+            result.add_violation(
+                code="EXCEPTION_SCHEMA_INVALID",
+                message=f"invalid created_at/expires_on: {created_raw!r}/{expires_raw!r}",
+            )
             result.result = ResultStatus.error
             continue
         if expires < today:
-            result.add_violation(code="EXCEPTION_EXPIRED",
-                                 message=f"exception for {code} on {path_val}:{line_or_step} expired {expires_raw}")
+            result.add_violation(
+                code="EXCEPTION_EXPIRED",
+                message=f"exception for {code} on {path_val}:{line_or_step} expired {expires_raw}",
+            )
             result.result = ResultStatus.failed
             continue
         # The window is measured from the exception's own creation date, not
@@ -184,8 +230,10 @@ def _load_exceptions(root: Path, result: GateResult):
         # (e.g. a 90-day grant) silently become valid once the clock is within
         # the window of expiry.
         if (expires - created).days > _MAX_EXCEPTION_WINDOW_DAYS:
-            result.add_violation(code="EXCEPTION_WINDOW_TOO_LONG",
-                                 message=f"exception for {code} spans {(expires - created).days}d from {created_raw} to {expires_raw}, exceeding {_MAX_EXCEPTION_WINDOW_DAYS}-day window")
+            result.add_violation(
+                code="EXCEPTION_WINDOW_TOO_LONG",
+                message=f"exception for {code} spans {(expires - created).days}d from {created_raw} to {expires_raw}, exceeding {_MAX_EXCEPTION_WINDOW_DAYS}-day window",
+            )
             result.result = ResultStatus.failed
             continue
         active.add((code, path_val, line_or_step))
@@ -205,6 +253,7 @@ def _is_excepted(active, code, rel, jid, name):
         if line_or_step in (jid, name, composite):
             return True
     return False
+
 
 def _normalize_cmd(run_block: str) -> str:
     """Collapse line-continuations and whitespace so a stored command identity
@@ -236,7 +285,9 @@ def _load_baseline(root: Path, result: GateResult):
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:
-        result.add_violation(code="BASELINE_FILE_MALFORMED", message=f"{path.name}: {exc}", path=path.name)
+        result.add_violation(
+            code="BASELINE_FILE_MALFORMED", message=f"{path.name}: {exc}", path=path.name
+        )
         result.result = ResultStatus.error
         return {}, None
     try:
@@ -248,7 +299,11 @@ def _load_baseline(root: Path, result: GateResult):
     errors = schema_loader.schema_errors(validator, data)
     if errors:
         for err in errors:
-            result.add_violation(code="BASELINE_SCHEMA_INVALID", message=schema_loader.format_error(err), path=path.name)
+            result.add_violation(
+                code="BASELINE_SCHEMA_INVALID",
+                message=schema_loader.format_error(err),
+                path=path.name,
+            )
         result.result = ResultStatus.error
         return {}, None
     entries = data.get("entries", [])
@@ -258,15 +313,21 @@ def _load_baseline(root: Path, result: GateResult):
     canon = json.dumps(entries, sort_keys=True, separators=(",", ":"))
     recomputed = "sha256:" + hashlib.sha256(canon.encode()).hexdigest()
     if data.get("baseline_digest") != recomputed:
-        result.add_violation(code="BASELINE_DIGEST_MISMATCH",
-            message=f"{path.name}: declared {data.get('baseline_digest')!r} != recomputed {recomputed!r}", path=path.name)
+        result.add_violation(
+            code="BASELINE_DIGEST_MISMATCH",
+            message=f"{path.name}: declared {data.get('baseline_digest')!r} != recomputed {recomputed!r}",
+            path=path.name,
+        )
         result.result = ResultStatus.error
         return {}, None
     index = {}
     for e in entries:
         if "*" in e["path"] or "*" in e["job"] or "*" in e["step"]:
-            result.add_violation(code="BASELINE_WILDCARD_FORBIDDEN",
-                message=f"wildcard baseline entry: {e['path']}:{e['job']}/{e['step']}", path=path.name)
+            result.add_violation(
+                code="BASELINE_WILDCARD_FORBIDDEN",
+                message=f"wildcard baseline entry: {e['path']}:{e['job']}/{e['step']}",
+                path=path.name,
+            )
             result.result = ResultStatus.error
             return {}, None
         index[(e["violation_code"], e["path"], e["job"], e["step"])] = e["command_sha256"]
@@ -309,7 +370,9 @@ def _git_show(root: Path, ref: str, rel_path: str):
     """Return the bytes of ``<ref>:<rel_path>`` via ``git show`` or None."""
     proc = subprocess.run(
         ["git", "-C", str(root), "show", f"{ref}:{rel_path}"],
-        check=False, capture_output=True, text=True,
+        check=False,
+        capture_output=True,
+        text=True,
     )
     if proc.returncode != 0:
         return None
@@ -334,8 +397,10 @@ def _load_trusted_baseline(root: Path, base_sha: str, result: GateResult):
     try:
         data = json.loads(raw)
     except Exception as exc:
-        result.add_violation(code="TRUSTED_BASELINE_MALFORMED",
-            message=f"trusted baseline at {base_sha} is invalid JSON: {exc}")
+        result.add_violation(
+            code="TRUSTED_BASELINE_MALFORMED",
+            message=f"trusted baseline at {base_sha} is invalid JSON: {exc}",
+        )
         result.result = ResultStatus.error
         return None
     try:
@@ -347,22 +412,24 @@ def _load_trusted_baseline(root: Path, base_sha: str, result: GateResult):
     errors = schema_loader.schema_errors(validator, data)
     if errors:
         for err in errors:
-            result.add_violation(code="TRUSTED_BASELINE_SCHEMA_INVALID",
-                message=schema_loader.format_error(err))
+            result.add_violation(
+                code="TRUSTED_BASELINE_SCHEMA_INVALID", message=schema_loader.format_error(err)
+            )
         result.result = ResultStatus.error
         return None
     entries = data.get("entries", [])
     canon = json.dumps(entries, sort_keys=True, separators=(",", ":"))
     recomputed = "sha256:" + hashlib.sha256(canon.encode()).hexdigest()
     if data.get("baseline_digest") != recomputed:
-        result.add_violation(code="TRUSTED_BASELINE_DIGEST_MISMATCH",
+        result.add_violation(
+            code="TRUSTED_BASELINE_DIGEST_MISMATCH",
             message=f"trusted baseline at {base_sha} declares "
-                    f"{data.get('baseline_digest')!r}, recomputed {recomputed!r}")
+            f"{data.get('baseline_digest')!r}, recomputed {recomputed!r}",
+        )
         result.result = ResultStatus.error
         return None
     return {
-        (e["violation_code"], e["path"], e["job"], e["step"]): e["command_sha256"]
-        for e in entries
+        (e["violation_code"], e["path"], e["job"], e["step"]): e["command_sha256"] for e in entries
     }
 
 
@@ -414,23 +481,30 @@ def _enforce_trusted_baseline(root: Path, candidate_index, trusted_index, result
         trusted_hash = trusted_index.get(key)
         if trusted_hash is None:
             if not _trusted_workflow_entry_matches(root, base_sha, key, candidate_hash):
-                result.add_violation(code="BASELINE_GROWTH_FORBIDDEN",
+                result.add_violation(
+                    code="BASELINE_GROWTH_FORBIDDEN",
                     message=f"candidate baseline adds an entry not proven to exist "
-                            f"in trusted base {base_sha}: {key!r}")
+                    f"in trusted base {base_sha}: {key!r}",
+                )
                 result.result = ResultStatus.failed
             continue
         if trusted_hash != candidate_hash:
-            result.add_violation(code="BASELINE_MUTATION_FORBIDDEN",
+            result.add_violation(
+                code="BASELINE_MUTATION_FORBIDDEN",
                 message=f"candidate baseline changes command identity for {key!r}: "
-                        f"trusted={trusted_hash} candidate={candidate_hash}")
+                f"trusted={trusted_hash} candidate={candidate_hash}",
+            )
             result.result = ResultStatus.failed
 
 
 def run(root, output_json, fmt, quiet):
     result = GateResult(gate_id=GATE_ID, result=ResultStatus.passed)
-    lock_path = root / 'requirements' / 'bootstrap.lock'
-    if not (root / 'requirements').exists():
-        result.add_violation(code="REQUIREMENTS_DIR_MISSING", message="requirements/ directory not found at repo root.")
+    lock_path = root / "requirements" / "bootstrap.lock"
+    if not (root / "requirements").exists():
+        result.add_violation(
+            code="REQUIREMENTS_DIR_MISSING",
+            message="requirements/ directory not found at repo root.",
+        )
         result.result = ResultStatus.error
         return _emit(result, output_json, fmt, quiet, 2)
     for v in _check_lock_file(lock_path):
@@ -461,7 +535,7 @@ def run(root, output_json, fmt, quiet):
         _enforce_trusted_baseline(root, baseline_index, trusted_baseline_index, result)
 
     try:
-        workflow_files = list(iter_workflow_files(root / '.github' / 'workflows', root))
+        workflow_files = list(iter_workflow_files(root / ".github" / "workflows", root))
     except ValueError as exc:
         result.add_violation(code="RESOURCE_LIMIT", message=str(exc))
         result.result = ResultStatus.error
@@ -492,29 +566,45 @@ def run(root, output_json, fmt, quiet):
         if not bootstrap_managed and key in baseline_index:
             if baseline_index[key] == cmd_sha:
                 matched_baseline_keys.add(key)
-                legacy_observations.append({
-                    "path": rel, "job": jid, "step": name,
-                    "violation_code": code, "command_sha256": cmd_sha,
-                    "status": "legacy_observation",
-                })
-                result.add_warning(code=f"{code}_LEGACY_OBSERVED",
+                legacy_observations.append(
+                    {
+                        "path": rel,
+                        "job": jid,
+                        "step": name,
+                        "violation_code": code,
+                        "command_sha256": cmd_sha,
+                        "status": "legacy_observation",
+                    }
+                )
+                result.add_warning(
+                    code=f"{code}_LEGACY_OBSERVED",
                     message=f"{Path(rel).name}: job={jid} step={name!r}: {human} (pre-existing legacy observation; tracked in baseline for PR-C removal).",
-                    path=rel, line=line_no or None,
-                    details={"status": "legacy_observation", "command_sha256": cmd_sha})
+                    path=rel,
+                    line=line_no or None,
+                    details={"status": "legacy_observation", "command_sha256": cmd_sha},
+                )
                 return
             # Baselined identity but the command changed: a modified pre-existing
             # install must not ride the old waiver.
-            result.add_violation(code=f"{code}_BASELINE_CHANGED",
+            result.add_violation(
+                code=f"{code}_BASELINE_CHANGED",
                 message=f"{Path(rel).name}: job={jid} step={name!r}: {human} -- command changed from baseline; re-review required.",
-                path=rel, line=line_no or None)
+                path=rel,
+                line=line_no or None,
+            )
             result.result = ResultStatus.failed
             new_violation_count += 1
             return
         # Bootstrap-managed, or a brand-new finding not in the baseline.
-        suffix = " (bootstrap-managed install must use --require-hashes)" if bootstrap_managed else ""
-        result.add_violation(code=code,
+        suffix = (
+            " (bootstrap-managed install must use --require-hashes)" if bootstrap_managed else ""
+        )
+        result.add_violation(
+            code=code,
             message=f"{Path(rel).name}: job={jid} step={name!r}: {human}{suffix}.",
-            path=rel, line=line_no or None)
+            path=rel,
+            line=line_no or None,
+        )
         result.result = ResultStatus.failed
         new_violation_count += 1
 
@@ -523,7 +613,9 @@ def run(root, output_json, fmt, quiet):
         try:
             wf = load_yaml_file(wf_path)
         except Exception as exc:
-            result.add_violation(code="WORKFLOW_PARSE_ERROR", message=f"{wf_path.name}: {exc}", path=rel)
+            result.add_violation(
+                code="WORKFLOW_PARSE_ERROR", message=f"{wf_path.name}: {exc}", path=rel
+            )
             result.result = ResultStatus.error
             continue
         if not isinstance(wf, dict):
@@ -532,21 +624,49 @@ def run(root, output_json, fmt, quiet):
             code = _classify_finding_code(run_block)
             if code is None:
                 continue
-            if code == 'UNCONDITIONAL_PIP_UPGRADE':
-                _handle('UNCONDITIONAL_PIP_UPGRADE', rel, jid, name, run_block, line_no,
-                        'pip install --upgrade/-U without --require-hashes')
+            if code == "UNCONDITIONAL_PIP_UPGRADE":
+                _handle(
+                    "UNCONDITIONAL_PIP_UPGRADE",
+                    rel,
+                    jid,
+                    name,
+                    run_block,
+                    line_no,
+                    "pip install --upgrade/-U without --require-hashes",
+                )
                 continue
-            if code == 'BRANCH_URL_INSTALL':
-                _handle('BRANCH_URL_INSTALL', rel, jid, name, run_block, line_no,
-                        'git+https://...@<branch> install forbidden')
+            if code == "BRANCH_URL_INSTALL":
+                _handle(
+                    "BRANCH_URL_INSTALL",
+                    rel,
+                    jid,
+                    name,
+                    run_block,
+                    line_no,
+                    "git+https://...@<branch> install forbidden",
+                )
                 continue
-            if code == 'UNBOUNDED_PIP_INSTALL':
+            if code == "UNBOUNDED_PIP_INSTALL":
                 m = _UNBOUNDED_RE.search(run_block)
-                _handle('UNBOUNDED_PIP_INSTALL', rel, jid, name, run_block, line_no,
-                        f'unbounded pip install {m.group(1)!r}')
+                _handle(
+                    "UNBOUNDED_PIP_INSTALL",
+                    rel,
+                    jid,
+                    name,
+                    run_block,
+                    line_no,
+                    f"unbounded pip install {m.group(1)!r}",
+                )
                 continue
-            _handle('UNPINNED_PIP_INSTALL', rel, jid, name, run_block, line_no,
-                    'pip install without --require-hashes')
+            _handle(
+                "UNPINNED_PIP_INSTALL",
+                rel,
+                jid,
+                name,
+                run_block,
+                line_no,
+                "pip install without --require-hashes",
+            )
 
     # Fail-closed against baseline staleness: every recorded legacy entry must
     # still correspond to a live finding. A baseline entry that no longer
@@ -554,23 +674,28 @@ def run(root, output_json, fmt, quiet):
     # being regenerated -- block until the baseline is updated.
     stale = set(baseline_index) - matched_baseline_keys
     for code, rel, jid, name in sorted(stale):
-        result.add_violation(code="BASELINE_ENTRY_STALE",
+        result.add_violation(
+            code="BASELINE_ENTRY_STALE",
             message=f"baseline records {code} at {rel}:{jid}/{name!r} but no matching live finding exists; regenerate the baseline.",
-            path=rel)
+            path=rel,
+        )
         result.result = ResultStatus.failed
         new_violation_count += 1
 
     result.metadata = {
-        'files_scanned': len(workflow_files),
-        'lock_file': str(lock_path),
-        'legacy_observation_count': len(legacy_observations),
-        'new_violation_count': new_violation_count,
-        'baseline_digest': baseline_digest,
-        'trusted_baseline_checked': bool(base_sha) and trusted_baseline_index is not None,
-        'legacy_observations': sorted(legacy_observations, key=lambda o: (o['path'], o['job'], o['step'], o['violation_code'])),
+        "files_scanned": len(workflow_files),
+        "lock_file": str(lock_path),
+        "legacy_observation_count": len(legacy_observations),
+        "new_violation_count": new_violation_count,
+        "baseline_digest": baseline_digest,
+        "trusted_baseline_checked": bool(base_sha) and trusted_baseline_index is not None,
+        "legacy_observations": sorted(
+            legacy_observations, key=lambda o: (o["path"], o["job"], o["step"], o["violation_code"])
+        ),
     }
     if result.result == ResultStatus.passed:
-        result.finalize(); exit_code = 0
+        result.finalize()
+        exit_code = 0
     else:
         try:
             result.finalize()
@@ -582,39 +707,44 @@ def run(root, output_json, fmt, quiet):
         exit_code = 1 if result.result == ResultStatus.failed else 2
     return _emit(result, output_json, fmt, quiet, exit_code)
 
+
 def _emit(result, output_json, fmt, quiet, exit_code):
     data = result.to_dict()
     if output_json:
         write_json(data, output_json)
-    if fmt == 'json':
+    if fmt == "json":
         write_json_stdout(data)
     elif not quiet or exit_code != 0:
-        print(f'[{result.result.value.upper()}] {GATE_ID}')
+        print(f"[{result.result.value.upper()}] {GATE_ID}")
         for v in result.violations:
-            print(f'  VIOLATION {v.code}: {v.message}')
+            print(f"  VIOLATION {v.code}: {v.message}")
     return exit_code
+
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument('--root', default=None)
-    p.add_argument('--output-json', default=None)
-    p.add_argument('--format', choices=['text', 'json'], default='text')
-    p.add_argument('--quiet', action='store_true')
+    p.add_argument("--root", default=None)
+    p.add_argument("--output-json", default=None)
+    p.add_argument("--format", choices=["text", "json"], default="text")
+    p.add_argument("--quiet", action="store_true")
     args = p.parse_args(argv)
     try:
         _root = repo_root(args.root)
-        return run(_root, Path(args.output_json) if args.output_json else None, args.format, args.quiet)
+        return run(
+            _root, Path(args.output_json) if args.output_json else None, args.format, args.quiet
+        )
     except Exception as exc:
         r = GateResult(gate_id=GATE_ID, result=ResultStatus.error)
-        r.add_violation(code='EXECUTION_ERROR', message=str(exc))
+        r.add_violation(code="EXECUTION_ERROR", message=str(exc))
         data = r.to_dict()
         if args.output_json:
             write_json(data, Path(args.output_json))
-        if args.format == 'json':
+        if args.format == "json":
             write_json_stdout(data)
         else:
-            print(f'[ERROR] {GATE_ID}: {exc}', file=sys.stderr)
+            print(f"[ERROR] {GATE_ID}: {exc}", file=sys.stderr)
         return 2
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     sys.exit(main())

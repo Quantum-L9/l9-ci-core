@@ -11,6 +11,7 @@ The optional/graceful-degradation behavior is intentionally *not* provided here.
 If a third party wants to embed these checks without schemas, they can build a
 validator object directly; the CI gate CLI must not.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,6 +19,7 @@ from pathlib import Path
 
 try:
     from jsonschema import Draft202012Validator, FormatChecker
+
     _HAVE_JSONSCHEMA = True
 except Exception:  # pragma: no cover - jsonschema is a locked dependency
     Draft202012Validator = None  # type: ignore

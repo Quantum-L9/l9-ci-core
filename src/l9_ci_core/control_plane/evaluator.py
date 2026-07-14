@@ -8,4 +8,5 @@ regardless of gate mode.
 
 Implemented in a later PR.
 """
+
 from __future__ import annotations

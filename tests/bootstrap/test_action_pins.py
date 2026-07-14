@@ -1,8 +1,10 @@
 from __future__ import annotations
-import json, shutil
+import json
+import shutil
 from pathlib import Path
-FIXTURES = Path(__file__).parent.parent / "fixtures" / "action-pins"
 import validate_action_pins as vap
+
+FIXTURES = Path(__file__).parent.parent / "fixtures" / "action-pins"
 
 # Inventory entries matching the immutable references used by the "valid"
 # fixtures. External references require inventory provenance, so passing cases
@@ -39,11 +41,15 @@ _INV_DOCKER = {
 def _write_inventory(root, entries):
     gov = root / ".github" / "governance"
     gov.mkdir(parents=True, exist_ok=True)
-    (gov / "action-pins.lock.json").write_text(json.dumps({
-        "schema_version": "1.0",
-        "generated_at": "2026-07-01",
-        "entries": {f"e{i}": e for i, e in enumerate(entries)},
-    }))
+    (gov / "action-pins.lock.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "generated_at": "2026-07-01",
+                "entries": {f"e{i}": e for i, e in enumerate(entries)},
+            }
+        )
+    )
 
 
 def _run(fixture_name, tmp_path, root=None, inventory=None):

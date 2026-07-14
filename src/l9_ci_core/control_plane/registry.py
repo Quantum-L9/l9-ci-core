@@ -26,9 +26,10 @@ Beyond structural (schema) validity the loader rejects:
   disabling ``workflow/contracts`` always-run) — the PR-B policy
   self-protection minimum, which prohibits all relaxations outright.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -125,9 +126,7 @@ def _bootstrap_gate_ids() -> set[str]:
     schema = schemas.load_schema("bootstrap-gate-result")
     enum = schema.get("properties", {}).get("gate_id", {}).get("enum")
     if not enum:
-        raise RegistryError(
-            "bootstrap-gate-result schema does not constrain gate_id to an enum"
-        )
+        raise RegistryError("bootstrap-gate-result schema does not constrain gate_id to an enum")
     return set(enum)
 
 
@@ -169,15 +168,11 @@ def validate_registry_data(
             )
         script = root / ALLOWED_COMMANDS[command_key]
         if not script.is_file():
-            raise RegistryError(
-                f"{gate_id}: command implementation missing: {script}"
-            )
+            raise RegistryError(f"{gate_id}: command implementation missing: {script}")
         for schema_field in ("base_result_schema", "canonical_result_schema"):
             ref = root / g[schema_field]
             if not ref.is_file():
-                raise RegistryError(
-                    f"{gate_id}: referenced schema missing: {g[schema_field]}"
-                )
+                raise RegistryError(f"{gate_id}: referenced schema missing: {g[schema_field]}")
         if g["result_adapter"] == "bootstrap_v1":
             if g["base_result_schema"] != _BOOTSTRAP_BASE_SCHEMA:
                 raise RegistryError(
@@ -185,9 +180,7 @@ def validate_registry_data(
                     f"{_BOOTSTRAP_BASE_SCHEMA!r}, got {g['base_result_schema']!r}"
                 )
             if gate_id not in bootstrap_ids:
-                raise RegistryError(
-                    f"{gate_id}: gate id absent from PR-A bootstrap result schema"
-                )
+                raise RegistryError(f"{gate_id}: gate id absent from PR-A bootstrap result schema")
         if not (_MIN_TIMEOUT <= timeout <= _MAX_TIMEOUT):
             raise RegistryError(
                 f"{gate_id}: timeout_minutes {timeout} outside [{_MIN_TIMEOUT},{_MAX_TIMEOUT}]"
@@ -195,17 +188,11 @@ def validate_registry_data(
         if mode == "blocking" and not evidence_required:
             raise RegistryError(f"{gate_id}: blocking gate must require evidence")
         if ex["type"] == "local_cli" and not g["local_cli_compatible"]:
-            raise RegistryError(
-                f"{gate_id}: local_cli gate must be local_cli_compatible"
-            )
+            raise RegistryError(f"{gate_id}: local_cli gate must be local_cli_compatible")
         if not always_run and not paths:
-            raise RegistryError(
-                f"{gate_id}: path-scoped gate has no paths and always_run is false"
-            )
+            raise RegistryError(f"{gate_id}: path-scoped gate has no paths and always_run is false")
         if status == "retired" and risk_tiers:
-            raise RegistryError(
-                f"{gate_id}: retired gate must not declare active risk tiers"
-            )
+            raise RegistryError(f"{gate_id}: retired gate must not declare active risk tiers")
 
         gates[gate_id] = GateSpec(
             gate_id=gate_id,
@@ -248,31 +235,28 @@ def _enforce_bootstrap_invariants(gates: dict[str, GateSpec]) -> None:
     for gate_id, required in REQUIRED_BOOTSTRAP_GATES.items():
         spec = gates.get(gate_id)
         if spec is None:
-            raise RegistryError(
-                f"bootstrap gate {gate_id!r} may not be removed or renamed"
-            )
+            raise RegistryError(f"bootstrap gate {gate_id!r} may not be removed or renamed")
         if spec.mode != "blocking":
             raise RegistryError(
                 f"bootstrap gate {gate_id!r} may not be downgraded from blocking "
                 f"(got {spec.mode!r})"
             )
         if not spec.evidence_required:
-            raise RegistryError(
-                f"bootstrap gate {gate_id!r} must keep evidence_required: true"
-            )
+            raise RegistryError(f"bootstrap gate {gate_id!r} must keep evidence_required: true")
         if spec.owner_layer != required["owner_layer"]:
             raise RegistryError(
                 f"bootstrap gate {gate_id!r} owner may not change without a "
                 f"migration record (expected {required['owner_layer']!r})"
             )
-        if spec.result_adapter != "bootstrap_v1" or spec.base_result_schema != _BOOTSTRAP_BASE_SCHEMA:
+        if (
+            spec.result_adapter != "bootstrap_v1"
+            or spec.base_result_schema != _BOOTSTRAP_BASE_SCHEMA
+        ):
             raise RegistryError(
                 f"bootstrap gate {gate_id!r} may not replace its base result schema"
             )
         if required["always_run"] and not spec.always_run:
-            raise RegistryError(
-                f"bootstrap gate {gate_id!r} may not disable always-run behavior"
-            )
+            raise RegistryError(f"bootstrap gate {gate_id!r} may not disable always-run behavior")
 
 
 def load_registry(path: str | Path, *, root: str | Path | None = None) -> GateRegistry:

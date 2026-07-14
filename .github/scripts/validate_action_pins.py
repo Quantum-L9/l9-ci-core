@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 "Bootstrap gate: workflow/action-pins"
+
 from __future__ import annotations
-import argparse, json, re, sys
+import argparse
+import json
+import re
+import sys
 from datetime import date
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent))
 from l9_bootstrap.models import GateResult, ResultStatus
 from l9_bootstrap.output import write_json, write_json_stdout
@@ -31,7 +36,7 @@ def _classify_ref(ref: str) -> str:
     if ref.startswith("./"):
         return "local"
     if ref.startswith("docker://"):
-        tag_part = ref[len("docker://"):]
+        tag_part = ref[len("docker://") :]
         if "@" in tag_part and _RE_DOCKER_DIGEST.match(tag_part.split("@", 1)[1]):
             return "digest"
         return "mutable"
@@ -140,8 +145,11 @@ def run(root, workflow_dir, output_json, fmt, quiet):
             return _emit(result, output_json, fmt, quiet, 2)
         if schema_errors:
             for msg in schema_errors:
-                result.add_violation(code="INVENTORY_SCHEMA_INVALID", message=msg,
-                                     path=str(inventory_path.relative_to(root)))
+                result.add_violation(
+                    code="INVENTORY_SCHEMA_INVALID",
+                    message=msg,
+                    path=str(inventory_path.relative_to(root)),
+                )
             result.result = ResultStatus.error
             return _emit(result, output_json, fmt, quiet, 2)
         # Date fields must name real calendar dates. A schema string/pattern
@@ -149,9 +157,11 @@ def run(root, workflow_dir, output_json, fmt, quiet):
         bad_dates = _validate_inventory_dates(raw)
         if bad_dates:
             for field, value in bad_dates:
-                result.add_violation(code="INVENTORY_DATE_INVALID",
+                result.add_violation(
+                    code="INVENTORY_DATE_INVALID",
                     message=f"{field}={value!r} is not a valid ISO-8601 calendar date.",
-                    path=str(inventory_path.relative_to(root)))
+                    path=str(inventory_path.relative_to(root)),
+                )
             result.result = ResultStatus.error
             return _emit(result, output_json, fmt, quiet, 2)
     try:
@@ -164,7 +174,11 @@ def run(root, workflow_dir, output_json, fmt, quiet):
         result.add_violation(code="NO_WORKFLOW_FILES", message="No workflow files found.")
         result.result = ResultStatus.error
         return _emit(result, output_json, fmt, quiet, 2)
-    action_to_inv = {e.get("action", ""): e for e in inventory.values() if isinstance(e, dict)} if isinstance(inventory, dict) else {}
+    action_to_inv = (
+        {e.get("action", ""): e for e in inventory.values() if isinstance(e, dict)}
+        if isinstance(inventory, dict)
+        else {}
+    )
     used_actions: set = set()
     files_scanned = remote_refs = local_refs = docker_refs = refs_scanned = 0
     # Collect immutable references first so we can enforce the invariant: every
@@ -176,7 +190,11 @@ def run(root, workflow_dir, output_json, fmt, quiet):
         try:
             wf = load_yaml_file(wf_path)
         except Exception as exc:
-            result.add_violation(code="WORKFLOW_PARSE_ERROR", message=f"{wf_path.name}: {exc}", path=str(wf_path.relative_to(root)))
+            result.add_violation(
+                code="WORKFLOW_PARSE_ERROR",
+                message=f"{wf_path.name}: {exc}",
+                path=str(wf_path.relative_to(root)),
+            )
             result.result = ResultStatus.error
             continue
         if not isinstance(wf, dict):
@@ -189,13 +207,23 @@ def run(root, workflow_dir, output_json, fmt, quiet):
                 local_refs += 1
                 err = _validate_local(uses_val, root)
                 if err:
-                    result.add_violation(code="LOCAL_ACTION_INVALID", message=err, path=str(wf_path.relative_to(root)), line=line_no or None)
+                    result.add_violation(
+                        code="LOCAL_ACTION_INVALID",
+                        message=err,
+                        path=str(wf_path.relative_to(root)),
+                        line=line_no or None,
+                    )
                     result.result = ResultStatus.failed
                 continue
             if kind in ("mutable", "short_sha"):
                 remote_refs += 1
                 code = "FLOATING_ACTION_REF" if kind == "mutable" else "SHORT_SHA_REF"
-                result.add_violation(code=code, message=f"{wf_path.name}: job={jid} step={name!r} uses={uses_val!r}", path=str(wf_path.relative_to(root)), line=line_no or None)
+                result.add_violation(
+                    code=code,
+                    message=f"{wf_path.name}: job={jid} step={name!r} uses={uses_val!r}",
+                    path=str(wf_path.relative_to(root)),
+                    line=line_no or None,
+                )
                 result.result = ResultStatus.failed
                 continue
             if kind == "sha":
@@ -206,7 +234,7 @@ def run(root, workflow_dir, output_json, fmt, quiet):
                 _external_refs.append((action_name, "sha", pin, _rel, line_no, annotation))
             elif kind == "digest":
                 docker_refs += 1
-                digest = uses_val[len("docker://"):].split("@", 1)[1]
+                digest = uses_val[len("docker://") :].split("@", 1)[1]
                 action_name = uses_val.rsplit("@", 1)[0]
                 used_actions.add(action_name)
                 _external_refs.append((action_name, "digest", digest, _rel, line_no, annotation))
@@ -216,8 +244,8 @@ def run(root, workflow_dir, output_json, fmt, quiet):
     if _external_refs and not action_to_inv:
         result.add_violation(
             code="EMPTY_ACTION_PIN_INVENTORY",
-            message=("External references exist but the action pin inventory "
-                     "contains no entries."))
+            message=("External references exist but the action pin inventory contains no entries."),
+        )
         result.result = ResultStatus.failed
     # Every immutable reference must have a matching inventory entry, regardless
     # of inventory size, and the pinned value must match the recorded one.
@@ -225,27 +253,59 @@ def run(root, workflow_dir, output_json, fmt, quiet):
         inv = action_to_inv.get(action_name)
         if inv is None:
             if action_to_inv:
-                result.add_violation(code="MISSING_INVENTORY_ENTRY", message=f"{action_name!r} missing from action-pins.lock.json", path=rel, line=line_no or None)
+                result.add_violation(
+                    code="MISSING_INVENTORY_ENTRY",
+                    message=f"{action_name!r} missing from action-pins.lock.json",
+                    path=rel,
+                    line=line_no or None,
+                )
                 result.result = ResultStatus.failed
             continue
         if ekind == "sha" and inv.get("commit_sha", "") != value:
-            result.add_violation(code="INVENTORY_SHA_MISMATCH", message=f"{action_name}: workflow={value} inventory={inv.get('commit_sha')}", path=rel, line=line_no or None)
+            result.add_violation(
+                code="INVENTORY_SHA_MISMATCH",
+                message=f"{action_name}: workflow={value} inventory={inv.get('commit_sha')}",
+                path=rel,
+                line=line_no or None,
+            )
             result.result = ResultStatus.failed
         if ekind == "digest" and inv.get("digest", "") != value:
-            result.add_violation(code="INVENTORY_DIGEST_MISMATCH", message=f"{action_name}: workflow={value} inventory={inv.get('digest')}", path=rel, line=line_no or None)
+            result.add_violation(
+                code="INVENTORY_DIGEST_MISMATCH",
+                message=f"{action_name}: workflow={value} inventory={inv.get('digest')}",
+                path=rel,
+                line=line_no or None,
+            )
             result.result = ResultStatus.failed
         # Readable version annotation checks (warnings, not blocking).
         recorded_version = str(inv.get("version", "")).strip()
         if not annotation:
-            result.add_warning(code="MISSING_VERSION_ANNOTATION", message=f"{action_name} pinned by {ekind} lacks a readable version annotation (expected '# {recorded_version}').")
+            result.add_warning(
+                code="MISSING_VERSION_ANNOTATION",
+                message=f"{action_name} pinned by {ekind} lacks a readable version annotation (expected '# {recorded_version}').",
+            )
         elif recorded_version and annotation != recorded_version:
-            result.add_warning(code="STALE_VERSION_ANNOTATION", message=f"{action_name} annotation {annotation!r} does not match inventory version {recorded_version!r}.")
+            result.add_warning(
+                code="STALE_VERSION_ANNOTATION",
+                message=f"{action_name} annotation {annotation!r} does not match inventory version {recorded_version!r}.",
+            )
     for name, entry in action_to_inv.items():
         if name and name not in used_actions:
-            result.add_warning(code="UNUSED_INVENTORY_ENTRY", message=f"{name!r} in action-pins.lock.json not found in any workflow.")
-    result.metadata = {"files_scanned": files_scanned, "references_scanned": refs_scanned, "remote_references": remote_refs, "local_references": local_refs, "docker_references": docker_refs, "inventory_entries": len(action_to_inv)}
+            result.add_warning(
+                code="UNUSED_INVENTORY_ENTRY",
+                message=f"{name!r} in action-pins.lock.json not found in any workflow.",
+            )
+    result.metadata = {
+        "files_scanned": files_scanned,
+        "references_scanned": refs_scanned,
+        "remote_references": remote_refs,
+        "local_references": local_refs,
+        "docker_references": docker_refs,
+        "inventory_entries": len(action_to_inv),
+    }
     if result.result == ResultStatus.passed:
-        result.finalize(); exit_code = 0
+        result.finalize()
+        exit_code = 0
     else:
         try:
             result.finalize()
@@ -260,33 +320,49 @@ def run(root, workflow_dir, output_json, fmt, quiet):
 
 def _emit(result, output_json, fmt, quiet, exit_code):
     data = result.to_dict()
-    if output_json: write_json(data, output_json)
-    if fmt == "json": write_json_stdout(data)
+    if output_json:
+        write_json(data, output_json)
+    if fmt == "json":
+        write_json_stdout(data)
     elif not quiet or exit_code != 0:
         print(f"[{result.result.value.upper()}] {GATE_ID}")
-        for v in result.violations: print(f"  VIOLATION {v.code}: {v.message}")
-        for w in result.warnings: print(f"  WARNING {w.code}: {w.message}")
+        for v in result.violations:
+            print(f"  VIOLATION {v.code}: {v.message}")
+        for w in result.warnings:
+            print(f"  WARNING {w.code}: {w.message}")
     return exit_code
 
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("--root", default=None); p.add_argument("--workflow-dir", default=None)
-    p.add_argument("--output-json", default=None); p.add_argument("--format", choices=["text","json"], default="text")
+    p.add_argument("--root", default=None)
+    p.add_argument("--workflow-dir", default=None)
+    p.add_argument("--output-json", default=None)
+    p.add_argument("--format", choices=["text", "json"], default="text")
     p.add_argument("--quiet", action="store_true")
     args = p.parse_args(argv)
     try:
         _root = repo_root(args.root)
         _wdir = Path(args.workflow_dir) if args.workflow_dir else _root / ".github" / "workflows"
-        return run(_root, _wdir, Path(args.output_json) if args.output_json else None, args.format, args.quiet)
+        return run(
+            _root,
+            _wdir,
+            Path(args.output_json) if args.output_json else None,
+            args.format,
+            args.quiet,
+        )
     except Exception as exc:
         r = GateResult(gate_id=GATE_ID, result=ResultStatus.error)
         r.add_violation(code="EXECUTION_ERROR", message=str(exc))
         data = r.to_dict()
-        if args.output_json: write_json(data, Path(args.output_json))
-        if args.format == "json": write_json_stdout(data)
-        else: print(f"[ERROR] {GATE_ID}: {exc}", file=sys.stderr)
+        if args.output_json:
+            write_json(data, Path(args.output_json))
+        if args.format == "json":
+            write_json_stdout(data)
+        else:
+            print(f"[ERROR] {GATE_ID}: {exc}", file=sys.stderr)
         return 2
+
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -6,4 +6,5 @@ verified content hash (see ``schemas/gate-result.schema.json``).
 
 Implemented in a later PR.
 """
+
 from __future__ import annotations

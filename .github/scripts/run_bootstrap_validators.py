@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, json, subprocess, sys
+import argparse
+import json
+import subprocess
+import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent))
 from l9_bootstrap.output import write_json
 from l9_bootstrap.paths import repo_root
 from l9_bootstrap import schema_loader
 
 VALIDATORS = [
-    ("workflow/action-pins",        "validate_action_pins.py",       "action-pins.json"),
+    ("workflow/action-pins", "validate_action_pins.py", "action-pins.json"),
     ("workflow/download-integrity", "validate_download_integrity.py", "download-integrity.json"),
-    ("dependencies/ci-lock",        "validate_ci_dependencies.py",   "ci-dependencies.json"),
-    ("workflow/contracts",          "validate_workflow_contracts.py", "workflow-contracts.json"),
+    ("dependencies/ci-lock", "validate_ci_dependencies.py", "ci-dependencies.json"),
+    ("workflow/contracts", "validate_workflow_contracts.py", "workflow-contracts.json"),
 ]
 
 # Canonical mapping between a gate's declared result and the exit code it must
 # have produced. This is the contract the aggregate manifest schema enforces.
 _RESULT_TO_EXIT = {"passed": 0, "failed": 1, "error": 2}
+
 
 def run(root, output_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -26,9 +31,7 @@ def run(root, output_dir):
     # cannot certify any emitted evidence, so load it BEFORE executing any gate
     # and exit 2 (error) if it (or jsonschema) is unavailable.
     try:
-        result_validator = schema_loader.load_validator(
-            root, "bootstrap-gate-result.schema.json"
-        )
+        result_validator = schema_loader.load_validator(root, "bootstrap-gate-result.schema.json")
     except schema_loader.SchemaUnavailable as exc:
         print(f"[ERROR ] result schema unavailable: {exc}", file=sys.stderr)
         return 2
@@ -38,8 +41,16 @@ def run(root, output_dir):
     all_semantically_valid = True
     for gate_id, script_name, out_fname in VALIDATORS:
         out_path = output_dir / out_fname
-        cmd = [sys.executable, str(scripts_dir / script_name),
-               "--root", str(root), "--output-json", str(out_path), "--format", "text"]
+        cmd = [
+            sys.executable,
+            str(scripts_dir / script_name),
+            "--root",
+            str(root),
+            "--output-json",
+            str(out_path),
+            "--format",
+            "text",
+        ]
         proc = subprocess.run(cmd, capture_output=True, text=True)
         exit_code = proc.returncode
         if exit_code != 0:
@@ -66,8 +77,7 @@ def run(root, output_dir):
             if errors:
                 for error in errors[:5]:
                     print(
-                        f"  SCHEMA_INVALID: {gate_id}: "
-                        f"{schema_loader.format_error(error)}",
+                        f"  SCHEMA_INVALID: {gate_id}: {schema_loader.format_error(error)}",
                         file=sys.stderr,
                     )
                 result_str = "error"
@@ -114,7 +124,14 @@ def run(root, output_dir):
         if proc.stderr.strip() and exit_code != 0:
             for line in proc.stderr.strip().splitlines()[:5]:
                 print(f"  STDERR: {line}", file=sys.stderr)
-        results.append({"gate_id": gate_id, "file": out_fname, "result": result_str, "exit_code": canonical_exit})
+        results.append(
+            {
+                "gate_id": gate_id,
+                "file": out_fname,
+                "result": result_str,
+                "exit_code": canonical_exit,
+            }
+        )
     # complete is true ONLY when we produced exactly one result per expected
     # gate, each result file exists, AND every gate was semantically valid
     # (schema-conformant evidence, matching gate_id, consistent exit/result).
@@ -126,18 +143,33 @@ def run(root, output_dir):
     if not complete:
         any_failed = True
     overall = "passed" if not any_failed else "failed"
-    manifest = {"schema_version": "1.0", "expected_gates": [g for g,_,_ in VALIDATORS],
-                "results": results, "complete": complete, "overall_result": overall}
+    manifest = {
+        "schema_version": "1.0",
+        "expected_gates": [g for g, _, _ in VALIDATORS],
+        "results": results,
+        "complete": complete,
+        "overall_result": overall,
+    }
     write_json(manifest, output_dir / "bootstrap-manifest.json")
-    print(f"\n[{'PASS' if not any_failed else 'FAIL'}] Bootstrap manifest: overall={overall}  complete={complete}")
+    print(
+        f"\n[{'PASS' if not any_failed else 'FAIL'}] Bootstrap manifest: overall={overall}  complete={complete}"
+    )
 
     # Final gate: re-validate every emitted result plus the manifest through the
     # schema-backed results validator. This guarantees the evidence we just
     # wrote is itself well-formed before it can be consumed downstream.
     aggregate = subprocess.run(
-        [sys.executable, str(scripts_dir / "validate_bootstrap_results.py"),
-         "--results-dir", str(output_dir), "--root", str(root), "--quiet"],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            str(scripts_dir / "validate_bootstrap_results.py"),
+            "--results-dir",
+            str(output_dir),
+            "--root",
+            str(root),
+            "--quiet",
+        ],
+        capture_output=True,
+        text=True,
     )
     if aggregate.returncode != 0:
         any_failed = True
@@ -146,6 +178,7 @@ def run(root, output_dir):
 
     return 1 if any_failed else 0
 
+
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--root", default=None)
@@ -153,6 +186,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     _root = repo_root(args.root)
     return run(_root, Path(args.output_dir))
+
 
 if __name__ == "__main__":
     sys.exit(main())

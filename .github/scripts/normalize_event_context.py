@@ -6,6 +6,7 @@ only parses arguments, validates the output against
 ``schemas/event-context.schema.json``, and writes the file. It imports the
 installed package normally — no sys.path manipulation.
 """
+
 from __future__ import annotations
 
 import argparse

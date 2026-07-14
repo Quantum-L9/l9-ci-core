@@ -14,6 +14,7 @@ Invariants (PR §6.4):
   collector marks such failures ``unknown_diff`` and this classifier honors it;
 * output is deterministic for fixed inputs.
 """
+
 from __future__ import annotations
 
 import re

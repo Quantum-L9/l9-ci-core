@@ -1,10 +1,15 @@
 from __future__ import annotations
-import json, shutil, subprocess
+import hashlib as _hashlib
+import json
+import shutil
+import subprocess
 from pathlib import Path
 import validate_ci_dependencies as vcd
+
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "ci-dependencies"
 FAKE_HASH = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 GOOD_LOCK = f"ruamel.yaml==0.18.10 \\\n    --hash=sha256:{FAKE_HASH}\n"
+
 
 def _run(fixture, tmp_path, lock=GOOD_LOCK):
     wdir = tmp_path / ".github" / "workflows"
@@ -17,39 +22,48 @@ def _run(fixture, tmp_path, lock=GOOD_LOCK):
     ec = vcd.run(tmp_path, out, "text", True)
     return ec, json.loads(out.read_text())
 
+
 def test_require_hashes_passes(tmp_path):
     ec, d = _run("valid-require-hashes.yml", tmp_path)
     assert ec == 0 and d["result"] == "passed"
+
 
 def test_local_editable_passes(tmp_path):
     ec, d = _run("valid-local-editable.yml", tmp_path)
     assert ec == 0
 
+
 def test_unbounded_install_fails(tmp_path):
     ec, d = _run("invalid-unbounded-install.yml", tmp_path)
     assert ec == 1 and any(v["code"] == "UNBOUNDED_PIP_INSTALL" for v in d["violations"])
+
 
 def test_upgrade_pip_fails(tmp_path):
     ec, d = _run("invalid-upgrade-install.yml", tmp_path)
     assert ec == 1 and any(v["code"] == "UNCONDITIONAL_PIP_UPGRADE" for v in d["violations"])
 
+
 def test_branch_url_fails(tmp_path):
     ec, d = _run("invalid-branch-url.yml", tmp_path)
     assert ec == 1 and any(v["code"] == "BRANCH_URL_INSTALL" for v in d["violations"])
 
+
 def test_lock_missing_hash_fails(tmp_path):
     ec, d = _run("valid-require-hashes.yml", tmp_path, lock="ruamel.yaml==0.18.10\n")
     assert ec == 1 and any(v["code"] == "LOCK_MISSING_HASH" for v in d["violations"])
+
 
 def test_lock_forbidden_index_url_fails(tmp_path):
     bad = f"--index-url https://internal.example/simple\n{GOOD_LOCK}"
     ec, d = _run("valid-require-hashes.yml", tmp_path, lock=bad)
     assert ec == 1 and any(v["code"] == "LOCK_FORBIDDEN_OPTION" for v in d["violations"])
 
+
 def test_lock_forbidden_find_links_fails(tmp_path):
     bad = f"--find-links ./wheels\n{GOOD_LOCK}"
     ec, d = _run("valid-require-hashes.yml", tmp_path, lock=bad)
     assert ec == 1 and any(v["code"] == "LOCK_FORBIDDEN_OPTION" for v in d["violations"])
+
 
 def test_no_requirements_dir_is_error(tmp_path):
     wdir = tmp_path / ".github" / "workflows"
@@ -122,6 +136,7 @@ def test_over_window_exception_rejected(tmp_path):
         "      - name: install-legacy-tool\n        run: pip install -r requirements/legacy.txt\n"
     )
     from datetime import date, timedelta
+
     created = date.today()
     expires = created + timedelta(days=60)
     gov = tmp_path / ".github" / "governance"
@@ -150,15 +165,16 @@ def test_missing_jsonschema_or_schema_fails_closed(tmp_path, monkeypatch):
     # If the schema file is absent the exception registry cannot be trusted:
     # the gate must fail closed with SCHEMA_UNAVAILABLE (error/exit 2).
     import l9_bootstrap.schema_loader as sl
+
     def _boom(root, name):
         raise sl.SchemaUnavailable(f"schema {name} not found under {root}")
+
     monkeypatch.setattr(sl, "load_validator", _boom)
     ec, d = _run_with_exceptions("valid-explicit-exception.yaml", tmp_path)
     assert ec == 2 and any(v["code"] == "SCHEMA_UNAVAILABLE" for v in d["violations"])
 
 
 # --- Phased-enforcement baseline tests (PR-A) -----------------------------
-import hashlib as _hashlib
 
 _UNBOUNDED_WF = """on: push
 jobs:
@@ -174,8 +190,7 @@ jobs:
 def _mk_baseline(entries):
     canon = json.dumps(entries, sort_keys=True, separators=(",", ":"))
     dig = "sha256:" + _hashlib.sha256(canon.encode()).hexdigest()
-    return {"schema_version": "1.0", "phase": "PR-A",
-            "baseline_digest": dig, "entries": entries}
+    return {"schema_version": "1.0", "phase": "PR-A", "baseline_digest": dig, "entries": entries}
 
 
 def _run_wf(tmp_path, wf_text, wf_name="w.yml", baseline=None, lock=GOOD_LOCK):
@@ -186,7 +201,8 @@ def _run_wf(tmp_path, wf_text, wf_name="w.yml", baseline=None, lock=GOOD_LOCK):
     gov.mkdir(parents=True, exist_ok=True)
     if baseline is not None:
         (gov / "ci-dependency-baseline.json").write_text(json.dumps(baseline))
-    req = tmp_path / "requirements"; req.mkdir(exist_ok=True)
+    req = tmp_path / "requirements"
+    req.mkdir(exist_ok=True)
     (req / "bootstrap.lock").write_text(lock)
     out = tmp_path / "result.json"
     ec = vcd.run(tmp_path, out, "text", True)
@@ -197,7 +213,9 @@ def _cmd_sha(wf_text, wf_name, tmp_path):
     """Compute the validator's normalized command hash for the single install."""
     from l9_bootstrap.workflow_scan import iter_run_blocks
     from l9_bootstrap.yaml_loader import load_yaml_file
-    p = tmp_path / "_probe.yml"; p.write_text(wf_text)
+
+    p = tmp_path / "_probe.yml"
+    p.write_text(wf_text)
     wf = load_yaml_file(p)
     for jid, idx, name, rb, ln in iter_run_blocks(wf):
         if vcd._PIP_INSTALL_RE.search(rb):
@@ -207,9 +225,18 @@ def _cmd_sha(wf_text, wf_name, tmp_path):
 
 def test_baselined_legacy_is_observation_not_blocking(tmp_path):
     sha = _cmd_sha(_UNBOUNDED_WF, "w.yml", tmp_path)
-    bl = _mk_baseline([{"path": ".github/workflows/w.yml", "job": "build",
-                        "step": "Install ruff", "violation_code": "UNBOUNDED_PIP_INSTALL",
-                        "command_sha256": sha, "status": "legacy_observation"}])
+    bl = _mk_baseline(
+        [
+            {
+                "path": ".github/workflows/w.yml",
+                "job": "build",
+                "step": "Install ruff",
+                "violation_code": "UNBOUNDED_PIP_INSTALL",
+                "command_sha256": sha,
+                "status": "legacy_observation",
+            }
+        ]
+    )
     ec, d = _run_wf(tmp_path, _UNBOUNDED_WF, baseline=bl)
     assert ec == 0 and d["result"] == "passed"
     assert d["metadata"]["legacy_observation_count"] == 1
@@ -229,9 +256,18 @@ def test_new_install_not_in_baseline_blocks(tmp_path):
 
 def test_changed_command_breaks_baseline_match(tmp_path):
     # Baseline records a different command hash for the same identity.
-    bl = _mk_baseline([{"path": ".github/workflows/w.yml", "job": "build",
-                        "step": "Install ruff", "violation_code": "UNBOUNDED_PIP_INSTALL",
-                        "command_sha256": "0" * 64, "status": "legacy_observation"}])
+    bl = _mk_baseline(
+        [
+            {
+                "path": ".github/workflows/w.yml",
+                "job": "build",
+                "step": "Install ruff",
+                "violation_code": "UNBOUNDED_PIP_INSTALL",
+                "command_sha256": "0" * 64,
+                "status": "legacy_observation",
+            }
+        ]
+    )
     ec, d = _run_wf(tmp_path, _UNBOUNDED_WF, baseline=bl)
     assert ec == 1 and d["result"] == "failed"
     assert any(v["code"] == "UNBOUNDED_PIP_INSTALL_BASELINE_CHANGED" for v in d["violations"])
@@ -239,9 +275,18 @@ def test_changed_command_breaks_baseline_match(tmp_path):
 
 def test_tampered_digest_is_error(tmp_path):
     sha = _cmd_sha(_UNBOUNDED_WF, "w.yml", tmp_path)
-    bl = _mk_baseline([{"path": ".github/workflows/w.yml", "job": "build",
-                        "step": "Install ruff", "violation_code": "UNBOUNDED_PIP_INSTALL",
-                        "command_sha256": sha, "status": "legacy_observation"}])
+    bl = _mk_baseline(
+        [
+            {
+                "path": ".github/workflows/w.yml",
+                "job": "build",
+                "step": "Install ruff",
+                "violation_code": "UNBOUNDED_PIP_INSTALL",
+                "command_sha256": sha,
+                "status": "legacy_observation",
+            }
+        ]
+    )
     bl["baseline_digest"] = "sha256:" + "f" * 64  # tamper
     ec, d = _run_wf(tmp_path, _UNBOUNDED_WF, baseline=bl)
     assert ec == 2 and d["result"] == "error"
@@ -250,9 +295,18 @@ def test_tampered_digest_is_error(tmp_path):
 
 def test_stale_baseline_entry_blocks(tmp_path):
     # Baseline references a finding that does not exist in the workflow.
-    bl = _mk_baseline([{"path": ".github/workflows/w.yml", "job": "ghost",
-                        "step": "Nonexistent", "violation_code": "UNBOUNDED_PIP_INSTALL",
-                        "command_sha256": "1" * 64, "status": "legacy_observation"}])
+    bl = _mk_baseline(
+        [
+            {
+                "path": ".github/workflows/w.yml",
+                "job": "ghost",
+                "step": "Nonexistent",
+                "violation_code": "UNBOUNDED_PIP_INSTALL",
+                "command_sha256": "1" * 64,
+                "status": "legacy_observation",
+            }
+        ]
+    )
     # Use a require-hashes workflow so there is no live finding at all.
     clean_wf = "on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pip install --require-hashes -r requirements/bootstrap.lock\n"
     ec, d = _run_wf(tmp_path, clean_wf, baseline=bl)
@@ -261,20 +315,32 @@ def test_stale_baseline_entry_blocks(tmp_path):
 
 
 def test_wildcard_baseline_entry_is_error(tmp_path):
-    bl = _mk_baseline([{"path": ".github/workflows/w.yml", "job": "*",
-                        "step": "Install ruff", "violation_code": "UNBOUNDED_PIP_INSTALL",
-                        "command_sha256": "2" * 64, "status": "legacy_observation"}])
+    bl = _mk_baseline(
+        [
+            {
+                "path": ".github/workflows/w.yml",
+                "job": "*",
+                "step": "Install ruff",
+                "violation_code": "UNBOUNDED_PIP_INSTALL",
+                "command_sha256": "2" * 64,
+                "status": "legacy_observation",
+            }
+        ]
+    )
     # digest must be recomputed over the wildcard entry to reach the wildcard check
     ec, d = _run_wf(tmp_path, _UNBOUNDED_WF, baseline=bl)
     assert ec == 2 and d["result"] == "error"
-    assert any(v["code"] in ("BASELINE_WILDCARD_FORBIDDEN", "BASELINE_SCHEMA_INVALID") for v in d["violations"])
+    assert any(
+        v["code"] in ("BASELINE_WILDCARD_FORBIDDEN", "BASELINE_SCHEMA_INVALID")
+        for v in d["violations"]
+    )
 
 
 # --- Trusted-base enforcement (PR-A remediation 4) -------------------------
 
+
 def _git(root, *args):
-    subprocess.run(["git", "-C", str(root), *args], check=True,
-                   capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True)
 
 
 def _init_git_repo(root):
@@ -287,8 +353,9 @@ def _init_git_repo(root):
 def _commit_all(root, message):
     _git(root, "add", "-A")
     _git(root, "commit", "-q", "-m", message)
-    head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
-                          check=True, capture_output=True, text=True)
+    head = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    )
     return head.stdout.strip()
 
 
@@ -310,19 +377,31 @@ def test_candidate_baseline_self_expansion_forbidden(tmp_path, monkeypatch):
     """
     root = tmp_path
     _init_git_repo(root)
-    wdir = root / ".github" / "workflows"; wdir.mkdir(parents=True)
+    wdir = root / ".github" / "workflows"
+    wdir.mkdir(parents=True)
     (wdir / "w.yml").write_text(_CLEAN_WF)
-    req = root / "requirements"; req.mkdir()
+    req = root / "requirements"
+    req.mkdir()
     (req / "bootstrap.lock").write_text(GOOD_LOCK)
     base_sha = _commit_all(root, "base: clean workflow, no baseline")
 
     # Candidate: unbounded install + self-written baseline that launders it.
     (wdir / "w.yml").write_text(_UNBOUNDED_WF)
     sha = _cmd_sha(_UNBOUNDED_WF, "w.yml", tmp_path)
-    gov = root / ".github" / "governance"; gov.mkdir(parents=True)
-    bl = _mk_baseline([{"path": ".github/workflows/w.yml", "job": "build",
-                        "step": "Install ruff", "violation_code": "UNBOUNDED_PIP_INSTALL",
-                        "command_sha256": sha, "status": "legacy_observation"}])
+    gov = root / ".github" / "governance"
+    gov.mkdir(parents=True)
+    bl = _mk_baseline(
+        [
+            {
+                "path": ".github/workflows/w.yml",
+                "job": "build",
+                "step": "Install ruff",
+                "violation_code": "UNBOUNDED_PIP_INSTALL",
+                "command_sha256": sha,
+                "status": "legacy_observation",
+            }
+        ]
+    )
     (gov / "ci-dependency-baseline.json").write_text(json.dumps(bl))
     _commit_all(root, "candidate: launder finding via self-written baseline")
 
@@ -339,18 +418,30 @@ def test_candidate_baseline_matching_trusted_base_allowed(tmp_path, monkeypatch)
     initial baseline entry for it is permitted (no growth violation)."""
     root = tmp_path
     _init_git_repo(root)
-    wdir = root / ".github" / "workflows"; wdir.mkdir(parents=True)
+    wdir = root / ".github" / "workflows"
+    wdir.mkdir(parents=True)
     # The finding exists in the base itself.
     (wdir / "w.yml").write_text(_UNBOUNDED_WF)
-    req = root / "requirements"; req.mkdir()
+    req = root / "requirements"
+    req.mkdir()
     (req / "bootstrap.lock").write_text(GOOD_LOCK)
     base_sha = _commit_all(root, "base: workflow already has the finding")
 
     sha = _cmd_sha(_UNBOUNDED_WF, "w.yml", tmp_path)
-    gov = root / ".github" / "governance"; gov.mkdir(parents=True)
-    bl = _mk_baseline([{"path": ".github/workflows/w.yml", "job": "build",
-                        "step": "Install ruff", "violation_code": "UNBOUNDED_PIP_INSTALL",
-                        "command_sha256": sha, "status": "legacy_observation"}])
+    gov = root / ".github" / "governance"
+    gov.mkdir(parents=True)
+    bl = _mk_baseline(
+        [
+            {
+                "path": ".github/workflows/w.yml",
+                "job": "build",
+                "step": "Install ruff",
+                "violation_code": "UNBOUNDED_PIP_INSTALL",
+                "command_sha256": sha,
+                "status": "legacy_observation",
+            }
+        ]
+    )
     (gov / "ci-dependency-baseline.json").write_text(json.dumps(bl))
     _commit_all(root, "candidate: baseline the pre-existing finding")
 
@@ -365,13 +456,24 @@ def test_candidate_baseline_matching_trusted_base_allowed(tmp_path, monkeypatch)
 def test_bootstrap_managed_install_never_baselined(tmp_path):
     # An install that references the bootstrap lock is bootstrap-managed and must
     # comply even if someone tries to baseline it. Here it lacks --require-hashes.
-    wf = ("on: push\njobs:\n  bootstrap:\n    runs-on: ubuntu-latest\n"
-          "    steps:\n      - name: Install bootstrap\n        run: |\n"
-          "          pip install -r requirements/bootstrap.lock\n")
+    wf = (
+        "on: push\njobs:\n  bootstrap:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - name: Install bootstrap\n        run: |\n"
+        "          pip install -r requirements/bootstrap.lock\n"
+    )
     sha = _cmd_sha(wf, "w.yml", tmp_path)
-    bl = _mk_baseline([{"path": ".github/workflows/w.yml", "job": "bootstrap",
-                        "step": "Install bootstrap", "violation_code": "UNPINNED_PIP_INSTALL",
-                        "command_sha256": sha, "status": "legacy_observation"}])
+    bl = _mk_baseline(
+        [
+            {
+                "path": ".github/workflows/w.yml",
+                "job": "bootstrap",
+                "step": "Install bootstrap",
+                "violation_code": "UNPINNED_PIP_INSTALL",
+                "command_sha256": sha,
+                "status": "legacy_observation",
+            }
+        ]
+    )
     ec, d = _run_wf(tmp_path, wf, baseline=bl)
     # bootstrap-managed -> blocking violation (not observed), AND the baseline
     # entry becomes stale because it was never matched.

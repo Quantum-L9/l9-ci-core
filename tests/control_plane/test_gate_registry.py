@@ -1,4 +1,5 @@
 """PR-B2: gate-registry loader and semantic validation (PR §5)."""
+
 from __future__ import annotations
 
 import copy

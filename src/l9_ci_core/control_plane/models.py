@@ -7,6 +7,7 @@ for the gate registry and risk policy build on these types in PR-B2.
 The string values of every enum are the *wire* values used in JSON/YAML and in
 the schemas; they must never drift from the schema ``enum`` lists.
 """
+
 from __future__ import annotations
 
 import re

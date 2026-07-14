@@ -1,8 +1,11 @@
 from __future__ import annotations
-import json, shutil
+import json
+import shutil
 from pathlib import Path
 import validate_workflow_contracts as vwc
+
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "workflow-contracts"
+
 
 def _run(fixture_name, tmp_path):
     wdir = tmp_path / ".github" / "workflows"
@@ -12,9 +15,11 @@ def _run(fixture_name, tmp_path):
     ec = vwc.run(tmp_path, out, "text", True)
     return ec, json.loads(out.read_text())
 
+
 def test_valid_bootstrap_job_passes(tmp_path):
     ec, d = _run("valid-bootstrap-job.yml", tmp_path)
     assert ec == 0 and d["result"] == "passed"
+
 
 def test_nonbootstrap_missing_strict_shell_is_observed_not_blocking(tmp_path):
     wf = (
@@ -31,17 +36,21 @@ def test_nonbootstrap_missing_strict_shell_is_observed_not_blocking(tmp_path):
     assert ec == 0 and d["result"] == "passed"
     assert any(w["code"] == "STRICT_SHELL_OBSERVED" for w in d.get("warnings", []))
 
+
 def test_pr_target_forbidden(tmp_path):
     ec, d = _run("invalid-pr-target.yml", tmp_path)
     assert ec == 1 and any(v["code"] == "PR_TARGET_FORBIDDEN" for v in d["violations"])
+
 
 def test_missing_permissions_fails(tmp_path):
     ec, d = _run("invalid-missing-permissions.yml", tmp_path)
     assert ec == 1 and any(v["code"] == "BOOTSTRAP_PERMISSIONS_MISSING" for v in d["violations"])
 
+
 def test_missing_timeout_fails(tmp_path):
     ec, d = _run("invalid-missing-timeout.yml", tmp_path)
     assert ec == 1 and any(v["code"] == "BOOTSTRAP_TIMEOUT_MISSING" for v in d["violations"])
+
 
 def test_unsafe_shell_fails(tmp_path):
     ec, d = _run("invalid-unsafe-shell.yml", tmp_path)
@@ -56,8 +65,10 @@ def _stage_pipeline(tmp_path, body, with_fixture=True):
     if with_fixture:
         fdir = tmp_path / "tests" / "fixtures" / "workflow-contracts"
         fdir.mkdir(parents=True, exist_ok=True)
-        shutil.copy(FIXTURES / "pr-pipeline-public-interface.json",
-                    fdir / "pr-pipeline-public-interface.json")
+        shutil.copy(
+            FIXTURES / "pr-pipeline-public-interface.json",
+            fdir / "pr-pipeline-public-interface.json",
+        )
     out = tmp_path / "result.json"
     ec = vwc.run(tmp_path, out, "text", True)
     return ec, json.loads(out.read_text())
@@ -94,7 +105,8 @@ def test_public_interface_missing_workflow_call_fails(tmp_path):
 def test_public_interface_dropped_input_fails(tmp_path):
     # Drop the last input to break the interface.
     body = _FULL_IFACE.replace(
-        "      labels-known: {type: boolean, required: false, default: true}\n", "")
+        "      labels-known: {type: boolean, required: false, default: true}\n", ""
+    )
     ec, d = _stage_pipeline(tmp_path, body)
     assert ec == 1 and any(v["code"] == "PUBLIC_INTERFACE_BREAK" for v in d["violations"])
 
@@ -134,8 +146,10 @@ def test_expired_debt_rejected(tmp_path):
 
 def test_debt_schema_fails_closed(tmp_path, monkeypatch):
     import l9_bootstrap.schema_loader as sl
+
     def _boom(root, name):
         raise sl.SchemaUnavailable("missing")
+
     monkeypatch.setattr(sl, "load_validator", _boom)
     ec, d = _run_with_debt("valid-contract-debt.yaml", tmp_path)
     assert ec == 2 and any(v["code"] == "SCHEMA_UNAVAILABLE" for v in d["violations"])

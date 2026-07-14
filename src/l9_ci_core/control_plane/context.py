@@ -13,6 +13,7 @@ A missing/invalid subject SHA is fatal. A missing base SHA yields
 SHA is accepted only as a push ``before`` (initial branch creation) and is
 recorded as ``base_sha=None`` rather than used as a real base.
 """
+
 from __future__ import annotations
 
 import json
@@ -91,17 +92,13 @@ def normalize(
         )
         base = _optional_base((pr.get("base") or {}).get("sha"))
         labels = [
-            lbl["name"]
-            for lbl in pr.get("labels", [])
-            if isinstance(lbl, dict) and "name" in lbl
+            lbl["name"] for lbl in pr.get("labels", []) if isinstance(lbl, dict) and "name" in lbl
         ]
         labels_known = True
         if "number" in pr:
             pr_numbers = [int(pr["number"])]
     elif etype is EventType.PUSH:
-        subject = _require_subject(
-            github_sha or event.get("after"), source="github.sha"
-        )
+        subject = _require_subject(github_sha or event.get("after"), source="github.sha")
         base = _optional_base(event.get("before"))
     else:  # workflow_dispatch
         subject = _require_subject(

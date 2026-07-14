@@ -46,18 +46,28 @@ def test_new_workflows_use_v6_actions() -> None:
         checkout_majors = _pinned_major_versions(text, "actions/checkout")
         setup_python_majors = _pinned_major_versions(text, "actions/setup-python")
 
-        assert checkout_majors == {"6"}, f"{name}: expected only checkout v6 pins, found majors {checkout_majors}"
-        assert setup_python_majors == {"6"}, f"{name}: expected only setup-python v6 pins, found majors {setup_python_majors}"
+        assert checkout_majors == {"6"}, (
+            f"{name}: expected only checkout v6 pins, found majors {checkout_majors}"
+        )
+        assert setup_python_majors == {"6"}, (
+            f"{name}: expected only setup-python v6 pins, found majors {setup_python_majors}"
+        )
 
         # No floating (unpinned) references to these actions may remain.
-        assert not re.search(r"uses:\s*actions/checkout@v\d", text), f"{name}: found unpinned actions/checkout tag"
-        assert not re.search(r"uses:\s*actions/setup-python@v\d", text), f"{name}: found unpinned actions/setup-python tag"
+        assert not re.search(r"uses:\s*actions/checkout@v\d", text), (
+            f"{name}: found unpinned actions/checkout tag"
+        )
+        assert not re.search(r"uses:\s*actions/setup-python@v\d", text), (
+            f"{name}: found unpinned actions/setup-python tag"
+        )
 
 
 def test_all_action_references_are_sha_pinned() -> None:
     """Every `uses:` reference in every workflow must be a 40-char commit
     SHA with a version comment; no floating tag or branch pointer allowed."""
-    floating_pattern = re.compile(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)@([^\s#@]+)\s*(#.*)?$", re.MULTILINE)
+    floating_pattern = re.compile(
+        r"^\s*(?:-\s*)?uses:\s*([^\s#]+)@([^\s#@]+)\s*(#.*)?$", re.MULTILINE
+    )
     for path in WORKFLOWS.glob("*.yml"):
         text = path.read_text(encoding="utf-8")
         for match in floating_pattern.finditer(text):

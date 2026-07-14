@@ -12,6 +12,7 @@ and canonical evidence by two digests:
 Canonical evidence and evaluator comparisons use the **semantic** digest as
 policy identity; the source digest is recorded alongside for forensics.
 """
+
 from __future__ import annotations
 
 import io

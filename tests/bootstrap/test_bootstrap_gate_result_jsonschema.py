@@ -6,6 +6,7 @@ These tests validate concrete gate-result *documents* against the canonical
 They lock the wire contract: a ``passed`` result may carry warnings but never
 violations, and only known gate ids are accepted.
 """
+
 from __future__ import annotations
 
 import json
@@ -29,17 +30,21 @@ def _validate(instance):
 
 
 def test_passed_with_warning_is_valid():
-    _validate({
-        "schema_version": "1.0",
-        "gate_id": "workflow/action-pins",
-        "result": "passed",
-        "violations": [],
-        "warnings": [{
-            "code": "MISSING_VERSION_ANNOTATION",
-            "message": "Readable version annotation is absent.",
-        }],
-        "metadata": {},
-    })
+    _validate(
+        {
+            "schema_version": "1.0",
+            "gate_id": "workflow/action-pins",
+            "result": "passed",
+            "violations": [],
+            "warnings": [
+                {
+                    "code": "MISSING_VERSION_ANNOTATION",
+                    "message": "Readable version annotation is absent.",
+                }
+            ],
+            "metadata": {},
+        }
+    )
 
 
 @pytest.mark.parametrize("gate_id", ["unknown", "", "action-pins"])
@@ -60,10 +65,12 @@ def test_passed_with_violation_is_rejected():
         "schema_version": "1.0",
         "gate_id": "workflow/action-pins",
         "result": "passed",
-        "violations": [{
-            "code": "FLOATING_ACTION_REF",
-            "message": "Floating reference.",
-        }],
+        "violations": [
+            {
+                "code": "FLOATING_ACTION_REF",
+                "message": "Floating reference.",
+            }
+        ],
         "warnings": [],
         "metadata": {},
     }
