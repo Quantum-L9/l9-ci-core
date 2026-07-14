@@ -1,0 +1,514 @@
+# --- L9_META ---
+# l9_schema: 1
+# origin: l9-ci-universal-base
+# layer: [ci]
+# tags: [L9_TEMPLATE, ci, reusable-workflow, node]
+# owner: platform
+# status: active
+# --- /L9_META ---
+name: Node PR Pipeline Gate
+
+# Reusable Node.js / TypeScript PR pipeline for npm-based repositories.
+# This workflow is additive and independent of pr-pipeline.yml (Python): it
+# installs no Python, invokes no pip, and does not depend on the l9-ci SDK.
+# See docs/NODE_PIPELINE.md for the consumer contract and security model.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version used by the pipeline.
+        required: false
+        type: string
+        default: "20"
+      working-directory:
+        description: Directory containing package.json and package-lock.json.
+        required: false
+        type: string
+        default: "."
+      install-command:
+        description: >-
+          Trusted dependency installation command. This is trusted workflow
+          configuration and must never be derived from pull-request content.
+        required: false
+        type: string
+        default: "npm ci"
+      lint-script:
+        description: npm script used for linting. Empty disables the lint command.
+        required: false
+        type: string
+        default: "lint"
+      typecheck-script:
+        description: npm script used for type checking. Empty disables type checking.
+        required: false
+        type: string
+        default: "typecheck"
+      build-script:
+        description: npm script used for the build. Empty disables the build.
+        required: false
+        type: string
+        default: "build"
+      test-script:
+        description: npm script used for tests.
+        required: false
+        type: string
+        default: "test"
+      require-tests:
+        description: Fail when the configured test script is absent.
+        required: false
+        type: boolean
+        default: true
+      audit-level:
+        description: Minimum npm audit severity that fails the security job.
+        required: false
+        type: string
+        default: "high"
+      audit-production-only:
+        description: Audit runtime dependencies only.
+        required: false
+        type: boolean
+        default: false
+      run-semgrep:
+        description: Run Semgrep when a .semgrep directory exists.
+        required: false
+        type: boolean
+        default: true
+      upload-sbom:
+        description: Generate and upload an SBOM artifact.
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: l9-node-pr-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Node Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    # No npm cache in this job: caching requires the lockfile to already exist,
+    # and this job's purpose is to emit a CLEAR error when it does not. The
+    # downstream jobs (which run `npm ci`) enable caching.
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+      - name: Validate consumer contract
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          AUDIT_LEVEL: ${{ inputs.audit-level }}
+          REQUIRE_TESTS: ${{ inputs.require-tests }}
+          TEST_SCRIPT: ${{ inputs.test-script }}
+          LINT_SCRIPT: ${{ inputs.lint-script }}
+          TYPECHECK_SCRIPT: ${{ inputs.typecheck-script }}
+          BUILD_SCRIPT: ${{ inputs.build-script }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d "$WORKING_DIRECTORY" ]; then
+            echo "::error::working-directory '$WORKING_DIRECTORY' does not exist"
+            exit 1
+          fi
+          if [ ! -f "$WORKING_DIRECTORY/package.json" ]; then
+            echo "::error::package.json not found in '$WORKING_DIRECTORY'"
+            exit 1
+          fi
+          if [ ! -f "$WORKING_DIRECTORY/package-lock.json" ]; then
+            echo "::error::package-lock.json not found in '$WORKING_DIRECTORY' (npm lockfile required)"
+            exit 1
+          fi
+          case "$AUDIT_LEVEL" in
+            low|moderate|high|critical) : ;;
+            *) echo "::error::audit-level '$AUDIT_LEVEL' is invalid (expected low|moderate|high|critical)"; exit 1 ;;
+          esac
+          # Script-name inputs and directory are read from the environment inside
+          # node; they are never interpolated into a shell program.
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const wd = process.env.WORKING_DIRECTORY || ".";
+          let pkg;
+          try {
+            pkg = JSON.parse(fs.readFileSync(path.join(wd, "package.json"), "utf8"));
+          } catch (e) {
+            console.error(`::error::package.json is not valid JSON: ${e.message}`);
+            process.exit(1);
+          }
+          try {
+            const lock = JSON.parse(fs.readFileSync(path.join(wd, "package-lock.json"), "utf8"));
+            if (!lock.lockfileVersion) {
+              console.error("::error::package-lock.json has no lockfileVersion; not an npm-compatible lockfile");
+              process.exit(1);
+            }
+          } catch (e) {
+            console.error(`::error::package-lock.json is not valid JSON: ${e.message}`);
+            process.exit(1);
+          }
+          const scripts = pkg.scripts || {};
+          const requireTests = process.env.REQUIRE_TESTS === "true";
+          const testScript = process.env.TEST_SCRIPT;
+          let failed = false;
+          if (requireTests && testScript && !scripts[testScript]) {
+            console.error(`::error::Required npm script '${testScript}' is missing`);
+            failed = true;
+          }
+          for (const [label, script] of [
+            ["lint", process.env.LINT_SCRIPT],
+            ["typecheck", process.env.TYPECHECK_SCRIPT],
+            ["build", process.env.BUILD_SCRIPT],
+          ]) {
+            if (script && !scripts[script]) {
+              console.log(`::notice::Optional ${label} script '${script}' is not defined`);
+            }
+          }
+          if (failed) process.exit(1);
+          console.log("::notice::Node consumer contract validated");
+          NODE
+
+  lint:
+    name: Lint and Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - name: Install dependencies
+        env:
+          L9_INSTALL_COMMAND: ${{ inputs.install-command }}
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # install-command is trusted workflow configuration. It is passed via
+          # the environment and executed in a dedicated strict shell rather than
+          # interpolated into this program.
+          bash -euo pipefail -c "$L9_INSTALL_COMMAND"
+      # Lint and type checking are independent checks: one failure must not hide
+      # the other. Each runs to completion (continue-on-error) and the Aggregate
+      # step below fails LOUD if either failed. A missing OPTIONAL script is an
+      # intentional internal no-op that returns success, NOT a skipped job.
+      - name: Lint
+        id: lint
+        continue-on-error: true
+        env:
+          SCRIPT: ${{ inputs.lint-script }}
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$SCRIPT" ]; then
+            echo "::notice::lint disabled (empty lint-script input)"
+            exit 0
+          fi
+          if node -e "process.exit((require('./package.json').scripts||{})[process.env.SCRIPT]?0:1)"; then
+            npm run "$SCRIPT"
+          else
+            echo "::notice::Optional lint script '$SCRIPT' is not defined; skipping"
+            exit 0
+          fi
+      - name: Type check
+        id: typecheck
+        continue-on-error: true
+        env:
+          SCRIPT: ${{ inputs.typecheck-script }}
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$SCRIPT" ]; then
+            echo "::notice::type checking disabled (empty typecheck-script input)"
+            exit 0
+          fi
+          if node -e "process.exit((require('./package.json').scripts||{})[process.env.SCRIPT]?0:1)"; then
+            npm run "$SCRIPT"
+          else
+            echo "::notice::Optional typecheck script '$SCRIPT' is not defined; skipping"
+            exit 0
+          fi
+      - name: Aggregate lint results
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for c in "lint:${{ steps.lint.outcome }}" \
+                   "typecheck:${{ steps.typecheck.outcome }}"; do
+            name="${c%%:*}"; outcome="${c##*:}"
+            case "$outcome" in
+              success|skipped) : ;;
+              *) echo "::error::lint check failed: $name ($outcome)"; fail=1 ;;
+            esac
+          done
+          exit $fail
+
+  test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: validate
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - name: Install dependencies
+        env:
+          L9_INSTALL_COMMAND: ${{ inputs.install-command }}
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -euo pipefail -c "$L9_INSTALL_COMMAND"
+      - name: Build
+        env:
+          SCRIPT: ${{ inputs.build-script }}
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$SCRIPT" ]; then
+            echo "::notice::build disabled (empty build-script input)"
+            exit 0
+          fi
+          if node -e "process.exit((require('./package.json').scripts||{})[process.env.SCRIPT]?0:1)"; then
+            npm run "$SCRIPT"
+          else
+            echo "::notice::Optional build script '$SCRIPT' is not defined; skipping"
+            exit 0
+          fi
+      - name: Test
+        env:
+          TEST_SCRIPT: ${{ inputs.test-script }}
+          REQUIRE_TESTS: ${{ inputs.require-tests }}
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if node -e "process.exit((require('./package.json').scripts||{})[process.env.TEST_SCRIPT]?0:1)"; then
+            npm run "$TEST_SCRIPT"
+            echo "### Node tests: \`$TEST_SCRIPT\` passed" >> "$GITHUB_STEP_SUMMARY"
+          else
+            if [ "$REQUIRE_TESTS" = "true" ]; then
+              echo "::error::Required test script '$TEST_SCRIPT' is missing"
+              echo "### Node tests: required script \`$TEST_SCRIPT\` missing" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "::notice::Test script '$TEST_SCRIPT' absent and require-tests=false; continuing"
+            echo "### Node tests: script \`$TEST_SCRIPT\` absent (require-tests=false)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: validate
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          # Full history so the secret scanner sees the whole tree.
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - name: Install dependencies
+        env:
+          L9_INSTALL_COMMAND: ${{ inputs.install-command }}
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -euo pipefail -c "$L9_INSTALL_COMMAND"
+      # --- Independent scanners: collect-all (fail LOUD, run EVERY scanner) ---
+      # A gitleaks failure must not hide the npm-audit or dependency-review
+      # result. Each scanner runs to completion; the Aggregate step fails the
+      # job if any BLOCKING scanner failed.
+      - name: npm audit
+        id: npm_audit
+        continue-on-error: true
+        env:
+          AUDIT_LEVEL: ${{ inputs.audit-level }}
+          AUDIT_PRODUCTION_ONLY: ${{ inputs.audit-production-only }}
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$AUDIT_LEVEL" in
+            low|moderate|high|critical) : ;;
+            *) echo "::error::audit-level '$AUDIT_LEVEL' is invalid"; exit 1 ;;
+          esac
+          if [ "$AUDIT_PRODUCTION_ONLY" = "true" ]; then
+            npm audit --omit=dev --audit-level="$AUDIT_LEVEL"
+          else
+            npm audit --audit-level="$AUDIT_LEVEL"
+          fi
+      - name: Run Gitleaks (OSS CLI)
+        id: gitleaks
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Download the gitleaks release archive and verify its SHA-256 against
+          # the reviewed digest BEFORE unpacking or executing it. URL and digest
+          # are governed by .github/governance/download-integrity.yaml.
+          # l9-download: gitleaks-linux-x64
+          TOOL_URL="https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz"
+          TOOL_SHA256="ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d"
+          curl --fail --silent --show-error --location "$TOOL_URL" --output "$RUNNER_TEMP/gitleaks.tar.gz"
+          sha256sum --check --strict <<< "$TOOL_SHA256  $RUNNER_TEMP/gitleaks.tar.gz"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          config_arg=""
+          if [ -f .gitleaks.toml ]; then config_arg="--config .gitleaks.toml"; fi
+          "$RUNNER_TEMP/gitleaks" dir . --no-banner --redact $config_arg
+      - name: Dependency Review
+        id: dep_review
+        continue-on-error: true
+        # Blocks a PR that introduces a high-severity dependency advisory.
+        # PR-only: on workflow_call from a push/dispatch context there is no
+        # base to compare against, so the step is skipped (not failed).
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48  # v4.9.0
+        with:
+          fail-on-severity: high
+      - name: Aggregate security results
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          # Blocking scanners. dependency-review is PR-only, so 'skipped' on
+          # push/dispatch is not a failure.
+          for c in "npm-audit:${{ steps.npm_audit.outcome }}" \
+                   "gitleaks:${{ steps.gitleaks.outcome }}" \
+                   "dependency-review:${{ steps.dep_review.outcome }}"; do
+            name="${c%%:*}"; outcome="${c##*:}"
+            case "$outcome" in
+              success|skipped) : ;;
+              *) echo "::error::security scanner failed: $name ($outcome)"; fail=1 ;;
+            esac
+          done
+          exit $fail
+
+  semgrep:
+    name: Semgrep Policy Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Run Semgrep When Policy Exists
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          RUN_SEMGREP: ${{ inputs.run-semgrep }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Intentional absence of a Semgrep policy is a successful internal
+          # no-op, never a GitHub-level skipped job.
+          if [ "$RUN_SEMGREP" != "true" ]; then
+            echo "::notice::run-semgrep=false; skipping Semgrep policy check"
+            exit 0
+          fi
+          if [ ! -d .semgrep ]; then
+            echo "::notice::no .semgrep directory; skipping Semgrep policy check"
+            exit 0
+          fi
+          # Run Semgrep from its official image pinned by immutable digest
+          # (tag 1.104.0) so no Python toolchain is installed into this Node
+          # pipeline and the tool provenance is fixed.
+          docker run --rm -v "$PWD":/src -w /src \
+            semgrep/semgrep@sha256:74935f447159a10cf36c6521fc30f1b3a0930c8083aa11b2852fa8c2a00c2871 \
+            semgrep --config .semgrep/ --error --quiet
+
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Note SBOM disabled
+        if: ${{ !inputs.upload-sbom }}
+        shell: bash
+        run: echo "::notice::upload-sbom=false; skipping SBOM generation"
+      - name: Generate Software Bill of Materials
+        if: ${{ inputs.upload-sbom }}
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
+        with:
+          path: ${{ inputs.working-directory }}
+          format: spdx-json
+          output-file: node-sbom-${{ inputs.node-version }}.spdx.json
+          artifact-name: node-sbom-${{ inputs.node-version }}
+          upload-artifact: true
+          upload-release-assets: false
+
+  ci-gate:
+    name: Node CI Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    needs: [validate, lint, test, security, semgrep, sbom]
+    permissions:
+      contents: read
+    steps:
+      - name: Evaluate required results
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for result in \
+            "validate:${{ needs.validate.result }}" \
+            "lint:${{ needs.lint.result }}" \
+            "test:${{ needs.test.result }}" \
+            "security:${{ needs.security.result }}" \
+            "semgrep:${{ needs.semgrep.result }}" \
+            "sbom:${{ needs.sbom.result }}"
+          do
+            job="${result%%:*}"
+            status="${result##*:}"
+            # Success is the ONLY acceptable result. An unexpected 'skipped'
+            # (e.g. a job that never ran because a needed job failed) is treated
+            # as a failure, not a pass.
+            if [ "$status" != "success" ]; then
+              echo "::error::$job completed with result '$status'"
+              fail=1
+            fi
+          done
+          exit "$fail"

@@ -1,0 +1,10 @@
+{
+  "name": "l9-node-consumer-minimal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal npm consumer fixture for node-pr-pipeline.yml contract tests.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test"
+  }
+}

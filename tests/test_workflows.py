@@ -104,6 +104,19 @@ def test_security_declares_l9_install_input() -> None:
     assert "l9-ci-install-command" in inputs
 
 
+def test_node_pipeline_is_reusable_and_least_privilege() -> None:
+    """The additive Node pipeline participates in the shared workflow suite:
+    it is a reusable workflow, forbids pull_request_target, and grants only
+    read-only top-level permissions. Detailed contract coverage lives in
+    tests/test_node_pipeline.py; the pin/timeout/SHA checks above already glob
+    every *.yml (including this one)."""
+    data = load_workflow("node-pr-pipeline.yml")
+    on_block = data.get(True) or data.get("on") or {}
+    assert "workflow_call" in on_block
+    assert "pull_request_target" not in on_block
+    assert data.get("permissions") == {"contents": "read"}
+
+
 def test_aggregator_jobs_exist() -> None:
     expected = {
         "nightly.yml": "all-gates-passed",

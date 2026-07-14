@@ -42,6 +42,16 @@
       "verified_at": "2026-07-12",
       "notes": "Resolved from floating tag v4 via GitHub commits API."
     },
+    "actions/setup-node": {
+      "action": "actions/setup-node",
+      "kind": "action",
+      "version": "v4.4.0",
+      "commit_sha": "49933ea5288caeca8642d1e84afbd3f7d6820020",
+      "upstream_repository": "actions/setup-node",
+      "verification_method": "upstream-tag-resolution",
+      "verified_at": "2026-07-14",
+      "notes": "Resolved from tag v4.4.0 via git ls-remote (lightweight tag points directly at the commit). Used by node-pr-pipeline.yml."
+    },
     "actions/setup-python": {
       "action": "actions/setup-python",
       "kind": "action",
