@@ -56,7 +56,7 @@ def schema_path(name: str) -> Path:
     """
     try:
         filename = SCHEMAS[name]
-    except KeyError as exc:  # pragma: no cover - defensive
+    except KeyError as exc:
         raise KeyError(f"unknown control-plane schema: {name!r}") from exc
     path = SCHEMA_DIR / filename
     if not path.is_file():

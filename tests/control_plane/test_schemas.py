@@ -10,11 +10,10 @@ consume these schemas.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from l9_ci_core.control_plane import schemas
+from l9_ci_core.control_plane.models import SCHEMA_VERSION
 
 EXPECTED_SCHEMAS = {
     "event-context",
@@ -59,7 +58,7 @@ def test_schema_version_is_pinned(name):
     schema = schemas.load_schema(name)
     version = schema["properties"]["schema_version"]
     # Pinned to a single supported version so unsupported versions are rejected.
-    assert version == {"const": "1.0"}
+    assert version == {"const": SCHEMA_VERSION}
 
 
 def test_sha_and_digest_patterns_present_where_expected():

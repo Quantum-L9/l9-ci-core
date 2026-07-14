@@ -20,7 +20,12 @@ def test_import_control_plane_package():
 def test_control_plane_reexports_foundations():
     import l9_ci_core.control_plane as cp
 
-    for name in ("dumps_canonical", "encode_canonical", "sha256_bytes", "sha256_canonical"):
+    for name in (
+        "dumps_canonical",
+        "encode_canonical",
+        "sha256_bytes",
+        "sha256_canonical",
+    ):
         assert hasattr(cp, name), name
 
 
