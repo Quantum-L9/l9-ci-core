@@ -1,1 +1,534 @@
-placeholder_wf
+name: Reusable Node.js and TypeScript PR Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        default: "20"
+      working-directory:
+        type: string
+        default: "."
+      install-command:
+        type: string
+        default: "npm ci"
+      lint-script:
+        type: string
+        default: "lint"
+      typecheck-script:
+        type: string
+        default: "typecheck"
+      build-script:
+        type: string
+        default: "build"
+      test-script:
+        type: string
+        default: "test"
+      require-tests:
+        type: boolean
+        default: true
+      audit-level:
+        type: string
+        default: "high"
+      audit-production-only:
+        type: boolean
+        default: false
+      upload-sbom:
+        type: boolean
+        default: true
+      # G-01: context routing inputs
+      changed-files:
+        type: string
+        default: ""
+      pr-labels:
+        type: string
+        default: ""
+      labels-known:
+        type: boolean
+        default: true
+      # G-02: SDK install override
+      l9-ci-install-command:
+        type: string
+        default: 'pip install "l9-ci @ git+https://github.com/Quantum-L9/l9-ci-sdk.git"'
+    secrets:
+      SDK_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: node-pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v5.5.0
+        with:
+          python-version: "3.12"
+      # G-10: verbatim copy — GitHub reusable workflows cannot factor composite steps
+      # All SDK-installing jobs must carry this block unchanged.
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            git config --global url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
+            GITCONFIG="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            echo "[url \"https://x-access-token:${SDK_TOKEN}@github.com/\"]"\
+              > "${GITCONFIG}"
+            echo "  insteadOf = https://github.com/" >> "${GITCONFIG}"
+            export GIT_CONFIG_GLOBAL="${GITCONFIG}"
+          fi
+      - name: Install l9-ci SDK
+        run: |
+          python -m pip install --upgrade pip --quiet
+          ${{ inputs.l9-ci-install-command }}
+      - name: Validate Package Contract
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -euo pipefail
+          [ -f package.json ] || { echo "::error::package.json is required"; exit 1; }
+          [ -f package-lock.json ] || { echo "::error::package-lock.json is required"; exit 1; }
+      - name: Install Dependencies
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          L9_INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: bash -euo pipefail -c "$L9_INSTALL_COMMAND"
+      # G-04: L9 governance checks
+      - name: Check Transport Packet
+        run: l9-ci check-transport-packet
+      - name: Check Deprecated API
+        run: l9-ci check-deprecated-api
+      - name: Validate Thresholds
+        run: l9-ci validate-thresholds
+      - name: Validate Rule Modes
+        run: l9-ci validate-rule-modes
+      # G-02: SDK stage runner
+      - name: Run L9 Validate Stage
+        run: |
+          l9-ci run-pipeline --stage validate --emit-dir artifacts/ci
+      # G-09: upload ci-summary artifact
+      - name: Upload Validate Summary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-summary-validate
+          path: artifacts/ci/
+          if-no-files-found: warn
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v5.5.0
+        with:
+          python-version: "3.12"
+      # G-10: verbatim copy — GitHub reusable workflows cannot factor composite steps
+      # All SDK-installing jobs must carry this block unchanged.
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            GITCONFIG="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            echo "[url \"https://x-access-token:${SDK_TOKEN}@github.com/\"]"\
+              > "${GITCONFIG}"
+            echo "  insteadOf = https://github.com/" >> "${GITCONFIG}"
+            export GIT_CONFIG_GLOBAL="${GITCONFIG}"
+          fi
+      - name: Install l9-ci SDK
+        run: |
+          python -m pip install --upgrade pip --quiet
+          ${{ inputs.l9-ci-install-command }}
+      - name: Install Dependencies
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          L9_INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: bash -euo pipefail -c "$L9_INSTALL_COMMAND"
+      - name: Run Lint
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.lint-script }}" ]; then
+            npm run ${{ inputs.lint-script }}
+          fi
+          if [ -n "${{ inputs.typecheck-script }}" ]; then
+            npm run ${{ inputs.typecheck-script }}
+          fi
+      - name: Run L9 Lint Stage
+        run: l9-ci run-pipeline --stage lint --emit-dir artifacts/ci
+      - name: Upload Lint Summary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-summary-lint
+          path: artifacts/ci/
+          if-no-files-found: warn
+
+  semgrep:
+    name: Semgrep
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      # G-07: explicit Python setup for reproducible semgrep install
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v5.5.0
+        with:
+          python-version: "3.12"
+      - name: Run Semgrep When Config Exists
+        env:
+          SEMGREP_VERSION: "1.96.0"
+        run: |
+          set -euo pipefail
+          if [ ! -d .semgrep ]; then
+            echo "::notice::No .semgrep directory; skipping semgrep policy check."
+            exit 0
+          fi
+          python -m pip install --upgrade pip --quiet
+          python -m pip install "semgrep==${SEMGREP_VERSION}" --quiet
+          semgrep --version
+          semgrep --config .semgrep/ --error --quiet
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v5.5.0
+        with:
+          python-version: "3.12"
+      # G-10: verbatim copy — GitHub reusable workflows cannot factor composite steps
+      # All SDK-installing jobs must carry this block unchanged.
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            GITCONFIG="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            echo "[url \"https://x-access-token:${SDK_TOKEN}@github.com/\"]"\
+              > "${GITCONFIG}"
+            echo "  insteadOf = https://github.com/" >> "${GITCONFIG}"
+            export GIT_CONFIG_GLOBAL="${GITCONFIG}"
+          fi
+      - name: Install l9-ci SDK
+        run: |
+          python -m pip install --upgrade pip --quiet
+          ${{ inputs.l9-ci-install-command }}
+      - name: Install Dependencies
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          L9_INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: bash -euo pipefail -c "$L9_INSTALL_COMMAND"
+      - name: Build
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          if [ -n "${{ inputs.build-script }}" ]; then
+            npm run ${{ inputs.build-script }}
+          fi
+      - name: Run Tests
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          set -euo pipefail
+          if npm run --list 2>/dev/null | grep -q "^  ${{ inputs.test-script }}$"; then
+            npm run ${{ inputs.test-script }}
+          elif ${{ inputs.require-tests }}; then
+            echo "::error::Test script '${{ inputs.test-script }}' not found in package.json"
+            exit 1
+          else
+            echo "::notice::No test script found; require-tests=false, skipping."
+          fi
+      - name: Run L9 Test Stage
+        run: l9-ci run-pipeline --stage test --emit-dir artifacts/ci
+      - name: Upload Test Summary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-summary-test
+          path: artifacts/ci/
+          if-no-files-found: warn
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v5.5.0
+        with:
+          python-version: "3.12"
+      # G-10: verbatim copy — GitHub reusable workflows cannot factor composite steps
+      # All SDK-installing jobs must carry this block unchanged.
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            GITCONFIG="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            echo "[url \"https://x-access-token:${SDK_TOKEN}@github.com/\"]"\
+              > "${GITCONFIG}"
+            echo "  insteadOf = https://github.com/" >> "${GITCONFIG}"
+            export GIT_CONFIG_GLOBAL="${GITCONFIG}"
+          fi
+      - name: Install l9-ci SDK
+        run: |
+          python -m pip install --upgrade pip --quiet
+          ${{ inputs.l9-ci-install-command }}
+      - name: Install Dependencies
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          L9_INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: bash -euo pipefail -c "$L9_INSTALL_COMMAND"
+      - name: Validate Audit Level
+        run: |
+          L9_AUDIT_LEVEL="${{ inputs.audit-level }}"
+          echo "$L9_AUDIT_LEVEL" | grep -Eq '^(low|moderate|high|critical)$' || {
+            echo "::error::audit-level must be one of low|moderate|high|critical"
+            exit 1
+          }
+      - name: npm Audit (Blocking)
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          L9_AUDIT_LEVEL: ${{ inputs.audit-level }}
+        run: |
+          PROD_FLAG=""
+          if ${{ inputs.audit-production-only }}; then PROD_FLAG="--production"; fi
+          npm audit --audit-level=${L9_AUDIT_LEVEL} ${PROD_FLAG}
+      # G-05: advisory audit — surfaces all vulns as notices, never blocks
+      - name: npm Audit (Advisory)
+        working-directory: ${{ inputs.working-directory }}
+        continue-on-error: true
+        run: npm audit --audit-level=none || true
+      - name: Scan for Secrets with Gitleaks
+        env:
+          GITLEAKS_VERSION: "8.21.2"
+        run: |
+          set -euo pipefail
+          cd /tmp
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o gitleaks.tar.gz
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" \
+            -o checksums.txt
+          grep "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" checksums.txt | sha256sum --check -
+          tar -xzf gitleaks.tar.gz gitleaks
+          chmod +x gitleaks
+          cd "${GITHUB_WORKSPACE}"
+          /tmp/gitleaks detect --source . --redact --exit-code 1
+      - name: Dependency Review
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/dependency-review-action@ce3cf9537a52e8119d91fd484ab5520a4220f7df # v4.6.0
+      - name: Run L9 Security Stage
+        run: l9-ci run-pipeline --stage security --emit-dir artifacts/ci
+      - name: Upload Security Summary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-summary-security
+          path: artifacts/ci/
+          if-no-files-found: warn
+
+  sbom:
+    name: SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - name: Install Dependencies
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          L9_INSTALL_COMMAND: ${{ inputs.install-command }}
+        run: bash -euo pipefail -c "$L9_INSTALL_COMMAND"
+      - name: Generate SBOM
+        if: ${{ inputs.upload-sbom }}
+        working-directory: ${{ inputs.working-directory }}
+        run: npx --yes @cyclonedx/cyclonedx-npm --output-format JSON --output-file sbom.json
+      - name: Upload SBOM
+        if: ${{ inputs.upload-sbom }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom
+          path: ${{ inputs.working-directory }}/sbom.json
+      - name: SBOM Upload Skipped
+        if: ${{ !inputs.upload-sbom }}
+        run: echo "::notice::SBOM upload disabled via upload-sbom=false"
+
+  scorecard:
+    name: OpenSSF Scorecard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Run Scorecard
+        uses: ossf/scorecard-action@4aacf0518ef1efb6e1a57a3b1c0e1e5bd95baab0 # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: ${{ github.event_name != 'pull_request' }}
+      - name: Upload Scorecard SARIF
+        uses: github/codeql-action/upload-sarif@8aad20d1e76dba729a8fb34f94a92f43a0af3f32 # v4.36.2
+        with:
+          sarif_file: results.sarif
+
+  ci-gate:
+    name: Node CI Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: always()
+    needs:
+      - validate
+      - lint
+      - semgrep
+      - test
+      - security
+      - sbom
+      - scorecard
+    permissions:
+      contents: read
+    steps:
+      # G-10: verbatim copy — GitHub reusable workflows cannot factor composite steps
+      # All SDK-installing jobs must carry this block unchanged.
+      - name: Configure private SDK access
+        env:
+          SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SDK_TOKEN:-}" ]; then
+            GITCONFIG="${RUNNER_TEMP}/l9-sdk-gitconfig"
+            echo "[url \"https://x-access-token:${SDK_TOKEN}@github.com/\"]"\
+              > "${GITCONFIG}"
+            echo "  insteadOf = https://github.com/" >> "${GITCONFIG}"
+            export GIT_CONFIG_GLOBAL="${GITCONFIG}"
+          fi
+      # E-04: setup-python step renamed for clarity
+      - name: Set up Python for SDK
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v5.5.0
+        with:
+          python-version: "3.12"
+      - name: Install l9-ci SDK
+        run: |
+          python -m pip install --upgrade pip --quiet
+          ${{ inputs.l9-ci-install-command }}
+      # G-03: download all ci-summary artifacts before gate evaluation
+      - name: Download CI Summary Artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: ci-summary-*
+          path: artifacts/ci
+          merge-multiple: true
+      - name: Run L9 Gate Stage
+        run: l9-ci run-pipeline --stage gate --emit-dir artifacts/ci
+      - name: Render Agent Review Payload
+        run: l9-ci render-agent-payload --output agent_review_payload.json
+      - name: Upload Gate Summary and Agent Payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-gate-output
+          path: |
+            artifacts/ci/
+            agent_review_payload.json
+      # E-06: single shell:python block — no mixed bash/python heredoc boundary
+      - name: Evaluate Required Results
+        if: always()
+        shell: python
+        env:
+          CHANGED_FILES: ${{ inputs.changed-files }}
+          PR_LABELS: ${{ inputs.pr-labels }}
+          LABELS_KNOWN: ${{ inputs.labels-known }}
+          RESULT_VALIDATE: ${{ needs.validate.result }}
+          RESULT_LINT: ${{ needs.lint.result }}
+          RESULT_SEMGREP: ${{ needs.semgrep.result }}
+          RESULT_TEST: ${{ needs.test.result }}
+          RESULT_SECURITY: ${{ needs.security.result }}
+          RESULT_SBOM: ${{ needs.sbom.result }}
+          RESULT_SCORECARD: ${{ needs.scorecard.result }}
+        run: |
+          import json, os, subprocess, sys
+          from pathlib import Path
+
+          changed = [v.strip() for v in os.environ.get("CHANGED_FILES", "").split(",") if v.strip()]
+          labels  = [v.strip() for v in os.environ.get("PR_LABELS",  "").split(",") if v.strip()]
+          labels_known = os.environ.get("LABELS_KNOWN", "true").lower() == "true"
+
+          extra: list[str] = []
+          if changed:
+              Path("changed_files.txt").write_text("\n".join(changed), encoding="utf-8")
+              Path("pr_labels.json").write_text(json.dumps(labels), encoding="utf-8")
+              extra += ["--changed-files-file", "changed_files.txt", "--pr-labels-file", "pr_labels.json"]
+          if not labels_known:
+              extra.append("--labels-unknown")
+
+          cmd = [
+              "l9-ci", "gate",
+              "--required", "validate,lint,semgrep,test,security",
+              "--result", f"validate={os.environ['RESULT_VALIDATE']}",
+              "--result", f"lint={os.environ['RESULT_LINT']}",
+              "--result", f"semgrep={os.environ['RESULT_SEMGREP']}",
+              "--result", f"test={os.environ['RESULT_TEST']}",
+              "--result", f"security={os.environ['RESULT_SECURITY']}",
+              "--result", f"sbom={os.environ['RESULT_SBOM']}",
+              "--result", f"scorecard={os.environ['RESULT_SCORECARD']}",
+              *extra,
+          ]
+          sys.exit(subprocess.run(cmd).returncode)
