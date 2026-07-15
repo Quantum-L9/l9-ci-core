@@ -1,0 +1,85 @@
+# L9_META
+# l9_schema: 1
+# parent: l9-devpack-compiler
+# layer: reference
+# role: expertise_model
+# tags: [devpack, dpk, handoff, expertise, exemplary, intelligence-layer]
+# owner: igor_beylin
+# status: active
+# version: 1.0.0
+# updated: 2026-07-15
+# Purpose: Compressed judgment extracted from the Developer Pack Kernel (DPK-1.0),
+# filtered through the L9 Compounding Leverage and Minimize-Friction kernels.
+# Consumed by scripts/validate_exemplary_skill.py.
+
+expertise_model:
+  experts:
+    - platform-architect (repo -> six-layer machine control plane, boundaries, interfaces)
+    - reliability-engineer (alert<->runbook 1:1, machine rollback target, SLOs)
+    - ai-systems-engineer (model/prompt registries, eval suites for non-deterministic features)
+    - security-engineer (scoped credentials, prohibited-in-logs, least-privilege access paths)
+    - handoff-auditor (quality-gate scoring, red-line overrides, signed debt ledger)
+
+  doctrine:
+    - Emit a machine-parseable envelope beside human docs; the repo becomes agent-operable, not passive text.
+    - Every structural claim carries a verification block (last_verified + commit + environment + confidence) or is labeled Unknown.
+    - Every code mutation is preceded by a Task Contract bounding scope (allowed/prohibited) and constraints.
+    - Every production alert maps 1:1 to a repo runbook that resolves; a broken link zeroes the gate.
+    - Non-deterministic AI features require a dedicated evaluation suite; absence zeroes the gate.
+    - A machine-executable rollback target must exist and be dry-runnable; absence zeroes the gate.
+    - Disclose inherited debt in a signed ledger with remediation targets; never treat it as greenfield.
+    - The execution package supplies infrastructure decisions so the agent never invents access, creds, or contracts.
+    - Split mutation across isolated personas; no agent validates its own work.
+    - Prefer the smallest correct change that preserves invariants, compatibility, security, operability, performance.
+
+  invariants:
+    - manifest declares ownership.operational_owner (production ops owner) else score == 0
+    - a machine-executable rollback target exists else score == 0
+    - every non-deterministic AI feature has an eval suite else score == 0
+    - every alert.runbook path resolves to a real file else score == 0
+    - repository-map paths align with real code imports
+    - execution package contains all seven components before work begins
+    - prohibited fields never appear in logs (raw_prompt, access_token, customer_email)
+    - credentials are scoped and referenced by name, never embedded
+    - tests are never weakened or deleted to pass a gate
+    - unverifiable facts are labeled Unknown, never fabricated
+
+  authority_hierarchy:
+    - security_safety_legal > explicit_task_contract
+    - explicit_task_contract > architecture_invariants
+    - architecture_invariants > public_interface_schemas
+    - public_interface_schemas > adrs > test_assertions > local_style
+    - unknown > fabrication (fail closed; stop and report)
+
+  activation_signals:
+    - user asks to produce/build/compile a developer pack, DPK, or agent handoff pack for a repo
+    - user wants a repo made agent-operable, handoff-ready, or self-documenting
+    - user references DPK-1.0, the six-layer control plane, .ai/manifest, or AGENTS.md
+    - user needs an execution package (repo/env/creds/contracts/queue/validation/stop) for an agent
+    - user asks to score or audit a repo's handoff readiness against the quality gate
+
+  reject_signals:
+    - request is a normal feature/code change (route through a Task Contract, not pack compilation)
+    - no repository or source is available to analyze (nothing to compile)
+    - user wants human prose docs only, not a machine envelope
+    - compiling would require fabricating owners/contracts/credentials that cannot be labeled Unknown
+    - request is to bypass a red-line (ship without rollback, eval suite, or ops owner)
+
+  adapters:
+    - "non-AI service (no models/prompts) -> skip the AI registries and the eval red-line; keep the other five layers and red-lines."
+    - "monorepo -> emit per-domain repository-map + manifest boundaries and scope the execution-package work queue per package."
+    - "greenfield/near-empty repo -> emit a skeleton pack with Unknown-labeled verification blocks; never fabricate commits, dashboards, or owners."
+
+  failure_modes:
+    - "hallucinated-contract: inventing an interface/owner -> require source evidence or label Unknown; validate_devpack flags absence."
+    - "broken-runbook-link: alert points to a missing file -> red-line, score 0; validate_devpack resolves every alert.runbook."
+    - "missing-rollback: no machine rollback target -> red-line, score 0."
+    - "eval-gap: a non-deterministic AI feature ships without an eval suite -> red-line, score 0."
+    - "infra-invention: agent guesses env/creds/contracts -> the execution package supplies them; stop when a component is Unknown."
+
+  leverage_points:
+    - Machine envelope (.ai/*): every future agent run starts from verified truth, not tribal knowledge.
+    - Execution package: removes infrastructure-decision invention across every future task on the repo.
+    - Deterministic validate_devpack.py: turns the quality gate + red-lines into a check, not prose.
+    - Copy-ready per-layer templates: accelerate packing any repo with complete, non-stub artifacts.
+    - Verification blocks + signed debt ledger: compound trust and safety across successive handoffs.

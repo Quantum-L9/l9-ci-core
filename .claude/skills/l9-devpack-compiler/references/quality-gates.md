@@ -1,0 +1,57 @@
+<!-- L9_META
+l9_schema: 1
+parent: l9-devpack-compiler
+layer: reference
+role: quality_gates
+tags: [dpk, scoring, readiness, red-lines, handoff]
+owner: igor_beylin
+status: active
+version: 1.0.0
+updated: 2026-07-15
+/L9_META -->
+
+# Quality Gates & Readiness Scoring
+
+## Purpose
+
+Score a compiled dev pack 0–100 for handoff readiness, and enforce the red-line overrides that instantly disqualify it. Implemented deterministically by `scripts/validate_devpack.py`.
+
+## Scoring Matrix (weights)
+
+| Category | Weight | Strict compliance metric |
+|---|---|---|
+| Repository Clarity | 10% | verification tokens present in root structural docs |
+| Architecture Mapping | 15% | 100% alignment between code imports and `.ai/repository-map.yaml` |
+| Local Reproducibility | 10% | single-command deterministic setup (`scripts/bootstrap`) |
+| Test & Eval Coverage | 15% | deterministic tests pass + eval delta metrics for AI features |
+| Security Boundaries | 10% | credential-leak testing + access-path authorization checks |
+| Observability Integrity | 15% | every alert statically correlates to a resolving runbook |
+| Deployment & Rollback | 10% | machine-readable inverse-patch / rollback verified via dry-run |
+| Transition Clarity | 15% | signed debt ledger with valid remediation targets |
+
+## Readiness Bands
+
+```text
+[90–100]  Independently Operable / Safe Handoff
+[80–89]   Conditionally Clear (minor document drift)
+[0–79]    Handoff Rejected (execution blocked)
+```
+
+## 🚨 Red-Line Overrides (score → 0 instantly)
+
+Any one of these zeroes the cumulative score regardless of other categories:
+
+1. **No production operations owner** in `.ai/manifest.yaml` (`ownership.operational_owner` missing/empty).
+2. **No machine-executable rollback target** (absent or not dry-runnable).
+3. **No evaluation suite** mapping a non-deterministic AI feature (each `prompts.*` / model role must reference a resolving `eval_suite`/`eval_baseline`).
+4. **Broken alert→runbook link** (any `alert.runbook` path does not resolve to a real file).
+
+## Verdict
+
+- `operable` — score ≥ 90, no red-line.
+- `conditional` — score 80–89, no red-line.
+- `blocked` — score < 80 **or** any red-line tripped. Never present a `blocked` pack as operable; deliver it with the specific failing red-line/category and its remediation target.
+
+## Output
+
+`scripts/validate_devpack.py` emits a machine-readable report: per-category status, red-line verdicts, total score, band, and the ranked remediation list. Exit codes: `0` operable/conditional, `1` blocked (red-line or score<80), `2` unreadable input.

@@ -1,0 +1,167 @@
+# L9_META
+# l9_schema: 1
+# parent: l9-devpack-compiler
+# layer: reference
+# role: skill_intelligence_report
+# tags: [devpack, dpk, intelligence-report, exemplary, gate-results]
+# owner: igor_beylin
+# status: active
+# version: 1.0.0
+# updated: 2026-07-15
+# Purpose: Exemplary-tier intelligence report for l9-devpack-compiler. Validated by
+# scripts/validate_exemplary_skill.py (all exemplary gates must be pass).
+
+skill_intelligence_report:
+  activation_model:
+    strong_signals:
+      - produce/build/compile a developer pack or DPK for a repo
+      - make a repo agent-operable / handoff-ready / self-documenting
+      - references DPK-1.0, six-layer control plane, .ai/manifest, AGENTS.md
+      - needs an execution package (repo/env/creds/contracts/queue/validation/stop)
+      - score/audit a repo's handoff readiness against the quality gate
+    weak_signals:
+      - a repo is mentioned but no handoff/pack/operability intent is stated
+      - user asks a general "how do I document a repo" question
+    reject_signals:
+      - normal feature/code change (route via a Task Contract, not pack compilation)
+      - no repository/source available to analyze
+      - human prose docs only, not a machine envelope
+      - would require fabricating owners/contracts/credentials un-labelable as Unknown
+      - request to bypass a red-line (no rollback / no eval / no ops owner)
+    false_positive_risks:
+      - triggering on any repo mention without handoff/operability intent
+      - emitting layers with invented (non-evidenced) contracts or owners
+    specificity_score: 5          # >=4 required; triggers name DPK/devpack + repo + build/score verbs
+    false_positive_risk_score: 1  # <=1 required; strong reject signals + Unknown-labeling bound the surface
+
+  authority_model:
+    order:
+      - security_safety_legal
+      - explicit_task_contract
+      - architecture_invariants
+      - public_interface_schemas
+      - adrs
+      - test_assertions
+      - local_style
+      - unknown_fail_closed
+    conflict_rules:
+      - a red-line override beats every score contribution (any tripped -> score 0)
+      - explicit Task Contract beats architecture invariants beats public schemas
+      - unknown beats fabrication: label and stop rather than invent infrastructure
+
+  expert_heuristics:
+    - condition: a repo ships an architecture/structural doc
+      judgment: unverified claims cause model hallucination downstream
+      action: require a verification block (last_verified + commit + environment + confidence) or mark the claim Unknown
+    - condition: a feature is non-deterministic (LLM/model output)
+      judgment: deterministic tests cannot prove its quality or safety
+      action: require a dedicated eval suite mapping the feature; absent -> red-line, score 0
+    - condition: a production alert is declared
+      judgment: a page with no operator path is unoperable
+      action: require a 1:1 alert.runbook link that resolves to a real file; broken -> red-line, score 0
+    - condition: a code change is requested
+      judgment: unbounded scope drifts and breaks invariants
+      action: require a Task Contract (allowed/prohibited paths + constraints) before any mutation
+    - condition: rollback is unspecified
+      judgment: a repo you cannot revert is unsafe to hand off
+      action: require a machine-executable, dry-runnable rollback target; absent -> red-line, score 0
+    - condition: the agent lacks env, credentials, or authoritative contracts
+      judgment: it will invent infrastructure and drift
+      action: supply the execution package; when a component is Unknown, STOP and ask rather than guess
+    - condition: the repo carries latent debt or defects
+      judgment: silent debt is inherited as a greenfield assumption
+      action: emit a signed debt ledger with affected paths, consequences, and remediation targets
+
+  doctrine:
+    - machine envelope beside human docs
+    - verification block on every structural claim
+    - task contract before every mutation
+    - alert<->runbook 1:1; eval suite for non-deterministic features; machine rollback target
+    - execution package supplies infra; agent never invents it
+    - disclose debt honestly; smallest correct change
+
+  invariants:
+    - ownership.operational_owner present else score 0
+    - machine rollback target exists else score 0
+    - eval suite for every non-deterministic feature else score 0
+    - every alert.runbook resolves else score 0
+    - execution package has all seven components before work
+    - no prohibited fields in logs; credentials referenced not embedded
+
+  adapter_map:
+    core_default: full six-layer DPK-1.0 pack + execution package for a production service
+    adapters:
+      - non_ai_service: skip AI registries + eval red-line; keep the other five layers
+      - monorepo: per-domain repository-map/manifest boundaries; per-package work queue
+      - greenfield: skeleton pack with Unknown-labeled verification; no fabricated commits/owners
+    adapter_rule: create only when decision rules change
+
+  failure_modes:
+    - hallucinated-contract -> require evidence or Unknown; validate_devpack flags absence
+    - broken-runbook-link -> red-line score 0; validate_devpack resolves links
+    - missing-rollback -> red-line score 0
+    - eval-gap -> red-line score 0
+    - infra-invention -> execution package supplies it; STOP on Unknown component
+
+  leverage_points:
+    - machine_envelope (.ai/*) — future runs start from truth
+    - execution_package — removes infra invention across all tasks
+    - validate_devpack — quality gate + red-lines as a deterministic check
+    - per_layer_templates — complete non-stub artifacts fast
+    - verification_blocks_plus_debt_ledger — compounding trust across handoffs
+
+  evidence_hierarchy:
+    - production runtime + verified commit (highest — the verification block anchor)
+    - machine contracts (.ai/manifest, repository-map, constraints, API/event schemas)
+    - actual code imports / real file paths
+    - ADRs + architecture docs carrying a verification block
+    - human prose / comments (lowest — must be verified before trust)
+
+  leverage_model:
+    scoring_dimensions:
+      - future_action_acceleration
+      - output_quality_gain
+      - drift_reduction
+      - reuse_across_tasks
+      - implementation_simplicity
+    scored_points:
+      - point: execution_package
+        score: 23   # /25 — every future task on the repo skips infra invention
+      - point: machine_envelope
+        score: 22
+      - point: validate_devpack
+        score: 21
+    exemplary_threshold: "at least one leverage point scores >=18/25"
+    threshold_met: true
+
+  self_improvement_hook:
+    capture_only_when_user_reports_bad_pack_or_requests_iteration: true
+    capture:
+      - missed_layer
+      - hallucinated_contract
+      - red_line_missed
+      - output_that_required_manual_rework
+    routes_to:
+      - dpk-layer-contract.md (artifact schemas/templates)
+      - validate_devpack.py (red-line + layer checks)
+
+  exemplary_gate_results:
+    activation_precision: pass       # specificity 5>=4, FP-risk 1<=1, reject signals present
+    adapter_architecture: pass       # 3 adapters, each changes decision rules; core stays full-pack
+    evidence_hierarchy: pass         # runtime/commit > contracts > code > ADRs > prose
+    doctrine_extraction: pass        # behavior-changing rules, not summaries
+    expert_heuristics: pass          # 7 condition->judgment->action heuristics
+    failure_modes: pass              # 5 modes each mapped to a preventing gate/red-line
+    leverage_model: pass             # execution_package scores 23/25 (>=18)
+    self_improvement_hook: pass      # bounded capture on bad-pack/iterate only
+    compiler_enforcement_gates: pass # references/enforcement-gates.md present + wired into the workflow
+    skill_intelligence_report: pass  # this report present with all required fields
+
+  tier_decision:
+    tier: exemplary
+    rationale: >
+      All ten exemplary gates pass; activation is high-specificity with explicit
+      reject signals and Unknown-labeling; expertise is compressed DPK-1.0 judgment
+      (not a doc summary); every failure mode maps to a runtime gate or red-line;
+      the execution_package leverage point exceeds the 18/25 threshold.
+      Deterministically checked by scripts/validate_exemplary_skill.py.
