@@ -6,7 +6,7 @@ role: spec_schema
 tags: [dpk, spec, intent, machine-readable, no-pseudocode, context-efficient]
 owner: igor_beylin
 status: active
-version: 1.2.0
+version: 1.3.0
 updated: 2026-07-15
 /L9_META -->
 
@@ -49,6 +49,23 @@ Every spec block maps to exactly one DPK-1.0 output — this is what "facts popu
 `meta · ownership · boundaries · interfaces · entities · invariants · commands · contracts · file_plan · domains · constraints · environment · credentials · deployment(+rollback) · observability · work_queue · acceptance · stop_conditions · open_decisions · debt · verification · authority_order · provenance`
 
 Beyond the three you named (interfaces / invariants / commands), the compiler also needs: **contracts** (schemas by `$id`+path), **entities** (data model shapes + rules), **file_plan** (paths + build status, no bodies), **domains** (ownership map), **constraints** (budgets, prohibited-in-logs, governance, auth, allowlists), **environment** (runtime, services, bootstrap), **credentials** (env-var names only), **deployment.rollback** (dry-runnable command — the red line), **observability** (alerts + runbook refs), **work_queue** (phases + entry/exit criteria), **acceptance** (definition of done), **stop_conditions**, **open_decisions** (the TODO channel), **debt**, **verification** (commit/env/confidence), **authority_order**, and **provenance**.
+
+## Reconciliation (in-scope repo): presence ≠ conformance
+
+When the repo is available, do NOT re-plan what's already built — but do NOT trust that a file exists as proof it is correct or aligned with the spec. Run [`scripts/reconcile_spec.py`](../scripts/reconcile_spec.py) (`spec` + `--repo <root>`): it verifies each spec item and compresses the work queue to the **delta**, which saves tokens and turns deployment into a high-velocity delta apply.
+
+Per-item verdicts:
+
+| Verdict | Meaning | In remaining work? |
+|---|---|---|
+| `conformant` | present AND a deterministic conformance check passed (contract has `$id`, command wired in `package.json`, path matches) | dropped |
+| `external` | owned by another repo (`contracts[].owner_repo`) | dropped |
+| `deferred` | spec-deferred | dropped |
+| `present_unverified` | present, but conformance is not statically decidable → **needs an agent/test; NOT done** | kept |
+| `drifted` | present but the check FAILED, OR spec says `existing` yet the repo lacks it | kept (first) |
+| `absent` | not built | kept |
+
+**Doctrine:** nothing is marked done by presence alone. Existing code is *evidence to verify*, not proof of completion. A present-but-drifted artifact is a finding to reconcile, never a skipped item. Only `conformant`/`external`/`deferred` compress out; everything else stays as the delta a building agent works. `drifted` → exit 1 (spec↔repo inconsistency).
 
 ## Rules
 
