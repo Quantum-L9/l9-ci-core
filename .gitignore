@@ -28,11 +28,3 @@ env/
 .vscode/
 *.swp
 .DS_Store
-
-# L9 CI / pipeline output (emitted by l9-ci run-pipeline and dogfood runs)
-artifacts/
-*_ci_summary.json
-agent_review_payload.json
-sbom.spdx.json
-scorecard.sarif
-coverage.xml

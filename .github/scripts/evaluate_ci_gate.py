@@ -51,10 +51,7 @@ def _load_rule_modes() -> tuple[str, dict[str, str]]:
     try:
         text = Path(path).read_text(encoding="utf-8")
     except OSError as exc:
-        print(
-            f"[WARN] rule-modes policy unreadable ({path}): {exc}; using advisory default",
-            file=sys.stderr,
-        )
+        print(f"[WARN] rule-modes policy unreadable ({path}): {exc}; using advisory default", file=sys.stderr)
         return default_mode, rules
 
     in_rules = False
@@ -67,13 +64,13 @@ def _load_rule_modes() -> tuple[str, dict[str, str]]:
         if indent == 0:
             in_rules = stripped.startswith("rules:")
             if stripped.startswith("default_mode:"):
-                val = stripped.split(":", 1)[1].strip().strip("\"'").lower()
+                val = stripped.split(":", 1)[1].strip().strip('"\'').lower()
                 if val in VALID_MODES:
                     default_mode = val
             continue
         if in_rules and ":" in stripped:
             key, _, val = stripped.partition(":")
-            mode = val.strip().strip("\"'").lower()
+            mode = val.strip().strip('"\'').lower()
             key = key.strip()
             if key and mode in VALID_MODES:
                 rules[key] = mode

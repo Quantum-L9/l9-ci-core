@@ -11,7 +11,6 @@ Input sources, in order:
 
 Output is JSON by default. Use --plain to print only the class.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -25,9 +24,7 @@ from typing import Any
 import yaml
 
 DEFAULT_CONFIG_PATH = Path(".github/governance/l9-ci-shared-spec.yaml")
-SCRIPT_DEFAULT_CONFIG_PATH = (
-    Path(__file__).resolve().parents[1] / "governance" / "l9-ci-shared-spec.yaml"
-)
+SCRIPT_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "governance" / "l9-ci-shared-spec.yaml"
 
 
 @dataclass(frozen=True)
@@ -254,15 +251,11 @@ def classify(paths: list[str], policy: ClassifierPolicy | None = None) -> Classi
         if cls in observed and cls != active_policy.docs_only_class:
             return Classification(cls, changed, observed[cls], observed)
 
-    return Classification(
-        active_policy.unknown_class, changed, ["no canonical class matched"], observed
-    )
+    return Classification(active_policy.unknown_class, changed, ["no canonical class matched"], observed)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Classify changed files into one canonical L9 CI PR class."
-    )
+    parser = argparse.ArgumentParser(description="Classify changed files into one canonical L9 CI PR class.")
     parser.add_argument("files", nargs="*")
     parser.add_argument("--config", type=Path, help="Classifier policy YAML path.")
     parser.add_argument("--plain", action="store_true", help="Print only the canonical class.")
