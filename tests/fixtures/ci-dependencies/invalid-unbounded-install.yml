@@ -1,7 +1,0 @@
-on: push
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          pip install ruff

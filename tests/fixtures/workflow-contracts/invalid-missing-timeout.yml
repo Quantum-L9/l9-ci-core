@@ -1,8 +1,0 @@
-on: push
-jobs:
-  bootstrap-runtime:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - run: echo no-timeout
