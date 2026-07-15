@@ -1,0 +1,157 @@
+# L9_META
+# l9_schema: 1
+# parent: l9-repo-preflight
+# layer: reference
+# role: skill_intelligence_report
+# tags: [preflight, probe, readiness-gate, intelligence-layer, exemplary]
+# owner: igor_beylin
+# status: active
+# version: 1.0.0
+# updated: 2026-07-15
+# Purpose: Measured activation + authority + gate evidence proving exemplary tier.
+# Validated by scripts/validate_exemplary_skill.py.
+
+skill_intelligence_report:
+  activation_model:
+    strong_signals:
+      - "preflight this repo / run the probe / verify before I start"
+      - "run the preflight decision tree or the eight gates"
+      - "is it safe to build on this branch/commit?"
+      - "check worktree is clean and the baseline reproduces"
+    weak_signals:
+      - "'check the repo' — could be review, search, or preflight; confirm intent"
+      - "'set up the environment' — may be install-only, not the full gate"
+    reject_signals:
+      - "implement / change / fix code (preflight gates the work; it is not the work)"
+      - "no checkout available to probe"
+      - "force-pass an unknown file or an unreproducible baseline"
+      - "reshape the repo to match the blueprint"
+    false_positive_risks:
+      - "a generic 'check the repo' that means code review, not a readiness gate"
+      - "'bootstrap' here means supply-chain gates, not env preflight; disambiguate"
+    specificity_score: 5      # measured: >=4 required; 4 strong signals, all naming probe/gates/readiness
+    false_positive_risk_score: 1   # measured: <=1 required; two risks, both disambiguated by reject_signals
+
+  authority_model:
+    order:
+      - security_safety_legal
+      - verified_evidence
+      - explicit_expected_contract
+      - blueprint_assumptions
+      - convenience_speed
+      - unknown_fail_closed
+    conflict_rules:
+      - blueprint says src/<pkg> but evidence shows none -> evidence wins; adapt the blueprint (gate 4 = adapt)
+      - contract names a tool the repo already pins differently -> follow the repo (gate 5)
+      - identity cannot be confirmed against a contract -> confirm with a human; never assume (gate 2)
+
+  expert_heuristics:
+    - condition: untracked file matches no known-generated pattern and no known origin
+      judgment: unknown provenance is a red line, not a nuisance
+      action: stop; verdict NOT READY; require identification before any continue
+    - condition: ruff/format/mypy failures present on first probe with no prior edits
+      judgment: these are the existing baseline of a known-red repo, not regressions
+      action: record them as baseline evidence; do not block; only new failures after edits block
+    - condition: a required foundation (e.g. src/, AGENTS.md) is absent
+      judgment: absence is only a failure if the foundation is actually expected here
+      action: if not expected for this repo shape -> adapt the blueprint (gate 4 = adapt), do not fail
+    - condition: a gate was fixed but the probe log predates the fix
+      judgment: a gate verified from stale evidence is unverified
+      action: re-run the probe before re-evaluating
+
+  doctrine:
+    - read-only probe before every gate answer
+    - verified evidence outranks the blueprint
+    - never continue with unknown files
+    - never continue if the baseline cannot be reproduced
+    - never modify code before facts are verified
+    - adapt the blueprint to evidence, never the repo to the blueprint
+    - every NO loops back through Fix -> Re-run -> Verify -> Continue
+    - classify existing vs new; only new blocks
+    - autofix safe hygiene + install only
+    - smallest blocker first, then re-run
+
+  invariants:
+    - unknown untracked file => NOT READY
+    - irreproducible baseline => NOT READY
+    - identity unverified => no code mutation
+    - missing-but-not-expected foundation => adapt, not fail
+    - repo-defined tooling is followed, never replaced
+    - probe re-run after every fix
+    - existing failures recorded, never hidden
+    - new failure after verification blocks
+    - unverifiable facts labeled Unknown
+    - autofix never touches unknown files, code, or baselines
+
+  adapter_map:
+    core_default: "evidence-driven gate walk with an optional expected contract the evidence overrides"
+    adapters:
+      - "src-layout package repo -> expect src/<pkg> + editable install + import checks"
+      - "non-src scripts/governance repo -> Python under .github/scripts; no src/ or AGENTS.md expected"
+      - "greenfield/near-empty repo -> foundations absent-and-expected-absent; record Unknowns"
+    adapter_rule: "select the adapter from probe evidence (layout, packages, config files), not from the blueprint's claims"
+
+  failure_modes:
+    - "unknown-file-waved: continuing past an unidentified untracked file -> red line."
+    - "blueprint-forced: failing gate 4/5 for a missing foreign assumption -> adapt the blueprint."
+    - "baseline-misclass: new failure called existing (or vice-versa) -> compare to recorded baseline."
+    - "stale-gate: verifying from a pre-fix probe log -> re-run the probe after every fix."
+    - "tooling-replace: swapping a repo-defined tool/version -> follow the repo; record a blocker."
+
+  leverage_points:
+    - "one read-only probe feeds all eight gates"
+    - "deterministic evaluator turns the decision tree into verdicts, not prose"
+    - "evidence-over-blueprint prevents false failures from a foreign blueprint"
+    - "existing-vs-new split keeps a known-red repo preflightable"
+    - "single-next-action output converges a NO in the fewest re-runs"
+
+  evidence_hierarchy:
+    - probe output (resolved paths, tool versions, git status) — highest
+    - deterministic checks over the probe log (path presence, counts, markers)
+    - the explicit expected contract
+    - the uploaded blueprint's assumptions
+    - unlabeled inference — lowest; must be labeled Unknown
+
+  leverage_model:
+    scoring_dimensions: [reuse_frequency, invention_removed, failure_prevented, velocity_gain]
+    scored_points:
+      - point: "read-only probe feeds all gates"
+        score: 5
+      - point: "deterministic evaluate_preflight.py"
+        score: 5
+      - point: "evidence-over-blueprint rule"
+        score: 5
+      - point: "existing-vs-new baseline split"
+        score: 4
+      - point: "single-next-action convergence"
+        score: 4
+    exemplary_threshold: 4
+    threshold_met: true
+
+  self_improvement_hook:
+    capture_when: "user reports a bad verdict or asks to iterate"
+    signals: [false_ready, false_block, missed_unknown_file, misclassified_baseline]
+    feedback_targets:
+      - scripts/evaluate_preflight.py (gate logic + classification)
+      - references/preflight-pipeline.md (failure taxonomy)
+
+  exemplary_gate_results:
+    activation_precision: pass
+    adapter_architecture: pass
+    evidence_hierarchy: pass
+    doctrine_extraction: pass
+    expert_heuristics: pass
+    failure_modes: pass
+    leverage_model: pass
+    self_improvement_hook: pass
+    compiler_enforcement_gates: pass
+    skill_intelligence_report: pass
+
+  tier_decision:
+    tier: exemplary
+    rationale: >
+      Measured activation (specificity 5, false-positive-risk 1) with disambiguated
+      reject signals; evidence-over-blueprint authority model; five expert heuristics
+      encoding the Golden Rules; a bounded failure taxonomy; a scored leverage model
+      above threshold; and a self-improvement hook. All ten exemplary gates pass and
+      scripts/validate_exemplary_skill.py certifies the pack.

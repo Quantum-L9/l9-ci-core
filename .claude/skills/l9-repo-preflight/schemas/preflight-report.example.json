@@ -1,0 +1,125 @@
+{
+  "generated_from": "2026-07-15T18:59:34Z",
+  "repo": {
+    "root": "/path/to/your-repo",
+    "branch": "master",
+    "head": "f8359831fecb"
+  },
+  "strict": false,
+  "gates": [
+    {
+      "id": 1,
+      "name": "probe-completed",
+      "question": "did the probe complete successfully?",
+      "verdict": "pass",
+      "evidence": {
+        "sections": 25,
+        "command_failures": 2
+      }
+    },
+    {
+      "id": 2,
+      "name": "correct-identity",
+      "question": "correct repository / branch / commit?",
+      "verdict": "pass",
+      "evidence": {
+        "root": "/tmp/claude-0/-home-user-l9-ci-core/91551842-153d-5bab-9549-3a2b4be299a0/scratchpad/fixture-clean-repo",
+        "branch": "master",
+        "head": "f8359831fecb"
+      }
+    },
+    {
+      "id": 3,
+      "name": "worktree-clean",
+      "question": "worktree clean?",
+      "verdict": "pass",
+      "taxonomy": "generated-files",
+      "evidence": {
+        "tracked_modified": 0,
+        "staged": 0,
+        "unknown": [],
+        "generated": [
+          ".github/scripts/demo_pkg.egg-info/PKG-INFO",
+          ".github/scripts/demo_pkg.egg-info/SOURCES.txt",
+          ".github/scripts/demo_pkg.egg-info/dependency_links.txt",
+          ".github/scripts/demo_pkg.egg-info/top_level.txt",
+          ".github/scripts/demo_pkg/__pycache__/__init__.cpython-311.pyc",
+          "repo-preflight-20260715T185934Z.log"
+        ]
+      },
+      "autofix": "update .gitignore; remove untracked known-generated files; verify none tracked",
+      "remediation": null
+    },
+    {
+      "id": 4,
+      "name": "foundations-present",
+      "question": "required foundations present?",
+      "verdict": "pass",
+      "evidence": {
+        "expected": [
+          "pyproject.toml",
+          "tests",
+          "schemas"
+        ],
+        "missing": []
+      }
+    },
+    {
+      "id": 5,
+      "name": "toolchain-matches",
+      "question": "toolchain matches execution contract?",
+      "verdict": "pass",
+      "evidence": {
+        "repo_tools": [
+          "black",
+          "mypy",
+          "pyright",
+          "pytest",
+          "ruff"
+        ],
+        "python_present": true,
+        "wanted": [
+          "pytest",
+          "ruff"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "name": "install-succeeded",
+      "question": "installation succeeded?",
+      "verdict": "pass",
+      "evidence": {
+        "packages": {
+          "demo_pkg": "/tmp/claude-0/-home-user-l9-ci-core/91551842-153d-5bab-9549-3a2b4be299a0/scratchpad/fixture-clean-repo/.github/scripts/demo_pkg/__init__.py"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "baseline-reproduces",
+      "question": "baseline validation passes?",
+      "verdict": "pass",
+      "evidence": {
+        "results": {
+          "ruff": {
+            "failed": 0
+          },
+          "pytest": {
+            "failed": 0
+          }
+        },
+        "note": "first run: these failures are the existing baseline"
+      }
+    },
+    {
+      "id": 8,
+      "name": "implementation-ready",
+      "question": "implementation ready?",
+      "verdict": "pass"
+    }
+  ],
+  "red_lines": [],
+  "ready": true,
+  "next_action": "gates 1-7 pass, no red line: START IMPLEMENTATION"
+}
