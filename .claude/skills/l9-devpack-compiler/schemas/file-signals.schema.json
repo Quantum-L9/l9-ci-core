@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9.github.io/l9-ci-core/schemas/file-signals.schema.json",
+  "title": "L9 File Signals (per-file evidence record)",
+  "description": "The signals each materialized (extracted/existing) file generates for the dev pack. Emitted by scripts/extract_files.py as .ai/file-signals.yaml alongside the target filetree. A signal records what a present file PROVES — which contract it satisfies, which invariants it enforces, which commands validate it, which DPK-1.0 layer it populates, and its assembly state — so downstream agents route work on evidence, not guesses. Presence is not conformance: a `made` state means the file was materialized, NOT that it is verified; `needs_review` flags corruption (smart quotes, `...` elision) that a human/agent must resolve before the file is trusted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["file_signals"],
+  "properties": {
+    "file_signals": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/signal" }
+    }
+  },
+  "$defs": {
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "state"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repo-relative target path of the materialized file."
+        },
+        "state": {
+          "enum": ["made", "made_needs_review", "missing_source", "deferred", "remaining"],
+          "description": "Assembly state. made = content materialized into target/. made_needs_review = materialized but corruption detected (do not trust until resolved). missing_source = declared extract/existing but no source block found (reported, never fabricated). deferred = spec-deferred. remaining = build/adapt, map-only, not written."
+        },
+        "satisfies_contract": {
+          "type": "string",
+          "description": "The contract_ref from file_plan this file implements (maps to a contracts[].id)."
+        },
+        "enforces_invariants": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Invariant ids whose enforcement names this file/command (from spec.invariants[].enforcement)."
+        },
+        "validated_by": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Command names (spec.commands[].name) whose cmd references this file — the evidence that proves it."
+        },
+        "populates_layer": {
+          "enum": ["L1-manifest", "L4-contract", "L1/L4", "impl"],
+          "description": "The DPK-1.0 layer this file populates."
+        },
+        "source_doc": {
+          "type": "string",
+          "description": "Provenance: the source doc (or `repo`) the content was materialized from."
+        },
+        "needs_review": {
+          "type": "string",
+          "description": "Human-readable corruption finding when state = made_needs_review (e.g. smart-quotes present). The extractor never silently rewrites code; this is a report for a human/agent to resolve."
+        }
+      }
+    }
+  }
+}

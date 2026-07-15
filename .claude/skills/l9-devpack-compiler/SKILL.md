@@ -7,7 +7,7 @@ role: skill_entrypoint
 tags: [l9, devpack, dpk, handoff, agent-operable, control-plane, execution-package, exemplary]
 owner: igor_beylin
 status: active
-version: 1.3.0
+version: 1.4.0
 updated: 2026-07-15
 sources:
   - Developer Pack Kernel (DPK-1.0)
@@ -34,6 +34,7 @@ The output must let any qualified human engineer or autonomous agent answer, wit
 | execution-package | Repo/env/creds/contracts/work-queue/validation/stop envelope | [references/execution-package-contract.md](references/execution-package-contract.md) |
 | score | 0–100 readiness score + red-line verdict | [references/quality-gates.md](references/quality-gates.md) + `scripts/validate_devpack.py` |
 | reconcile | Verify a spec against an in-scope repo; compress the work queue to the delta (presence ≠ conformance) | [references/spec-schema.md](references/spec-schema.md) + `scripts/reconcile_spec.py` |
+| assemble | Extract the `file_plan`'s real file contents from the source docs into a **target filetree**, map made-vs-remaining, scope the queue to the delta, emit per-file signals — extracted files ship in the pack | [references/assembly-contract.md](references/assembly-contract.md) + `scripts/extract_files.py` |
 | package | Full pack + execution package + score + zip | all references + [references/enforcement-gates.md](references/enforcement-gates.md) |
 
 ## The Six Layers (machine envelope)
@@ -106,7 +107,10 @@ No model instance validates its own mutations. Split roles: **Architect** (strat
 - [references/quality-gates.md](references/quality-gates.md) — the 0–100 scoring matrix (weights per category), readiness bands, and the red-line overrides.
 - [references/enforcement-gates.md](references/enforcement-gates.md) — **runtime enforcement layer**: the required proof-of-compliance artifact at each workflow step; protocol-violation detection.
 - [references/spec-schema.md](references/spec-schema.md) — the spec-first doctrine, the full fact set, and the field → DPK-layer mapping.
+- [references/assembly-contract.md](references/assembly-contract.md) — the extract→target-filetree doctrine: the `[E]/[B]/[A]/[D]` legend, made-vs-remaining mapping, the file-signal contract, and the `missing_source`/`unplanned`/`needs_review` reporting rules.
 - [schemas/spec.schema.json](schemas/spec.schema.json) — canonical machine-readable **build spec** schema (the optimal compiler input); worked example in [schemas/spec.example.json](schemas/spec.example.json).
+- [schemas/file-signals.schema.json](schemas/file-signals.schema.json) — per-file evidence record emitted by the assembler (`.ai/file-signals.yaml`): what each present file satisfies, enforces, is validated by, and populates.
+- [scripts/extract_files.py](scripts/extract_files.py) — the assemble engine: pull the `file_plan`'s real contents out of the source docs into `<out>/target/<path>`, emit the filetree map + file-signals, scope the queue to the remainder. Extracted files ship in the pack; build/adapt stay map-only. `python3 scripts/extract_files.py <spec> --docs <docs...> --out <pack> [--repo <root>]`.
 - [scripts/reconcile_spec.py](scripts/reconcile_spec.py) — reconcile a spec against an in-scope repo: verify each item (presence ≠ conformance), compress the work queue to the delta, fail-closed on drift. `python3 scripts/reconcile_spec.py <spec> --repo <root>`.
 - [scripts/validate_devpack.py](scripts/validate_devpack.py) — deterministic dev-pack check: layer presence, the four red-lines, and a coarse readiness score. `python3 scripts/validate_devpack.py <repo-root>` (`--strict` to disable autofix, `--owner` to set the default).
 - [scripts/validate_exemplary_skill.py](scripts/validate_exemplary_skill.py) — deterministic exemplary-tier gate for this skill itself.
