@@ -33,20 +33,20 @@
       "id": 3,
       "name": "worktree-clean",
       "question": "worktree clean?",
-      "verdict": "blocker",
-      "taxonomy": "unknown-files",
+      "verdict": "clear",
+      "taxonomy": "auto-formatted",
       "evidence": {
-        "tracked_modified": [
+        "tracked_modified": [],
+        "staged": [],
+        "unknown": [],
+        "generated": [],
+        "auto_formatted": [
+          ".gitignore",
           "pkg/__init__.py",
           "pkg/util.py"
-        ],
-        "staged": [],
-        "unknown": [
-          ".gitignore"
-        ],
-        "generated": [],
-        "auto_formatted": []
-      }
+        ]
+      },
+      "note": "auto-formatted files are uncommitted; review and commit them"
     },
     {
       "id": 4,
@@ -121,54 +121,82 @@
       "question": "baseline validation reproduces?",
       "verdict": "clear",
       "evidence": {
-        "note": "baseline not yet measured; remediate will run it"
+        "results": {
+          "ruff": {
+            "failed": 0
+          },
+          "ruff_format": {
+            "failed": 0
+          },
+          "mypy": {
+            "failed": 0
+          },
+          "pytest": {
+            "failed": 0
+          }
+        },
+        "note": "failures (if any) are the existing baseline"
       }
     },
     {
       "id": 8,
       "name": "implementation-ready",
       "question": "implementation ready after remediation?",
-      "verdict": "blocker",
+      "verdict": "clear",
       "evidence": {
-        "genuine_blockers": 1,
+        "genuine_blockers": 0,
         "pending_autofixes": 0
       }
     }
   ],
   "autofix_plans": [],
-  "genuine_blockers": [
+  "genuine_blockers": [],
+  "blocker_count": 0,
+  "ready_after_remediation": true,
+  "mode": "applied",
+  "iterations": 2,
+  "autofixed": [
     {
-      "id": "BLK-3-unknown-files",
       "gate": 3,
-      "gate_name": "worktree-clean",
-      "class": "unknown-files",
-      "severity": "high",
-      "why_not_autofixable": "unknown provenance: unsafe to delete, ignore, or commit automatically",
-      "evidence": {
-        "tracked_modified": [
-          "pkg/__init__.py",
-          "pkg/util.py"
-        ],
-        "staged": [],
-        "unknown": [
-          ".gitignore"
-        ],
-        "generated": [],
-        "auto_formatted": []
-      },
-      "remediation": {
-        "owner": "human",
-        "steps": [
-          "inspect each file (contents, timestamps, recent commands)",
-          "if intended: git add / update the plan; if not: remove or revert"
-        ],
-        "commands": [
-          "ls -la .gitignore"
-        ],
-        "auto_option": "quarantine to .preflight/quarantine/ (reversible)"
-      }
+      "action": "clean_generated",
+      "target": "pkg/__pycache__/util.cpython-311.pyc",
+      "command": "rm -rf pkg/__pycache__/util.cpython-311.pyc",
+      "result": "ok",
+      "reversible": true,
+      "note": "regenerable"
+    },
+    {
+      "gate": 3,
+      "action": "clean_generated",
+      "target": "repo-preflight-20260715T215335Z.log",
+      "command": "rm -rf repo-preflight-20260715T215335Z.log",
+      "result": "ok",
+      "reversible": true,
+      "note": "regenerable"
+    },
+    {
+      "gate": 3,
+      "action": "clean_generated",
+      "target": [
+        "__pycache__/",
+        "repo-preflight-*.log"
+      ],
+      "command": "gitignore += generated globs",
+      "result": "ok",
+      "reversible": true,
+      "note": ""
+    },
+    {
+      "gate": 7,
+      "action": "ruff_fix",
+      "target": [
+        "pkg/__init__.py",
+        "pkg/util.py"
+      ],
+      "command": "ruff check --fix . && ruff format .",
+      "result": "ok",
+      "reversible": true,
+      "note": "2 file(s) formatted"
     }
-  ],
-  "blocker_count": 1,
-  "ready_after_remediation": false
+  ]
 }

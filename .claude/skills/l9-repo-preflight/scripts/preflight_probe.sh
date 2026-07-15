@@ -4,24 +4,60 @@
 # Writes NOTHING but a timestamped log. Feeds the eight preflight gates
 # (see references/probe-contract.md for the section -> gate map).
 #
-# Repo-specific tokens are lifted into the config block below and are
-# env-overridable. They are a HYPOTHESIS the evaluator's verified evidence
-# overrides (Golden Rule 4: adapt the blueprint to evidence, never the reverse).
+# Repo-specific tokens are AUTO-DETECTED from the checkout (no repo's names are
+# baked in) and are env-overridable. They are a HYPOTHESIS the evaluator's verified
+# evidence overrides (Golden Rule 4: adapt the blueprint to evidence, not the reverse).
 #
-#   PROBE_PACKAGES     importable packages to check       (default: l9_bootstrap)
-#   PROBE_KEY_PATHS    key dirs to inventory + scan        (default: this repo's)
-#   PROBE_FOUNDATIONS  foundations Gate 4 expects          (default: pyproject/tests/schemas)
+#   PROBE_PACKAGES     importable Python packages to check (default: auto — empty on non-Python repos)
+#   PROBE_KEY_PATHS    key source dirs to inventory + scan  (default: auto — the ones that exist)
+#   PROBE_FOUNDATIONS  foundations Gate 4 expects           (default: auto — the language markers present)
 #
-# Example (another repo):
+# Example (override for a specific repo):
 #   PROBE_PACKAGES="my_pkg" PROBE_FOUNDATIONS="pyproject.toml src tests" \
 #     bash scripts/preflight_probe.sh
 
 set -u
 
+# --------------------- repo-shape auto-detection (neutral) -------------------
+# Never assume a language. Detect what is actually present so a TS/Node, Go, Rust,
+# or Python repo each gets sensible defaults — nothing from the skill's own repo.
+_detect_key_paths() {
+  local out="" d
+  for d in src lib app cmd pkg internal packages apps services .github/scripts tests test schemas; do
+    [ -d "$d" ] && out="$out $d"
+  done
+  printf "%s" "${out# }"
+}
+_detect_packages() {
+  # Python packages only (dirs with __init__.py). Empty on non-Python repos, so a
+  # TS/Node repo is never probed for a Python import that cannot exist.
+  find . -maxdepth 4 -name __init__.py \
+    -not -path '*/node_modules/*' -not -path './.git/*' -not -path '*/.venv/*' 2>/dev/null \
+    | sed 's#/__init__.py$##; s#.*/##' | sort -u | head -5 | tr '\n' ' ' | sed 's/ $//'
+}
+_detect_foundations() {
+  local out="" f d
+  for f in pyproject.toml setup.py package.json go.mod Cargo.toml pom.xml build.gradle; do
+    [ -f "$f" ] && out="$out $f"
+  done
+  for d in tests test; do [ -d "$d" ] && out="$out $d"; done
+  printf "%s" "${out# }"
+}
+_detect_ecosystem() {
+  # Which language ecosystems are present (may be several in a polyglot repo).
+  local out=""
+  [ -f package.json ] && out="$out node"
+  { [ -f pyproject.toml ] || [ -f setup.py ] || [ -f setup.cfg ]; } && out="$out python"
+  [ -f go.mod ] && out="$out go"
+  [ -f Cargo.toml ] && out="$out rust"
+  printf "%s" "${out# }"
+}
+
 # ----------------------------- config block ---------------------------------
-PROBE_PACKAGES="${PROBE_PACKAGES:-l9_bootstrap}"
-PROBE_KEY_PATHS="${PROBE_KEY_PATHS:-.github/scripts .github/scripts/l9_bootstrap tests schemas .github/workflows}"
-PROBE_FOUNDATIONS="${PROBE_FOUNDATIONS:-pyproject.toml tests schemas}"
+PROBE_KEY_PATHS="${PROBE_KEY_PATHS:-$(_detect_key_paths)}"
+PROBE_PACKAGES="${PROBE_PACKAGES:-$(_detect_packages)}"
+PROBE_FOUNDATIONS="${PROBE_FOUNDATIONS:-$(_detect_foundations)}"
+PROBE_ECOSYSTEM="${PROBE_ECOSYSTEM:-$(_detect_ecosystem)}"
 # ----------------------------------------------------------------------------
 
 section() {
@@ -43,6 +79,7 @@ printf "USER=%s\n" "$(id -un 2>/dev/null || echo UNKNOWN)"
 printf "PWD=%s\n" "$PWD"
 printf "PROBE_PACKAGES=%s\n" "$PROBE_PACKAGES"
 printf "PROBE_FOUNDATIONS=%s\n" "$PROBE_FOUNDATIONS"
+printf "PROBE_ECOSYSTEM=%s\n" "$PROBE_ECOSYSTEM"
 
 section "REPOSITORY IDENTITY"
 safe git rev-parse --is-inside-work-tree
@@ -101,6 +138,10 @@ section "KEY FILE PRESENCE"
 for p in \
   pyproject.toml setup.py setup.cfg requirements.txt requirements-dev.txt \
   uv.lock poetry.lock pdm.lock Pipfile Pipfile.lock \
+  package.json package-lock.json pnpm-lock.yaml yarn.lock bun.lockb \
+  tsconfig.json .eslintrc .eslintrc.json .eslintrc.js .eslintrc.cjs eslint.config.js \
+  .prettierrc .prettierrc.json prettier.config.js jest.config.js vitest.config.ts node_modules \
+  go.mod Cargo.toml \
   AGENTS.md README.md LICENSE LICENSE.md Makefile \
   tox.ini noxfile.py pytest.ini mypy.ini ruff.toml \
   .pre-commit-config.yaml Dockerfile docker-compose.yml compose.yaml \
@@ -168,7 +209,8 @@ printf "PYTEST_TEST_COUNT_ESTIMATE="
 grep -R --include="test_*.py" --include="*_test.py" -hE "^[[:space:]]*(async[[:space:]]+)?def[[:space:]]+test_" tests 2>/dev/null | wc -l | tr -d " "
 
 section "VALIDATION TOOL AVAILABILITY"
-for tool in pytest ruff mypy pyright black isort pre-commit tox nox coverage build twine; do
+for tool in pytest ruff mypy pyright black isort pre-commit tox nox coverage build twine \
+            node npm pnpm yarn npx eslint tsc prettier jest vitest biome; do
   if command -v "$tool" >/dev/null 2>&1; then
     printf "%-12s %s\n" "$tool" "$(command -v "$tool")"
   else

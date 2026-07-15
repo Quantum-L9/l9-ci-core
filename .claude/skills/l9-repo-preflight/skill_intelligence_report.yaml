@@ -3,10 +3,10 @@
 # parent: l9-repo-preflight
 # layer: reference
 # role: skill_intelligence_report
-# tags: [preflight, probe, readiness-gate, intelligence-layer, exemplary]
+# tags: [preflight, fail-open, autofix, blockers, ecosystem-neutral, exemplary]
 # owner: igor_beylin
 # status: active
-# version: 1.0.0
+# version: 2.0.0
 # updated: 2026-07-15
 # Purpose: Measured activation + authority + gate evidence proving exemplary tier.
 # Validated by scripts/validate_exemplary_skill.py.
@@ -14,22 +14,22 @@
 skill_intelligence_report:
   activation_model:
     strong_signals:
-      - "preflight this repo / run the probe / verify before I start"
-      - "run the preflight decision tree or the eight gates"
-      - "is it safe to build on this branch/commit?"
-      - "check worktree is clean and the baseline reproduces"
+      - "preflight and auto-remediate this repo before I start"
+      - "give me a machine-readable list of the genuine blockers"
+      - "clean up / autofix the checkout, don't stop on problems"
+      - "is this repo (python or node) safe to build on, with fixes applied?"
     weak_signals:
       - "'check the repo' — could be review, search, or preflight; confirm intent"
-      - "'set up the environment' — may be install-only, not the full gate"
+      - "'set up the environment' — may be install-only, not the full loop"
     reject_signals:
-      - "implement / change / fix code (preflight gates the work; it is not the work)"
+      - "implement / change product code (preflight only gates + safe hygiene)"
       - "no checkout available to probe"
-      - "force-pass an unknown file or an unreproducible baseline"
-      - "reshape the repo to match the blueprint"
+      - "a hard fail-closed gate that halts on the first problem (this engine never halts)"
+      - "auto-delete unknown files or auto-revert my edits (those are blockers, never auto-applied)"
     false_positive_risks:
-      - "a generic 'check the repo' that means code review, not a readiness gate"
+      - "a generic 'check the repo' that means code review, not preflight"
       - "'bootstrap' here means supply-chain gates, not env preflight; disambiguate"
-    specificity_score: 5      # measured: >=4 required; 4 strong signals, all naming probe/gates/readiness
+    specificity_score: 5      # measured: >=4 required; 4 strong signals naming preflight/autofix/blockers
     false_positive_risk_score: 1   # measured: <=1 required; two risks, both disambiguated by reject_signals
 
   authority_model:
@@ -39,101 +39,101 @@ skill_intelligence_report:
       - explicit_expected_contract
       - blueprint_assumptions
       - convenience_speed
-      - unknown_fail_closed
+      - unknown_reported_never_invented
     conflict_rules:
-      - blueprint says src/<pkg> but evidence shows none -> evidence wins; adapt the blueprint (gate 4 = adapt)
-      - contract names a tool the repo already pins differently -> follow the repo (gate 5)
-      - identity cannot be confirmed against a contract -> confirm with a human; never assume (gate 2)
+      - blueprint claims src/ but evidence shows none -> evidence wins; adapt the plan (gate 4 = adapt)
+      - contract names a tool the repo does not define -> follow the repo (gate 5 = adapt)
+      - probe defaults name a Python package on a Node repo -> auto-detect; empty packages, no false fail
 
   expert_heuristics:
-    - condition: untracked file matches no known-generated pattern and no known origin
-      judgment: unknown provenance is a red line, not a nuisance
-      action: stop; verdict NOT READY; require identification before any continue
-    - condition: ruff/format/mypy failures present on first probe with no prior edits
-      judgment: these are the existing baseline of a known-red repo, not regressions
-      action: record them as baseline evidence; do not block; only new failures after edits block
-    - condition: a required foundation (e.g. src/, AGENTS.md) is absent
-      judgment: absence is only a failure if the foundation is actually expected here
-      action: if not expected for this repo shape -> adapt the blueprint (gate 4 = adapt), do not fail
-    - condition: a gate was fixed but the probe log predates the fix
-      judgment: a gate verified from stale evidence is unverified
-      action: re-run the probe before re-evaluating
+    - condition: an untracked file matches no known-generated pattern and no tool created it
+      judgment: unknown provenance is unsafe to delete/ignore automatically
+      action: report it as a genuine blocker with a quarantine auto_option; never auto-remove
+    - condition: baseline shows lint/format failures on a clean tree
+      judgment: these are mechanically, reversibly fixable
+      action: run ruff/eslint --fix (tool-owned output); do NOT run it if user edits are present
+    - condition: node_modules is untracked
+      judgment: it is a needed dependency dir, not a throwaway cache
+      action: gitignore it, never delete it
+    - condition: a required foundation/package/tool is absent but only the blueprint expected it
+      judgment: the blueprint is wrong for this repo
+      action: adapt a NEW contract file to the evidence; never fail the repo, never overwrite input
 
   doctrine:
-    - read-only probe before every gate answer
-    - verified evidence outranks the blueprint
-    - never continue with unknown files
-    - never continue if the baseline cannot be reproduced
-    - never modify code before facts are verified
-    - adapt the blueprint to evidence, never the repo to the blueprint
-    - every NO loops back through Fix -> Re-run -> Verify -> Continue
-    - classify existing vs new; only new blocks
-    - autofix safe hygiene + install only
-    - smallest blocker first, then re-run
+    - never halt; always complete and emit a report
+    - maximum autofix on a safe+reversible allow-list
+    - report only genuine (non-autofixable) blockers, in detail, for downstream
+    - verified evidence outranks the blueprint (adapt, don't fail)
+    - auto-detect the ecosystem; skip absent tools; never bake in a language
+    - remove throwaway artifacts; keep dependency dirs (ignore only)
+    - format/lint autofix on a clean tree only; output is tool-owned + reversible
+    - classify baseline: lint autofixable, existing recorded, new = blocker
+    - every action logged + reversible
+    - fixpoint or max-iters terminates the loop
 
   invariants:
-    - unknown untracked file => NOT READY
-    - irreproducible baseline => NOT READY
-    - identity unverified => no code mutation
-    - missing-but-not-expected foundation => adapt, not fail
-    - repo-defined tooling is followed, never replaced
-    - probe re-run after every fix
-    - existing failures recorded, never hidden
-    - new failure after verification blocks
-    - unverifiable facts labeled Unknown
-    - autofix never touches unknown files, code, or baselines
+    - run_completed always true (fail-open)
+    - unknown files + user edits are blockers, never auto-applied
+    - only allow-list actions auto-applied
+    - node_modules kept, never removed
+    - lint autofix only on a clean tree
+    - adapted blueprint -> new file, input untouched
+    - missing runtime / new failure = blocker
+    - every blocker carries evidence + remediation
+    - loop terminates
+    - no fabrication; unknown is reported
 
   adapter_map:
-    core_default: "evidence-driven gate walk with an optional expected contract the evidence overrides"
+    core_default: "fail-open loop over auto-detected evidence; safe autofix; genuine-blockers-only report"
     adapters:
-      - "src-layout package repo -> expect src/<pkg> + editable install + import checks"
-      - "non-src scripts/governance repo -> Python under .github/scripts; no src/ or AGENTS.md expected"
-      - "greenfield/near-empty repo -> foundations absent-and-expected-absent; record Unknowns"
-    adapter_rule: "select the adapter from probe evidence (layout, packages, config files), not from the blueprint's claims"
+      - "python -> ruff/mypy/pytest, pip, editable install, importability"
+      - "node/typescript -> eslint/tsc/prettier, npm ci, node_modules; no Python import attempted"
+      - "polyglot/unknown -> run only the tools that exist; skip the rest"
+    adapter_rule: "select from probe evidence (PROBE_ECOSYSTEM + config files), never from blueprint claims"
 
   failure_modes:
-    - "unknown-file-waved: continuing past an unidentified untracked file -> red line."
-    - "blueprint-forced: failing gate 4/5 for a missing foreign assumption -> adapt the blueprint."
-    - "baseline-misclass: new failure called existing (or vice-versa) -> compare to recorded baseline."
-    - "stale-gate: verifying from a pre-fix probe log -> re-run the probe after every fix."
-    - "tooling-replace: swapping a repo-defined tool/version -> follow the repo; record a blocker."
+    - "false-blocker: an autofixable condition reported as a blocker -> classify vs the allow-list."
+    - "unsafe-autofix: a non-reversible change auto-applied -> allow-list only."
+    - "dep-dir-deleted: node_modules removed as a cache -> keep + ignore, never delete."
+    - "wrong-ecosystem: Node repo probed for a Python import -> auto-detect; empty packages."
+    - "non-termination: loop never converges -> fixpoint + max-iters cap."
 
   leverage_points:
-    - "one read-only probe feeds all eight gates"
-    - "deterministic evaluator turns the decision tree into verdicts, not prose"
-    - "evidence-over-blueprint prevents false failures from a foreign blueprint"
-    - "existing-vs-new split keeps a known-red repo preflightable"
-    - "single-next-action output converges a NO in the fewest re-runs"
+    - "fail-open loop: no dead ends; always an actionable report"
+    - "safe+reversible allow-list: aggressive autofix, zero risk to user work"
+    - "ecosystem auto-detection: one skill for python and node, no config"
+    - "genuine-blockers-only: the short real list, not noise"
+    - "reversible autofix log: every mutation auditable and undoable"
 
   evidence_hierarchy:
-    - probe output (resolved paths, tool versions, git status) — highest
-    - deterministic checks over the probe log (path presence, counts, markers)
+    - probe output (resolved paths, tool versions, git status, PROBE_ECOSYSTEM) — highest
+    - deterministic checks over the probe log (presence, counts, markers)
     - the explicit expected contract
-    - the uploaded blueprint's assumptions
-    - unlabeled inference — lowest; must be labeled Unknown
+    - the blueprint's assumptions
+    - unlabeled inference — lowest; reported, never invented
 
   leverage_model:
-    scoring_dimensions: [reuse_frequency, invention_removed, failure_prevented, velocity_gain]
+    scoring_dimensions: [reuse_frequency, risk_removed, coverage, velocity_gain]
     scored_points:
-      - point: "read-only probe feeds all gates"
+      - point: "fail-open loop (no dead ends)"
         score: 5
-      - point: "deterministic evaluate_preflight.py"
+      - point: "safe+reversible autofix allow-list"
         score: 5
-      - point: "evidence-over-blueprint rule"
+      - point: "ecosystem auto-detection (python + node)"
         score: 5
-      - point: "existing-vs-new baseline split"
-        score: 4
-      - point: "single-next-action convergence"
+      - point: "genuine-blockers-only machine output"
+        score: 5
+      - point: "reversible autofix audit log"
         score: 4
     exemplary_threshold: 4
     threshold_met: true
 
   self_improvement_hook:
-    capture_when: "user reports a bad verdict or asks to iterate"
-    signals: [false_ready, false_block, missed_unknown_file, misclassified_baseline]
+    capture_when: "user reports a bad result or asks to iterate"
+    signals: [false_blocker, unsafe_autofix, missed_ecosystem, non_termination]
     feedback_targets:
-      - scripts/evaluate_preflight.py (gate logic + classification)
-      - references/preflight-pipeline.md (failure taxonomy)
+      - scripts/remediate.py (the safe autofix allow-list)
+      - scripts/evaluate_preflight.py (gate + blocker classification)
 
   exemplary_gate_results:
     activation_precision: pass
@@ -151,7 +151,8 @@ skill_intelligence_report:
     tier: exemplary
     rationale: >
       Measured activation (specificity 5, false-positive-risk 1) with disambiguated
-      reject signals; evidence-over-blueprint authority model; five expert heuristics
-      encoding the Golden Rules; a bounded failure taxonomy; a scored leverage model
-      above threshold; and a self-improvement hook. All ten exemplary gates pass and
+      reject signals; evidence-over-blueprint authority; four expert heuristics encoding
+      the fail-open + safe-autofix doctrine; a bounded failure taxonomy; a scored
+      leverage model above threshold; a self-improvement hook; and full Python + Node
+      ecosystem coverage. All ten exemplary gates pass and
       scripts/validate_exemplary_skill.py certifies the pack.

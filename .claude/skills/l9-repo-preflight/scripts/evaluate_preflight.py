@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
-"""Evaluate the eight preflight gates against a read-only probe log.
+"""Classify the eight preflight gates against a read-only probe log — fail-OPEN.
 
-Deterministic: parse the probe log (+ an optional expected contract and an
-optional baseline record) and emit a per-gate verdict, the Golden-Rule red-line
-check, a readiness verdict, and the single smallest next action.
+Deterministic and non-halting: parse the probe log (+ an optional expected
+contract and an optional baseline record) and emit, for every gate, a verdict and
+— when the gate is fixable — the exact safe autofix plan. Nothing here stops the
+run; the caller (remediate.py) applies the safe autofixes and re-probes. What
+remains after the loop reaches a fixpoint is the genuine-blocker set.
+
+Verdict vocabulary (nothing halts):
+  clear       gate is satisfied
+  autofixable a safe, reversible fix resolves it -> autofix_plan carries the action
+  adapt       the blueprint is wrong for this repo -> non-destructive contract adapt
+  blocker     cannot be safely auto-resolved -> reported in detail for downstream
 
 Doctrine (matches references/preflight-pipeline.md):
+  - the run always completes and always emits a report (fail-open).
   - verified evidence outranks the blueprint; a foreign expectation the repo does
-    not meet is `adapt` (fix the blueprint), never `blocked` (fail the repo).
-  - never continue with unknown files; an unidentified untracked file is a red line.
-  - never continue if the baseline cannot be reproduced.
-  - classify baseline failures existing (record) vs new (block); only new blocks.
-  - autofix (default on) is fenced to safe non-code hygiene; `--strict` disables it
-    and treats every fixable NO as a hard stop.
+    not meet is `adapt` (fix the plan), never a repo failure.
+  - autofix is a fixed safe+reversible allow-list; unknown-provenance files,
+    tracked-code edits, staged changes, and new logic/type/test failures are
+    blockers, never silent mutations.
+  - baseline failures: lint/format are autofixable; existing non-lint failures are
+    recorded (not blockers); only NEW non-lint failures are blockers.
 
-Verdict vocabulary: pass · blocked · confirm · adapt. `ready` is true only when
-gates 1-7 are `pass` and no red line is tripped.
-
-Exit codes: 0 ready, 1 not ready (blockers/confirms/adapts remain), 2 unreadable input.
+Exit codes (informational, never a halt): 0 no genuine blockers, 1 blockers
+remain, 2 unreadable input.
 """
 
 from __future__ import annotations
@@ -43,16 +50,31 @@ _GENERATED = (
     "htmlcov",
     "build/",
     "dist/",
+    ".preflight/",
+    "node_modules",
+    ".next",
+    ".turbo",
+    "coverage",
 )
 # A path SEGMENT ending in one of these is a generated dir/file anywhere in the path
 # (e.g. .github/scripts/pkg.egg-info/PKG-INFO).
 _GENERATED_SEG_SUFFIX = (".egg-info", ".dist-info", ".pyc")
-# The probe writes its own timestamped log into the worktree; it is a known
-# artifact of this tool, not an unknown file. (Gitignore it: repo-preflight-*.log)
+# The probe writes its own timestamped log; it is a known tool artifact, not unknown.
 _PROBE_LOG = re.compile(r"^repo-preflight-\d{8}T\d{6}Z\.log$")
-# Foundations that are genuinely required; missing one is a wrong-checkout blocker,
-# not a blueprint mismatch.
+# Foundations that are genuinely required; missing one is a wrong-checkout blocker.
 _CORE_FOUNDATIONS = ("pyproject.toml", "tests")
+# Baseline tools whose failures a formatter/linter can auto-resolve (any ecosystem).
+_LINT_TOOLS = ("ruff", "ruff_format", "eslint", "prettier", "biome")
+
+# Autofix action ids — remediate.py dispatches on these.
+ACTION_CLEAN_GENERATED = "clean_generated"
+ACTION_GIT_SWITCH = "git_switch_branch"
+ACTION_ADAPT = "adapt_blueprint"
+ACTION_PIP_INSTALL = "pip_install"
+ACTION_EDITABLE_INSTALL = "editable_install"
+ACTION_NPM_INSTALL = "npm_install"
+ACTION_RUFF_FIX = "ruff_fix"
+ACTION_ESLINT_FIX = "eslint_fix"
 
 
 def _load(path: Path) -> Any:
@@ -112,6 +134,21 @@ def _untracked(status_lines: list[str]) -> list[str]:
     return out
 
 
+def _status_files(status_lines: list[str]) -> dict[str, list[str]]:
+    """Parse `git status --short` porcelain into tracked/staged/untracked file lists."""
+    tracked, staged, untracked = [], [], []
+    for line in status_lines:
+        if line.startswith("?? "):
+            untracked.append(line[3:].strip())
+        elif len(line) >= 3 and line[2] == " " and line[:2].strip():
+            x, y, path = line[0], line[1], line[3:].strip()
+            if x in "MADRC":
+                staged.append(path)
+            if y in "MD":
+                tracked.append(path)
+    return {"tracked": tracked, "staged": staged, "untracked": untracked}
+
+
 def _present_paths(key_file_lines: list[str]) -> dict[str, bool]:
     out: dict[str, bool] = {}
     for line in key_file_lines:
@@ -129,8 +166,30 @@ def _gate(gid: int, name: str, question: str, verdict: str, **extra: Any) -> dic
     return g
 
 
+def _fix(action: str, command: str, description: str, **extra: Any) -> dict[str, Any]:
+    plan = {"action": action, "command": command, "description": description, "reversible": True}
+    plan.update(extra)
+    return plan
+
+
+def _blocker(
+    gate: dict[str, Any], severity: str, why: str, remediation: dict[str, Any]
+) -> dict[str, Any]:
+    cls = gate.get("taxonomy", gate["name"])
+    return {
+        "id": f"BLK-{gate['id']}-{cls.split()[0].replace('/', '-')}",
+        "gate": gate["id"],
+        "gate_name": gate["name"],
+        "class": cls,
+        "severity": severity,
+        "why_not_autofixable": why,
+        "evidence": gate.get("evidence", {}),
+        "remediation": remediation,
+    }
+
+
 # --------------------------------------------------------------------------- #
-# Gate evaluators
+# Gate classifiers
 # --------------------------------------------------------------------------- #
 def gate1_probe(sections: dict[str, list[str]]) -> dict[str, Any]:
     complete = "PROBE COMPLETE" in sections
@@ -142,97 +201,148 @@ def gate1_probe(sections: dict[str, list[str]]) -> dict[str, Any]:
             1,
             "probe-completed",
             "did the probe complete successfully?",
-            "pass",
+            "clear",
             evidence={"sections": len(sections), "command_failures": failures},
         )
-    taxonomy = "missing-command" if failures else "shell-or-git-error"
     return _gate(
         1,
         "probe-completed",
         "did the probe complete successfully?",
-        "blocked",
-        taxonomy=taxonomy,
+        "blocker",
+        taxonomy="broken-probe-environment",
         evidence={"complete": complete, "missing_sections": missing, "command_failures": failures},
-        remediation="fix the error, re-run the probe end-to-end",
     )
 
 
 def gate2_identity(sections: dict[str, list[str]], expected: dict[str, Any]) -> dict[str, Any]:
     ident = _kv(sections.get("REPOSITORY IDENTITY", []))
+    status = _kv(sections.get("WORKTREE STATUS", []))
     remotes = "\n".join(sections.get("REMOTES", []))
     branch, head, root = ident.get("BRANCH", ""), ident.get("HEAD", ""), ident.get("ROOT", "")
+    clean = int(status.get("TRACKED_MODIFIED_COUNT", "0") or 0) == 0 and not _untracked(
+        [ln for ln in sections.get("WORKTREE STATUS", []) if not _is_generated(ln[3:])]
+    )
     ev = {"root": root, "branch": branch, "head": head[:12]}
     if not expected:
         return _gate(
             2,
             "correct-identity",
             "correct repository / branch / commit?",
-            "confirm",
-            evidence=ev,
-            remediation="provide an expected contract or confirm this identity",
+            "clear",
+            evidence=ev | {"note": "no expected contract; identity accepted as observed"},
         )
-    for field, observed, want, tax in (
-        ("repo", remotes + " " + root, expected.get("repo"), "wrong-repo"),
-        ("branch", branch, expected.get("branch"), "wrong-branch"),
-        ("commit", head, expected.get("commit"), "wrong-commit"),
-    ):
-        if want and str(want) not in observed:
-            return _gate(
+    want_repo, want_branch, want_commit = (
+        expected.get("repo"),
+        expected.get("branch"),
+        expected.get("commit"),
+    )
+    if want_repo and str(want_repo) not in (remotes + " " + root):
+        return _gate(
+            2,
+            "correct-identity",
+            "correct repository / branch / commit?",
+            "blocker",
+            taxonomy="wrong-repo",
+            evidence=ev | {"expected_repo": want_repo},
+        )
+    if want_commit and str(want_commit) not in head:
+        return _gate(
+            2,
+            "correct-identity",
+            "correct repository / branch / commit?",
+            "blocker",
+            taxonomy="wrong-commit",
+            evidence=ev | {"expected_commit": want_commit},
+        )
+    if want_branch and str(want_branch) != branch:
+        if clean:
+            g = _gate(
                 2,
                 "correct-identity",
                 "correct repository / branch / commit?",
-                "blocked",
-                taxonomy=tax,
-                evidence=ev | {"expected_" + field: want},
-                remediation=f"{tax.replace('-', ' ')}: correct it, re-run the probe",
+                "autofixable",
+                taxonomy="wrong-branch",
+                evidence=ev | {"expected_branch": want_branch},
             )
+            g["autofix_plan"] = _fix(
+                ACTION_GIT_SWITCH,
+                f"git switch {want_branch}",
+                f"clean tree: switch to expected branch {want_branch}",
+                targets=[want_branch],
+            )
+            return g
+        return _gate(
+            2,
+            "correct-identity",
+            "correct repository / branch / commit?",
+            "blocker",
+            taxonomy="wrong-branch-dirty-tree",
+            evidence=ev | {"expected_branch": want_branch},
+        )
     return _gate(
-        2, "correct-identity", "correct repository / branch / commit?", "pass", evidence=ev
+        2, "correct-identity", "correct repository / branch / commit?", "clear", evidence=ev
     )
 
 
-def gate3_worktree(sections: dict[str, list[str]], strict: bool) -> dict[str, Any]:
-    status = _kv(sections.get("WORKTREE STATUS", []))
-    tracked = int(status.get("TRACKED_MODIFIED_COUNT", "0") or 0)
-    staged = int(status.get("STAGED_COUNT", "0") or 0)
-    untracked = _untracked(sections.get("WORKTREE STATUS", []))
-    generated = [u for u in untracked if _is_generated(u)]
-    unknown = [u for u in untracked if not _is_generated(u)]
-    ev = {"tracked_modified": tracked, "staged": staged, "unknown": unknown, "generated": generated}
+def gate3_worktree(
+    sections: dict[str, list[str]], self_modified: frozenset[str] = frozenset()
+) -> dict[str, Any]:
+    files = _status_files(sections.get("WORKTREE STATUS", []))
+    # files this run created/modified (auto-format, tool-written .gitignore) are
+    # tool-owned, not user work — excluded from tracked AND untracked classification
+    tracked = sorted(set(files["tracked"]) - self_modified)
+    formatted = sorted((set(files["tracked"]) | set(files["untracked"])) & self_modified)
+    staged = files["staged"]
+    untracked = [u for u in files["untracked"] if u not in self_modified]
+    generated = sorted({u for u in untracked if _is_generated(u)})
+    unknown = sorted({u for u in untracked if not _is_generated(u)})
+    ev = {
+        "tracked_modified": tracked,
+        "staged": staged,
+        "unknown": unknown,
+        "generated": generated,
+        "auto_formatted": formatted,
+    }
     if unknown:
         return _gate(
-            3,
-            "worktree-clean",
-            "worktree clean?",
-            "blocked",
-            taxonomy="unknown-files",
-            evidence=ev,
-            red_line="never continue with unknown files",
-            remediation="identify each unknown file (origin, purpose); remove/revert if unsafe",
+            3, "worktree-clean", "worktree clean?", "blocker", taxonomy="unknown-files", evidence=ev
         )
     if tracked or staged:
         return _gate(
             3,
             "worktree-clean",
             "worktree clean?",
-            "blocked",
-            taxonomy="tracked-files",
+            "blocker",
+            taxonomy="tracked-or-staged-changes",
             evidence=ev,
-            remediation="review diffs; commit/stash expected edits or git restore unexpected ones",
         )
     if generated:
-        verdict = "blocked" if strict else "pass"
+        g = _gate(
+            3,
+            "worktree-clean",
+            "worktree clean?",
+            "autofixable",
+            taxonomy="generated-files",
+            evidence=ev,
+        )
+        g["autofix_plan"] = _fix(
+            ACTION_CLEAN_GENERATED,
+            "gitignore known-generated globs + remove the untracked artifacts",
+            "regenerable artifacts: ignore and remove",
+            targets=generated,
+        )
+        return g
+    if formatted:  # only tool-owned formatting remains: informational, commit it
         return _gate(
             3,
             "worktree-clean",
             "worktree clean?",
-            verdict,
-            taxonomy="generated-files",
+            "clear",
+            taxonomy="auto-formatted",
             evidence=ev,
-            autofix="update .gitignore; remove untracked known-generated files; verify none tracked",
-            remediation=None if verdict == "pass" else "strict: resolve generated artifacts first",
+            note="auto-formatted files are uncommitted; review and commit them",
         )
-    return _gate(3, "worktree-clean", "worktree clean?", "pass", evidence=ev)
+    return _gate(3, "worktree-clean", "worktree clean?", "clear", evidence=ev)
 
 
 def _alt_layout_evidence(sections: dict[str, list[str]]) -> bool:
@@ -253,50 +363,105 @@ def gate4_foundations(sections: dict[str, list[str]], expected: dict[str, Any]) 
     missing = [f for f in wanted if present.get(f) is not True]
     ev = {"expected": wanted, "missing": missing}
     if not missing:
-        return _gate(4, "foundations-present", "required foundations present?", "pass", evidence=ev)
+        return _gate(
+            4, "foundations-present", "required foundations present?", "clear", evidence=ev
+        )
     core_missing = [m for m in missing if m in _CORE_FOUNDATIONS]
     if core_missing:
         return _gate(
             4,
             "foundations-present",
             "required foundations present?",
-            "blocked",
-            taxonomy="missing-core (wrong checkout / partial clone)",
+            "blocker",
+            taxonomy="missing-core-foundation",
             evidence=ev | {"core_missing": core_missing},
-            remediation="verify the checkout/branch; re-clone if partial; re-run the probe",
         )
-    # non-core missing + a real alternate layout -> the blueprint is wrong for this repo
     if _alt_layout_evidence(sections):
-        return _gate(
+        g = _gate(
             4,
             "foundations-present",
             "required foundations present?",
             "adapt",
-            taxonomy="missing-but-not-expected (adapt blueprint)",
+            taxonomy="missing-but-not-expected",
             evidence=ev,
-            remediation="update the blueprint/contract: this repo uses a different layout",
         )
-    return _gate(
+        g["autofix_plan"] = _fix(
+            ACTION_ADAPT,
+            "drop the missing non-core foundations from the expected contract",
+            "repo uses a different layout: adapt the blueprint (new file, non-destructive)",
+            targets=missing,
+        )
+        return g
+    # non-core missing, layout unclear -> still not a halt: adapt and record
+    g = _gate(
         4,
         "foundations-present",
         "required foundations present?",
-        "confirm",
+        "adapt",
         taxonomy="missing-uncertain",
         evidence=ev,
-        remediation="confirm whether these foundations are expected in this repo",
     )
+    g["autofix_plan"] = _fix(
+        ACTION_ADAPT,
+        "drop the missing non-core foundations from the expected contract",
+        "foundations not confirmed for this repo: adapt the blueprint",
+        targets=missing,
+    )
+    return g
+
+
+def _ecosystems(sections: dict[str, list[str]]) -> list[str]:
+    """Which language ecosystems the repo uses (from the probe, else file evidence)."""
+    tstamp = _kv(sections.get("TIMESTAMP", []))
+    declared = (tstamp.get("PROBE_ECOSYSTEM") or "").split()
+    if declared:
+        return declared
+    present = _present_paths(sections.get("KEY FILE PRESENCE", []))
+    eco = []
+    if present.get("package.json"):
+        eco.append("node")
+    if present.get("pyproject.toml") or present.get("setup.py"):
+        eco.append("python")
+    if present.get("go.mod"):
+        eco.append("go")
+    if present.get("Cargo.toml"):
+        eco.append("rust")
+    return eco or ["unknown"]
+
+
+# config-file -> tool it declares, per ecosystem
+_NODE_TOOL_MARKERS = {
+    "tsconfig.json": "tsc",
+    ".eslintrc": "eslint",
+    ".eslintrc.json": "eslint",
+    ".eslintrc.js": "eslint",
+    ".eslintrc.cjs": "eslint",
+    "eslint.config.js": "eslint",
+    ".prettierrc": "prettier",
+    ".prettierrc.json": "prettier",
+    "prettier.config.js": "prettier",
+    "jest.config.js": "jest",
+    "vitest.config.ts": "vitest",
+}
 
 
 def _repo_tools(sections: dict[str, list[str]]) -> set[str]:
     tools: set[str] = set()
     present = _present_paths(sections.get("KEY FILE PRESENCE", []))
     meta = "\n".join(sections.get("PROJECT METADATA", []))
+    # python
     if present.get("ruff.toml") or "ruff" in meta:
         tools.add("ruff")
     if present.get("mypy.ini") or "mypy" in meta:
         tools.add("mypy")
     if present.get("tests") or "pytest" in meta:
         tools.add("pytest")
+    # node (declared via config files)
+    for marker, tool in _NODE_TOOL_MARKERS.items():
+        if present.get(marker):
+            tools.add(tool)
+    if present.get("package.json"):
+        tools.add("npm")
     for line in sections.get("VALIDATION TOOL AVAILABILITY", []):
         parts = line.split()
         if len(parts) >= 2 and parts[1] != "MISSING":
@@ -304,54 +469,138 @@ def _repo_tools(sections: dict[str, list[str]]) -> set[str]:
     return tools
 
 
+def _runtime_ok(sections: dict[str, list[str]], eco: list[str]) -> tuple[bool, list[str]]:
+    """Is each ecosystem's runtime available? python -> a py interpreter; node -> node."""
+    installed = _installed_tools(sections)
+    py_ok = any("_PATH=" in line for line in sections.get("PYTHON TOOLCHAIN", []))
+    missing = []
+    if "python" in eco and not py_ok:
+        missing.append("python")
+    if "node" in eco and "node" not in installed:
+        missing.append("node")
+    return (not missing), missing
+
+
+def _installed_tools(sections: dict[str, list[str]]) -> set[str]:
+    out: set[str] = set()
+    for line in sections.get("VALIDATION TOOL AVAILABILITY", []):
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] != "MISSING":
+            out.add(parts[0])
+    return out
+
+
+_NODE_TOOLS = {"eslint", "prettier", "biome", "tsc", "jest", "vitest", "npm", "node"}
+
+
 def gate5_toolchain(sections: dict[str, list[str]], expected: dict[str, Any]) -> dict[str, Any]:
-    py_lines = sections.get("PYTHON TOOLCHAIN", [])
-    python_ok = any("_PATH=" in line for line in py_lines)
+    eco = _ecosystems(sections)
     repo_tools = _repo_tools(sections)
+    installed = _installed_tools(sections)
+    rt_ok, missing_rt = _runtime_ok(sections, eco)
     contract = expected.get("toolchain", {}) if expected else {}
     want_tools = set(contract.get("test_tools", []) or [])
     ev = {
+        "ecosystems": eco,
         "repo_tools": sorted(repo_tools),
-        "python_present": python_ok,
+        "installed": sorted(installed),
         "wanted": sorted(want_tools),
     }
+    if not rt_ok:
+        return _gate(
+            5,
+            "toolchain-matches",
+            "toolchain matches execution contract?",
+            "blocker",
+            taxonomy="missing-runtime",
+            evidence=ev | {"missing_runtime": missing_rt},
+        )
     if not expected:
         return _gate(
             5,
             "toolchain-matches",
             "toolchain matches execution contract?",
-            "confirm",
-            evidence=ev,
-            remediation="provide the toolchain contract to decide the match",
+            "clear",
+            evidence=ev | {"note": "no contract; repo tools accepted as the toolchain"},
         )
     unmet = want_tools - repo_tools
-    if python_ok and not unmet:
+    # tools the repo declares but that are just not installed yet -> install them
+    installable = sorted((want_tools & repo_tools) - installed)
+    if not unmet and not installable:
         return _gate(
-            5, "toolchain-matches", "toolchain matches execution contract?", "pass", evidence=ev
+            5, "toolchain-matches", "toolchain matches execution contract?", "clear", evidence=ev
         )
-    # repo defines its own tools -> follow the repo, adapt the contract
-    if repo_tools:
-        return _gate(
+    if installable:
+        node_side = [t for t in installable if t in _NODE_TOOLS]
+        if node_side and "node" in eco:
+            action, cmd, desc = (
+                ACTION_NPM_INSTALL,
+                "npm ci",
+                "install node dev dependencies (eslint/tsc/… via npm)",
+            )
+        else:
+            action, cmd, desc = (
+                ACTION_PIP_INSTALL,
+                "pip install the repo's pinned/declared tools",
+                "install declared-but-missing tools (honours repo pins)",
+            )
+        g = _gate(
             5,
             "toolchain-matches",
             "toolchain matches execution contract?",
-            "adapt",
-            taxonomy="repo-defines-tooling (follow the repository)",
-            evidence=ev | {"unmet": sorted(unmet)},
-            remediation="follow the repo's tools/versions; do NOT replace existing tooling",
+            "autofixable",
+            taxonomy="tool-declared-not-installed",
+            evidence=ev | {"install": installable},
         )
-    return _gate(
+        g["autofix_plan"] = _fix(action, cmd, desc, targets=installable)
+        return g
+    # contract wants tools the repo does not define -> follow the repo, adapt the plan
+    g = _gate(
         5,
         "toolchain-matches",
         "toolchain matches execution contract?",
-        "blocked",
-        taxonomy="missing-toolchain",
+        "adapt",
+        taxonomy="repo-defines-tooling",
         evidence=ev | {"unmet": sorted(unmet)},
-        remediation="record a blocker; install/define the required toolchain",
     )
+    g["autofix_plan"] = _fix(
+        ACTION_ADAPT,
+        "set the contract test_tools to the repo's own tools",
+        "follow the repository; never replace its tooling",
+        targets=sorted(unmet),
+    )
+    return g
 
 
 def gate6_install(sections: dict[str, list[str]], expected: dict[str, Any]) -> dict[str, Any]:
+    eco = _ecosystems(sections)
+    present = _present_paths(sections.get("KEY FILE PRESENCE", []))
+    # Node: package.json but no node_modules -> install; present -> clear.
+    if "node" in eco and present.get("package.json"):
+        if present.get("node_modules") is not True:
+            g = _gate(
+                6,
+                "install-succeeded",
+                "installation succeeded?",
+                "autofixable",
+                taxonomy="node-modules-missing",
+                evidence={"ecosystems": eco},
+            )
+            g["autofix_plan"] = _fix(
+                ACTION_NPM_INSTALL,
+                "npm ci",
+                "install node dependencies so the project builds",
+                targets=["node_modules"],
+            )
+            return g
+        if "python" not in eco:
+            return _gate(
+                6,
+                "install-succeeded",
+                "installation succeeded?",
+                "clear",
+                evidence={"ecosystems": eco, "note": "node_modules present"},
+            )
     disc_lines = sections.get("PACKAGE DISCOVERY", [])
     imports = {}
     for line in disc_lines:
@@ -361,38 +610,52 @@ def gate6_install(sections: dict[str, list[str]], expected: dict[str, Any]) -> d
     not_importable = [k for k, v in imports.items() if v == "NOT_IMPORTABLE"]
     ev = {"packages": imports}
     if imports and not not_importable:
-        return _gate(6, "install-succeeded", "installation succeeded?", "pass", evidence=ev)
+        return _gate(6, "install-succeeded", "installation succeeded?", "clear", evidence=ev)
     if not imports:
         return _gate(
             6,
             "install-succeeded",
             "installation succeeded?",
-            "confirm",
-            evidence=ev,
-            remediation="run the repo's install method, then re-run the probe to confirm imports",
+            "clear",
+            evidence=ev | {"note": "no packages declared to import"},
         )
     disc_text = "\n".join(disc_lines)
     in_repo = [p for p in not_importable if f"/{p}/" in disc_text or f"/{p}." in disc_text]
     foreign = [p for p in not_importable if p not in in_repo]
     if foreign and not in_repo:
-        return _gate(
+        g = _gate(
             6,
             "install-succeeded",
             "installation succeeded?",
             "adapt",
-            taxonomy="foreign-package (not in this repo)",
+            taxonomy="foreign-package",
             evidence=ev | {"foreign": foreign},
-            remediation="update the blueprint: these packages are not part of this repo",
         )
-    return _gate(
+        g["autofix_plan"] = _fix(
+            ACTION_ADAPT,
+            "drop the foreign packages from the expected contract",
+            "packages not part of this repo: adapt the blueprint",
+            targets=foreign,
+        )
+        return g
+    g = _gate(
         6,
         "install-succeeded",
         "installation succeeded?",
-        "blocked",
-        taxonomy="editable-install (repo package not importable)",
-        evidence=ev | {"not_importable": not_importable},
-        remediation="run the repo's install (e.g. pip install -e .); re-run the probe",
+        "autofixable",
+        taxonomy="repo-package-not-installed",
+        evidence=ev | {"not_importable": in_repo},
     )
+    g["autofix_plan"] = _fix(
+        ACTION_EDITABLE_INSTALL,
+        "pip install -e . (or the declared install)",
+        "run the declared editable install so repo packages import",
+        targets=in_repo,
+    )
+    return g
+
+
+_NODE_LINTERS = {"eslint", "prettier", "biome"}
 
 
 def gate7_baseline(baseline: dict[str, Any] | None, prior: dict[str, Any] | None) -> dict[str, Any]:
@@ -400,87 +663,202 @@ def gate7_baseline(baseline: dict[str, Any] | None, prior: dict[str, Any] | None
         return _gate(
             7,
             "baseline-reproduces",
-            "baseline validation passes?",
-            "confirm",
-            evidence={},
-            remediation="run pytest/mypy/ruff to reproduce the baseline, then re-evaluate",
+            "baseline validation reproduces?",
+            "clear",
+            evidence={"note": "baseline not yet measured; remediate will run it"},
         )
     results = baseline.get("results", baseline)
     ev = {"results": results}
-    if prior is None:
-        return _gate(
+    lint_fail = [t for t in _LINT_TOOLS if int((results.get(t) or {}).get("failed", 0)) > 0]
+    if lint_fail:
+        node_lint = [t for t in lint_fail if t in _NODE_LINTERS]
+        if node_lint:
+            action, cmd, desc = (
+                ACTION_ESLINT_FIX,
+                "eslint --fix . && prettier --write .",
+                "auto-resolve JS/TS lint + format failures",
+            )
+        else:
+            action, cmd, desc = (
+                ACTION_RUFF_FIX,
+                "ruff check --fix . && ruff format .",
+                "auto-resolve lint/format failures",
+            )
+        g = _gate(
             7,
             "baseline-reproduces",
-            "baseline validation passes?",
-            "pass",
-            evidence=ev | {"note": "first run: these failures are the existing baseline"},
+            "baseline validation reproduces?",
+            "autofixable",
+            taxonomy="lint-format-failures",
+            evidence=ev | {"lint_failing": lint_fail},
         )
-    prior_results = prior.get("results", prior)
+        g["autofix_plan"] = _fix(action, cmd, desc, targets=lint_fail)
+        return g
+    # non-lint failures: existing = recorded (clear); new vs prior = blocker
+    prior_results = (prior or {}).get("results", prior or {})
     new: list[str] = []
     for tool, cur in results.items():
+        if tool in _LINT_TOOLS:
+            continue
         cur_f = int(cur.get("failed", 0)) if isinstance(cur, dict) else 0
-        old_f = 0
-        if isinstance(prior_results.get(tool), dict):
-            old_f = int(prior_results[tool].get("failed", 0))
-        if cur_f > old_f:
+        old_f = int((prior_results.get(tool) or {}).get("failed", 0)) if prior_results else 0
+        if prior is not None and cur_f > old_f:
             new.append(f"{tool}: {old_f} -> {cur_f}")
     if new:
         return _gate(
             7,
             "baseline-reproduces",
-            "baseline validation passes?",
-            "blocked",
-            taxonomy="new-failure",
+            "baseline validation reproduces?",
+            "blocker",
+            taxonomy="new-nonlint-failures",
             evidence=ev | {"new_failures": new},
-            red_line="never continue if the baseline cannot be reproduced",
-            remediation="fix the new failure(s) before continuing",
         )
     return _gate(
         7,
         "baseline-reproduces",
-        "baseline validation passes?",
-        "pass",
-        evidence=ev | {"note": "no new failures vs prior baseline"},
+        "baseline validation reproduces?",
+        "clear",
+        evidence=ev | {"note": "failures (if any) are the existing baseline"},
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Blocker detailing
+# --------------------------------------------------------------------------- #
+def _detail_blocker(g: dict[str, Any]) -> dict[str, Any]:
+    tax = g.get("taxonomy", "")
+    ev = g.get("evidence", {})
+    if tax == "unknown-files":
+        return _blocker(
+            g,
+            "high",
+            "unknown provenance: unsafe to delete, ignore, or commit automatically",
+            {
+                "owner": "human",
+                "steps": [
+                    "inspect each file (contents, timestamps, recent commands)",
+                    "if intended: git add / update the plan; if not: remove or revert",
+                ],
+                "commands": [f"ls -la {p}" for p in ev.get("unknown", [])[:5]],
+                "auto_option": "quarantine to .preflight/quarantine/ (reversible)",
+            },
+        )
+    if tax == "tracked-or-staged-changes":
+        return _blocker(
+            g,
+            "medium",
+            "tracked/staged edits may be intended work; auto-reverting is destructive",
+            {
+                "owner": "human",
+                "steps": ["review the diff; commit, or stash if unrelated to this task"],
+                "commands": ["git diff", "git diff --cached"],
+                "auto_option": "git stash --include-untracked (reversible)",
+            },
+        )
+    if tax == "missing-core-foundation":
+        return _blocker(
+            g,
+            "critical",
+            "a core foundation is absent: likely a wrong or partial checkout",
+            {
+                "owner": "human",
+                "steps": ["verify the branch/commit; re-clone if the clone is partial"],
+                "commands": ["git rev-parse --abbrev-ref HEAD", "git status"],
+                "auto_option": None,
+            },
+        )
+    if tax in ("wrong-repo", "wrong-commit", "wrong-branch-dirty-tree"):
+        return _blocker(
+            g,
+            "critical",
+            "identity mismatch with a dirty tree or no safe automatic resolution",
+            {
+                "owner": "human",
+                "steps": ["confirm the intended repo/branch/commit; clean the tree, then switch"],
+                "commands": ["git remote -v", "git status --short"],
+                "auto_option": None,
+            },
+        )
+    if tax == "new-nonlint-failures":
+        return _blocker(
+            g,
+            "high",
+            "new type/test/logic failures are not auto-resolvable",
+            {
+                "owner": "downstream-agent",
+                "steps": ["fix the specific failing test/type error before implementation"],
+                "commands": ["pytest -q", "mypy ."],
+                "auto_option": None,
+            },
+        )
+    if tax == "missing-runtime":
+        missing = g.get("evidence", {}).get("missing_runtime", [])
+        return _blocker(
+            g,
+            "high",
+            f"required runtime(s) not available in this environment: {', '.join(missing) or 'unknown'}",
+            {
+                "owner": "human",
+                "steps": [f"install {m} and re-run" for m in missing] or ["install the runtime"],
+                "commands": [f"{m} --version" for m in missing],
+                "auto_option": None,
+            },
+        )
+    if tax == "broken-probe-environment":
+        return _blocker(
+            g,
+            "critical",
+            "the probe could not complete (not a git repo / broken shell)",
+            {
+                "owner": "human",
+                "steps": ["run inside the repo worktree with git available"],
+                "commands": ["git rev-parse --is-inside-work-tree"],
+                "auto_option": None,
+            },
+        )
+    return _blocker(
+        g,
+        "medium",
+        "not safely auto-resolvable",
+        {"owner": "human", "steps": ["resolve manually"], "commands": [], "auto_option": None},
     )
 
 
 def evaluate(
     sections: dict[str, list[str]],
     expected: dict[str, Any],
-    baseline: dict[str, Any] | None,
-    prior: dict[str, Any] | None,
-    strict: bool,
+    baseline: dict[str, Any] | None = None,
+    prior: dict[str, Any] | None = None,
+    self_modified: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     gates = [
         gate1_probe(sections),
         gate2_identity(sections, expected),
-        gate3_worktree(sections, strict),
+        gate3_worktree(sections, self_modified),
         gate4_foundations(sections, expected),
         gate5_toolchain(sections, expected),
         gate6_install(sections, expected),
         gate7_baseline(baseline, prior),
     ]
-    red_lines = [
-        {"rule": g["red_line"], "gate": g["id"], "detail": g.get("taxonomy", "")}
+    genuine_blockers = [_detail_blocker(g) for g in gates if g["verdict"] == "blocker"]
+    autofix_plans = [
+        {"gate": g["id"], "gate_name": g["name"], **g["autofix_plan"]}
         for g in gates
-        if g.get("red_line")
+        if g.get("autofix_plan")
     ]
-    ready = all(g["verdict"] == "pass" for g in gates) and not red_lines
-    first_blocker = next((g for g in gates if g["verdict"] != "pass"), None)
-    if ready:
-        next_action = "gates 1-7 pass, no red line: START IMPLEMENTATION"
-        gate8 = _gate(8, "implementation-ready", "implementation ready?", "pass")
-    else:
-        b = first_blocker
-        next_action = f"gate {b['id']} ({b['name']}) [{b['verdict']}]: {b.get('remediation')}"
-        gate8 = _gate(
+    ready = not genuine_blockers
+    gates.append(
+        _gate(
             8,
             "implementation-ready",
-            "implementation ready?",
-            "blocked",
-            remediation="smallest blocker first; resolve, re-run the probe",
+            "implementation ready after remediation?",
+            "clear" if ready else "blocker",
+            evidence={
+                "genuine_blockers": len(genuine_blockers),
+                "pending_autofixes": len(autofix_plans),
+            },
         )
-    gates.append(gate8)
+    )
     ident = _kv(sections.get("REPOSITORY IDENTITY", []))
     tstamp = _kv(sections.get("TIMESTAMP", []))
     return {
@@ -490,21 +868,21 @@ def evaluate(
             "branch": ident.get("BRANCH", "Unknown"),
             "head": ident.get("HEAD", "Unknown")[:12],
         },
-        "strict": strict,
+        "run_completed": True,
         "gates": gates,
-        "red_lines": red_lines,
-        "ready": ready,
-        "next_action": next_action,
+        "autofix_plans": autofix_plans,
+        "genuine_blockers": genuine_blockers,
+        "blocker_count": len(genuine_blockers),
+        "ready_after_remediation": ready,
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Evaluate the eight preflight gates.")
+    parser = argparse.ArgumentParser(description="Classify the eight preflight gates (fail-open).")
     parser.add_argument("log", help="Path to a probe log")
     parser.add_argument("--expected", default=None, help="Optional expected-contract (json/yaml)")
     parser.add_argument("--baseline", default=None, help="Optional baseline results record")
     parser.add_argument("--prior", default=None, help="Optional prior baseline to diff against")
-    parser.add_argument("--strict", action="store_true", help="Disable autofix; every NO is a stop")
     parser.add_argument("--json", action="store_true", help="Emit the full report as JSON")
     args = parser.parse_args()
 
@@ -523,7 +901,7 @@ def main() -> int:
     if not isinstance(expected, dict):
         expected = {}
 
-    report = evaluate(sections, expected, baseline, prior, args.strict)
+    report = evaluate(sections, expected, baseline, prior)
 
     if args.json:
         print(json.dumps(report, indent=2))
@@ -534,11 +912,17 @@ def main() -> int:
         for g in report["gates"]:
             tax = f" — {g['taxonomy']}" if g.get("taxonomy") else ""
             print(f"  gate {g['id']} {g['name']:22} [{g['verdict']}]{tax}")
-        for rl in report["red_lines"]:
-            print(f"  RED LINE (gate {rl['gate']}): {rl['rule']}")
-        print(f"ready: {report['ready']}")
-        print(f"next: {report['next_action']}")
-    return 0 if report["ready"] else 1
+        for p in report["autofix_plans"]:
+            print(f"  autofix (gate {p['gate']}): {p['action']} — {p['description']}")
+        for b in report["genuine_blockers"]:
+            print(
+                f"  BLOCKER {b['id']} [{b['severity']}]: {b['class']} — {b['why_not_autofixable']}"
+            )
+        print(
+            f"run_completed: {report['run_completed']} | blockers: {report['blocker_count']} | "
+            f"ready_after_remediation: {report['ready_after_remediation']}"
+        )
+    return 0 if report["blocker_count"] == 0 else 1
 
 
 if __name__ == "__main__":

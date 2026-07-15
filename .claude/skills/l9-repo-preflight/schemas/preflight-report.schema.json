@@ -1,16 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://quantum-l9.github.io/l9-ci-core/schemas/preflight-report.schema.json",
-  "title": "L9 Preflight Readiness Report",
-  "description": "The output of scripts/evaluate_preflight.py: a per-gate verdict over the eight preflight gates, the Golden-Rule red-line check, a readiness verdict, and the single smallest next action. `ready` is true only when gates 1-7 are `pass` and no red line is tripped.",
+  "title": "L9 Preflight Evaluate Report (fail-open)",
+  "description": "The output of scripts/evaluate_preflight.py: a per-gate verdict over the eight gates plus, for fixable gates, the exact safe autofix plan, plus the genuine-blocker list. The run always completes (run_completed:true); nothing halts. remediate.py consumes autofix_plans to drive the loop.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["generated_from", "repo", "gates", "red_lines", "ready", "next_action"],
+  "required": ["generated_from", "repo", "run_completed", "gates", "autofix_plans", "genuine_blockers", "blocker_count", "ready_after_remediation"],
   "properties": {
-    "generated_from": {
-      "type": "string",
-      "description": "The probe log's TIMESTAMP (UTC=...) — evidence provenance, not the system clock."
-    },
+    "generated_from": { "type": "string" },
     "repo": {
       "type": "object",
       "additionalProperties": false,
@@ -21,28 +18,20 @@
         "head": { "type": "string" }
       }
     },
-    "strict": {
-      "type": "boolean",
-      "description": "True when autofix was disabled and every fixable NO is a hard stop."
-    },
+    "run_completed": { "const": true },
     "gates": {
       "type": "array",
       "minItems": 8,
       "maxItems": 8,
       "items": { "$ref": "#/$defs/gate" }
     },
-    "red_lines": {
+    "autofix_plans": {
       "type": "array",
-      "items": { "$ref": "#/$defs/red_line" }
+      "items": { "$ref": "#/$defs/plan" }
     },
-    "ready": {
-      "type": "boolean",
-      "description": "Whole-pipeline verdict. True only if gates 1-7 are `pass` and red_lines is empty."
-    },
-    "next_action": {
-      "type": "string",
-      "description": "The single smallest next action — START IMPLEMENTATION, or the first blocker's remediation."
-    }
+    "genuine_blockers": { "type": "array", "items": { "type": "object" } },
+    "blocker_count": { "type": "integer", "minimum": 0 },
+    "ready_after_remediation": { "type": "boolean" }
   },
   "$defs": {
     "gate": {
@@ -54,24 +43,29 @@
         "name": { "type": "string" },
         "question": { "type": "string" },
         "verdict": {
-          "enum": ["pass", "blocked", "confirm", "adapt"],
-          "description": "pass = PASS condition met. blocked = stop-and-fix. confirm = needs an expected contract or human. adapt = the blueprint is wrong for this repo; fix the blueprint, not the repo."
+          "enum": ["clear", "autofixable", "adapt", "blocker"],
+          "description": "clear = satisfied. autofixable = a safe reversible fix resolves it. adapt = the blueprint is wrong for this repo (fix a copy of the plan). blocker = cannot be safely auto-resolved; reported for downstream."
         },
-        "taxonomy": { "type": "string", "description": "Failure class from the decision tree." },
-        "evidence": { "type": "object", "description": "The probe facts the verdict rests on." },
-        "red_line": { "type": "string", "description": "The Golden Rule tripped, if any." },
-        "autofix": { "type": ["string", "null"], "description": "Safe non-code remediation available." },
-        "remediation": { "type": ["string", "null"], "description": "The next action for this gate." }
+        "taxonomy": { "type": "string" },
+        "evidence": { "type": "object" },
+        "autofix_plan": { "$ref": "#/$defs/plan" }
       }
     },
-    "red_line": {
+    "plan": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["rule", "gate"],
+      "additionalProperties": true,
+      "required": ["action", "command", "reversible"],
       "properties": {
-        "rule": { "type": "string" },
-        "gate": { "type": "integer", "minimum": 1, "maximum": 8 },
-        "detail": { "type": "string" }
+        "gate": { "type": "integer" },
+        "gate_name": { "type": "string" },
+        "action": {
+          "enum": ["clean_generated", "git_switch_branch", "adapt_blueprint", "pip_install",
+                   "editable_install", "npm_install", "ruff_fix", "eslint_fix"]
+        },
+        "command": { "type": "string" },
+        "description": { "type": "string" },
+        "reversible": { "type": "boolean", "const": true },
+        "targets": { "type": "array" }
       }
     }
   }

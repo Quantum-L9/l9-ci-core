@@ -1,127 +1,145 @@
 ---
 name: l9-repo-preflight
-description: execute a complete fail-closed repository preflight pipeline before any implementation — run a read-only evidence probe, then evaluate eight sequential readiness gates (probe completed, correct repo/branch/commit, clean worktree, required foundations present, toolchain matches the execution contract, install succeeded, baseline validation reproduces, implementation ready), classify every failure against a fixed taxonomy, loop fix -> re-run probe -> verify -> continue, and emit a readiness verdict plus the single smallest next action. use when the user asks to preflight, verify a repo before starting work, run the repository probe / decision tree, check worktree/baseline readiness, confirm a checkout is safe to build on, or gate implementation behind verified repository facts.
+description: run a fail-OPEN repository preflight that never halts — probe the checkout, evaluate eight readiness gates, apply every safe reversible autofix (remove/gitignore generated artifacts, install declared tools, run the editable/npm install, ruff/eslint --fix, adapt a wrong blueprint to evidence), re-probe, and loop to a fixpoint, then emit ONLY the genuine blockers in machine-readable detail (class, severity, evidence, why-not-autofixable, remediation) for downstream. ecosystem-neutral (python + node/typescript, auto-detected). use when the user asks to preflight or verify a repo before work, auto-remediate/clean a checkout, get a machine-readable blocker list, gate implementation behind verified facts, or run the repository probe / decision tree.
 skill_schema: 1
 layer: control_plane
 role: skill_entrypoint
-tags: [l9, preflight, probe, readiness-gate, git-hygiene, baseline, fail-closed, exemplary]
+tags: [l9, preflight, probe, fail-open, autofix, remediation, blockers, ecosystem-neutral, exemplary]
 owner: igor_beylin
 status: active
-version: 1.0.0
+version: 2.0.0
 updated: 2026-07-15
 sources:
   - 10X Repository Preflight Decision Tree
   - 0_preflight_probe (read-only evidence probe)
 ---
 
-# Repository Preflight Pipeline (10X)
+# Repository Preflight — Fail-Open Remediation Engine (10X)
 
 ## Purpose
 
-Prove a checkout is **safe to build on before a single line is changed**. The pipeline gathers repository evidence with a read-only **probe**, then walks **eight sequential gates**; each gate either passes or routes into a bounded failure taxonomy whose only exit is `Fix → Re-run Probe → Verify → Continue`. Nothing advances on assumption. The output is a machine-readable **readiness verdict** and the **single smallest next action**.
+Get a checkout to a **known, buildable state without ever halting the run**. The engine probes the repo (read-only), walks **eight gates**, **applies every safe, reversible autofix** it can, re-probes, and loops to a fixpoint. Whatever cannot be safely auto-resolved is emitted as a **machine-readable genuine-blocker report** for a downstream human or agent — nothing is a dead end, and nothing safe is left un-fixed.
 
-The governing stance is inverted from the usual: **verified repository evidence outranks the blueprint.** When the plan and the repo disagree, the plan is wrong — you adapt the blueprint to the evidence, never the repo to the blueprint. This is what keeps preflight honest on a repo it has never seen.
+Two inversions from a classic gate:
 
-The pipeline answers, with trace evidence:
+- **Fail-OPEN.** The run always completes and always emits a report. No condition stops it. `blocker_count` and the report are the signal — not a halt.
+- **Maximum autofix.** Every fix on a fixed **safe + reversible allow-list** is applied automatically. Only what is genuinely unsafe to auto-resolve survives as a blocker.
 
-> "Did the probe run, am I on the right repo/branch/commit, is the worktree clean, are the required foundations here, does the toolchain match, did install succeed, does the baseline reproduce — and if not, what is the one smallest thing to fix before I re-run?"
+The governing stance is unchanged: **verified repository evidence outranks the blueprint.** A foreign expectation the repo does not meet is `adapt` (the plan is wrong — fix a copy of the plan), never a repo failure.
+
+The primary deliverable answers, in machine-readable detail:
+
+> "What did the preflight already fix, and what genuine blockers remain — each with its class, severity, evidence, why it could not be autofixed, and the exact remediation — for downstream?"
 
 ## Core Contract
 
 | Mode | Output | Load |
 |------|--------|------|
+| remediate | The full fail-open loop: probe → autofix → re-probe → fixpoint → `blocker-report.json` + `autofix-log.json` | [references/preflight-pipeline.md](references/preflight-pipeline.md) + `scripts/remediate.py` |
 | probe | Read-only evidence log (identity, worktree, toolchain, tests, CI, artifacts) | [scripts/preflight_probe.sh](scripts/preflight_probe.sh) + [references/probe-contract.md](references/probe-contract.md) |
-| evaluate | Per-gate verdicts + red-line check + readiness report from a probe log | [references/preflight-pipeline.md](references/preflight-pipeline.md) + `scripts/evaluate_preflight.py` |
-| remediate | The single smallest next action for the first blocking gate (autofix-safe only) | [references/preflight-pipeline.md](references/preflight-pipeline.md) |
-| preflight | The full loop: probe → evaluate → remediate → re-run until ready or blocked | all references + [references/enforcement-gates.md](references/enforcement-gates.md) |
+| evaluate | Per-gate verdicts + autofix plans + genuine-blocker list from a probe log | [references/preflight-pipeline.md](references/preflight-pipeline.md) + `scripts/evaluate_preflight.py` |
+| preflight | Alias for `remediate` | all references + [references/enforcement-gates.md](references/enforcement-gates.md) |
 
-## The Eight Gates
+Default is **apply**. `--dry-run` emits the same report + autofix *plan* while mutating nothing. `--no-fix-code` leaves `ruff`/`eslint --fix` off the tracked source.
 
-Sequential and fail-closed: a gate is evaluated only after the prior gate passes. Every **NO** loops back through the probe.
+## The Eight Gates (autofix vs genuine blocker)
 
-| # | Gate | PASS condition | Failure taxonomy |
-|---|------|----------------|------------------|
-| 1 | Probe completed | log has every section marker + `PROBE COMPLETE`, no fatal error | shell error · git error · missing command |
-| 2 | Correct repo / branch / commit | identity matches the expected contract (or is human-confirmed) | wrong repo · wrong branch · wrong commit |
-| 3 | Worktree clean | no tracked-modified, staged, or **unknown** untracked files | tracked · generated · **unknown** |
-| 4 | Required foundations present | expected foundations resolve to real paths | missing-but-expected (wrong checkout) · missing-and-not-expected (**adapt blueprint**) |
-| 5 | Toolchain matches contract | python / package-manager / test-tools satisfy the contract | python · package mgr · test tools (repo-defined tooling wins) |
-| 6 | Installation succeeded | declared install method exits 0, packages import | dependency · build backend · editable install (repo vs environment) |
-| 7 | Baseline validation reproduces | pytest / mypy / ruff / schema run; failures are **existing**, not new | existing (record) vs **new** (stop) |
-| 8 | Implementation ready | gates 1–7 pass and no red line tripped | else: smallest blocker first |
+Every gate is evaluated every run (nothing halts). Each is `clear` · `autofixable` · `adapt` · `blocker`.
 
-Full per-gate contract, remediation, and loop-back: [references/preflight-pipeline.md](references/preflight-pipeline.md).
+| # | Gate | AUTOFIX (safe, applied) | GENUINE BLOCKER (reported) |
+|---|------|-------------------------|----------------------------|
+| 1 | Probe completed | — | not a git repo / broken shell |
+| 2 | Correct repo/branch/commit | wrong branch + clean tree + contract → `git switch` | wrong repo/commit; dirty-tree branch switch |
+| 3 | Worktree clean | generated artifacts → gitignore + remove (deps kept) | **unknown-provenance files**; user tracked/staged edits |
+| 4 | Required foundations | missing non-core + alt layout → adapt blueprint | missing **core** (wrong/partial checkout) |
+| 5 | Toolchain matches | declared tool not installed → `pip install` / `npm ci`; contract≠repo → adapt | no ecosystem runtime at all |
+| 6 | Install succeeded | repo pkg not importable → editable install; `node_modules` missing → `npm ci`; foreign pkg → adapt | install/build backend fails |
+| 7 | Baseline reproduces | lint/format failures → `ruff`/`eslint --fix` (clean tree) | **new** type/test/logic failures |
+| 8 | Ready | — | informational: `ready_after_remediation = (blockers == 0)` |
 
-## Golden Rules (red lines)
+Full per-gate contract: [references/preflight-pipeline.md](references/preflight-pipeline.md).
 
-The readiness verdict is **NOT READY** if any of these hold — enforce them as hard gates, never autofix past them:
+## Fail-Open Guarantee & Blocker Criteria
 
-1. **Never continue with unknown files.** Untracked files of unknown provenance → stop until identified.
-2. **Never continue if the baseline cannot be reproduced.** A build/test baseline that will not reproduce is a stop.
-3. **Never modify code until repository facts are verified.** No mutation before gates 1–3 pass.
-4. **Never adapt the repository to the blueprint.** Adapt the blueprint to verified repository evidence.
-5. **Every NO loops back** through `Fix → Re-run Probe → Verify → Continue` — a gate is never waved through.
+The run **never halts**; instead it reports. A condition becomes a **genuine blocker** (severity-ranked, with evidence + remediation) precisely when it cannot be safely, reversibly auto-resolved:
+
+1. **Unknown-provenance files** — unsafe to delete/ignore/commit automatically (offered: quarantine).
+2. **User tracked/staged edits** — may be intended work; auto-reverting is destructive (offered: stash).
+3. **New type/test/logic failures** — not mechanically fixable.
+4. **Wrong repo/commit, or a missing core foundation** — no safe automatic resolution.
+5. **A missing ecosystem runtime / broken build backend** — environment must be fixed.
+
+Everything else is autofixed. These criteria replace the old "halt" red lines: the discipline is preserved (nothing unsafe is ever auto-applied), but it is expressed as *what gets reported*, not *what stops the run*.
 
 ## Authority Order
 
-When the blueprint, assumptions, and evidence conflict, apply this cascade:
-
 1. Security, safety, and legal constraints.
-2. **Verified repository evidence** (probe output, resolved paths, tool versions).
+2. **Verified repository evidence** (probe output, resolved paths, tool versions, detected ecosystem).
 3. The explicit expected contract / execution plan.
-4. The uploaded blueprint's baked-in assumptions (package names, layout).
+4. The blueprint's baked-in assumptions (package names, layout, language).
 5. Convenience / speed.
-6. `Unknown` — **fail closed**: never fabricate identity, ownership, or a passing baseline; label `Unknown` and stop.
+6. `Unknown` — never fabricate; label and report as a blocker.
 
-## Defaults & Autofix (ON by default)
+## Maximum Autofix (safe + reversible allow-list)
 
-Rather than stall on a fixable NO, **safe non-code remediation is auto-applied and recorded**: update `.gitignore` for a known-generated artifact, remove untracked **known-generated** files (`.venv`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `*.egg-info`), install a missing pinned tool, recreate a broken venv. Autofix **never** touches an unknown file, **never** edits tracked code, and **never** manufactures a baseline — those are the red lines above. Run `scripts/evaluate_preflight.py --strict` for a hard, fail-closed audit that disables autofix and treats every NO as a stop.
+Applied by default; every action is recorded in `autofix-log.json` and is reversible:
+
+`clean_generated` (remove throwaway artifacts + gitignore; dependency dirs like `node_modules` are kept, only ignored) · `git_switch_branch` (clean tree only) · `pip_install` / `npm_install` (honours repo pins/lockfiles) · `editable_install` · `ruff_fix` / `eslint_fix` (clean tree only — tool-owned, git-reversible) · `adapt_blueprint` (writes an evidence-adapted contract to a **new** file, never overwriting input).
+
+**Never auto-applied:** deleting unknown files, reverting user tracked edits, editing code beyond mechanical format/lint, or anything off the allow-list. Those are the blockers above. `--dry-run` previews with zero mutation; `--no-fix-code` withholds source formatting.
+
+## Ecosystem Neutrality (Python + Node/TypeScript)
+
+The probe **auto-detects repo shape** — no language or package name is baked in. It emits `PROBE_ECOSYSTEM` (node/python/…), auto-discovers source dirs, Python packages (empty on non-Python repos, so a TS/Node repo is never probed for a Python import), and foundations (`package.json` vs `pyproject.toml`, …). Gates 5/6/7 and the autofix actions dispatch per ecosystem: Python → ruff/mypy/pytest, `pip`, editable install; Node → eslint/tsc/prettier, `npm ci`, `node_modules`. A tool or runtime that is not present is skipped, never a false failure. Override any token via `PROBE_PACKAGES` / `PROBE_FOUNDATIONS` / `PROBE_ECOSYSTEM`.
 
 ## Compact Workflow
 
-Each step produces a gate artifact (see [references/enforcement-gates.md](references/enforcement-gates.md)); do not advance without it.
+Each step deposits a gate artifact (see [references/enforcement-gates.md](references/enforcement-gates.md)).
 
-1. **Run the probe** — `scripts/preflight_probe.sh` → a timestamped read-only evidence log. → **Gate A.**
-2. **Extract expertise** — run `extract_expertise` over the probe evidence + the decision tree to build the intelligence model (experts, doctrine, invariants, activation/reject signals, adapters, failure modes, leverage points); then `compress_expertise` into the smallest behavior-changing form. → **Gate B** (exemplary builds).
-3. **Evaluate gates 1–8** — `python3 scripts/evaluate_preflight.py <log> [--expected <contract>]`: each gate → `pass` / `blocked` / `confirm` / `adapt`, plus the red-line check. → **Gate C.**
-4. **Classify failures** — map each NO to its taxonomy; separate **existing** baseline failures (record) from **new** (stop). Unknown files and new failures are red lines. → **Gate D.**
-5. **Remediate the smallest blocker** — apply the single safe next action (or stop and report for a hard-stop). → **Gate E.**
-6. **Re-run the probe** — every fix re-enters at step 1; a gate is never verified from stale evidence. → **Gate F.**
-7. **Emit readiness** — the readiness report + verdict + the one next action; `ready` only when gates 1–7 pass and no red line tripped. → **Gate G.**
+1. **Run the probe** — `scripts/preflight_probe.sh` → a read-only evidence log. → **Gate A.**
+2. **Extract expertise** — run `extract_expertise` over the probe evidence + decision tree to build the intelligence model; then `compress_expertise` into the smallest behavior-changing form. → **Gate B** (exemplary builds).
+3. **Evaluate gates 1–8** — `evaluate_preflight.py` → per-gate verdict + autofix plans + genuine blockers. → **Gate C.**
+4. **Apply safe autofixes** — `remediate.py` dispatches the allow-list; every action logged, reversible. → **Gate D.**
+5. **Re-probe** — every fix re-enters at step 1 from fresh evidence. → **Gate E/F.**
+6. **Loop to a fixpoint** — until no new autofix applies (or `--max-iters`). → **Gate F.**
+7. **Emit the blocker report** — `blocker-report.json` (genuine blockers only) + `autofix-log.json`; the run always completes. → **Gate G.**
 
 ### Mandatory Exemplary Pipeline
 
 ```text
-run_probe → extract_expertise → compress_expertise → evaluate_gates → classify_failures → run_exemplary_gate → emit_readiness
+run_probe → extract_expertise → compress_expertise → evaluate_gates → apply_autofixes → run_exemplary_gate → emit_blocker_report
 ```
 
-`extract_expertise` is required for any claimed exemplary tier; fail closed when the model is missing or incomplete. The `exemplary_gate` is the deterministic check `scripts/validate_exemplary_skill.py`.
+`extract_expertise` is required for any claimed exemplary tier; fail closed when the model is missing. The `exemplary_gate` is the deterministic check `scripts/validate_exemplary_skill.py`.
 
 ## Resource Map
 
-- [references/preflight-pipeline.md](references/preflight-pipeline.md) — the eight-gate contract: each gate's question, PASS condition, failure taxonomy, remediation, and the `Fix → Re-run → Verify → Continue` loop.
-- [references/probe-contract.md](references/probe-contract.md) — what the probe emits section-by-section, which gate each section feeds, and the parameterizable surface (expected repo/branch/commit, foundations, packages, toolchain).
-- [references/enforcement-gates.md](references/enforcement-gates.md) — **runtime enforcement layer**: the required proof-of-compliance artifact at each of the eight gates; protocol-violation detection (advancing past a NO without a re-run).
-- [scripts/preflight_probe.sh](scripts/preflight_probe.sh) — the read-only evidence probe. Foreign, repo-specific tokens are lifted into an overridable config block; nothing is written except the log. `bash scripts/preflight_probe.sh`.
-- [scripts/evaluate_preflight.py](scripts/evaluate_preflight.py) — deterministic gate evaluator: parse a probe log (+ optional expected contract), emit per-gate verdicts, the red-line check, the readiness report, and the single next action. `python3 scripts/evaluate_preflight.py <log> [--expected <contract>] [--strict]`.
-- [schemas/preflight-report.schema.json](schemas/preflight-report.schema.json) — the readiness-report contract (Draft 2020-12); worked example in [schemas/preflight-report.example.json](schemas/preflight-report.example.json).
-- [schemas/expected-contract.schema.json](schemas/expected-contract.schema.json) — the optional expected-repo blueprint (identity, foundations, packages, toolchain) that verified evidence overrides.
+- [references/preflight-pipeline.md](references/preflight-pipeline.md) — the eight-gate contract: per-gate autofix action vs blocker criteria, the fail-open loop, and the verdict vocabulary.
+- [references/probe-contract.md](references/probe-contract.md) — probe section → gate map; the auto-detected, ecosystem-neutral parameterizable surface (`PROBE_ECOSYSTEM`/`PROBE_PACKAGES`/`PROBE_FOUNDATIONS`).
+- [references/enforcement-gates.md](references/enforcement-gates.md) — **runtime enforcement layer**: completeness + audit (every gate ran; every autofix logged + reversible; every blocker carries evidence + remediation); protocol-violation detection.
+- [scripts/preflight_probe.sh](scripts/preflight_probe.sh) — the read-only evidence probe (auto-detects ecosystem; writes only a log). `bash scripts/preflight_probe.sh`.
+- [scripts/evaluate_preflight.py](scripts/evaluate_preflight.py) — deterministic classifier: probe log (+ optional contract/baseline) → verdicts + autofix plans + genuine blockers. `python3 scripts/evaluate_preflight.py <log> [--expected C] [--baseline B]`.
+- [scripts/remediate.py](scripts/remediate.py) — the fail-open loop + safe autofix executor. `python3 scripts/remediate.py [REPO] [--expected C] [--dry-run] [--no-fix-code]`.
+- [schemas/blocker-report.schema.json](schemas/blocker-report.schema.json) — the machine-readable deliverable (genuine blockers + autofix summary); example in [schemas/blocker-report.example.json](schemas/blocker-report.example.json).
+- [schemas/autofix-log.schema.json](schemas/autofix-log.schema.json) — the reversible-action audit trail.
+- [schemas/preflight-report.schema.json](schemas/preflight-report.schema.json) — the evaluate-mode report (per-gate verdicts + autofix plans); example in [schemas/preflight-report.example.json](schemas/preflight-report.example.json).
+- [schemas/expected-contract.schema.json](schemas/expected-contract.schema.json) — the optional blueprint that verified evidence overrides.
 - [scripts/validate_exemplary_skill.py](scripts/validate_exemplary_skill.py) — deterministic exemplary-tier gate for this skill itself.
 
 ## Exemplary Provenance & Self-Improvement
 
-Compiled through the L9 exemplary pipeline: `parse_source → extract_expertise → compress_expertise → design_skill → run_exemplary_gate → package`. The compressed intelligence layer ships as auditable artifacts, not prose:
+Compiled through the L9 exemplary pipeline: `parse_source → extract_expertise → compress_expertise → design_skill → run_exemplary_gate → package`. The compressed intelligence layer ships as auditable artifacts:
 
 - [expertise_model.yaml](expertise_model.yaml) — experts, doctrine, invariants, authority hierarchy, activation/reject signals, adapters, failure modes, leverage points (the `extract_expertise` / `compress_expertise` output).
 - [skill_intelligence_report.yaml](skill_intelligence_report.yaml) — activation model (measured specificity + false-positive-risk), authority model, expert heuristics, evidence hierarchy, `exemplary_gate` results, tier decision.
 - Deterministic gate: [scripts/validate_exemplary_skill.py](scripts/validate_exemplary_skill.py) — `tier: exemplary` is claimed only because this validator passes. Reference to `enforcement-gates` is mandatory and lives in [references/enforcement-gates.md](references/enforcement-gates.md).
 
-**After-use improvement hook** — capture ONLY when the user reports a bad verdict or asks to iterate: `false_ready` (declared ready but wasn't), `false_block` (blocked on evidence that was actually fine), `missed_unknown_file`, or `misclassified_baseline` (called a new failure existing or vice-versa). Feed captures back into the gate logic in `scripts/evaluate_preflight.py` and the taxonomy in `references/preflight-pipeline.md`.
+**After-use improvement hook** — capture ONLY when the user reports a bad result or asks to iterate: `false_blocker` (reported a blocker that was autofixable), `unsafe_autofix` (auto-applied something that wasn't safe/reversible), `missed_ecosystem` (a language not detected), or `non_termination` (loop didn't converge). Feed captures back into the autofix allow-list in `scripts/remediate.py` and the gate logic in `scripts/evaluate_preflight.py`.
 
 ## Validation
 
-Before declaring a verdict: the probe log is complete (all sections + `PROBE COMPLETE`); every gate carries evidence or a labeled `Unknown`; no red line is tripped for a `ready` verdict; the readiness report validates against `schemas/preflight-report.schema.json`; and for this skill itself, `scripts/validate_exemplary_skill.py` passes.
+Before delivery: the run completes and emits `blocker-report.json` + `autofix-log.json`; every applied autofix is on the allow-list and reversible; every genuine blocker carries class, severity, evidence, why-not-autofixable, and remediation; the reports validate against their schemas; and for this skill itself, `scripts/validate_exemplary_skill.py` passes.
 
 ## Failure Handling
 
-State the exact blocking gate and its taxonomy class; label missing/unverifiable facts `Unknown`; never fabricate identity, a clean worktree, or a passing baseline; provide the smallest safe next action; if a red line cannot be satisfied, deliver the verdict as `blocked` with the specific red line and remediation target — never present a red-lined checkout as `ready`.
+Nothing halts. If an autofix cannot be applied it is recorded as skipped and the underlying condition is reported as a blocker with remediation; if the probe cannot run at all, exit 2 with the reason. Never fabricate identity, a clean tree, or a passing baseline; never present a repo with genuine blockers as ready. The report — not a stop — is always the deliverable.

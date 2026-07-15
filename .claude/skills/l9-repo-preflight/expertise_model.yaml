@@ -3,83 +3,83 @@
 # parent: l9-repo-preflight
 # layer: reference
 # role: expertise_model
-# tags: [preflight, probe, readiness-gate, git-hygiene, baseline, expertise, exemplary]
+# tags: [preflight, fail-open, autofix, remediation, blockers, ecosystem-neutral, exemplary]
 # owner: igor_beylin
 # status: active
-# version: 1.0.0
+# version: 2.0.0
 # updated: 2026-07-15
 # Purpose: Compressed judgment extracted from the 10X Repository Preflight Decision
-# Tree and the read-only probe, filtered through the L9 fail-closed doctrine.
-# Consumed by scripts/validate_exemplary_skill.py.
+# Tree, re-cast as a FAIL-OPEN remediation engine (never halt; maximum safe autofix;
+# report only genuine blockers). Consumed by scripts/validate_exemplary_skill.py.
 
 expertise_model:
   experts:
-    - repo-forensics (identity: right repo/branch/commit, remotes, divergence, detached HEAD)
-    - worktree-hygiene (tracked vs generated vs unknown; gitignore diagnostics; safe cleanup)
-    - toolchain-conformance (python/pkg-mgr/test-tools vs contract; repo-defined tooling wins)
-    - build-and-install (declared install path, editable installs, importability, repo-vs-env faults)
-    - baseline-validator (pytest/mypy/ruff/schema; existing-vs-new failure classification)
+    - repo-forensics (identity, remotes, divergence; detect the ecosystem from evidence)
+    - worktree-hygiene (tracked vs generated vs unknown; safe remove/ignore; keep dependency dirs)
+    - toolchain-conformance (python + node; runtime present; install declared/pinned tools)
+    - build-and-install (editable install / npm ci; importability / node_modules)
+    - baseline-remediator (lint/format auto-fix; existing-vs-new failure classification)
 
   doctrine:
-    - Gather evidence with a read-only probe before answering any gate; never assert from memory.
-    - Verified repository evidence outranks the blueprint; when they disagree, the blueprint is wrong.
-    - Never continue with unknown files; unidentified untracked content is a hard stop.
-    - Never continue if the baseline cannot be reproduced; an irreproducible baseline is a stop.
-    - Never modify code until repository facts (gates 1-3) are verified.
-    - Adapt the blueprint to verified evidence; never reshape the repo to satisfy an assumption.
-    - Every NO loops back through Fix -> Re-run Probe -> Verify -> Continue; no gate is waved through.
-    - Classify every failure as existing (record, may be non-blocking) or new (stop and fix first).
-    - Autofix only safe non-code hygiene and install; unknown files, code, and baselines are off-limits.
-    - Resolve the smallest blocker first, then re-run; do not batch speculative fixes.
+    - Never halt; every run walks all eight gates to completion and emits a report (fail-open).
+    - Apply every fix on the safe+reversible allow-list automatically (maximum autofix).
+    - Report ONLY what cannot be safely auto-resolved, in machine-readable detail, for downstream.
+    - Verified repository evidence outranks the blueprint; a foreign expectation is adapt, not failure.
+    - Auto-detect the ecosystem; never bake in a language or package name; a missing tool is skipped.
+    - Removing is for throwaway artifacts; dependency dirs (node_modules) are kept and only ignored.
+    - Format/lint autofix runs only on a clean tree; its output is tool-owned and git-reversible.
+    - Adapt a wrong blueprint by writing a NEW contract file; never overwrite the user's input.
+    - Classify baseline failures: lint/format autofixable, existing recorded, only new ones blocker.
+    - Every applied action is logged and reversible; nothing off the allow-list is ever auto-applied.
 
   invariants:
-    - an unknown untracked file present => verdict NOT READY (Golden Rule 1)
-    - a baseline that will not reproduce => verdict NOT READY (Golden Rule 2)
-    - repository identity unverified => no code mutation permitted (Golden Rule 3)
-    - a foundation missing but not expected here => adapt the blueprint, never fail the repo (Golden Rule 4)
-    - repo already defines a tool/version => follow it, never replace it
-    - the probe is re-run after every fix; gates are never verified from stale evidence
-    - existing baseline failures are recorded with evidence, never hidden or "fixed" to pass
-    - a new failure introduced after evidence-verification blocks until fixed
-    - unverifiable facts are labeled Unknown, never fabricated as pass
-    - autofix never touches an unknown file, tracked code, or a validation baseline
+    - the run never halts; run_completed is always true
+    - an unknown-provenance untracked file is a genuine blocker, never auto-deleted
+    - user tracked/staged edits are genuine blockers, never auto-reverted
+    - only safe, reversible actions on the allow-list are auto-applied
+    - node_modules and other dependency dirs are kept (ignored), never removed
+    - format/lint autofix runs only when the tree has no pre-existing user tracked edits
+    - an adapted blueprint is written to a new file; the input is never overwritten
+    - a missing ecosystem runtime or a new type/test failure is a genuine blocker
+    - every genuine blocker carries class, severity, evidence, why-not-autofixable, and remediation
+    - the loop terminates at a fixpoint (no new autofix) or the max-iteration cap
 
   authority_hierarchy:
     - security_safety_legal > verified_evidence
     - verified_evidence > explicit_expected_contract
     - explicit_expected_contract > blueprint_assumptions
     - blueprint_assumptions > convenience_speed
-    - unknown > fabrication (fail closed; stop and report)
+    - unknown > fabrication (report as a blocker; never invent)
 
   activation_signals:
-    - user asks to preflight a repo, run the probe, or verify a checkout before starting work
-    - user references the preflight decision tree, the eight gates, or the repository probe
-    - user wants to confirm worktree cleanliness, baseline reproducibility, or toolchain match
-    - user asks whether it is safe to build/implement on the current repo/branch/commit
-    - user wants a readiness verdict + the single next action gating implementation
+    - user asks to preflight, auto-remediate, or clean a repo before starting work
+    - user wants a machine-readable list of genuine blockers for downstream remediation
+    - user references the preflight decision tree, the probe, or the eight gates
+    - user wants maximum autofixing that never stops the run
+    - user asks whether a checkout (python or node) is safe to build on, with fixes applied
 
   reject_signals:
-    - user asks to implement a feature or change code (preflight gates it; it is not the work itself)
-    - no repository/checkout is available to probe (nothing to gather evidence from)
-    - user wants to force-pass a red line (continue with unknown files or an unreproducible baseline)
-    - request is to reshape the repo to match a blueprint (inverts Golden Rule 4)
-    - user wants human prose advice only, not a machine-evaluated gate result
+    - user asks to implement a feature or change product code (preflight only gates + auto-hygiene)
+    - no repository/checkout is available to probe
+    - user wants a hard fail-closed gate that stops on the first problem (this engine never halts)
+    - user wants unsafe mutations (delete unknown files, revert their edits) done automatically
+    - user wants human prose advice only, not a machine-evaluated, auto-remediated result
 
   adapters:
-    - "src-layout package repo -> expect src/<pkg>, editable install, import checks; foundations = pyproject+src+tests."
-    - "non-src scripts/governance repo (this repo) -> Python under .github/scripts; no src/ or AGENTS.md expected; foundations = pyproject+tests+schemas; missing src => adapt, not fail."
-    - "greenfield/near-empty repo -> most foundations absent-and-expected-absent; record Unknowns; never fabricate a baseline."
+    - "python repo -> ruff/mypy/pytest, pip install, editable install, importability checks."
+    - "node/typescript repo -> eslint/tsc/prettier, npm ci, node_modules; no Python import is attempted."
+    - "polyglot / unknown repo -> run only the tools that exist; skip the rest; never a false failure."
 
   failure_modes:
-    - "unknown-file-waved: continuing past an unidentified untracked file -> red line, NOT READY until identified."
-    - "blueprint-forced: failing gate 4/5 because the repo lacks a foreign assumption -> adapt the blueprint instead."
-    - "baseline-misclass: calling a new failure existing (or vice-versa) -> compare against recorded baseline; new blocks."
-    - "stale-gate: verifying a gate from a pre-fix probe log -> re-run the probe after every fix."
-    - "tooling-replace: swapping a repo-defined tool/version -> follow the repository; record a blocker, do not replace."
+    - "false-blocker: reporting an autofixable condition as a blocker -> classify against the allow-list."
+    - "unsafe-autofix: auto-applying a non-reversible change -> allow-list only; unknown/code are blockers."
+    - "dep-dir-deleted: removing node_modules as if a cache -> keep dependency dirs; ignore, don't remove."
+    - "wrong-ecosystem: probing a Node repo for a Python import -> auto-detect; empty packages on non-Python."
+    - "non-termination: the loop never converges -> fixpoint detection + max-iteration cap."
 
   leverage_points:
-    - Read-only probe: one evidence pass feeds all eight gates; no repeated ad-hoc inspection.
-    - Deterministic evaluate_preflight.py: turns the decision tree into a check with verdicts, not prose.
-    - Evidence-over-blueprint rule: a foreign blueprint never produces a false failure on a real repo.
-    - Existing-vs-new baseline split: a known-red repo is still preflightable; only regressions block.
-    - Single-next-action output: collapses a NO into the one smallest fix, then re-runs — high-velocity convergence.
+    - Fail-open loop: every run finishes with an actionable report; no dead ends.
+    - Safe+reversible allow-list: aggressive autofix without ever risking user work.
+    - Ecosystem auto-detection: one skill preflights python and node with no per-repo config.
+    - Genuine-blockers-only output: downstream sees the short, real list, not noise.
+    - Reversible autofix log: every mutation is auditable and undoable.

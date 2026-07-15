@@ -42,27 +42,31 @@ The probe ([scripts/preflight_probe.sh](../scripts/preflight_probe.sh)) is **rea
 | `FINAL CLEANLINESS` | 3 | end-of-probe status + `FINAL_HEAD` |
 | `PROBE COMPLETE` | 1 | completion marker (its absence fails Gate 1) |
 
-## The parameterizable surface (evidence overrides blueprint)
+## The auto-detected, ecosystem-neutral surface
 
-The probe carries a small config block of **repo-specific tokens** — the only thing that changes between repos. They are a **hypothesis**, not a spec; verified evidence overrides them (Golden Rule 4).
+The probe **auto-detects repo shape** — no language or package name is baked in. Each token defaults to what the checkout actually contains, and is env-overridable. They are a **hypothesis**; verified evidence overrides them (adapt, not fail).
 
-| Token | Meaning | Default (this repo) |
+| Token | Meaning | Default (auto-detected) |
 |---|---|---|
-| `PROBE_PACKAGES` | importable packages to check | `l9_bootstrap` |
-| `PROBE_KEY_PATHS` | key dirs to inventory in KEY FILE PRESENCE | `.github/scripts .github/scripts/l9_bootstrap tests schemas .github/workflows` |
-| `PROBE_FOUNDATIONS` | foundations Gate 4 expects | `pyproject.toml tests schemas` |
+| `PROBE_ECOSYSTEM` | language ecosystems present | `node` / `python` / `go` / `rust` from marker files |
+| `PROBE_PACKAGES` | importable **Python** packages to check | dirs with `__init__.py` — **empty on non-Python repos** |
+| `PROBE_KEY_PATHS` | source dirs to inventory + scan | the subset of `src lib app cmd pkg packages apps .github/scripts tests schemas` that exist |
+| `PROBE_FOUNDATIONS` | foundations Gate 4 expects | the language markers present (`package.json` / `pyproject.toml` / `go.mod` / … + `tests`) |
 
 Override per repo via environment variables, e.g.:
 
 ```bash
-PROBE_PACKAGES="my_pkg my_other_pkg" \
-PROBE_FOUNDATIONS="pyproject.toml src tests" \
-bash scripts/preflight_probe.sh
+PROBE_PACKAGES="my_pkg" PROBE_FOUNDATIONS="pyproject.toml src tests" \
+  bash scripts/preflight_probe.sh
 ```
 
-### Why parameterized, not hardcoded
+### Why auto-detected, not hardcoded
 
-The source probe was authored against a different repo (an `src/`-layout service with packages `l9_ops_mcp` / `l9_action_governor`). This repo (`l9-ci-core`) has **no `src/`**, keeps Python under `.github/scripts/` (sole package `l9_bootstrap`), and has no `AGENTS.md` or `Makefile`. Hardcoding the foreign tokens would make Gate 4/5 report false failures on every run. Lifting them into an overridable block lets the **same probe** run anywhere, and lets the evaluator treat a foreign expectation that the repo does not meet as an `adapt` (fix the blueprint), never a `blocked` (fail the repo).
+The source probe was authored against a Python `src/`-layout repo and hardcoded that repo's package names. On a **TS/Node repo** those tokens are simply wrong — probing for a Python package that cannot exist. Auto-detection removes every baked-in name: a Node repo yields `PROBE_ECOSYSTEM=node`, **empty** `PROBE_PACKAGES` (no Python import attempted), and `package.json` foundations; a Python repo yields its real packages and `pyproject.toml`. Gates 5–7 and the autofix actions then dispatch per ecosystem (ruff/mypy/pytest + pip for Python; eslint/tsc/prettier + npm for Node). A foreign expectation the repo does not meet is `adapt`, never a false failure.
+
+## Work products live under `.preflight/`
+
+`remediate.py` writes probe logs, the `blocker-report.json`, and the `autofix-log.json` under `.preflight/`, which it adds to `.git/info/exclude` (local, no tracked-file mutation) so the tool never pollutes the worktree it measures. The probe's own `repo-preflight-*.log` is classified as a generated artifact, never an unknown file.
 
 ## The expected contract (optional, for Gate 2/4/5)
 

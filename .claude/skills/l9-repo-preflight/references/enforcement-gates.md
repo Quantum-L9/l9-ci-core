@@ -3,51 +3,45 @@ l9_schema: 1
 parent: l9-repo-preflight
 layer: reference
 role: enforcement_gates
-tags: [preflight, enforcement, gates, proof-of-compliance, protocol-violation]
+tags: [preflight, fail-open, enforcement, audit, autofix, blockers]
 owner: igor_beylin
 status: active
-version: 1.0.0
+version: 2.0.0
 updated: 2026-07-15
 /L9_META -->
 
-# Enforcement Gates (runtime proof-of-compliance)
+# Enforcement Gates (completeness + audit, not halting)
 
-The pipeline advances only when each step deposits its **gate artifact** — machine-checkable evidence that the step actually ran on real repository facts. A step with no artifact is **not done**; advancing past it is a **protocol violation**. This is the layer that stops the pipeline from being narrated instead of executed.
+The engine is fail-open, so enforcement is not "stop on a violation" — it is **prove the run was complete, every autofix was safe and logged, and every genuine blocker is actionable.** A run that skips a gate, applies an unsafe fix, or emits a bare blocker is non-compliant.
 
 ## The gate artifacts
 
-| Gate | Step | Required artifact | Blocks advance when |
-|------|------|-------------------|---------------------|
-| A | Run probe | a timestamped probe log ending in `PROBE COMPLETE`, with every section marker present | log truncated, missing sections, or no completion marker |
-| B | Extract expertise (exemplary builds) | `expertise_model.yaml` + `skill_intelligence_report.yaml` present and cap-valid | intelligence model missing or incomplete |
-| C | Evaluate gates | a readiness report (`schemas/preflight-report.schema.json`) with a verdict per gate 1–8 | any gate has verdict `Unknown` with no evidence |
-| D | Classify failures | each NO tagged with a taxonomy class and an existing-vs-new label | a failure is unclassified, or a new failure is mislabeled existing |
-| E | Remediate | the single next action recorded, and for autofix the exact command applied | a hard-stop was autofixed, or code/unknown-file was touched |
-| F | Re-run probe | a **new** probe log post-dating the last fix | a gate is re-evaluated from a stale (pre-fix) log |
-| G | Emit readiness | `ready: true` only with gates 1–7 `pass` and zero red lines tripped | `ready` claimed with any red line or non-pass gate |
+| Gate | Step | Required artifact | Non-compliant when |
+|------|------|-------------------|--------------------|
+| A | Run probe | a probe log ending in `PROBE COMPLETE`, all sections present | log truncated / missing sections |
+| B | Extract expertise (exemplary builds) | `expertise_model.yaml` + `skill_intelligence_report.yaml`, cap-valid | intelligence model missing/incomplete |
+| C | Evaluate gates | a report with a verdict per gate 1–8 + autofix plans + genuine blockers | any gate `Unknown` with no evidence |
+| D | Apply autofixes | an `autofix-log.json` entry per action: gate, command, result, `reversible:true` | an action off the allow-list, or not reversible |
+| E | Re-probe | a **new** probe log post-dating the last fix | a gate re-evaluated from a stale log |
+| F | Fixpoint | the loop stopped because no new autofix applied (or `--max-iters`) | the loop ran without converging or a cap |
+| G | Emit report | `blocker-report.json` with `run_completed:true`; each blocker has class, severity, evidence, why-not-autofixable, remediation | a blocker missing evidence or remediation |
 
 ## Protocol-violation detection
 
-A run is **non-compliant** — halt and report — if any of these are observed:
+A run is **non-compliant** — report it — if any of these hold:
 
-1. **Stale-gate advance.** A gate verdict cites a probe log older than the most recent remediation. Every fix invalidates the prior log; re-run first.
-2. **Waved unknown.** Gate 3 reports an `unknown`-class untracked file and the verdict is still `ready`. Golden Rule 1 is absolute.
-3. **Manufactured baseline.** Gate 7 reports `ready` without a reproduced baseline, or a `new` failure was relabeled `existing` to pass. Golden Rule 2.
-4. **Blueprint-forced failure.** Gate 4/5 is `blocked` solely because the repo lacks a blueprint assumption that is not actually expected here. Golden Rule 4 — this must be `adapt`, not `blocked`.
-5. **Premature mutation.** Any tracked-code edit before gates 1–3 pass. Golden Rule 3.
-6. **Autofix overreach.** Autofix modified an unknown file, tracked code, or a validation baseline. Autofix is fenced to safe non-code hygiene + install only.
+1. **Unsafe autofix.** An applied action is not on the allow-list, or mutated an unknown file, tracked code (beyond mechanical format/lint), or a validation baseline. The allow-list is absolute.
+2. **Dependency dir deleted.** `node_modules` (or another dependency dir) was removed instead of ignored.
+3. **Bare blocker.** A genuine blocker was emitted without evidence or without a remediation (owner + steps).
+4. **False blocker.** A condition on the autofix allow-list was reported as a blocker instead of being fixed.
+5. **Stale-gate evaluation.** A verdict cites a probe log older than the most recent remediation.
+6. **Blueprint-forced failure.** Gate 4/5/6 emitted `blocker` solely because the repo lacks a blueprint assumption that is not actually required here — it must be `adapt`.
+7. **Halt.** The run stopped before emitting a report. The engine is fail-open; `run_completed` must be true.
 
-## Verdict vocabulary
+## Verdict + severity vocabulary
 
-Every gate resolves to exactly one of:
+Gates resolve to `clear` / `autofixable` / `adapt` / `blocker`. Genuine blockers are severity-ranked `critical` > `high` > `medium`, each with `why_not_autofixable` and a `remediation` (owner ∈ {human, downstream-agent}, steps, commands, optional reversible `auto_option`). `ready_after_remediation` is the whole-run verdict: true iff `blocker_count == 0`.
 
-- `pass` — evidence satisfies the PASS condition.
-- `blocked` — a failure whose class requires a stop-and-fix before advancing.
-- `confirm` — evidence is present but cannot be judged without an expected contract or a human (e.g. "is this the right repo?"). Not `pass`, not a red line — a required confirmation.
-- `adapt` — the blueprint is wrong for this repo; update the blueprint/contract, do not fail the repo (gates 4/5).
+## The loop is the enforcement
 
-`ready` is the whole-pipeline verdict, true only when gates 1–7 are `pass` (a `confirm` must be resolved to `pass` first) and no red line is tripped.
-
-## The loop is mandatory
-
-Every NO returns through `Fix → Re-run Probe → Verify → Continue`. There is no path that verifies a gate without a fresh probe behind it. The enforcement layer exists to make that loop non-optional: the artifact for Gate F is a probe log newer than the fix, and Gate C may only cite the newest log.
+Every fix re-enters through a fresh probe (Gate E's artifact is a log newer than the fix), and evaluation may only cite the newest log. Fail-open does not mean unbounded: Gate F requires a fixpoint or the iteration cap, and Gate D requires every action to be reversible and logged. Aggressive autofix is safe precisely because the allow-list and the audit log are enforced here.
