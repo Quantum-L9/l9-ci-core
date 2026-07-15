@@ -6,7 +6,7 @@ role: quality_gates
 tags: [dpk, scoring, readiness, red-lines, handoff]
 owner: igor_beylin
 status: active
-version: 1.0.0
+version: 1.0.1
 updated: 2026-07-15
 /L9_META -->
 
@@ -45,6 +45,17 @@ Any one of these zeroes the cumulative score regardless of other categories:
 2. **No machine-executable rollback target** (absent or not dry-runnable).
 3. **No evaluation suite** mapping a non-deterministic AI feature (each `prompts.*` / model role must reference a resolving `eval_suite`/`eval_baseline`).
 4. **Broken alert→runbook link** (any `alert.runbook` path does not resolve to a real file).
+
+## Library / SDK Adapter (red-line interpretation)
+
+DPK-1.0 red-lines are service-centric. For a **library/SDK** (`repository.type: library`) map them to the packaging equivalents — the red line still holds, only its evidence changes:
+
+- **Ops owner** → the package **maintainer / owning team** (still required; `Unknown` fails).
+- **Rollback** → a **version pin/yank** target (`npm dist-tag` + `npm deprecate`, or a yanked release) that is real and dry-runnable, plus a **golden-parity gate** as the safety net.
+- **Eval suite** → N/A when the library is deterministic (no non-deterministic AI feature); the parity/golden-vector suite is the equivalent proof.
+- **Alert→runbook** → a **CI parity-failure signal** (cross-language vector mismatch) routed to a documented response, in place of a production page.
+
+A library that leaves the maintainer or rollback target `Unknown` is still `blocked` — the decision is undocumented, not absent-by-nature.
 
 ## Verdict
 

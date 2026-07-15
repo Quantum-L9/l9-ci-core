@@ -38,6 +38,23 @@ WEIGHTS = {
     "transition_clarity": 15,
 }
 
+# A red-line value that is a placeholder does NOT satisfy the red line. A pack
+# that declares its ops owner or rollback command as Unknown/TBD/<...> is not
+# operable — the decision is simply undocumented.
+_PLACEHOLDERS = {"", "unknown", "tbd", "todo", "none", "n/a", "na", "?", "fixme"}
+
+
+def _is_real(value: Any) -> bool:
+    """True when value is a concrete decision, not a placeholder."""
+    if not isinstance(value, str):
+        return bool(value)
+    stripped = value.strip()
+    if stripped.lower() in _PLACEHOLDERS:
+        return False
+    if "<" in stripped and ">" in stripped:  # <PINNED_VERSION>, <prev>, ...
+        return False
+    return bool(stripped)
+
 
 def _load_yaml(path: Path) -> Any:
     """Parse YAML when PyYAML is present; else return None (callers text-scan)."""
@@ -82,7 +99,7 @@ def _rollback_present(root: Path, manifest: Any) -> bool:
     if isinstance(manifest, dict):
         dep = manifest.get("deployment", {})
         if isinstance(dep, dict) and isinstance(dep.get("rollback"), dict):
-            if dep["rollback"].get("command"):
+            if _is_real(dep["rollback"].get("command")):
                 return True
     if _first_existing(root, "scripts/rollback", "scripts/rollback.sh", "ops/rollback.sh"):
         return True
@@ -158,9 +175,10 @@ def evaluate(root: Path) -> dict[str, Any]:
     ops_owner = False
     if isinstance(manifest, dict):
         own = manifest.get("ownership", {})
-        ops_owner = bool(isinstance(own, dict) and str(own.get("operational_owner", "")).strip())
+        ops_owner = bool(isinstance(own, dict) and _is_real(own.get("operational_owner", "")))
     elif manifest_text:
-        ops_owner = bool(re.search(r"operational_owner:\s*\S", manifest_text))
+        m = re.search(r"operational_owner:\s*(.+)", manifest_text)
+        ops_owner = bool(m and _is_real(m.group(1).split("#", 1)[0]))
 
     rollback = _rollback_present(root, manifest)
 

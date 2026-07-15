@@ -7,7 +7,7 @@ role: skill_entrypoint
 tags: [l9, devpack, dpk, handoff, agent-operable, control-plane, execution-package, exemplary]
 owner: igor_beylin
 status: active
-version: 1.0.0
+version: 1.0.1
 updated: 2026-07-15
 sources:
   - Developer Pack Kernel (DPK-1.0)
