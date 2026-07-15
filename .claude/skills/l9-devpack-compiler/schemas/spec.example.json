@@ -1,0 +1,389 @@
+{
+  "spec_version": "1.0",
+  "meta": {
+    "id": "l9-ci-core",
+    "name": "L9 CI Core / Control Plane",
+    "kind": "control-plane",
+    "lifecycle": "bootstrap",
+    "criticality": "tier-1",
+    "status": "bootstrap",
+    "description": "Single orchestration control plane for Supabase + pgflow + GitHub Actions + GHCR/ORAS."
+  },
+  "ownership": {
+    "accountable_team": "quantum-ai",
+    "technical_owner": "quantum-ai",
+    "operational_owner": "quantum-ai"
+  },
+  "boundaries": {
+    "owns": [
+      "packet registry",
+      "github dispatch adapter",
+      "callback",
+      "reconciliation policy",
+      "reusable CI workflows"
+    ],
+    "does_not_own": [
+      "RFC 8785 canonicalization (transport SDK)",
+      "repository-model compilation (meta-injector)",
+      "pgflow internal state",
+      "OCI registry internals"
+    ]
+  },
+  "interfaces": {
+    "inbound": [
+      {
+        "name": "submit-task",
+        "type": "http",
+        "contract_ref": "task-declaration",
+        "summary": "OIDC-authed task intake; starts pgflow run"
+      }
+    ],
+    "outbound": [
+      {
+        "name": "packet-publish",
+        "type": "oci-artifact",
+        "summary": "ORAS push to ghcr.io/quantum-l9/l9-packets"
+      }
+    ]
+  },
+  "entities": [
+    {
+      "name": "packet_registry",
+      "purpose": "immutable packet metadata",
+      "key_fields": [
+        "packet_id",
+        "semantic_hash"
+      ],
+      "invariants": [
+        "content stays in OCI/GHCR, not the DB",
+        "unique(packet_type,subject_id,semantic_hash,producer_version)"
+      ]
+    },
+    {
+      "name": "github_stage_correlations",
+      "purpose": "dispatch<->callback correlation",
+      "key_fields": [
+        "stage_id"
+      ],
+      "invariants": [
+        "expired stages are reconciled or dead-lettered"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-1",
+      "statement": "TransportPacket canonicalization is imported from the SDK, never reimplemented here",
+      "scope": "all functions",
+      "enforcement": "verify:transport-runtime"
+    },
+    {
+      "id": "INV-2",
+      "statement": "non-allowlisted repositories are rejected, never dispatched",
+      "enforcement": "dispatch-github-stage test"
+    },
+    {
+      "id": "INV-3",
+      "statement": "unsigned production StageResult is rejected",
+      "enforcement": "stage-callback test"
+    },
+    {
+      "id": "INV-4",
+      "statement": "packet publish requires OCI digest verification, not a zero exit code",
+      "enforcement": "publish-packet action"
+    }
+  ],
+  "commands": [
+    {
+      "name": "bootstrap",
+      "cmd": "scripts/bootstrap-local.sh",
+      "role": "bootstrap",
+      "proves": "deterministic local setup"
+    },
+    {
+      "name": "validate:contracts",
+      "cmd": "npm run validate:contracts",
+      "role": "contract",
+      "proves": "7 schemas meta-validate, ids unique"
+    },
+    {
+      "name": "typecheck",
+      "cmd": "npm run typecheck",
+      "role": "typecheck"
+    },
+    {
+      "name": "test",
+      "cmd": "npm run test",
+      "role": "unit"
+    },
+    {
+      "name": "e2e",
+      "cmd": "tsx scripts/e2e-smoke-test.ts",
+      "role": "e2e",
+      "requires_secrets": true
+    },
+    {
+      "name": "rollback",
+      "cmd": "supabase migration repair --status reverted <v> && re-pin caller workflow ref",
+      "role": "rollback",
+      "proves": "revert path exists"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "task-declaration",
+      "path": "contracts/task-declaration.schema.json",
+      "kind": "json-schema"
+    },
+    {
+      "id": "stage-dispatch",
+      "path": "contracts/stage-dispatch.schema.json",
+      "kind": "json-schema"
+    },
+    {
+      "id": "stage-result",
+      "path": "contracts/stage-result.schema.json",
+      "kind": "json-schema"
+    },
+    {
+      "id": "transport-packet",
+      "path": "transport-packet.schema.json",
+      "kind": "json-schema",
+      "owner_repo": "Quantum-L9/l9-transport-packet"
+    }
+  ],
+  "file_plan": [
+    {
+      "path": ".github/workflows/pr-pipeline.yml",
+      "status": "existing",
+      "purpose": "current reusable CI"
+    },
+    {
+      "path": "contracts/*.schema.json",
+      "status": "extract",
+      "purpose": "7 pipeline schemas from prior outputs",
+      "contract_ref": "task-declaration"
+    },
+    {
+      "path": "supabase/migrations/",
+      "status": "build",
+      "purpose": "L9-owned tables + RPC + reconciliation"
+    },
+    {
+      "path": "supabase/migrations/0005_pgflow_install.sql",
+      "status": "adapt",
+      "purpose": "pinned pgflow install",
+      "open_decision_refs": [
+        "OD-1"
+      ]
+    },
+    {
+      "path": "src/registry/supersession.ts",
+      "status": "deferred",
+      "purpose": "packet supersession (post-bootstrap)"
+    }
+  ],
+  "domains": [
+    {
+      "name": "reusable_workflows",
+      "paths": [
+        ".github/workflows/"
+      ],
+      "purpose": "org-shared CI",
+      "owner": "quantum-ai",
+      "public_surface": true,
+      "status": "existing"
+    },
+    {
+      "name": "control_plane",
+      "paths": [
+        "contracts/",
+        "supabase/",
+        "flows/",
+        "actions/",
+        "src/"
+      ],
+      "purpose": "packet pipeline",
+      "owner": "quantum-ai",
+      "status": "build",
+      "invariants": [
+        "no source mutation",
+        "no direct main push"
+      ]
+    }
+  ],
+  "constraints": {
+    "prohibited_in_logs": [
+      "github_app_private_key",
+      "supabase_service_role_key",
+      "transport_signing_private_key"
+    ],
+    "governance": {
+      "source_mutation": false,
+      "direct_main_push": false,
+      "persistent_pat": "prohibited"
+    },
+    "auth": {
+      "workflow_to_control_plane": "github_oidc",
+      "control_plane_to_github": "github_app",
+      "packet_signing": "ed25519"
+    },
+    "allowlists": {
+      "repositories": [
+        "Quantum-L9/l9-ci-core",
+        "Quantum-L9/l9-meta-injector",
+        "Quantum-L9/l9-transport-packet"
+      ]
+    }
+  },
+  "environment": {
+    "runtime": "node@22 + deno + Supabase CLI + Postgres 15",
+    "package_manager": "pnpm",
+    "services": [
+      "supabase",
+      "pgmq",
+      "pg_cron",
+      "pg_net",
+      "pgflow"
+    ],
+    "bootstrap": "scripts/bootstrap-local.sh",
+    "setup_notes": "npx pgflow@0.14.1 install; supabase start; migrations apply twice (idempotent)"
+  },
+  "credentials": [
+    {
+      "name": "GITHUB_APP_ID",
+      "purpose": "GitHub App auth",
+      "source": "supabase-secret",
+      "required": true
+    },
+    {
+      "name": "GITHUB_APP_PRIVATE_KEY",
+      "purpose": "App JWT signing",
+      "scope": "least-privilege",
+      "source": "supabase-secret",
+      "required": true
+    },
+    {
+      "name": "TRANSPORT_SIGNING_PRIVATE_KEY",
+      "purpose": "Ed25519 packet signing",
+      "source": "supabase-secret",
+      "required": true
+    }
+  ],
+  "deployment": {
+    "environments": [
+      "local",
+      "production"
+    ],
+    "rollback": {
+      "strategy": "composite",
+      "command": "scripts/rollback.sh --to $TARGET_REF",
+      "verified": false
+    }
+  },
+  "observability": {
+    "alerts": [
+      {
+        "name": "StageCallbackExpired",
+        "severity": "ticket",
+        "signal": "expired_correlations",
+        "condition": "> 0 for 15m",
+        "runbook_ref": "docs/runbooks/stage-callback-expired.md",
+        "rollback_candidate": false
+      }
+    ]
+  },
+  "work_queue": [
+    {
+      "phase": "1-repository-foundation",
+      "exit_criteria": [
+        "package + contracts + supabase dirs + AGENTS.md present; nothing deployed"
+      ],
+      "validation": [
+        "validate:contracts"
+      ]
+    },
+    {
+      "phase": "2-local-supabase",
+      "depends_on": [
+        "1-repository-foundation"
+      ],
+      "exit_criteria": [
+        "supabase start; migrations apply twice; queues exist; pgflow flow starts"
+      ]
+    },
+    {
+      "phase": "5-github-dispatch",
+      "depends_on": [
+        "2-local-supabase"
+      ],
+      "exit_criteria": [
+        "allowlisted repo accepted; non-allowlisted rejected; correlation stored"
+      ]
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "DOD-1",
+      "statement": "A GitHub event creates exactly one task",
+      "verify_command": "tsx scripts/e2e-smoke-test.ts"
+    },
+    {
+      "id": "DOD-2",
+      "statement": "No PAT exists in the system"
+    }
+  ],
+  "stop_conditions": [
+    "no PAT anywhere (persistent_pat: prohibited)",
+    "no DB creds or App private key in compiler repos",
+    "a non-allowlisted repository must be rejected, not dispatched",
+    "pgflow not installed -> migration guard raises; STOP"
+  ],
+  "open_decisions": [
+    {
+      "id": "OD-1",
+      "question": "exact pinned pgflow install command/version",
+      "options": [
+        "npx pgflow@0.14.1 install"
+      ],
+      "default": "npx pgflow@0.14.1 install",
+      "blocking": true,
+      "owner": "quantum-ai",
+      "affected_paths": [
+        "supabase/migrations/0005_pgflow_install.sql"
+      ]
+    }
+  ],
+  "debt": [
+    {
+      "id": "TD-1",
+      "title": "control plane specified but not built",
+      "target_state": "execute the 8-phase work queue",
+      "status": "accepted",
+      "owner": "quantum-ai"
+    }
+  ],
+  "verification": {
+    "last_verified": "Unknown",
+    "environment": "local",
+    "confidence": "medium",
+    "owner": "quantum-ai"
+  },
+  "authority_order": [
+    "security/safety/legal",
+    "task_contract",
+    "auth-policy + allowlists",
+    "public contracts",
+    "tests + CI",
+    "repo patterns",
+    "Unknown -> stop"
+  ],
+  "provenance": {
+    "sources": [
+      "Build_1.md",
+      "Build_2.md",
+      "Execution_Guide.md"
+    ],
+    "generated_by": "spec-first agent"
+  }
+}

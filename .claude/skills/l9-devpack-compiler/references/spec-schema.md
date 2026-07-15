@@ -1,0 +1,59 @@
+<!-- L9_META
+l9_schema: 1
+parent: l9-devpack-compiler
+layer: reference
+role: spec_schema
+tags: [dpk, spec, intent, machine-readable, no-pseudocode, context-efficient]
+owner: igor_beylin
+status: active
+version: 1.2.0
+updated: 2026-07-15
+/L9_META -->
+
+# Build Spec Schema (machine-readable intent)
+
+## Purpose
+
+The **optimal input** to the compiler is a spec of **facts**, not code. Instead of an agent burning its context window writing file bodies and pseudo-code it will only throw away, it emits a declarative spec — interfaces, invariants, commands, contracts, a file plan, a work queue, stop conditions — plus **first-class open decisions**. The compiler then populates the DPK-1.0 layers directly from those facts. Schema: [`schemas/spec.schema.json`](../schemas/spec.schema.json); worked example: [`schemas/spec.example.json`](../schemas/spec.example.json).
+
+## Zero-stub is for BUILDING; a spec carries open work as DATA
+
+A **stub** is fake content pretending something is done (a placeholder file, a `// TODO` body, `...`). That is banned in a *built* artifact. A **spec** legitimately records what is *not* done — but as structured data, never as a stub:
+
+- unbuilt files → `file_plan[].status: build | extract | adapt | deferred` (path + purpose + contract, **no body**).
+- unresolved choices → `open_decisions[]` (`question`, `options`, `default`, `blocking`, `owner`). A `blocking: true` open decision keeps the pack out of `operable` until resolved.
+- behavior → `interfaces` + `invariants` + `commands` (the contract), **not pseudo-code**.
+
+So: recording "this isn't built yet" as `status`/`open_decisions` is honest and required; writing a placeholder file that *looks* built is the stub the build gate rejects.
+
+## Field → DPK artifact mapping
+
+Every spec block maps to exactly one DPK-1.0 output — this is what "facts populate the manifest / repository-map / execution-package" means:
+
+| Spec field | Populates |
+|---|---|
+| `meta`, `ownership`, `boundaries`, `interfaces`, `deployment` | `.ai/manifest.yaml` (L1) |
+| `domains` | `.ai/repository-map.yaml` (L1) |
+| `constraints` (budgets, prohibited_in_logs, governance, auth, allowlists) | `.ai/constraints.yaml` (L1) |
+| `verification` | L2 verification block on structural docs |
+| `authority_order`, `invariants` (as prohibitions/rules), task scope | `AGENTS.md` + task contracts (L3) |
+| `commands` + `validation_classes` | L4 validation-class table |
+| `observability.alerts[]` (`runbook_ref`) | L5 alert→runbook map |
+| `debt`, `open_decisions` | L6 transition ledger |
+| `environment`, `credentials`, `contracts`, `work_queue`, `commands`, `stop_conditions`, `repository access` | the **execution package** (7 components) |
+| `entities`, `invariants` | repository-map invariants + data-model docs |
+| `file_plan` | the build map (what to create, in what status) — **not** file contents |
+
+## The full fact set
+
+`meta · ownership · boundaries · interfaces · entities · invariants · commands · contracts · file_plan · domains · constraints · environment · credentials · deployment(+rollback) · observability · work_queue · acceptance · stop_conditions · open_decisions · debt · verification · authority_order · provenance`
+
+Beyond the three you named (interfaces / invariants / commands), the compiler also needs: **contracts** (schemas by `$id`+path), **entities** (data model shapes + rules), **file_plan** (paths + build status, no bodies), **domains** (ownership map), **constraints** (budgets, prohibited-in-logs, governance, auth, allowlists), **environment** (runtime, services, bootstrap), **credentials** (env-var names only), **deployment.rollback** (dry-runnable command — the red line), **observability** (alerts + runbook refs), **work_queue** (phases + entry/exit criteria), **acceptance** (definition of done), **stop_conditions**, **open_decisions** (the TODO channel), **debt**, **verification** (commit/env/confidence), **authority_order**, and **provenance**.
+
+## Rules
+
+- Reference contracts by `id`/`path`; never inline schema or code bodies.
+- Credentials are **names only** (`^[A-Z][A-Z0-9_]*$`) — never values.
+- A concrete code snippet in a source spec is mined for the **contract/invariant** it implies; a placeholder/`TODO` snippet becomes an `open_decision` or a `stop_condition`, not a file.
+- A snippet that conflicts with a higher-authority contract (SDK/public schema) is flagged, not enshrined (authority order).
+- Validate a spec against `schemas/spec.schema.json` before compiling; a valid spec compiles to a pack with no invented infrastructure.

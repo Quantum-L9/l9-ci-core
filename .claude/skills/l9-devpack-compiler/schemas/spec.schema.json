@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9.github.io/l9-ci-core/schemas/spec.schema.json",
+  "title": "L9 Build Spec (machine-readable intent)",
+  "description": "The canonical, context-efficient spec an agent emits to describe WHAT to build. It carries declarative facts (interfaces, invariants, commands, contracts, file plan, work queue, stop conditions) plus FIRST-CLASS open_decisions/TODOs. It contains NO code bodies and NO pseudo-code: behavior is expressed as interfaces + invariants + commands, and unbuilt work is recorded as file_plan.status + open_decisions, not as stub files. This is the ideal input to l9-devpack-compiler; each block maps 1:1 to a DPK-1.0 artifact.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["spec_version", "meta", "ownership", "boundaries", "interfaces", "invariants", "commands", "work_queue", "stop_conditions"],
+  "properties": {
+    "spec_version": { "const": "1.0" },
+
+    "meta": {
+      "description": "Populates .ai/manifest.yaml repository{} (DPK Layer 1).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "kind", "lifecycle", "criticality", "description"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["service", "control-plane", "library", "sdk", "ai-service", "job"] },
+        "lifecycle": { "enum": ["production", "beta", "experimental", "bootstrap"] },
+        "criticality": { "enum": ["tier-1", "tier-2", "tier-3"] },
+        "status": { "enum": ["bootstrap", "active", "deprecated"] },
+        "description": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "ownership": {
+      "description": "manifest.ownership (Layer 1). operational_owner is a red line.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accountable_team": { "type": "string" },
+        "technical_owner": { "type": "string" },
+        "operational_owner": { "type": "string" }
+      }
+    },
+
+    "boundaries": {
+      "description": "manifest.boundaries (Layer 1): what this repo owns vs. explicitly does not.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owns", "does_not_own"],
+      "properties": {
+        "owns": { "type": "array", "items": { "type": "string" } },
+        "does_not_own": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "interfaces": {
+      "description": "manifest.interfaces (Layer 1). The contract surface, by reference — never code.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inbound": { "type": "array", "items": { "$ref": "#/$defs/Interface" } },
+        "outbound": { "type": "array", "items": { "$ref": "#/$defs/Interface" } }
+      }
+    },
+
+    "entities": {
+      "description": "Data model facts (tables/records/messages) -> repository-map invariants + docs. No DDL bodies; state the shape and rules.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "purpose"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "purpose": { "type": "string" },
+          "key_fields": { "type": "array", "items": { "type": "string" } },
+          "invariants": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+
+    "invariants": {
+      "description": "Global must-remain-true rules (Layer 1/3). This is how behavior is stated instead of pseudo-code.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "statement": { "type": "string", "minLength": 1 },
+          "scope": { "type": "string" },
+          "enforcement": { "type": "string", "description": "command/test/gate that proves it" }
+        }
+      }
+    },
+
+    "commands": {
+      "description": "Named machine commands (Layer 4 + execution-package.validation_commands). The behavioral contract lives here, not in code.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "cmd"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "cmd": { "type": "string", "minLength": 1 },
+          "role": { "enum": ["bootstrap", "build", "lint", "typecheck", "unit", "contract", "integration", "evaluate", "perf", "resilience", "deploy", "rollback", "e2e", "other"] },
+          "proves": { "type": "string" },
+          "requires_secrets": { "type": "boolean" }
+        }
+      }
+    },
+
+    "contracts": {
+      "description": "Authoritative schemas/APIs/events by id+path (Layer 4, execution-package.authoritative_contracts). Reference, do not inline.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["json-schema", "openapi", "event", "media-type", "proto", "other"] },
+          "owner_repo": { "type": "string", "description": "when the contract is provided by another repo/package" }
+        }
+      }
+    },
+
+    "file_plan": {
+      "description": "Files as FACTS, not contents. Each entry: where it goes, its build status, and the contract it satisfies. NO bodies, NO pseudo-code.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "status", "purpose"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "status": {
+            "description": "existing=present; build=must be built; extract=copy from prior output; adapt=wrap external tool; deferred=out of scope now.",
+            "enum": ["existing", "build", "extract", "adapt", "deferred"]
+          },
+          "purpose": { "type": "string", "minLength": 1 },
+          "contract_ref": { "type": "string", "description": "id of a contracts[] entry it implements" },
+          "open_decision_refs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+
+    "domains": {
+      "description": "Populates .ai/repository-map.yaml (Layer 1).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "paths", "purpose"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "paths": { "type": "array", "items": { "type": "string" } },
+          "purpose": { "type": "string" },
+          "owner": { "type": "string" },
+          "public_surface": { "type": "boolean" },
+          "depends_on": { "type": "array", "items": { "type": "string" } },
+          "invariants": { "type": "array", "items": { "type": "string" } },
+          "status": { "enum": ["existing", "build", "deferred"] }
+        }
+      }
+    },
+
+    "constraints": {
+      "description": "Populates .ai/constraints.yaml (Layer 1) + governance/auth/allowlists.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "budgets": { "type": "object", "additionalProperties": { "type": ["number", "string"] } },
+        "prohibited_in_logs": { "type": "array", "items": { "type": "string" } },
+        "governance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source_mutation": { "type": "boolean" },
+            "direct_main_push": { "type": "boolean" },
+            "persistent_pat": { "enum": ["prohibited", "allowed"] }
+          }
+        },
+        "auth": { "type": "object", "additionalProperties": { "type": "string" } },
+        "allowlists": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repositories": { "type": "array", "items": { "type": "string" } },
+            "workflows": { "type": "array", "items": { "type": "string" } },
+            "actions": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+
+    "environment": {
+      "description": "execution-package.environment_access.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtime": { "type": "string" },
+        "package_manager": { "type": "string" },
+        "services": { "type": "array", "items": { "type": "string" } },
+        "bootstrap": { "type": "string", "description": "single deterministic setup command" },
+        "network_policy": { "type": "string" },
+        "setup_notes": { "type": "string" }
+      }
+    },
+
+    "credentials": {
+      "description": "execution-package.scoped_credentials. NAMES ONLY — never values.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "purpose"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "description": "env var name" },
+          "purpose": { "type": "string" },
+          "scope": { "type": "string" },
+          "source": { "enum": ["gh-actions-secret", "env-settings", "vault", "supabase-secret", "other"] },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+
+    "deployment": {
+      "description": "manifest.deployment (Layer 1). rollback.command is a red line for services.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "environments": { "type": "array", "items": { "type": "string" } },
+        "rollback": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "strategy": { "enum": ["inverse-patch", "blue-green", "image-pin", "version-pin", "migration-down", "workflow-ref-repin", "composite"] },
+            "command": { "type": "string", "description": "dry-runnable" },
+            "verified": { "type": "boolean" }
+          }
+        }
+      }
+    },
+
+    "observability": {
+      "description": "Populates Layer 5 alert->runbook mapping.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "alerts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "runbook_ref"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "severity": { "enum": ["page", "ticket", "info"] },
+              "signal": { "type": "string" },
+              "condition": { "type": "string" },
+              "runbook_ref": { "type": "string", "description": "path to a runbook doc" },
+              "dashboard": { "type": "string" },
+              "rollback_candidate": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+
+    "work_queue": {
+      "description": "execution-package.work_queue: ordered phases with entry/exit criteria. NO code — just gates.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["phase", "exit_criteria"],
+        "properties": {
+          "phase": { "type": "string", "minLength": 1 },
+          "depends_on": { "type": "array", "items": { "type": "string" } },
+          "entry_criteria": { "type": "array", "items": { "type": "string" } },
+          "exit_criteria": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "validation": { "type": "array", "items": { "type": "string" }, "description": "command names from commands[]" }
+        }
+      }
+    },
+
+    "acceptance": {
+      "description": "Definition of done (Layer 4 evidence). Each item is verifiable.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "statement": { "type": "string", "minLength": 1 },
+          "verify_command": { "type": "string" }
+        }
+      }
+    },
+
+    "stop_conditions": {
+      "description": "execution-package.stop_conditions: when to HALT rather than invent.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+
+    "open_decisions": {
+      "description": "FIRST-CLASS TODOs. This is where a spec legitimately carries unfinished work — instead of a stub file or pseudo-code. A blocking open_decision that is unresolved keeps the pack out of `operable`.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "question"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "question": { "type": "string", "minLength": 1 },
+          "options": { "type": "array", "items": { "type": "string" } },
+          "default": { "type": "string" },
+          "blocking": { "type": "boolean" },
+          "owner": { "type": "string" },
+          "affected_paths": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+
+    "debt": {
+      "description": "Populates Layer 6 technical-debt ledger.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Debt" }
+    },
+
+    "verification": {
+      "description": "Layer 2 verification block: what the claims are verified against.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "last_verified": { "type": "string" },
+        "commit": { "type": "string" },
+        "environment": { "type": "string" },
+        "confidence": { "enum": ["high", "medium", "low", "Unknown"] },
+        "owner": { "type": "string" }
+      }
+    },
+
+    "authority_order": {
+      "description": "AGENTS.md conflict cascade (Layer 3). Ordered, highest first.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sources": { "type": "array", "items": { "type": "string" } },
+        "generated_by": { "type": "string" }
+      }
+    }
+  },
+
+  "$defs": {
+    "Interface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["http", "event", "grpc", "reusable-workflow", "library-export", "oci-artifact", "cli", "queue"] },
+        "contract_ref": { "type": "string", "description": "id of a contracts[] entry, or a path" },
+        "summary": { "type": "string" }
+      }
+    },
+    "Debt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "target_state"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "origin": { "type": "string" },
+        "affected_paths": { "type": "array", "items": { "type": "string" } },
+        "consequences": { "type": "array", "items": { "type": "string" } },
+        "urgency_triggers": { "type": "array", "items": { "type": "string" } },
+        "target_state": { "type": "string", "minLength": 1 },
+        "owner": { "type": "string" },
+        "status": { "enum": ["accepted", "scheduled", "mitigating"] }
+      }
+    }
+  }
+}

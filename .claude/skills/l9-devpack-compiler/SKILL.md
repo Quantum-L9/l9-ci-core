@@ -7,7 +7,7 @@ role: skill_entrypoint
 tags: [l9, devpack, dpk, handoff, agent-operable, control-plane, execution-package, exemplary]
 owner: igor_beylin
 status: active
-version: 1.1.0
+version: 1.2.0
 updated: 2026-07-15
 sources:
   - Developer Pack Kernel (DPK-1.0)
@@ -18,6 +18,8 @@ sources:
 ## Purpose
 
 Turn an ambiguous source repository into a **fully programmatic, self-documenting, agent-operable control plane**. Compile the DPK-1.0 six-layer machine envelope **and** the execution package that makes the work reproducible. The prompt explains *what* to build; the execution package supplies the infrastructure decisions (access, credentials, contracts, work queue, validation, stop conditions) so the agent **never invents missing infrastructure**.
+
+**Spec-first input.** The optimal input is a machine-readable **build spec** ([`schemas/spec.schema.json`](schemas/spec.schema.json)) — declarative facts (interfaces, invariants, commands, contracts, file plan, work queue, stop conditions) plus first-class `open_decisions`, and **no code bodies or pseudo-code**. A spec legitimately carries unbuilt work as `file_plan.status` + `open_decisions` (that is not a stub — see [references/spec-schema.md](references/spec-schema.md)); zero-stub governs the *built* artifact, not the spec. Each spec block maps 1:1 to a DPK layer / execution-package component.
 
 The output must let any qualified human engineer or autonomous agent answer, with trace evidence:
 
@@ -102,7 +104,9 @@ No model instance validates its own mutations. Split roles: **Architect** (strat
 - [references/execution-package-contract.md](references/execution-package-contract.md) — the reproducibility envelope: repository access, environment access, scoped credentials, authoritative contracts, phased work queue, validation commands, stop conditions.
 - [references/quality-gates.md](references/quality-gates.md) — the 0–100 scoring matrix (weights per category), readiness bands, and the red-line overrides.
 - [references/enforcement-gates.md](references/enforcement-gates.md) — **runtime enforcement layer**: the required proof-of-compliance artifact at each workflow step; protocol-violation detection.
-- [scripts/validate_devpack.py](scripts/validate_devpack.py) — deterministic dev-pack check: layer presence, the four red-lines, and a coarse readiness score. `python3 scripts/validate_devpack.py <repo-root>`.
+- [references/spec-schema.md](references/spec-schema.md) — the spec-first doctrine, the full fact set, and the field → DPK-layer mapping.
+- [schemas/spec.schema.json](schemas/spec.schema.json) — canonical machine-readable **build spec** schema (the optimal compiler input); worked example in [schemas/spec.example.json](schemas/spec.example.json).
+- [scripts/validate_devpack.py](scripts/validate_devpack.py) — deterministic dev-pack check: layer presence, the four red-lines, and a coarse readiness score. `python3 scripts/validate_devpack.py <repo-root>` (`--strict` to disable autofix, `--owner` to set the default).
 - [scripts/validate_exemplary_skill.py](scripts/validate_exemplary_skill.py) — deterministic exemplary-tier gate for this skill itself.
 
 ## Exemplary Provenance & Self-Improvement
