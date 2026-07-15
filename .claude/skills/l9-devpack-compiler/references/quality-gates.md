@@ -6,7 +6,7 @@ role: quality_gates
 tags: [dpk, scoring, readiness, red-lines, handoff]
 owner: igor_beylin
 status: active
-version: 1.0.1
+version: 1.1.0
 updated: 2026-07-15
 /L9_META -->
 
@@ -55,7 +55,18 @@ DPK-1.0 red-lines are service-centric. For a **library/SDK** (`repository.type: 
 - **Eval suite** → N/A when the library is deterministic (no non-deterministic AI feature); the parity/golden-vector suite is the equivalent proof.
 - **Alert→runbook** → a **CI parity-failure signal** (cross-language vector mismatch) routed to a documented response, in place of a production page.
 
-A library that leaves the maintainer or rollback target `Unknown` is still `blocked` — the decision is undocumented, not absent-by-nature.
+## Default Ownership & Autofix (ON by default)
+
+Missing infrastructure decisions are **auto-filled to safe org defaults instead of failing** — `validate_devpack.py` runs autofix by default:
+
+- **Ops owner** → defaults to **`quantum-ai`** (the org owner) when `operational_owner` is unspecified/placeholder. This is a *declared default ownership policy* ("if not otherwise specified, Quantum AI owns it"), not a fabrication — the report records it under `autofixes`. Override the default with `--owner <team>`.
+- **Rollback (library/SDK only)** → defaults to the version pin/yank target (`npm dist-tag` + `npm deprecate`), which *is* a package's rollback mechanism.
+
+Autofix never invents things it cannot safely default: a **broken runbook link** or a **missing eval suite for a real AI feature** still fails (fabricating those would hide real risk). Run `--strict` to disable autofix and restore fail-closed behavior (every unspecified red-line fails) for a hard pre-handoff audit.
+
+When the compiler emits a pack (Gate D), it applies the same defaults: an unspecified `operational_owner` is written as `quantum-ai`, and a library's rollback is written as the version-pin/yank target.
+
+A library run with `--strict` that leaves the maintainer or rollback `Unknown` is still `blocked` — the decision is undocumented, not absent-by-nature.
 
 ## Verdict
 

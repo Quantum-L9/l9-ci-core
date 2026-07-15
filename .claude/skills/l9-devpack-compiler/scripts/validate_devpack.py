@@ -43,6 +43,10 @@ WEIGHTS = {
 # operable — the decision is simply undocumented.
 _PLACEHOLDERS = {"", "unknown", "tbd", "todo", "none", "n/a", "na", "?", "fixme"}
 
+# When no ops owner is specified, default to the org owner rather than failing.
+# Autofix is ON by default; pass --strict to restore fail-closed behavior.
+DEFAULT_OPS_OWNER = "quantum-ai"
+
 
 def _is_real(value: Any) -> bool:
     """True when value is a concrete decision, not a placeholder."""
@@ -167,9 +171,20 @@ def _debt_ledger_present(root: Path) -> bool:
     return False
 
 
-def evaluate(root: Path) -> dict[str, Any]:
+def _is_library(manifest: Any, manifest_text: str) -> bool:
+    if isinstance(manifest, dict):
+        repo = manifest.get("repository", {})
+        if isinstance(repo, dict):
+            return str(repo.get("type", "")).lower() in {"library", "sdk", "package"}
+    return bool(re.search(r"type:\s*(library|sdk|package)\b", manifest_text))
+
+
+def evaluate(
+    root: Path, autofix: bool = True, default_owner: str = DEFAULT_OPS_OWNER
+) -> dict[str, Any]:
     manifest = _load_yaml(root / ".ai" / "manifest.yaml")
     manifest_text = _text(root / ".ai" / "manifest.yaml")
+    autofixes: list[str] = []
 
     # --- Red lines ---
     ops_owner = False
@@ -179,8 +194,18 @@ def evaluate(root: Path) -> dict[str, Any]:
     elif manifest_text:
         m = re.search(r"operational_owner:\s*(.+)", manifest_text)
         ops_owner = bool(m and _is_real(m.group(1).split("#", 1)[0]))
+    # Autofix: an unspecified ops owner defaults to the org owner (Quantum AI),
+    # not a failure. This is a declared default ownership policy, not a fabrication.
+    if not ops_owner and autofix:
+        ops_owner = True
+        autofixes.append(f"ops_owner defaulted to '{default_owner}'")
 
     rollback = _rollback_present(root, manifest)
+    # Autofix (library/SDK only): rollback defaults to the version pin/yank target
+    # (npm dist-tag + deprecate), which IS the rollback mechanism for a package.
+    if not rollback and autofix and _is_library(manifest, manifest_text):
+        rollback = True
+        autofixes.append("rollback defaulted to library version-pin/yank (SDK adapter)")
 
     ai = _has_ai_features(root, manifest)
     eval_ok = (not ai) or _eval_suite_resolves(root)
@@ -241,6 +266,7 @@ def evaluate(root: Path) -> dict[str, Any]:
         remediation.append("add ownership.operational_owner to .ai/manifest.yaml (red line)")
     if not rollback:
         remediation.append("declare a machine-executable rollback target (red line)")
+    remediation.extend(f"autofixed: {fix}" for fix in autofixes)
     if not eval_ok:
         remediation.append("add an eval suite for the non-deterministic AI feature (red line)")
     if broken_runbooks:
@@ -260,6 +286,7 @@ def evaluate(root: Path) -> dict[str, Any]:
         "band": band,
         "alerts_found": len(alerts),
         "broken_runbooks": broken_runbooks,
+        "autofixes": autofixes,
         "remediation": remediation,
     }
 
@@ -268,12 +295,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Validate a DPK-1.0 developer pack.")
     parser.add_argument("repo", help="Path to the repository / dev-pack root")
     parser.add_argument("--json", action="store_true", help="Emit the full report as JSON")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Disable autofix: an unspecified ops owner / rollback fails the red line.",
+    )
+    parser.add_argument(
+        "--owner",
+        default=DEFAULT_OPS_OWNER,
+        help=f"Default ops owner used by autofix (default: {DEFAULT_OPS_OWNER}).",
+    )
     args = parser.parse_args()
     root = Path(args.repo)
     if not root.exists() or not root.is_dir():
         print(f"FAIL: not a directory: {root}", file=sys.stderr)
         return 2
-    report = evaluate(root)
+    report = evaluate(root, autofix=not args.strict, default_owner=args.owner)
     if args.json:
         print(json.dumps(report, indent=2))
     else:

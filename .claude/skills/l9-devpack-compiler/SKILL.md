@@ -7,7 +7,7 @@ role: skill_entrypoint
 tags: [l9, devpack, dpk, handoff, agent-operable, control-plane, execution-package, exemplary]
 owner: igor_beylin
 status: active
-version: 1.0.1
+version: 1.1.0
 updated: 2026-07-15
 sources:
   - Developer Pack Kernel (DPK-1.0)
@@ -67,6 +67,8 @@ The cumulative quality score is **instantly zero** if any hold — enforce these
 2. A **machine-executable rollback target** must exist (declared + dry-runnable).
 3. Every **non-deterministic AI feature** must map to a dedicated **evaluation suite**.
 4. Every **alert links 1:1 to a runbook** that resolves to a real repo file.
+
+**Defaults & autofix (ON by default).** Rather than fail on unspecified infrastructure, safe org defaults are auto-filled and recorded: an unspecified `operational_owner` defaults to **`quantum-ai`** (override `--owner`), and a **library/SDK** rollback defaults to the version pin/yank target. Autofix never invents what it can't safely default — a broken runbook link or a missing eval suite for a real AI feature still fails. Run `scripts/validate_devpack.py --strict` for a hard, fail-closed pre-handoff audit. See [references/quality-gates.md](references/quality-gates.md) §Default Ownership & Autofix.
 
 Plus: DO NOT weaken/delete tests to pass gates; DO NOT log prohibited fields (`raw_prompt`, `access_token`, `customer_email`); DO NOT edit generated assets directly; DO NOT invent infrastructure the execution package must supply — stop and ask.
 
