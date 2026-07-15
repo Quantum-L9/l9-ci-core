@@ -37,10 +37,13 @@
 name: L9 Self CI
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
-  push:
-    branches: [main]
+  # DISABLED: automatic pull_request and push(main) triggers have been removed
+  # to disable this CI workflow. It now runs only via manual workflow_dispatch.
+  # To re-enable automatic CI, restore the pull_request/push triggers below:
+  #   pull_request:
+  #     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  #   push:
+  #     branches: [main]
   workflow_dispatch:
     inputs:
       pr_number:
