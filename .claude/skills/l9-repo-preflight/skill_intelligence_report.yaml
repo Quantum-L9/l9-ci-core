@@ -6,8 +6,8 @@
 # tags: [preflight, fail-open, autofix, blockers, ecosystem-neutral, exemplary]
 # owner: igor_beylin
 # status: active
-# version: 2.0.0
-# updated: 2026-07-15
+# version: 2.1.0
+# updated: 2026-07-16
 # Purpose: Measured activation + authority + gate evidence proving exemplary tier.
 # Validated by scripts/validate_exemplary_skill.py.
 

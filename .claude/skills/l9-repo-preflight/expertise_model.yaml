@@ -6,8 +6,8 @@
 # tags: [preflight, fail-open, autofix, remediation, blockers, ecosystem-neutral, exemplary]
 # owner: igor_beylin
 # status: active
-# version: 2.0.0
-# updated: 2026-07-15
+# version: 2.1.0
+# updated: 2026-07-16
 # Purpose: Compressed judgment extracted from the 10X Repository Preflight Decision
 # Tree, re-cast as a FAIL-OPEN remediation engine (never halt; maximum safe autofix;
 # report only genuine blockers). Consumed by scripts/validate_exemplary_skill.py.

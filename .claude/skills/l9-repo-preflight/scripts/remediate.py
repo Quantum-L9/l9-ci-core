@@ -39,6 +39,10 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import evaluate_preflight as ev  # noqa: E402
+from preflight import accounting, ci_migration, delivery, issues, reports, techdebt  # noqa: E402
+from preflight import __version__ as SKILL_VERSION  # noqa: E402
+from preflight.github import get_adapter  # noqa: E402
+from preflight.redaction import redact  # noqa: E402
 
 PROBE = HERE / "preflight_probe.sh"
 
@@ -135,9 +139,9 @@ def _count(out: str, word: str) -> int:
 # Safe autofix actions — each returns an action record; none touches user work
 # --------------------------------------------------------------------------- #
 def _record(
-    gate: int, action: str, target: Any, command: str, rc: int, note: str = ""
+    gate: int, action: str, target: Any, command: str, rc: int, note: str = "", error: str = ""
 ) -> dict[str, Any]:
-    return {
+    rec = {
         "gate": gate,
         "action": action,
         "target": target,
@@ -146,6 +150,10 @@ def _record(
         "reversible": True,
         "note": note,
     }
+    if rc != 0 and error:
+        # redacted so no secret value (npm 401 auth lines, tokens) reaches a record
+        rec["error"] = redact(error)[:2000]
+    return rec
 
 
 def _is_tracked(repo: Path, path: str) -> bool:
@@ -251,22 +259,27 @@ def apply_git_switch(repo: Path, plan: dict[str, Any]) -> list[dict[str, Any]]:
 def apply_pip_install(repo: Path, plan: dict[str, Any]) -> list[dict[str, Any]]:
     reqs = repo / "requirements-ci.txt"
     if reqs.exists():  # honour the repo's pins
-        rc, _ = _run([sys.executable, "-m", "pip", "install", "-r", str(reqs)], repo)
+        rc, out = _run([sys.executable, "-m", "pip", "install", "-r", str(reqs)], repo)
         return [
             _record(
-                5, "pip_install", "requirements-ci.txt", "pip install -r requirements-ci.txt", rc
+                5,
+                "pip_install",
+                "requirements-ci.txt",
+                "pip install -r requirements-ci.txt",
+                rc,
+                error=out,
             )
         ]
     tools = plan.get("targets", [])
-    rc, _ = _run([sys.executable, "-m", "pip", "install", *tools], repo) if tools else (0, "")
-    return [_record(5, "pip_install", tools, f"pip install {' '.join(tools)}", rc)]
+    rc, out = _run([sys.executable, "-m", "pip", "install", *tools], repo) if tools else (0, "")
+    return [_record(5, "pip_install", tools, f"pip install {' '.join(tools)}", rc, error=out)]
 
 
 def apply_editable_install(repo: Path, plan: dict[str, Any]) -> list[dict[str, Any]]:
     if not (repo / "pyproject.toml").exists() and not (repo / "setup.py").exists():
         return [_record(6, "editable_install", plan.get("targets"), "skip (no build config)", 1)]
-    rc, _ = _run([sys.executable, "-m", "pip", "install", "-e", "."], repo)
-    return [_record(6, "editable_install", plan.get("targets"), "pip install -e .", rc)]
+    rc, out = _run([sys.executable, "-m", "pip", "install", "-e", "."], repo)
+    return [_record(6, "editable_install", plan.get("targets"), "pip install -e .", rc, error=out)]
 
 
 def apply_npm_install(repo: Path, plan: dict[str, Any]) -> list[dict[str, Any]]:
@@ -275,8 +288,14 @@ def apply_npm_install(repo: Path, plan: dict[str, Any]) -> list[dict[str, Any]]:
     # npm ci needs a lockfile; fall back to npm install otherwise.
     lock = any((repo / n).exists() for n in ("package-lock.json", "npm-shrinkwrap.json"))
     cmd = ["npm", "ci"] if lock else ["npm", "install"]
-    rc, _ = _run(cmd, repo, timeout=600)
-    return [_record(plan.get("gate", 6), "npm_install", plan.get("targets"), " ".join(cmd), rc)]
+    rc, out = _run(cmd, repo, timeout=600)
+    # a 401/403 here (private GitHub Packages) becomes an unresolved blocker via
+    # accounting; the output is redacted in _record so no token/auth value leaks.
+    return [
+        _record(
+            plan.get("gate", 6), "npm_install", plan.get("targets"), " ".join(cmd), rc, error=out
+        )
+    ]
 
 
 def apply_eslint_fix(repo: Path, self_modified: set[str]) -> list[dict[str, Any]]:
@@ -468,23 +487,74 @@ def remediate(
         if applied == 0:  # fixpoint: nothing more we can safely do
             break
 
+    # --- accounting: a failed applicable autofix is an UNRESOLVED blocker ---
+    acct = accounting.reconcile(report, actions)
+    debt = techdebt.detect(repo)
+    source_commit = _git(["rev-parse", "HEAD"], repo)[1].strip() or "unknown"
+    timestamp = report.get("generated_from", "Unknown")
+    mods = sorted(self_modified)
+    run_id = delivery.autofix_run_id(source_commit, mods) if mods else source_commit[:12]
+
     report["mode"] = "dry-run" if dry_run else "applied"
     report["iterations"] = iters
     report["autofixed"] = actions
+    report["self_modified"] = mods
+    report["run_id"] = run_id
+    report["source_commit"] = source_commit
+    report["tool_version"] = SKILL_VERSION
+    report["accounting"] = acct
+    report["technical_debt"] = debt
+    # accounting is authoritative for the blocker set + overall status
+    report["genuine_blockers"] = acct["unresolved_blockers"]
+    report["blocker_count"] = acct["blocker_count"]
+    report["overall_status"] = acct["overall_status"]
+    report["ready_after_remediation"] = acct["blocker_count"] == 0
+    report["stamp"] = {
+        "run_id": run_id,
+        "timestamp": timestamp,
+        "source_commit": source_commit,
+        "tool_version": SKILL_VERSION,
+    }
     return report
 
 
+def persist_reports(
+    repo: Path, report: dict[str, Any], docs_dir: Path, receipts: list[dict[str, Any]]
+) -> list[str]:
+    stamp = report.get("stamp", {})
+    return reports.persist(
+        docs_dir,
+        run_id=stamp.get("run_id", "unknown"),
+        timestamp=stamp.get("timestamp", "Unknown"),
+        source_commit=stamp.get("source_commit", "unknown"),
+        tool_version=stamp.get("tool_version", SKILL_VERSION),
+        evaluate_report={
+            k: report[k] for k in ("gates", "autofix_plans", "iterations", "mode") if k in report
+        },
+        autofix_actions=report.get("autofixed", []),
+        accounting=report.get("accounting", {}),
+        techdebt=report.get("technical_debt", []),
+        receipts=receipts,
+    )
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Fail-open preflight remediation loop.")
+    ap = argparse.ArgumentParser(description="Fail-open preflight remediation + delivery.")
     ap.add_argument("repo", nargs="?", default=".", help="Repo root (default: cwd)")
     ap.add_argument("--expected", default=None, help="Expected-contract (json/yaml)")
-    ap.add_argument(
-        "--work-dir", default=".preflight", help="Work/output dir (default: .preflight)"
-    )
+    ap.add_argument("--work-dir", default=".preflight", help="Work dir (default: .preflight)")
     ap.add_argument("--max-iters", type=int, default=5)
-    ap.add_argument("--dry-run", action="store_true", help="Plan only; apply nothing")
+    ap.add_argument("--dry-run", action="store_true", help="Plan only; NO remote side effects")
+    ap.add_argument("--no-fix-code", action="store_true", help="No ruff/eslint --fix on source")
+    ap.add_argument("--base", default="main", help="Canonical base branch (default: main)")
+    ap.add_argument("--repo-slug", default="", help="owner/name for GitHub effects")
+    ap.add_argument("--deliver", action="store_true", help="Open an autofix PR for changes")
+    ap.add_argument("--issues", action="store_true", help="Sync GitHub issues for blockers")
     ap.add_argument(
-        "--no-fix-code", action="store_true", help="Do not run ruff --fix on tracked source"
+        "--ci-migration", action="store_true", help="Open the CI-changeover PR (separate)"
+    )
+    ap.add_argument(
+        "--enable-gh", action="store_true", help="Use the gh CLI (else dry-run adapter)"
     )
     ap.add_argument("--json", action="store_true", help="Print the full report as JSON")
     args = ap.parse_args()
@@ -515,22 +585,64 @@ def main() -> int:
         fix_code=not args.no_fix_code,
     )
 
-    (work_dir / "blocker-report.json").write_text(
-        json.dumps(report, indent=2) + "\n", encoding="utf-8"
-    )
-    (work_dir / "autofix-log.json").write_text(
-        json.dumps(
-            {"iterations": report.get("iterations", 0), "actions": report.get("autofixed", [])},
-            indent=2,
+    receipts: list[dict[str, Any]] = []
+    adapter = get_adapter(dry_run=args.dry_run, enable_gh=args.enable_gh)
+
+    # persist reports: docs/preflight when applied; work_dir in dry-run (no worktree mutation)
+    docs_dir = (work_dir / "docs-preflight") if args.dry_run else (repo / "docs" / "preflight")
+    report_paths = persist_reports(repo, report, docs_dir, receipts)
+
+    # optional remote delivery (idempotent; skipped in dry-run — no remote effects)
+    if args.deliver and not args.dry_run:
+        intended = report.get("self_modified", []) + [
+            str(Path(p).relative_to(repo)) for p in report_paths if str(repo) in p
+        ]
+        dres = delivery.deliver_autofix(
+            repo,
+            adapter,
+            sorted(set(intended)),
+            base=args.base,
+            repo_slug=args.repo_slug,
+            dry_run=False,
+            run_id=report["stamp"]["run_id"],
         )
-        + "\n",
-        encoding="utf-8",
-    )
+        receipts += dres.get("receipts", [])
+        report["autofix_delivery"] = dres
+    if args.issues:
+        ires = issues.sync_all(adapter, args.repo_slug, report.get("genuine_blockers", []))
+        receipts += ires
+        report["issue_sync"] = ires
+    if args.ci_migration:
+        det = ci_migration.detect(repo)
+        report["ci_migration"] = det
+        if det["applicable"] and not args.dry_run:
+            content = ci_migration.generate()
+            errs = ci_migration.validate(content)
+            if errs:
+                report["ci_migration_errors"] = errs
+            else:
+                cres = delivery.deliver_ci_migration(
+                    repo,
+                    adapter,
+                    content,
+                    det["target_path"],
+                    base=args.base,
+                    repo_slug=args.repo_slug,
+                    dry_run=False,
+                    run_id=report["stamp"]["run_id"],
+                )
+                receipts += cres.get("receipts", [])
+                report["ci_migration_delivery"] = cres
+
+    report["side_effect_receipts"] = receipts
 
     if args.json:
         print(json.dumps(report, indent=2))
     else:
-        print(f"mode: {report.get('mode')} | iterations: {report.get('iterations')}")
+        print(
+            f"mode: {report.get('mode')} | iterations: {report.get('iterations')} | "
+            f"overall_status: {report.get('overall_status')}"
+        )
         for a in report.get("autofixed", []):
             print(f"  autofix (gate {a['gate']}): {a['action']} [{a['result']}] — {a['target']}")
         for b in report.get("genuine_blockers", []):
@@ -538,11 +650,10 @@ def main() -> int:
                 f"  BLOCKER {b['id']} [{b['severity']}]: {b['class']} — {b['why_not_autofixable']}"
             )
         print(
-            f"run_completed: {report.get('run_completed')} | "
-            f"blockers: {report.get('blocker_count')} | "
-            f"ready_after_remediation: {report.get('ready_after_remediation')}"
+            f"run_completed: {report.get('run_completed')} | blockers: {report.get('blocker_count')} "
+            f"| ready_after_remediation: {report.get('ready_after_remediation')}"
         )
-        print(f"reports -> {work_dir}/blocker-report.json, {work_dir}/autofix-log.json")
+        print(f"reports -> {docs_dir}/ ({len(report_paths)} files)")
     return 0 if report.get("blocker_count", 0) == 0 else 1
 
 

@@ -4,11 +4,11 @@ description: run a fail-OPEN repository preflight that never halts — probe the
 skill_schema: 1
 layer: control_plane
 role: skill_entrypoint
-tags: [l9, preflight, probe, fail-open, autofix, remediation, blockers, ecosystem-neutral, exemplary]
+tags: [l9, preflight, probe, fail-open, autofix, remediation, blockers, delivery, pr, issues, ci-migration, ecosystem-neutral, exemplary]
 owner: igor_beylin
 status: active
-version: 2.0.0
-updated: 2026-07-15
+version: 2.1.0
+updated: 2026-07-16
 sources:
   - 10X Repository Preflight Decision Tree
   - 0_preflight_probe (read-only evidence probe)
@@ -88,6 +88,20 @@ Applied by default; every action is recorded in `autofix-log.json` and is revers
 
 **Never auto-applied:** deleting unknown files, reverting user tracked edits, editing code beyond mechanical format/lint, or anything off the allow-list. Those are the blockers above. `--dry-run` previews with zero mutation; `--no-fix-code` withholds source formatting.
 
+## Delivery, Accounting & Reporting (v2.1.0)
+
+Layered on the loop as separate, idempotent, adapter-backed concerns (full contract: [references/delivery-contract.md](references/delivery-contract.md)):
+
+- **Blocker accounting** — a **failed applicable autofix is an unresolved blocker**; `blocker_count` includes them and `overall_status` is `blocked` while any remain. A report never claims zero blockers when a repair failed. An `npm ci` 401 on a private dependency → unresolved blocker, `overall_status: blocked`, an issue, and **no secret logged**.
+- **Autofix delivery** — successful file-changing autofixes are committed (intended paths only) to a deterministic `preflight/autofix-<run-id>` branch, pushed, and opened as a PR against `main` (`--deliver`). Idempotent; **never pushes to `main`**.
+- **Unresolved-blocker issues** — each blocker opens/updates/reopens a deduped, **sanitized** GitHub issue (`--issues`).
+- **PR monitoring** — bounded (≤5 cycle) deterministic repairs on the PR branch; escalates on credentials/permissions/private-deps/security/protected actions; terminal states recorded.
+- **Technical-debt detection** — evidence-based findings (markers, skipped tests, unpinned actions, …), deduplicated, in the reports.
+- **Report persistence** — six deterministic, secret-redacted outputs under `docs/preflight/` stamped with run_id/timestamp/source_commit/tool_version.
+- **Reusable-CI changeover** — generate the thin `l9-ci-core` caller (exact-SHA pin, `secrets: inherit`, `main`) as a **separate** `ci/adopt-l9-ci-core-<run-id>` branch + PR (`--ci-migration`).
+
+All remote effects go through a **replaceable GitHub adapter** (`DryRunAdapter` default; `GhCliAdapter` with `--enable-gh`), return **receipts**, and are skipped under `--dry-run`. No remote action is ever claimed without a captured receipt.
+
 ## Ecosystem Neutrality (Python + Node/TypeScript)
 
 The probe **auto-detects repo shape** — no language or package name is baked in. It emits `PROBE_ECOSYSTEM` (node/python/…), auto-discovers source dirs, Python packages (empty on non-Python repos, so a TS/Node repo is never probed for a Python import), and foundations (`package.json` vs `pyproject.toml`, …). Gates 5/6/7 and the autofix actions dispatch per ecosystem: Python → ruff/mypy/pytest, `pip`, editable install; Node → eslint/tsc/prettier, `npm ci`, `node_modules`. A tool or runtime that is not present is skipped, never a false failure. Override any token via `PROBE_PACKAGES` / `PROBE_FOUNDATIONS` / `PROBE_ECOSYSTEM`.
@@ -117,6 +131,10 @@ run_probe → extract_expertise → compress_expertise → evaluate_gates → ap
 - [references/preflight-pipeline.md](references/preflight-pipeline.md) — the eight-gate contract: per-gate autofix action vs blocker criteria, the fail-open loop, and the verdict vocabulary.
 - [references/probe-contract.md](references/probe-contract.md) — probe section → gate map; the auto-detected, ecosystem-neutral parameterizable surface (`PROBE_ECOSYSTEM`/`PROBE_PACKAGES`/`PROBE_FOUNDATIONS`).
 - [references/enforcement-gates.md](references/enforcement-gates.md) — **runtime enforcement layer**: completeness + audit (every gate ran; every autofix logged + reversible; every blocker carries evidence + remediation); protocol-violation detection.
+- [references/delivery-contract.md](references/delivery-contract.md) — the v2.1.0 delivery layer: blocker accounting (failed autofix → unresolved blocker), autofix PR delivery, issue sync, bounded PR monitoring, technical-debt detection, report persistence, reusable-CI changeover, idempotency keys + receipts.
+- [scripts/preflight/](scripts/preflight/) — the delivery package: `accounting`, `delivery`, `issues`, `monitor`, `techdebt`, `reports`, `ci_migration`, `github` (adapter), `redaction`. Each independently testable; remote effects are idempotent + dry-run-able.
+- [schemas/machine-summary.schema.json](schemas/machine-summary.schema.json), [schemas/technical-debt.schema.json](schemas/technical-debt.schema.json), [schemas/blockers.schema.json](schemas/blockers.schema.json) — the persisted `docs/preflight/` output schemas.
+- [tests/](tests/) — unit + integration + regression suite (accounting, issues, delivery, monitor, ci-migration, techdebt, reports, gate/allow-list/dry-run regressions).
 - [scripts/preflight_probe.sh](scripts/preflight_probe.sh) — the read-only evidence probe (auto-detects ecosystem; writes only a log). `bash scripts/preflight_probe.sh`.
 - [scripts/evaluate_preflight.py](scripts/evaluate_preflight.py) — deterministic classifier: probe log (+ optional contract/baseline) → verdicts + autofix plans + genuine blockers. `python3 scripts/evaluate_preflight.py <log> [--expected C] [--baseline B]`.
 - [scripts/remediate.py](scripts/remediate.py) — the fail-open loop + safe autofix executor. `python3 scripts/remediate.py [REPO] [--expected C] [--dry-run] [--no-fix-code]`.
