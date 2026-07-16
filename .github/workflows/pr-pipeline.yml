@@ -51,6 +51,54 @@ on:
         required: false
         type: boolean
         default: true
+      # ── MegaLinter consumer inputs ─────────────────────────────────────────
+      # Controls for downstream Python and Node consumers to tune MegaLinter
+      # without forking this workflow. All inputs are optional and safe to omit.
+      enable-megalinter:
+        description: >
+          Run MegaLinter shared-hygiene job (actionlint, shellcheck, hadolint,
+          dotenv-linter, markdownlint, yamllint, tflint, prettier/JSON).
+          Python linting is always handled by the dedicated ruff/lint job.
+        required: false
+        type: boolean
+        default: true
+      megalinter-config:
+        description: >
+          Path or URL for .mega-linter.yml config. Defaults to the canonical
+          l9-ci-core shared-hygiene base. Override in consumer repos via:
+            megalinter-config: .mega-linter.yml   # local override
+          Remote inheritance uses MegaLinter EXTENDS / MEGALINTER_CONFIG.
+        required: false
+        type: string
+        default: "https://raw.githubusercontent.com/Quantum-L9/l9-ci-core/main/.mega-linter.yml"
+      megalinter-validate-all:
+        description: >
+          When true, MegaLinter lints the entire codebase (suitable for
+          nightly/scheduled runs). When false (default), only changed files
+          are linted for PR-scoped speed.
+        required: false
+        type: boolean
+        default: false
+      megalinter-flavor:
+        description: >
+          MegaLinter Docker flavor to use. Options:
+            ci_light   - CI/IaC surfaces only (smallest, recommended default)
+            javascript - adds JS/TS ESLint + Prettier (use for Node repos)
+            cupcake    - common multi-language mix
+          See https://megalinter.io/latest/flavors/ for the full list.
+        required: false
+        type: string
+        default: "ci_light"
+      enable-node-lint:
+        description: >
+          When true, adds JAVASCRIPT_ES and TYPESCRIPT_ES linters to the
+          MegaLinter run and installs node_modules via `npm ci --ignore-scripts`
+          before linting. Requires a package.json + local .eslintrc.* config.
+          Automatically switches the flavor to `javascript` when
+          megalinter-flavor is still the default `ci_light`.
+        required: false
+        type: boolean
+        default: false
     secrets:
       SDK_TOKEN:
         required: false
@@ -86,14 +134,7 @@ jobs:
         env:
           SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
         run: |
-          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
-          # git transport so the pinned git+https SDK install authenticates. The
-          # token is read from env and never echoed.
           if [ -n "${SDK_TOKEN:-}" ]; then
-            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
-            # not persisted in the runner's global git config. Export the path for
-            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
-            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
             export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
             git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
             echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
@@ -104,8 +145,6 @@ jobs:
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
           ${{ inputs.l9-ci-install-command }}
           if [ -n "${{ inputs.extra-install-command }}" ]; then ${{ inputs.extra-install-command }}; fi
-          # The "Validate YAML Files" step imports PyYAML; ensure it's present
-          # when the caller's deps don't already provide it.
           python -c "import yaml" 2>/dev/null || pip install pyyaml
       - name: Run L9 Validate Stage
         run: l9-ci run-pipeline --stage validate --ci github --emit-dir artifacts/ci
@@ -139,6 +178,75 @@ jobs:
           path: artifacts/ci/*
           if-no-files-found: error
 
+  # ── MEGALINTER — advisory shared-hygiene layer ─────────────────────────────
+  # Runs after validate. Controlled entirely by workflow_call inputs so each
+  # consumer can choose flavor, config URL, and scope without forking this file.
+  #
+  # Python:  ruff/lint job below owns Python linting (fast, no Docker overhead).
+  # Node:    Set enable-node-lint: true + megalinter-flavor: javascript to add
+  #          JAVASCRIPT_ES / TYPESCRIPT_ES on top of the shared hygiene set.
+  # Remote:  Set megalinter-config to a URL to inherit a shared base policy via
+  #          MEGALINTER_CONFIG / EXTENDS (constellation-wide policy reuse).
+  megalinter:
+    name: MegaLinter (${{ inputs.megalinter-flavor }}, advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: validate
+    if: inputs.enable-megalinter
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          fetch-depth: 0
+
+      # Node consumers: install deps so local ESLint config resolves correctly.
+      - name: Install Node dependencies (Node lint only)
+        if: inputs.enable-node-lint
+        run: |
+          if [ -f package.json ]; then
+            npm ci --ignore-scripts
+          else
+            echo "[SKIP] no package.json found — skipping npm ci"
+          fi
+
+      - name: Resolve MegaLinter flavor
+        id: flavor
+        run: |
+          FLAVOR="${{ inputs.megalinter-flavor }}"
+          # Auto-upgrade to javascript flavor when Node lint is enabled and the
+          # caller left the flavor at the default ci_light.
+          if [ "${{ inputs.enable-node-lint }}" = "true" ] && [ "$FLAVOR" = "ci_light" ]; then
+            FLAVOR="javascript"
+            echo "::notice::enable-node-lint=true detected; upgrading flavor ci_light -> javascript"
+          fi
+          echo "flavor=$FLAVOR" >> "$GITHUB_OUTPUT"
+
+      - name: Run MegaLinter
+        uses: oxsecurity/megalinter/flavors/${{ steps.flavor.outputs.flavor }}@v8
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MEGALINTER_CONFIG: ${{ inputs.megalinter-config }}
+          VALIDATE_ALL_CODEBASE: ${{ inputs.megalinter-validate-all }}
+          DISABLE_ERRORS: true
+          # Node lint: add JS/TS ESLint linters on top of the shared hygiene set.
+          # The linter keys are appended to whatever ENABLE_LINTERS is set in the
+          # config file referenced by MEGALINTER_CONFIG.
+          JAVASCRIPT_ES_ARGUMENTS: ${{ inputs.enable-node-lint && '--no-ignore' || '' }}
+          JAVASCRIPT_ES_CLI_EXECUTABLE: ${{ inputs.enable-node-lint && 'node_modules/.bin/eslint' || '' }}
+          TYPESCRIPT_ES_CLI_EXECUTABLE: ${{ inputs.enable-node-lint && 'node_modules/.bin/eslint' || '' }}
+
+      - name: Upload MegaLinter report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: megalinter-report
+          path: megalinter-reports/
+          if-no-files-found: ignore
+          retention-days: 30
+
   lint:
     name: Lint and Type Check
     runs-on: ubuntu-latest
@@ -159,14 +267,7 @@ jobs:
         env:
           SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
         run: |
-          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
-          # git transport so the pinned git+https SDK install authenticates. The
-          # token is read from env and never echoed.
           if [ -n "${SDK_TOKEN:-}" ]; then
-            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
-            # not persisted in the runner's global git config. Export the path for
-            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
-            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
             export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
             git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
             echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
@@ -176,8 +277,6 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
           ${{ inputs.l9-ci-install-command }}
-          # Ensure the lint tools this job invokes are present without shadowing a
-          # caller-pinned version: only install when the command is missing.
           command -v ruff >/dev/null 2>&1 || pip install ruff
           command -v mypy >/dev/null 2>&1 || pip install mypy
       - name: Run L9 Lint Stage
@@ -205,8 +304,6 @@ jobs:
         run: |
           if [ -d .semgrep ]; then
             python -m pip install --upgrade pip semgrep
-            # Exclude the intentional "bad" contract fixtures: they exist to
-            # exercise the rules and would otherwise fail Semgrep in this repo.
             semgrep --config .semgrep/ --error --quiet --exclude tests/fixtures/semgrep
           else
             echo "No .semgrep directory; skipping semgrep policy check."
@@ -232,14 +329,7 @@ jobs:
         env:
           SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
         run: |
-          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
-          # git transport so the pinned git+https SDK install authenticates. The
-          # token is read from env and never echoed.
           if [ -n "${SDK_TOKEN:-}" ]; then
-            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
-            # not persisted in the runner's global git config. Export the path for
-            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
-            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
             export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
             git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
             echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
@@ -250,8 +340,6 @@ jobs:
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
           ${{ inputs.l9-ci-install-command }}
           pip install -e ".[dev]" || pip install -e . || echo "::notice::no local editable package to install"
-          # Ensure pytest + the plugins this job's invocation relies on are present
-          # (only when missing, so caller-pinned versions are preserved).
           command -v pytest >/dev/null 2>&1 || pip install pytest
           python -c "import pytest_cov" 2>/dev/null || pip install pytest-cov
           python -c "import xdist" 2>/dev/null || pip install pytest-xdist
@@ -305,14 +393,7 @@ jobs:
         env:
           SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
         run: |
-          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
-          # git transport so the pinned git+https SDK install authenticates. The
-          # token is read from env and never echoed.
           if [ -n "${SDK_TOKEN:-}" ]; then
-            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
-            # not persisted in the runner's global git config. Export the path for
-            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
-            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
             export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
             git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
             echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
@@ -321,8 +402,6 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f "${{ inputs.requirements-file }}" ]; then pip install -r "${{ inputs.requirements-file }}"; fi
           ${{ inputs.l9-ci-install-command }}
-          # Ensure the security CLIs this job invokes are present when the caller
-          # doesn't already ship them (only install when missing).
           command -v pip-audit >/dev/null 2>&1 || pip install pip-audit
           command -v safety >/dev/null 2>&1 || pip install safety
           command -v bandit >/dev/null 2>&1 || pip install bandit
@@ -398,7 +477,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
-    needs: [validate, lint, semgrep, test, security, sbom, scorecard]
+    needs: [validate, megalinter, lint, semgrep, test, security, sbom, scorecard]
     permissions:
       contents: read
     steps:
@@ -409,14 +488,7 @@ jobs:
         env:
           SDK_TOKEN: ${{ secrets.SDK_TOKEN }}
         run: |
-          # Public SDK repo needs no token. When SDK_TOKEN is provided, rewrite the
-          # git transport so the pinned git+https SDK install authenticates. The
-          # token is read from env and never echoed.
           if [ -n "${SDK_TOKEN:-}" ]; then
-            # Write auth into a temporary gitconfig (never ~/.gitconfig) so the token is
-            # not persisted in the runner's global git config. Export the path for
-            # this step and, via GITHUB_ENV, for the later SDK-install step; it lives
-            # under RUNNER_TEMP and is discarded when the ephemeral job ends.
             export GIT_CONFIG_GLOBAL="${RUNNER_TEMP}/l9-sdk-gitconfig"
             git config --file "$GIT_CONFIG_GLOBAL" url."https://x-access-token:${SDK_TOKEN}@github.com/".insteadOf "https://github.com/"
             echo "GIT_CONFIG_GLOBAL=${GIT_CONFIG_GLOBAL}" >> "$GITHUB_ENV"
@@ -468,6 +540,7 @@ jobs:
           l9-ci gate \
             --required validate,lint,semgrep,test,security \
             --result validate=${{ needs.validate.result }} \
+            --result megalinter=${{ needs.megalinter.result }} \
             --result lint=${{ needs.lint.result }} \
             --result semgrep=${{ needs.semgrep.result }} \
             --result test=${{ needs.test.result }} \
