@@ -98,7 +98,7 @@ never reads or evaluates its contents.
 | This governance pack | identical | identical |
 | Provider | semgrep | semgrep |
 | semgrep rulesets (in the caller) | `--config p/python` | `--config p/javascript --config p/typescript` |
-| Generic lint/test (separate) | ruff / mypy / pytest — see [`../l9-lint-test.yml`](../l9-lint-test.yml) | eslint / tsc / jest — supply your own; not part of this pack |
+| Generic lint/test (separate) | ruff / mypy / pytest — see [`../l9-lint-test.yml`](../l9-lint-test.yml) | eslint / `tsc --noEmit` / `vitest run` — see [`../l9-lint-test-node.yml`](../l9-lint-test-node.yml) |
 
 The analysis pipeline (this pack + semgrep + the SDK) is identical across
 languages. Only the semgrep ruleset and your out-of-band lint/test suite differ.
@@ -109,8 +109,9 @@ languages. Only the semgrep ruleset and your out-of-band lint/test suite differ.
 2. Copy [`../l9-analysis.yml`](../l9-analysis.yml) to
    `.github/workflows/l9-analysis.yml` and set the semgrep `--config` line for
    your language.
-3. (Optional) copy [`../l9-lint-test.yml`](../l9-lint-test.yml) for Python
-   hygiene, or add your Node equivalent.
+3. (Optional) copy the matching lint/test template for your language:
+   [`../l9-lint-test.yml`](../l9-lint-test.yml) (Python) or
+   [`../l9-lint-test-node.yml`](../l9-lint-test-node.yml) (Node/TypeScript).
 
 Pin Core by the immutable commit `54a2f2fc8d060674d544fab14388bb5eff6b8e78`
 (or the `v2` tag once published).
