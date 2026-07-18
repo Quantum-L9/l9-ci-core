@@ -1,0 +1,47 @@
+name: SDK v2 contract validation
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sdk-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  sdk-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin             "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin             "https://github.com/${REPOSITORY}.git"
+      - id: sdk
+        name: Provision and verify SDK
+        uses: ./.github/actions/provision-sdk
+        with:
+          sdk-source: git
+          sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+          sdk-revision: c78486ea9b7d596d0b6db755b5780e5289878d35
+      - name: Verify emitted contract
+        env:
+          SDK_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          SDK_REVISION: ${{ steps.sdk.outputs.sdk-revision }}
+          SDK_CONTRACT: ${{ steps.sdk.outputs.contract }}
+        run: |
+          set -euo pipefail
+          test -x "${SDK_EXECUTABLE}"
+          test "${SDK_REVISION}" =             "c78486ea9b7d596d0b6db755b5780e5289878d35"
+          test "${SDK_CONTRACT}" = "l9.integration-contract/v1"
+          "${SDK_EXECUTABLE}" --help

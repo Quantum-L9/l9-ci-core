@@ -1,0 +1,38 @@
+name: Route Phase 2 artifacts
+description: >
+  Copies raw and SDK-produced canonical files into collision-safe Core
+  artifact locations without changing canonical bytes.
+inputs:
+  provider:
+    required: true
+  matrix-id:
+    required: true
+  raw-report:
+    required: true
+  bundle:
+    required: true
+  agent-payload:
+    required: true
+  destination-root:
+    required: false
+    default: artifacts
+outputs:
+  raw-directory:
+    value: ${{ steps.route.outputs.raw-directory }}
+  bundle:
+    value: ${{ steps.route.outputs.bundle }}
+  agent-payload:
+    value: ${{ steps.route.outputs.agent-payload }}
+runs:
+  using: composite
+  steps:
+    - id: route
+      shell: bash
+      env:
+        L9_PROVIDER: ${{ inputs.provider }}
+        L9_MATRIX_ID: ${{ inputs.matrix-id }}
+        L9_RAW_REPORT: ${{ inputs.raw-report }}
+        L9_BUNDLE: ${{ inputs.bundle }}
+        L9_AGENT_PAYLOAD: ${{ inputs.agent-payload }}
+        L9_DESTINATION_ROOT: ${{ inputs.destination-root }}
+      run: python3 "${{ github.action_path }}/route.py"

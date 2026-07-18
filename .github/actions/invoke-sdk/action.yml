@@ -1,0 +1,85 @@
+name: Invoke l9-ci-sdk
+description: >
+  Invokes one permitted public SDK command without shell evaluation and
+  preserves the SDK exit code.
+inputs:
+  executable:
+    description: Verified l9-ci executable emitted by provision-sdk.
+    required: true
+  operation:
+    description: >
+      One of semgrep-normalize, bundle-validate,
+      bundle-project-agent-payload, or compatibility-check.
+    required: true
+  input:
+    description: Input report or canonical bundle path.
+    required: false
+  output:
+    description: Output bundle or projection path.
+    required: false
+  root:
+    description: Repository root used for normalization.
+    required: false
+    default: .
+  snapshot-id:
+    description: Stable repository snapshot identifier.
+    required: false
+  provider-version:
+    description: Provider version recorded in canonical evidence.
+    required: false
+  identity-map:
+    description: Optional identity-map path.
+    required: false
+  policy:
+    description: Optional SDK policy path.
+    required: false
+  generated-at:
+    description: Optional deterministic generation timestamp.
+    required: false
+  revision:
+    description: Optional repository revision.
+    required: false
+  strict:
+    description: Enable strict SDK semantics.
+    required: false
+    default: "true"
+  required:
+    description: Treat the provider as required.
+    required: false
+    default: "true"
+  dirty:
+    description: "Repository dirty-state value: true, false, or unset."
+    required: false
+    default: unset
+  minimum-sdk-version:
+    description: Optional minimum SDK version for compatibility negotiation.
+    required: false
+outputs:
+  exit-code:
+    description: Exact SDK exit code.
+    value: ${{ steps.invoke.outputs.exit-code }}
+  command:
+    description: Public SDK command that was executed.
+    value: ${{ steps.invoke.outputs.command }}
+runs:
+  using: composite
+  steps:
+    - id: invoke
+      shell: bash
+      env:
+        L9_EXECUTABLE: ${{ inputs.executable }}
+        L9_OPERATION: ${{ inputs.operation }}
+        L9_INPUT: ${{ inputs.input }}
+        L9_OUTPUT: ${{ inputs.output }}
+        L9_ROOT: ${{ inputs.root }}
+        L9_SNAPSHOT_ID: ${{ inputs.snapshot-id }}
+        L9_PROVIDER_VERSION: ${{ inputs.provider-version }}
+        L9_IDENTITY_MAP: ${{ inputs.identity-map }}
+        L9_POLICY: ${{ inputs.policy }}
+        L9_GENERATED_AT: ${{ inputs.generated-at }}
+        L9_REVISION: ${{ inputs.revision }}
+        L9_STRICT: ${{ inputs.strict }}
+        L9_REQUIRED: ${{ inputs.required }}
+        L9_DIRTY: ${{ inputs.dirty }}
+        L9_MINIMUM_SDK_VERSION: ${{ inputs.minimum-sdk-version }}
+      run: python3 "${{ github.action_path }}/invoke.py"

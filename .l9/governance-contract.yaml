@@ -1,0 +1,67 @@
+schema: l9.core-governance-contract/v1
+metadata:
+  repository: Quantum-L9/l9-ci-core
+  phase: 3
+  status: authoritative
+boundary:
+  core_owns:
+    - execution-profile selection
+    - provider enablement
+    - provider requiredness
+    - SDK policy-file selection
+    - organization rollout mode
+    - waiver lifecycle validation
+    - promotion authorization
+    - publication-mode selection
+  sdk_owns:
+    - finding identity resolution
+    - finding classification
+    - policy interpretation
+    - provider failure semantics
+    - coverage semantics
+    - strict gate evaluation
+    - canonical bundle construction
+    - canonical bundle validation
+  prohibited:
+    - Core reading canonical findings to calculate a gate
+    - Core translating finding severity
+    - Core deriving rule identity
+    - Core suppressing canonical findings
+    - Core mutating a canonical bundle
+    - Core treating advisory mode as successful SDK validation
+    - Core converting an SDK contract failure into advisory success
+modes:
+  blocking:
+    description: >
+      SDK or provider failure propagates as a failed workflow.
+  advisory:
+    description: >
+      Findings may be published without becoming an organization-required
+      check, but SDK contract and artifact failures remain fatal.
+  shadow:
+    description: >
+      Results are retained for evaluation and promotion evidence but are not
+      published as required checks.
+  disabled:
+    description: >
+      The provider is not invoked.
+failure_invariants:
+  always_fatal:
+    - invalid governance configuration
+    - unknown execution profile
+    - unknown provider
+    - malformed waiver
+    - expired waiver
+    - unsupported SDK contract
+    - invalid canonical bundle
+    - artifact compatibility failure
+    - SDK internal error
+    - operational-limit failure
+phase_3_outputs:
+  - resolved execution profile
+  - resolved provider mode
+  - resolved provider requiredness
+  - resolved strictness
+  - selected SDK policy path
+  - applicable waiver identifiers
+  - governance configuration digest

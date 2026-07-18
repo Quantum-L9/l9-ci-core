@@ -1,0 +1,45 @@
+name: Provision immutable l9-ci-sdk
+description: >
+  Prepares an isolated runtime for an explicitly permitted immutable SDK
+  revision and verifies its public CLI contract.
+inputs:
+  sdk-source:
+    description: SDK source type. Phase 1 permits only "git".
+    required: false
+    default: git
+  sdk-repository:
+    description: Canonical SDK Git repository.
+    required: false
+    default: https://github.com/Quantum-L9/l9-ci-sdk.git
+  sdk-revision:
+    description: Full 40-character immutable SDK commit SHA.
+    required: false
+    default: c78486ea9b7d596d0b6db755b5780e5289878d35
+  runtime-directory:
+    description: Runtime directory relative to the workspace.
+    required: false
+    default: .l9/runtime/sdk
+outputs:
+  executable:
+    description: Absolute path to the verified l9-ci wrapper.
+    value: ${{ steps.provision.outputs.executable }}
+  sdk-root:
+    description: Absolute path to the detached SDK checkout.
+    value: ${{ steps.provision.outputs.sdk-root }}
+  sdk-revision:
+    description: Verified SDK commit SHA.
+    value: ${{ steps.provision.outputs.sdk-revision }}
+  contract:
+    description: Verified integration contract identifier.
+    value: ${{ steps.provision.outputs.contract }}
+runs:
+  using: composite
+  steps:
+    - id: provision
+      shell: bash
+      env:
+        INPUT_SDK_SOURCE: ${{ inputs.sdk-source }}
+        INPUT_SDK_REPOSITORY: ${{ inputs.sdk-repository }}
+        INPUT_SDK_REVISION: ${{ inputs.sdk-revision }}
+        INPUT_RUNTIME_DIRECTORY: ${{ inputs.runtime-directory }}
+      run: python3 "${{ github.action_path }}/provision.py"

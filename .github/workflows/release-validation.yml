@@ -1,0 +1,55 @@
+name: Phase 4 release validation
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to validate
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-validation-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout immutable release revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin \
+            "https://github.com/${REPOSITORY}.git"
+      - id: tag
+        name: Resolve release tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            value="${DISPATCH_TAG}"
+          else
+            value="${REF_NAME}"
+          fi
+          test -n "${value}"
+          echo "value=${value}" >> "${GITHUB_OUTPUT}"
+      - name: Validate Phase 4 release
+        uses: ./.github/actions/validate-release
+        with:
+          tag: ${{ steps.tag.outputs.value }}
+          expected-version: 2.0.0

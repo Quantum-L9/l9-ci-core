@@ -1,0 +1,59 @@
+schema: l9.ownership-spec/v1
+repository: Quantum-L9/l9-ci-core
+core_owns:
+  orchestration:
+    - reusable GitHub workflows
+    - event handling
+    - job topology
+    - matrices
+    - concurrency
+  security:
+    - workflow permissions
+    - trust-boundary enforcement
+    - fork safety
+    - immutable dependency selection
+  provisioning:
+    - SDK source selection
+    - SDK revision validation
+    - SDK runtime preparation
+    - SDK public-contract probing
+  publication:
+    - artifact retention
+    - check publication
+    - summaries
+    - annotations
+sdk_owns:
+  analysis:
+    - provider SPI
+    - provider execution contract
+    - provider-native report import
+    - repository capability detection
+  canonicalization:
+    - evidence records
+    - findings
+    - classifications
+    - coverage
+    - provider failures
+    - finding bundles
+  semantics:
+    - identity resolution
+    - policy classification library
+    - gate evaluation primitives
+  artifacts:
+    - schemas
+    - schema validation
+    - semantic validation
+    - deterministic serialization
+    - agent-review payload projection
+prohibited_in_core:
+  - provider report parser
+  - Semgrep JSON parser
+  - canonical finding model
+  - canonical evidence model
+  - copied SDK schema
+  - rule identity derivation
+  - severity normalization
+  - scanner adapter
+  - AST parser
+  - Tree-sitter grammar
+  - repository graph engine

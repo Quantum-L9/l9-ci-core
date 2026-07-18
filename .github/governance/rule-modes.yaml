@@ -1,36 +1,19 @@
-version: 1
-default_mode: blocking
-rules:
-  TRANSPORT-PACKET-CONTRACT: blocking
-  DEPRECATED-API: advisory
-  THRESHOLD-POLICY: blocking
-  GOVERNANCE-APPROVAL: blocking
-  PY-SYNTAX: blocking
-  DIRECT-NODE-DISPATCH: advisory
-  HANDLER-SIGNATURE: advisory
-  PII-LOGGING: advisory
-  OPTIONAL-STAGE-MISSING: advisory
-  SEMGREP-EXPERIMENTAL: shadow
-  AST-TRANSPORT-001: shadow
-  AST-TRANSPORT-002: shadow
-  AST-TRANSPORT-003: shadow
-  AST-TRANSPORT-004: shadow
-  AST-ROUTING-001: shadow
-  AST-ROUTING-002: shadow
-  AST-ROUTING-003: shadow
-  AST-ROUTING-004: shadow
-  AST-LOGGING-001: shadow
-  AST-LOGGING-002: shadow
-  AST-LOGGING-003: shadow
-  AST-HANDLER-001: shadow
-  AST-HANDLER-002: shadow
-  AST-HANDLER-003: shadow
-  AST-HANDLER-004: shadow
-promotion:
-  allowed_transitions:
-  - shadow_to_advisory
-  - advisory_to_blocking
-  blocking_requires:
-  - l9-validated:approve
-  - platform_owner_review
-  telemetry_artifact: artifacts/agent_review_payload.json
+{
+  "schema": "l9.rule-modes/v1",
+  "defaults": {
+    "pr_fast": "blocking",
+    "merge": "blocking",
+    "nightly": "advisory",
+    "release": "blocking",
+    "supply_chain": "blocking"
+  },
+  "provider_overrides": {
+    "semgrep": {}
+  },
+  "allowed_modes": [
+    "blocking",
+    "advisory",
+    "shadow",
+    "disabled"
+  ]
+}

@@ -1,0 +1,21 @@
+name: Validate l9-ci-core release
+description: >
+  Validates the Phase 4 release identity, immutable dependencies, and
+  repository contract before a release can be authorized.
+inputs:
+  tag:
+    required: true
+  expected-version:
+    required: true
+outputs:
+  release-version:
+    value: ${{ steps.validate.outputs.release-version }}
+runs:
+  using: composite
+  steps:
+    - id: validate
+      shell: bash
+      env:
+        L9_RELEASE_TAG: ${{ inputs.tag }}
+        L9_EXPECTED_VERSION: ${{ inputs.expected-version }}
+      run: python3 "${{ github.action_path }}/validate.py"

@@ -1,0 +1,54 @@
+name: Render SDK publication projection
+description: >
+  Converts an SDK-owned agent-review projection and Core metadata into a
+  bounded GitHub check payload without reconstructing findings.
+inputs:
+  agent-payload:
+    required: true
+  profile:
+    required: true
+  mode:
+    required: true
+  provider:
+    required: true
+  sdk-revision:
+    required: true
+  governance-digest:
+    required: true
+  repository-revision:
+    required: true
+  workflow-result:
+    required: true
+  run-url:
+    required: true
+  artifact-url:
+    required: false
+  output:
+    required: true
+outputs:
+  title:
+    value: ${{ steps.render.outputs.title }}
+  summary:
+    value: ${{ steps.render.outputs.summary }}
+  conclusion:
+    value: ${{ steps.render.outputs.conclusion }}
+  annotation-count:
+    value: ${{ steps.render.outputs.annotation-count }}
+runs:
+  using: composite
+  steps:
+    - id: render
+      shell: bash
+      env:
+        L9_AGENT_PAYLOAD: ${{ inputs.agent-payload }}
+        L9_PROFILE: ${{ inputs.profile }}
+        L9_MODE: ${{ inputs.mode }}
+        L9_PROVIDER: ${{ inputs.provider }}
+        L9_SDK_REVISION: ${{ inputs.sdk-revision }}
+        L9_GOVERNANCE_DIGEST: ${{ inputs.governance-digest }}
+        L9_REPOSITORY_REVISION: ${{ inputs.repository-revision }}
+        L9_WORKFLOW_RESULT: ${{ inputs.workflow-result }}
+        L9_RUN_URL: ${{ inputs.run-url }}
+        L9_ARTIFACT_URL: ${{ inputs.artifact-url }}
+        L9_PUBLICATION_OUTPUT: ${{ inputs.output }}
+      run: python3 "${{ github.action_path }}/render.py"

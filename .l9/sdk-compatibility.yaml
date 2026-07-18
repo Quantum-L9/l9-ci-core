@@ -1,0 +1,31 @@
+schema: l9.sdk-compatibility/v1
+metadata:
+  status: authoritative
+  consumer: Quantum-L9/l9-ci-core
+  producer: Quantum-L9/l9-ci-sdk
+default:
+  source: git
+  repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+  revision: c78486ea9b7d596d0b6db755b5780e5289878d35
+supported:
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: c78486ea9b7d596d0b6db755b5780e5289878d35
+    integration_contract: l9.integration-contract/v1
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+    required_cli_paths:
+      - semgrep normalize
+      - bundle validate
+      - bundle project-agent-payload
+      - compatibility check
+policy:
+  arbitrary_install_commands_allowed: false
+  floating_git_references_allowed: false
+  short_git_revisions_allowed: false
+  branches_allowed: false
+  tags_allowed: false
+  unlisted_revisions_allowed: false
+  fallback_to_parent_allowed: false
+  fallback_to_legacy_cli_allowed: false

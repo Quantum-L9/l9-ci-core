@@ -1,17 +1,11 @@
 # l9-ci-core
 
-Reusable GitHub Actions workflows for L9 repositories.
+Thin GitHub Actions control plane for the Quantum-L9 CI platform.
 
-Primary workflow:
+**Version:** 2.0.0  
+**Pinned SDK:** `Quantum-L9/l9-ci-sdk@c78486ea9b7d596d0b6db755b5780e5289878d35`
 
-```yaml
-jobs:
-  pr_pipeline:
-    uses: Quantum-L9/l9-ci-core/.github/workflows/pr-pipeline.yml@v1
-    with:
-      python-version: "3.12"
-      source-dir: "."
-      test-dir: "tests/"
-```
-
-The workflow installs the SDK as a runtime CLI through the `l9-ci-install-command` input. The default now installs the SDK from the SDK repository pinned to commit `d32e84b` via `git+https` (`python -m pip install "l9-ci @ git+https://github.com/Quantum-L9/l9-ci-sdk.git@d32e84b7c00fc88b85f2639471dd64126251e09e"`). Callers can override this input to pin a different ref or install source. Private-repo callers set an `SDK_TOKEN` secret granting read access to `Quantum-L9/l9-ci-sdk`; public callers need no token. Once the SDK is published to an index, the default will switch back to `pip install l9-ci`. See [docs/SDK_INSTALL.md](docs/SDK_INSTALL.md) for details.
+The four implemented phases provide immutable SDK provisioning, validated
+artifact routing, governance resolution, and publication through workflow
+summaries and GitHub checks. Core publishes the SDK-owned agent-review
+projection and never reconstructs canonical findings or gate outcomes.

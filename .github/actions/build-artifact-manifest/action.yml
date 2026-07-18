@@ -1,0 +1,31 @@
+name: Build artifact manifest
+description: >
+  Creates deterministic Core metadata over already validated artifacts.
+inputs:
+  provider:
+    required: true
+  matrix-id:
+    required: true
+  sdk-revision:
+    required: true
+  bundle:
+    required: true
+  agent-payload:
+    required: true
+  raw-directory:
+    required: true
+  output:
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        L9_PROVIDER: ${{ inputs.provider }}
+        L9_MATRIX_ID: ${{ inputs.matrix-id }}
+        L9_SDK_REVISION: ${{ inputs.sdk-revision }}
+        L9_BUNDLE: ${{ inputs.bundle }}
+        L9_AGENT_PAYLOAD: ${{ inputs.agent-payload }}
+        L9_RAW_DIRECTORY: ${{ inputs.raw-directory }}
+        L9_MANIFEST_OUTPUT: ${{ inputs.output }}
+      run: python3 "${{ github.action_path }}/manifest.py"

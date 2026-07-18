@@ -1,0 +1,70 @@
+schema: l9.core-publication-contract/v1
+metadata:
+  repository: Quantum-L9/l9-ci-core
+  phase: 4
+  status: authoritative
+boundary:
+  core_owns:
+    - GitHub check publication
+    - workflow summaries
+    - artifact links
+    - rollout-mode visibility
+    - cross-job status aggregation
+    - release-readiness validation
+    - publication metadata
+    - retention and observability metadata
+  sdk_owns:
+    - canonical findings
+    - canonical gate semantics
+    - finding identity
+    - policy classification
+    - canonical bundle validation
+    - agent-review payload projection
+    - stable semantic exit codes
+publication_inputs:
+  canonical:
+    - finding-bundle.json
+    - agent-review-payload.json
+  core_metadata:
+    - execution profile
+    - governance mode
+    - governance digest
+    - SDK revision
+    - workflow run URL
+    - artifact URL
+    - repository revision
+    - workflow result
+modes:
+  blocking:
+    publish_check: true
+    failed_analysis_conclusion: failure
+  advisory:
+    publish_check: true
+    failed_analysis_conclusion: neutral
+  shadow:
+    publish_check: false
+    retain_artifacts: true
+  disabled:
+    publish_check: false
+    provider_execution: false
+invariants:
+  - Core must validate a downloaded bundle before publication.
+  - Core must never derive a gate from finding counts or severities.
+  - Core must never change the SDK gate conclusion.
+  - Core must never edit canonical artifacts.
+  - Core may consume the SDK-owned agent-review projection.
+  - Missing or invalid canonical artifacts are publication failures.
+  - Contract and artifact failures remain fatal in every enabled mode.
+  - Check publication uses least-privilege checks write permission.
+  - Pull-request source code is never executed in the publication job.
+  - Shadow and disabled modes create no GitHub check.
+  - Publication metadata must identify the SDK and governance revisions.
+release_requirements:
+  - all architecture tests pass
+  - all governance tests pass
+  - all publication tests pass
+  - SDK compatibility contract is valid
+  - external actions use immutable full commit SHAs
+  - workflows declare explicit permissions
+  - repository version identifies Phase 4
+  - release tag matches the declared release version

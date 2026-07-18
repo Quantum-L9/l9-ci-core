@@ -1,0 +1,170 @@
+name: Normalize Semgrep report
+on:
+  workflow_call:
+    inputs:
+      report-path:
+        type: string
+        required: true
+      snapshot-id:
+        type: string
+        required: true
+      matrix-id:
+        type: string
+        required: true
+      provider-version:
+        type: string
+        required: false
+        default: unknown
+      repository-root:
+        type: string
+        required: false
+        default: .
+      identity-map:
+        type: string
+        required: false
+        default: ""
+      policy:
+        type: string
+        required: false
+        default: ""
+      strict:
+        type: boolean
+        required: false
+        default: true
+      required-provider:
+        type: boolean
+        required: false
+        default: true
+      dirty:
+        type: string
+        required: false
+        default: unset
+      minimum-sdk-version:
+        type: string
+        required: false
+        default: ""
+      retention-days:
+        type: number
+        required: false
+        default: 14
+permissions:
+  contents: read
+concurrency:
+  group: normalize-semgrep-${{ github.workflow }}-${{ github.ref }}-${{ inputs.matrix-id }}
+  cancel-in-progress: true
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      artifact-name: ${{ steps.names.outputs.artifact-name }}
+      bundle-path: ${{ steps.route.outputs.bundle }}
+      payload-path: ${{ steps.route.outputs.agent-payload }}
+    steps:
+      - name: Checkout immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin             "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin             "https://github.com/${REPOSITORY}.git"
+      - id: names
+        name: Resolve collision-safe paths
+        env:
+          MATRIX_ID: ${{ inputs.matrix-id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${MATRIX_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+            echo "Invalid matrix-id" >&2
+            exit 2
+          fi
+          work=".l9/runtime/phase-2/${MATRIX_ID}"
+          artifact_name="l9-semgrep-${MATRIX_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "${work}"
+          {
+            echo "work=${work}"
+            echo "bundle=${work}/finding-bundle.json"
+            echo "payload=${work}/agent-review-payload.json"
+            echo "artifact-name=${artifact_name}"
+          } >> "${GITHUB_OUTPUT}"
+      - id: sdk
+        name: Provision immutable SDK
+        uses: ./.github/actions/provision-sdk
+        with:
+          sdk-source: git
+          sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+          sdk-revision: c78486ea9b7d596d0b6db755b5780e5289878d35
+      - name: Normalize provider report
+        uses: ./.github/actions/invoke-sdk
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: semgrep-normalize
+          input: ${{ inputs.report-path }}
+          output: ${{ steps.names.outputs.bundle }}
+          root: ${{ inputs.repository-root }}
+          snapshot-id: ${{ inputs.snapshot-id }}
+          provider-version: ${{ inputs.provider-version }}
+          identity-map: ${{ inputs.identity-map }}
+          policy: ${{ inputs.policy }}
+          strict: ${{ inputs.strict }}
+          required: ${{ inputs.required-provider }}
+          dirty: ${{ inputs.dirty }}
+          revision: ${{ github.sha }}
+      - name: Validate canonical bundle
+        uses: ./.github/actions/validate-bundle
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          bundle: ${{ steps.names.outputs.bundle }}
+          minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
+      - name: Project agent-review payload
+        uses: ./.github/actions/invoke-sdk
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: bundle-project-agent-payload
+          input: ${{ steps.names.outputs.bundle }}
+          output: ${{ steps.names.outputs.payload }}
+          strict: ${{ inputs.strict }}
+      - id: route
+        name: Route artifacts
+        uses: ./.github/actions/route-artifacts
+        with:
+          provider: semgrep
+          matrix-id: ${{ inputs.matrix-id }}
+          raw-report: ${{ inputs.report-path }}
+          bundle: ${{ steps.names.outputs.bundle }}
+          agent-payload: ${{ steps.names.outputs.payload }}
+          destination-root: artifacts
+      - name: Revalidate routed canonical bundle
+        uses: ./.github/actions/validate-bundle
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          bundle: ${{ steps.route.outputs.bundle }}
+          minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
+      - name: Build artifact manifest
+        uses: ./.github/actions/build-artifact-manifest
+        with:
+          provider: semgrep
+          matrix-id: ${{ inputs.matrix-id }}
+          sdk-revision: ${{ steps.sdk.outputs.sdk-revision }}
+          bundle: ${{ steps.route.outputs.bundle }}
+          agent-payload: ${{ steps.route.outputs.agent-payload }}
+          raw-directory: ${{ steps.route.outputs.raw-directory }}
+          output: artifacts/metadata/${{ inputs.matrix-id }}/artifact-manifest.json
+      - name: Upload Phase 2 artifact set
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.names.outputs.artifact-name }}
+          path: |
+            artifacts/raw/semgrep/${{ inputs.matrix-id }}/
+            artifacts/l9/${{ inputs.matrix-id }}/
+            artifacts/metadata/${{ inputs.matrix-id }}/
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+          compression-level: 6
+          overwrite: false
+          include-hidden-files: false

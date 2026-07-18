@@ -1,0 +1,45 @@
+schema: l9.core-artifact-protocol/v1
+metadata:
+  repository: Quantum-L9/l9-ci-core
+  phase: 2
+  status: authoritative
+sdk_contract:
+  schema: l9.integration-contract/v1
+  revision: c78486ea9b7d596d0b6db755b5780e5289878d35
+workspace_layout:
+  root: artifacts
+  raw:
+    root: artifacts/raw
+    pattern: artifacts/raw/{provider}/{matrix_id}/
+    ownership: Core
+    mutability: diagnostic
+  canonical:
+    root: artifacts/l9
+    bundle: artifacts/l9/{matrix_id}/finding-bundle.json
+    ownership: SDK
+    mutability: immutable_after_validation
+  projections:
+    root: artifacts/l9
+    agent_payload: artifacts/l9/{matrix_id}/agent-review-payload.json
+    ownership: SDK
+    mutability: immutable_after_validation
+  metadata:
+    root: artifacts/metadata
+    manifest: artifacts/metadata/{matrix_id}/artifact-manifest.json
+    ownership: Core
+    mutability: append_only
+rules:
+  - Core may move or copy canonical files without modifying their bytes.
+  - Core must validate a canonical bundle before routing or upload.
+  - Core must run SDK compatibility negotiation before upload.
+  - Raw reports and canonical bundles must remain separate.
+  - Every matrix execution must use a unique matrix_id.
+  - Artifact names must include provider and matrix_id.
+  - Core must not merge canonical bundles.
+  - Core must not infer compatibility from JSON shape.
+  - SDK exit codes must propagate without remapping.
+phase_2_outputs:
+  - raw provider report
+  - validated finding bundle
+  - validated agent-review payload
+  - artifact manifest

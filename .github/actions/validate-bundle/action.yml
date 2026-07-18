@@ -1,0 +1,29 @@
+name: Validate canonical finding bundle
+description: >
+  Runs schema, semantic, and compatibility validation through the SDK.
+inputs:
+  executable:
+    required: true
+    description: Verified SDK executable.
+  bundle:
+    required: true
+    description: Canonical finding bundle path.
+  minimum-sdk-version:
+    required: false
+    description: Optional minimum acceptable SDK version.
+runs:
+  using: composite
+  steps:
+    - name: Validate bundle
+      uses: ./.github/actions/invoke-sdk
+      with:
+        executable: ${{ inputs.executable }}
+        operation: bundle-validate
+        input: ${{ inputs.bundle }}
+    - name: Verify compatibility
+      uses: ./.github/actions/invoke-sdk
+      with:
+        executable: ${{ inputs.executable }}
+        operation: compatibility-check
+        input: ${{ inputs.bundle }}
+        minimum-sdk-version: ${{ inputs.minimum-sdk-version }}

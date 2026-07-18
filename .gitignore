@@ -1,30 +1,9 @@
-# Byte-compiled / optimized
 __pycache__/
 *.py[cod]
-*$py.class
-
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-.eggs/
-
-# Test / coverage
 .pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-.tox/
 .mypy_cache/
 .ruff_cache/
-
-# Virtual environments
 .venv/
-venv/
-env/
-
-# Editor / OS
-.idea/
-.vscode/
-*.swp
+.l9/runtime/
+artifacts/
 .DS_Store

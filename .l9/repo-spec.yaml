@@ -1,0 +1,29 @@
+schema: l9.repo-spec/v1
+metadata:
+  repository: Quantum-L9/l9-ci-core
+  version: 2.0.0
+  status: authoritative
+purpose: >
+  Thin control plane that provisions and invokes l9-ci-sdk through its public
+  CLI, applies workflow-level governance, and publishes validated results.
+invariants:
+  - Core depends on SDK; SDK never depends on Core.
+  - Core never parses provider-native reports.
+  - Core never reconstructs canonical findings.
+  - Core never copies SDK schemas.
+  - Core never edits canonical artifacts after SDK generation.
+  - SDK revisions used by production workflows are immutable.
+  - Unknown or incompatible SDK contracts fail closed.
+phases:
+  phase_1:
+    name: Control-plane foundation and SDK provisioning
+    status: implemented
+  phase_2:
+    name: Artifact protocol and reusable analysis workflows
+    status: implemented
+  phase_3:
+    name: Execution profiles and governance
+    status: implemented
+  phase_4:
+    name: Publication, observability, and release
+    status: implemented

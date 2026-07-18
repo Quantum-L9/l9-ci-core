@@ -1,0 +1,26 @@
+name: Publish L9 GitHub check
+description: >
+  Publishes a previously rendered Core publication envelope through the
+  GitHub Checks API.
+inputs:
+  token:
+    required: true
+  repository:
+    required: true
+  publication:
+    required: true
+outputs:
+  check-run-id:
+    value: ${{ steps.publish.outputs.check-run-id }}
+  check-run-url:
+    value: ${{ steps.publish.outputs.check-run-url }}
+runs:
+  using: composite
+  steps:
+    - id: publish
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        L9_REPOSITORY: ${{ inputs.repository }}
+        L9_PUBLICATION: ${{ inputs.publication }}
+      run: python3 "${{ github.action_path }}/publish.py"

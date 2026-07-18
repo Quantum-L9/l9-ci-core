@@ -1,0 +1,156 @@
+name: Publish L9 analysis
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        type: string
+        required: true
+      profile:
+        type: string
+        required: true
+      mode:
+        type: string
+        required: true
+      provider:
+        type: string
+        required: false
+        default: semgrep
+      matrix-id:
+        type: string
+        required: true
+      sdk-revision:
+        type: string
+        required: false
+        default: c78486ea9b7d596d0b6db755b5780e5289878d35
+      governance-digest:
+        type: string
+        required: true
+      repository-revision:
+        type: string
+        required: true
+      workflow-result:
+        type: string
+        required: true
+      artifact-url:
+        type: string
+        required: false
+        default: ""
+permissions:
+  actions: read
+  checks: write
+  contents: read
+jobs:
+  shadow:
+    if: inputs.mode == 'shadow' || inputs.mode == 'disabled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Record non-publication mode
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          case "${MODE}" in
+            shadow|disabled)
+              echo "GitHub check publication disabled for mode ${MODE}"
+              ;;
+            *)
+              echo "Unexpected mode" >&2
+              exit 2
+              ;;
+          esac
+  publish:
+    if: inputs.mode == 'blocking' || inputs.mode == 'advisory'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin             "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin             "https://github.com/${REPOSITORY}.git"
+      - name: Download immutable analysis artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: .l9/runtime/publication/download
+      - id: locate
+        name: Locate canonical artifacts
+        env:
+          MATRIX_ID: ${{ inputs.matrix-id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${MATRIX_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+            echo "Invalid matrix-id" >&2
+            exit 2
+          fi
+          root=".l9/runtime/publication/download"
+          bundle="${root}/l9/${MATRIX_ID}/finding-bundle.json"
+          payload="${root}/l9/${MATRIX_ID}/agent-review-payload.json"
+          test -f "${bundle}"
+          test -f "${payload}"
+          {
+            echo "bundle=${bundle}"
+            echo "payload=${payload}"
+          } >> "${GITHUB_OUTPUT}"
+      - id: sdk
+        name: Provision immutable SDK
+        uses: ./.github/actions/provision-sdk
+        with:
+          sdk-source: git
+          sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+          sdk-revision: ${{ inputs.sdk-revision }}
+      - name: Revalidate downloaded canonical bundle
+        uses: ./.github/actions/validate-bundle
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          bundle: ${{ steps.locate.outputs.bundle }}
+      - id: render
+        name: Render publication payload
+        uses: ./.github/actions/render-publication
+        with:
+          agent-payload: ${{ steps.locate.outputs.payload }}
+          profile: ${{ inputs.profile }}
+          mode: ${{ inputs.mode }}
+          provider: ${{ inputs.provider }}
+          sdk-revision: ${{ steps.sdk.outputs.sdk-revision }}
+          governance-digest: ${{ inputs.governance-digest }}
+          repository-revision: ${{ inputs.repository-revision }}
+          workflow-result: ${{ inputs.workflow-result }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          artifact-url: ${{ inputs.artifact-url }}
+          output: .l9/runtime/publication/publication.json
+      - name: Write workflow summary
+        env:
+          TITLE: ${{ steps.render.outputs.title }}
+          SUMMARY: ${{ steps.render.outputs.summary }}
+          CONCLUSION: ${{ steps.render.outputs.conclusion }}
+        run: |
+          {
+            echo "# ${TITLE}"
+            echo
+            echo "${SUMMARY}"
+            echo
+            echo "**Conclusion:** \`${CONCLUSION}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+      - id: publish
+        name: Publish GitHub check
+        uses: ./.github/actions/publish-check
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          publication: .l9/runtime/publication/publication.json
+      - name: Record check URL
+        env:
+          CHECK_URL: ${{ steps.publish.outputs.check-run-url }}
+        run: |
+          if [[ -n "${CHECK_URL}" ]]; then
+            echo "Published check: ${CHECK_URL}"
+          fi

@@ -1,0 +1,90 @@
+schema: l9.architecture-spec/v1
+metadata:
+  repository: Quantum-L9/l9-ci-core
+  generation: 2
+  phase: 4
+  status: authoritative
+identity:
+  role: thin-control-plane
+  description: >
+    GitHub Actions orchestration and immutable SDK provisioning for the
+    Quantum-L9 CI platform.
+dependency_direction:
+  allowed:
+    - l9-ci-core -> l9-ci-sdk
+  prohibited:
+    - l9-ci-sdk -> l9-ci-core
+sdk:
+  repository: Quantum-L9/l9-ci-sdk
+  revision: c78486ea9b7d596d0b6db755b5780e5289878d35
+  integration_contract: l9.integration-contract/v1
+owned_by_core:
+  - GitHub Actions orchestration
+  - workflow permissions
+  - immutable SDK provisioning
+  - execution-profile selection
+  - provider enablement selection
+  - required-versus-optional provider selection
+  - policy-file selection
+  - artifact upload and retention
+  - gate publication
+  - pull-request summaries
+  - organization rollout policy
+not_owned_by_core:
+  - provider execution implementation
+  - provider-native report parsing
+  - canonical evidence
+  - canonical findings
+  - finding identity resolution
+  - policy classification implementation
+  - provider failure records
+  - coverage records
+  - canonical bundle construction
+  - schema validation
+  - semantic validation
+  - deterministic serialization
+  - agent payload projection
+  - AST analysis
+  - Tree-sitter integration
+  - repository graph construction
+phase_1:
+  status: implemented
+phase_2:
+  status: implemented
+phase_3:
+  status: implemented
+  owns:
+    - execution-profile selection
+    - provider mode selection
+    - provider requiredness selection
+    - SDK policy-path selection
+    - waiver lifecycle validation
+    - promotion transition validation
+    - governance configuration provenance
+  excludes:
+    - finding interpretation
+    - finding classification
+    - gate calculation
+    - canonical bundle mutation
+    - required-check publication
+    - pull-request annotations
+    - organization observability dashboards
+
+phase_4:
+  status: implemented
+  owns:
+    - GitHub check publication
+    - workflow summaries
+    - SDK projection publication
+    - bounded pull-request annotations
+    - artifact links
+    - publication metadata
+    - release-readiness validation
+    - release authorization workflow
+  excludes:
+    - finding reconstruction
+    - gate recomputation
+    - canonical artifact mutation
+    - provider-native report parsing
+    - hosted analysis services
+    - repository graph services

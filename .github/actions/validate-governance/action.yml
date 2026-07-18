@@ -1,0 +1,14 @@
+name: Validate Core governance
+description: >
+  Validates every supported profile and provider combination.
+inputs:
+  governance-root:
+    required: false
+    default: .github/governance
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        L9_GOVERNANCE_ROOT: ${{ inputs.governance-root }}
+      run: python3 "${{ github.action_path }}/validate.py"

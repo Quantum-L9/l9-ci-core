@@ -1,0 +1,52 @@
+name: Resolve Core governance
+description: >
+  Resolves an execution profile, provider mode, requiredness, SDK policy
+  selection, and applicable waivers without reading canonical findings.
+inputs:
+  profile:
+    required: true
+  provider:
+    required: true
+  event-name:
+    required: true
+  repository:
+    required: true
+  ref:
+    required: true
+  governance-root:
+    required: false
+    default: .github/governance
+  evaluation-date:
+    required: false
+    description: ISO-8601 UTC date used for deterministic waiver validation.
+outputs:
+  sdk-profile:
+    value: ${{ steps.resolve.outputs.sdk-profile }}
+  mode:
+    value: ${{ steps.resolve.outputs.mode }}
+  enabled:
+    value: ${{ steps.resolve.outputs.enabled }}
+  strict:
+    value: ${{ steps.resolve.outputs.strict }}
+  required-provider:
+    value: ${{ steps.resolve.outputs.required-provider }}
+  sdk-policy:
+    value: ${{ steps.resolve.outputs.sdk-policy }}
+  waiver-ids:
+    value: ${{ steps.resolve.outputs.waiver-ids }}
+  governance-digest:
+    value: ${{ steps.resolve.outputs.governance-digest }}
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        L9_PROFILE: ${{ inputs.profile }}
+        L9_PROVIDER: ${{ inputs.provider }}
+        L9_EVENT_NAME: ${{ inputs.event-name }}
+        L9_REPOSITORY: ${{ inputs.repository }}
+        L9_REF: ${{ inputs.ref }}
+        L9_GOVERNANCE_ROOT: ${{ inputs.governance-root }}
+        L9_EVALUATION_DATE: ${{ inputs.evaluation-date }}
+      run: python3 "${{ github.action_path }}/resolve.py"

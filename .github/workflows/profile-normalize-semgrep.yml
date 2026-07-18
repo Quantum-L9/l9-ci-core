@@ -1,0 +1,128 @@
+name: Governed Semgrep normalization
+on:
+  workflow_call:
+    inputs:
+      profile:
+        type: string
+        required: true
+      report-path:
+        type: string
+        required: true
+      snapshot-id:
+        type: string
+        required: true
+      matrix-id:
+        type: string
+        required: true
+      provider-version:
+        type: string
+        required: false
+        default: unknown
+      repository-root:
+        type: string
+        required: false
+        default: .
+      identity-map:
+        type: string
+        required: false
+        default: ""
+      evaluation-date:
+        type: string
+        required: false
+        default: ""
+      minimum-sdk-version:
+        type: string
+        required: false
+        default: ""
+      retention-days:
+        type: number
+        required: false
+        default: 14
+permissions:
+  contents: read
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.governance.outputs.mode }}
+      enabled: ${{ steps.governance.outputs.enabled }}
+      strict: ${{ steps.governance.outputs.strict }}
+      required-provider: ${{ steps.governance.outputs.required-provider }}
+      sdk-policy: ${{ steps.governance.outputs.sdk-policy }}
+      sdk-profile: ${{ steps.governance.outputs.sdk-profile }}
+      waiver-ids: ${{ steps.governance.outputs.waiver-ids }}
+      governance-digest: ${{ steps.governance.outputs.governance-digest }}
+    steps:
+      - name: Checkout immutable caller revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin \
+            "https://github.com/${REPOSITORY}.git"
+      - id: governance
+        name: Resolve governance
+        uses: ./.github/actions/resolve-governance
+        with:
+          profile: ${{ inputs.profile }}
+          provider: semgrep
+          event-name: ${{ github.event_name }}
+          repository: ${{ github.repository }}
+          ref: ${{ github.ref }}
+          evaluation-date: ${{ inputs.evaluation-date }}
+      - name: Record governance resolution
+        env:
+          PROFILE: ${{ inputs.profile }}
+          MODE: ${{ steps.governance.outputs.mode }}
+          REQUIRED: ${{ steps.governance.outputs.required-provider }}
+          STRICT: ${{ steps.governance.outputs.strict }}
+          WAIVERS: ${{ steps.governance.outputs.waiver-ids }}
+          DIGEST: ${{ steps.governance.outputs.governance-digest }}
+        run: |
+          {
+            echo "profile=${PROFILE}"
+            echo "mode=${MODE}"
+            echo "required=${REQUIRED}"
+            echo "strict=${STRICT}"
+            echo "waivers=${WAIVERS}"
+            echo "governance_digest=${DIGEST}"
+          }
+  normalize:
+    needs:
+      - governance
+    if: needs.governance.outputs.enabled == 'true'
+    uses: ./.github/workflows/normalize-semgrep-report.yml
+    with:
+      report-path: ${{ inputs.report-path }}
+      snapshot-id: ${{ inputs.snapshot-id }}
+      matrix-id: ${{ inputs.matrix-id }}
+      provider-version: ${{ inputs.provider-version }}
+      repository-root: ${{ inputs.repository-root }}
+      identity-map: ${{ inputs.identity-map }}
+      policy: ${{ needs.governance.outputs.sdk-policy }}
+      strict: ${{ needs.governance.outputs.strict == 'true' }}
+      required-provider: ${{ needs.governance.outputs.required-provider == 'true' }}
+      minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
+      retention-days: ${{ inputs.retention-days }}
+  disabled:
+    needs:
+      - governance
+    if: needs.governance.outputs.enabled != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record disabled provider
+        env:
+          PROFILE: ${{ inputs.profile }}
+          MODE: ${{ needs.governance.outputs.mode }}
+        run: |
+          set -euo pipefail
+          test "${MODE}" = "disabled"
+          echo "semgrep disabled for profile ${PROFILE}"
