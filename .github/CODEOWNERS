@@ -1,0 +1,29 @@
+# Code owners for Quantum-L9/l9-ci-core (v2 thin control plane)
+#
+# CODEOWNERS is resolved per-repository only — it is NOT inherited from the
+# org-level Quantum-L9/.github repo. This file must live here to take effect.
+#
+# Replace @Quantum-L9/platform with the real team/user handles that should
+# review each area. Owners must have write access or the rule is ignored.
+
+# Default owner for everything not matched below.
+*                               @Quantum-L9/platform
+
+# Control-plane contracts — the boundary that defines v2. Changes here alter
+# what Core is allowed to own; require platform review.
+/.l9/                           @Quantum-L9/platform
+
+# GitHub Actions orchestration, composite actions, and workflow permissions.
+/.github/workflows/             @Quantum-L9/platform
+/.github/actions/               @Quantum-L9/platform
+
+# Governance configuration (execution profiles, modes, requiredness, waivers,
+# promotion, thresholds) and the release gate.
+/.github/governance/            @Quantum-L9/platform
+
+# Security policy and supply-chain integrity manifest.
+/SECURITY.md                    @Quantum-L9/platform
+/MANIFEST.sha256                @Quantum-L9/platform
+
+# Agent operating instructions for this repo.
+/AGENTS.md                      @Quantum-L9/platform
