@@ -57,6 +57,11 @@ def sha256(path: Path) -> str:
 
 def copy_exact(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if source.resolve() == destination.resolve():
+        # The caller already wrote the artifact at its routed destination
+        # (e.g. a consumer whose provider report lives under destination-root).
+        # Copying a file onto itself raises SameFileError; it is already routed.
+        return
     shutil.copyfile(source, destination)
     if sha256(source) != sha256(destination):
         raise RoutingError(f"byte-preserving copy verification failed: {source}")
