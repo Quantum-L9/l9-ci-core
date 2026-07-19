@@ -100,21 +100,25 @@ jobs:
             echo "bundle=${bundle}"
             echo "payload=${payload}"
           } >> "${GITHUB_OUTPUT}"
+      # This reusable workflow runs in the CALLER's checkout, so `uses: ./...`
+      # local-action refs resolve against the consumer repo (which does not
+      # vendor Core's actions) and fail. Reference Core's actions by their
+      # fully-qualified pinned form instead; keep the pin on a released commit.
       - id: sdk
         name: Provision immutable SDK
-        uses: ./.github/actions/provision-sdk
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@4b6b7336576490185a313e5d71be9ad9755f3e98
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision }}
       - name: Revalidate downloaded canonical bundle
-        uses: ./.github/actions/validate-bundle
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@4b6b7336576490185a313e5d71be9ad9755f3e98
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.locate.outputs.bundle }}
       - id: render
         name: Render publication payload
-        uses: ./.github/actions/render-publication
+        uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@4b6b7336576490185a313e5d71be9ad9755f3e98
         with:
           agent-payload: ${{ steps.locate.outputs.payload }}
           profile: ${{ inputs.profile }}
@@ -142,7 +146,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
       - id: publish
         name: Publish GitHub check
-        uses: ./.github/actions/publish-check
+        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@4b6b7336576490185a313e5d71be9ad9755f3e98
         with:
           token: ${{ github.token }}
           repository: ${{ github.repository }}
