@@ -14,7 +14,7 @@ inputs:
   sdk-revision:
     description: Full 40-character immutable SDK commit SHA.
     required: false
-    default: c78486ea9b7d596d0b6db755b5780e5289878d35
+    default: a294d9514ad6c50ef3be5084a5656ec5975e6d33
   runtime-directory:
     description: Runtime directory relative to the workspace.
     required: false
