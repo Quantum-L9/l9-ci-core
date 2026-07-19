@@ -14,14 +14,20 @@ inputs:
 runs:
   using: composite
   steps:
+    # invoke-sdk is referenced by its fully-qualified pinned ref, NOT a relative
+    # `./` path. A composite action's `uses: ./...` resolves against the CALLER's
+    # workspace, so a consumer repo (which does not vendor Core's actions) fails
+    # with "Can't find action.yml under .github/actions/invoke-sdk". The pin is a
+    # committed Core SHA carrying an identical invoke-sdk; keep it on a released
+    # commit when bumping.
     - name: Validate bundle
-      uses: ./.github/actions/invoke-sdk
+      uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@98f012f05b92e8fd9a5149215f8a1a28abc155d7
       with:
         executable: ${{ inputs.executable }}
         operation: bundle-validate
         input: ${{ inputs.bundle }}
     - name: Verify compatibility
-      uses: ./.github/actions/invoke-sdk
+      uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@98f012f05b92e8fd9a5149215f8a1a28abc155d7
       with:
         executable: ${{ inputs.executable }}
         operation: compatibility-check
