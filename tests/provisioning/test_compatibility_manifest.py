@@ -4,7 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".l9" / "sdk-compatibility.yaml"
-EXPECTED_SHA = "850eb0813752d3827cda47054da08791da00f3fe"
+EXPECTED_SHA = "6368ba17a98231d461a13b71e149e114ad766834"
 
 
 class CompatibilityManifestTests(unittest.TestCase):

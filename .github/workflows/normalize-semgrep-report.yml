@@ -98,7 +98,7 @@ jobs:
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: 850eb0813752d3827cda47054da08791da00f3fe
+          sdk-revision: 6368ba17a98231d461a13b71e149e114ad766834
       - name: Normalize provider report
         uses: ./.github/actions/invoke-sdk
         with:

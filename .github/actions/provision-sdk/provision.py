@@ -11,13 +11,68 @@ from pathlib import Path
 
 EXPECTED_SOURCE = "git"
 EXPECTED_REPOSITORY = "https://github.com/Quantum-L9/l9-ci-sdk.git"
-EXPECTED_REVISION = "850eb0813752d3827cda47054da08791da00f3fe"
+# Fallback default only. The authoritative allowlist is `.l9/sdk-compatibility.yaml`
+# (read by load_supported_revisions); keep this in sync with its `default.revision`.
+EXPECTED_REVISION = "6368ba17a98231d461a13b71e149e114ad766834"
 EXPECTED_CONTRACT = "l9.integration-contract/v1"
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
+# Repo-root .l9/sdk-compatibility.yaml, relative to this action file
+# (.github/actions/provision-sdk/provision.py -> parents[3] == repo root).
+COMPATIBILITY_MANIFEST = (
+    Path(__file__).resolve().parents[3] / ".l9" / "sdk-compatibility.yaml"
+)
 
 
 class ProvisioningError(RuntimeError):
     pass
+
+
+def _load_yaml_module():
+    # provision.py runs on the runner's system python3, before any venv exists,
+    # so PyYAML may be absent; install it on demand rather than failing.
+    try:
+        import yaml
+    except ModuleNotFoundError:
+        run([sys.executable, "-m", "pip", "install", "--quiet",
+             "--disable-pip-version-check", "pyyaml"])
+        import yaml
+    return yaml
+
+
+def load_supported_revisions(
+    manifest_path: Path = COMPATIBILITY_MANIFEST,
+) -> frozenset[str]:
+    """The set of SDK revisions Core allows, read from the compatibility
+    manifest (its `default` plus every `supported[]` entry). The file is the
+    single source of truth for the allowlist; fail closed if it is unreadable."""
+    if not manifest_path.is_file():
+        raise ProvisioningError(
+            f"SDK compatibility manifest not found: {manifest_path}"
+        )
+    yaml = _load_yaml_module()
+    try:
+        data = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as error:
+        raise ProvisioningError(
+            f"SDK compatibility manifest is not valid YAML: {error}"
+        ) from error
+    entries = []
+    default = data.get("default")
+    if isinstance(default, dict):
+        entries.append(default)
+    supported = data.get("supported")
+    if isinstance(supported, list):
+        entries.extend(entry for entry in supported if isinstance(entry, dict))
+    revisions = {
+        entry["revision"].strip().lower()
+        for entry in entries
+        if isinstance(entry.get("revision"), str) and entry["revision"].strip()
+    }
+    if not revisions:
+        raise ProvisioningError(
+            "SDK compatibility manifest lists no supported revisions"
+        )
+    return frozenset(revisions)
 
 
 def run(
@@ -64,7 +119,7 @@ def validate_inputs(source: str, repository: str, revision: str) -> None:
         raise ProvisioningError(
             "sdk-revision must be a full 40-character hexadecimal commit SHA"
         )
-    if revision.lower() != EXPECTED_REVISION:
+    if revision.lower() not in load_supported_revisions():
         raise ProvisioningError(
             "sdk-revision is not listed in .l9/sdk-compatibility.yaml"
         )
