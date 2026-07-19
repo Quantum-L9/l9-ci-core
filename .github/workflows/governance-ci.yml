@@ -1,21 +1,13 @@
 name: Phase 3 governance validation
 on:
+  # Runs on every PR and every push to main (previously path-filtered to
+  # governance-related paths only). Governance validation is cheap and its
+  # inputs — the resolved governance contract — can be affected indirectly, so
+  # validate it on all changes rather than only when a governance file is edited.
   pull_request:
-    paths:
-      - ".github/governance/**"
-      - ".github/actions/resolve-governance/**"
-      - ".github/actions/validate-governance/**"
-      - ".l9/governance-contract.yaml"
-      - "tests/governance/**"
   push:
     branches:
       - main
-    paths:
-      - ".github/governance/**"
-      - ".github/actions/resolve-governance/**"
-      - ".github/actions/validate-governance/**"
-      - ".l9/governance-contract.yaml"
-      - "tests/governance/**"
   workflow_dispatch:
 permissions:
   contents: read
