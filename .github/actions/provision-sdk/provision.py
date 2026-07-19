@@ -11,7 +11,7 @@ from pathlib import Path
 
 EXPECTED_SOURCE = "git"
 EXPECTED_REPOSITORY = "https://github.com/Quantum-L9/l9-ci-sdk.git"
-EXPECTED_REVISION = "c78486ea9b7d596d0b6db755b5780e5289878d35"
+EXPECTED_REVISION = "a294d9514ad6c50ef3be5084a5656ec5975e6d33"
 EXPECTED_CONTRACT = "l9.integration-contract/v1"
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 
@@ -124,6 +124,14 @@ def verify_contract_file(checkout: Path) -> None:
 def create_runtime(checkout: Path, runtime: Path) -> Path:
     venv = runtime / "venv"
     run([sys.executable, "-m", "venv", str(venv)])
+    venv_python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    # SDK runs from source via PYTHONPATH and ships no build; install its
+    # committed, pinned dependency manifest into the isolated venv or
+    # `python -m l9_ci` fails at import (ModuleNotFoundError: yaml).
+    requirements = checkout / "requirements.txt"
+    if requirements.is_file():
+        run([str(venv_python), "-m", "pip", "install", "--quiet",
+             "--disable-pip-version-check", "-r", str(requirements)])
     if os.name == "nt":
         python = venv / "Scripts" / "python.exe"
         executable = runtime / "l9-ci.cmd"
