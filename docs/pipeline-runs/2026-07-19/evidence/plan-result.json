@@ -1,0 +1,9 @@
+{
+  "eligible_count": 0,
+  "manifest_id": "MAN-a5d0fdd02e489098ea65f79e",
+  "manifest_path": "docs/pipeline-runs/2026-07-19/evidence/remediation-manifest.json",
+  "plan_directory": "docs/pipeline-runs/2026-07-19/evidence",
+  "rejected_count": 0,
+  "selected_count": 0,
+  "selected_effort_points": 0
+}

@@ -1,0 +1,20 @@
+{
+  "audit": {
+    "auditor_version": "3.3.0",
+    "federated_envelope_sha256": "e7b4a42e28816c8cccf75d867846107daaa79f9f0d612e79adb1f98cb4e82c36",
+    "outcome": "complete",
+    "provider_count": 1
+  },
+  "candidate_findings": [],
+  "planning_input_id": "PIN-l9-ci-core-run-001",
+  "policy": {
+    "policy_id": "default-remediation",
+    "policy_version": "1.3.0"
+  },
+  "repository": {
+    "base_ref": "f7a4ee8c1f4e4413cb3645d088cafa3e9c798235",
+    "repository_id": "l9-ci-core",
+    "snapshot_id": "sha256:448f3665b0863de8b03b9ed06e766d84d0869e759212255ccb04c20698ac8810"
+  },
+  "schema_version": "l9.planning-input.v1"
+}
