@@ -11,7 +11,7 @@ from pathlib import Path
 
 EXPECTED_SOURCE = "git"
 EXPECTED_REPOSITORY = "https://github.com/Quantum-L9/l9-ci-sdk.git"
-EXPECTED_REVISION = "a294d9514ad6c50ef3be5084a5656ec5975e6d33"
+EXPECTED_REVISION = "850eb0813752d3827cda47054da08791da00f3fe"
 EXPECTED_CONTRACT = "l9.integration-contract/v1"
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 
