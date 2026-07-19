@@ -6,8 +6,22 @@ metadata:
 default:
   source: git
   repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-  revision: 850eb0813752d3827cda47054da08791da00f3fe
+  revision: 6368ba17a98231d461a13b71e149e114ad766834
 supported:
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: 6368ba17a98231d461a13b71e149e114ad766834
+    integration_contract: l9.integration-contract/v1
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+    required_cli_paths:
+      - semgrep normalize
+      - bundle validate
+      - bundle project-agent-payload
+      - compatibility check
+  # Retained one release for rollback; CLI-identical to the default (the newer
+  # SDK commit touched only .github/, not l9_ci/ or .l9/integration-contract).
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: 850eb0813752d3827cda47054da08791da00f3fe
