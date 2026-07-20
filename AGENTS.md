@@ -123,12 +123,10 @@ consumer repo .github/           (what actually runs)
 
 **Not Core's job:** org issue/PR templates. Those are owned solely by
 `Quantum-L9/.github` community-health files (`.github/ISSUE_TEMPLATE/*`,
-root `PULL_REQUEST_TEMPLATE.md` in that repo). Do **not** copy
-[`docs/templates/ISSUE_TEMPLATE.md`](docs/templates/ISSUE_TEMPLATE.md) /
-[`docs/templates/PULL_REQUEST_TEMPLATE.md`](docs/templates/PULL_REQUEST_TEMPLATE.md)
-into a consumer's `.github/`, and do not sync them into the org pack — they
-are legacy leftovers pending removal from `docs/templates/`, not a
-deliverable.
+root `PULL_REQUEST_TEMPLATE.md` in that repo). Core does not ship an
+`ISSUE_TEMPLATE.md` / `PULL_REQUEST_TEMPLATE.md` under `docs/templates/` —
+they were removed as legacy leftovers with no deliverable role; do not
+recreate them here or sync them into the org pack.
 
 ---
 
@@ -173,6 +171,14 @@ difference is the semgrep `--config` ruleset inside the copied
   enforces this (`.l9/sdk-compatibility.yaml`: `floating_git_references_allowed:
   false`, `branches_allowed: false`, `tags_allowed: false`,
   `short_git_revisions_allowed: false`).
+- `.l9/sdk-compatibility.yaml` (`default.revision` plus every
+  `supported[].revision`) is the single source of truth for the SDK pin; when
+  bumping it, keep every mirror copy in sync — `provision-sdk/action.yml`,
+  `publish-analysis.yml`, `normalize-semgrep-report.yml`,
+  `sdk-contract-check.yml`, and the `.l9` contract docs — and pin only a
+  commit whose SDK `.l9/integration-contract.yaml` still exposes `semgrep
+  normalize`, `bundle validate`, `bundle project-agent-payload`, and
+  `compatibility check` (`sdk-contract-check.yml` verifies this on every PR).
 - If you see the Core pin `54a2f2fc8d060674d544fab14388bb5eff6b8e78` anywhere,
   it is **stale** — it predates two provisioning fixes (`98f012f`: install SDK
   `requirements.txt`, incl. PyYAML, into the isolated venv; `d2c2cd7`:
@@ -212,6 +218,22 @@ path, update `required_cli_paths` / the integration contract, and add tests
 before re-locking the candidate SHA.
 
 ---
+
+## 8. Cross-repo action references & MANIFEST
+
+Consumers call Core's actions and reusable workflows from a different
+repository, so their checkout does not contain Core's `.github/actions/`.
+Therefore:
+
+- Inside a composite action or a reusable workflow, reference a sibling Core
+  action by its fully-qualified pinned form
+  (`Quantum-L9/l9-ci-core/.github/actions/<name>@<sha>`), never a relative
+  `uses: ./...` path — the relative form resolves against the caller's
+  workspace and fails with "Can't find action.yml" for every consumer.
+- A `run:`-based step that copies a file must tolerate source == destination
+  (a consumer may already have written the artifact at its routed location).
+- `MANIFEST.sha256` records the sha256 of tracked files; regenerate the
+  entries for any file you change so it stays honest.
 
 ## Edit-time constraints (unchanged)
 
