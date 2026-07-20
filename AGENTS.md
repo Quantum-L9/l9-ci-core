@@ -123,12 +123,10 @@ consumer repo .github/           (what actually runs)
 
 **Not Core's job:** org issue/PR templates. Those are owned solely by
 `Quantum-L9/.github` community-health files (`.github/ISSUE_TEMPLATE/*`,
-root `PULL_REQUEST_TEMPLATE.md` in that repo). Do **not** copy
-[`docs/templates/ISSUE_TEMPLATE.md`](docs/templates/ISSUE_TEMPLATE.md) /
-[`docs/templates/PULL_REQUEST_TEMPLATE.md`](docs/templates/PULL_REQUEST_TEMPLATE.md)
-into a consumer's `.github/`, and do not sync them into the org pack — they
-are legacy leftovers pending removal from `docs/templates/`, not a
-deliverable.
+root `PULL_REQUEST_TEMPLATE.md` in that repo). Core does not ship an
+`ISSUE_TEMPLATE.md` / `PULL_REQUEST_TEMPLATE.md` under `docs/templates/` —
+they were removed as legacy leftovers with no deliverable role; do not
+recreate them here or sync them into the org pack.
 
 ---
 
