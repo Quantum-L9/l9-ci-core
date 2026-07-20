@@ -31,7 +31,7 @@ concurrency:
 
 env:
   # Pin Core to the immutable release commit (or replace with the v2 tag).
-  L9_CORE_REF: "54a2f2fc8d060674d544fab14388bb5eff6b8e78"
+  L9_CORE_REF: "f88116503430aa18992b70d8d31063e34ff97ef1"
   # Match the event: pr_fast for pull_request, merge for push, nightly/release/
   # supply_chain as appropriate. Must be allowed_events in execution-profiles.yaml.
   L9_PROFILE: "pr_fast"
@@ -66,7 +66,7 @@ jobs:
 
       - id: gov
         name: Resolve governance (Core)
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@54a2f2fc8d060674d544fab14388bb5eff6b8e78
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@f88116503430aa18992b70d8d31063e34ff97ef1
         with:
           profile: ${{ env.L9_PROFILE }}
           provider: semgrep
@@ -107,11 +107,11 @@ jobs:
       - id: sdk
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@54a2f2fc8d060674d544fab14388bb5eff6b8e78
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@f88116503430aa18992b70d8d31063e34ff97ef1
 
       - name: Normalize provider report
         if: steps.gov.outputs.enabled == 'true'
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@54a2f2fc8d060674d544fab14388bb5eff6b8e78
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@f88116503430aa18992b70d8d31063e34ff97ef1
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-normalize
@@ -126,14 +126,14 @@ jobs:
 
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true'
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@54a2f2fc8d060674d544fab14388bb5eff6b8e78
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@f88116503430aa18992b70d8d31063e34ff97ef1
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ env.L9_MATRIX_ID }}/finding-bundle.json
 
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true'
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@54a2f2fc8d060674d544fab14388bb5eff6b8e78
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@f88116503430aa18992b70d8d31063e34ff97ef1
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -144,7 +144,7 @@ jobs:
       - id: route
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true'
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@54a2f2fc8d060674d544fab14388bb5eff6b8e78
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@f88116503430aa18992b70d8d31063e34ff97ef1
         with:
           provider: semgrep
           matrix-id: ${{ env.L9_MATRIX_ID }}
@@ -155,7 +155,7 @@ jobs:
 
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true'
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@54a2f2fc8d060674d544fab14388bb5eff6b8e78
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@f88116503430aa18992b70d8d31063e34ff97ef1
         with:
           provider: semgrep
           matrix-id: ${{ env.L9_MATRIX_ID }}
@@ -181,7 +181,7 @@ jobs:
     name: Publish analysis (Core)
     needs: analyze
     if: needs.analyze.outputs.enabled == 'true'
-    uses: Quantum-L9/l9-ci-core/.github/workflows/publish-analysis.yml@54a2f2fc8d060674d544fab14388bb5eff6b8e78
+    uses: Quantum-L9/l9-ci-core/.github/workflows/publish-analysis.yml@f88116503430aa18992b70d8d31063e34ff97ef1
     permissions:
       actions: read
       checks: write

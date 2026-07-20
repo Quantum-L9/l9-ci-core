@@ -49,12 +49,12 @@ So the replacement ships as a **template you copy**, not a workflow you call.
 ## Pairing with the analysis pipeline
 
 Run this alongside the governed semgrep pipeline. Pin Core by the immutable
-release commit (or the `v2` tag once published):
+release commit (or the `v2.0.0` tag once published — never `@main`):
 
 ```yaml
 jobs:
   semgrep:
-    uses: Quantum-L9/l9-ci-core/.github/workflows/profile-normalize-semgrep.yml@54a2f2fc8d060674d544fab14388bb5eff6b8e78
+    uses: Quantum-L9/l9-ci-core/.github/workflows/profile-normalize-semgrep.yml@f88116503430aa18992b70d8d31063e34ff97ef1
     with:
       profile: pr_fast
       report-path: artifacts/raw/semgrep/pr/report.json

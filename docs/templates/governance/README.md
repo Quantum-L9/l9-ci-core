@@ -130,5 +130,5 @@ For a strict-TypeScript service (e.g. eslint + `tsc --noEmit` + `vitest run`):
    [`../l9-lint-test.yml`](../l9-lint-test.yml) (Python) or
    [`../l9-lint-test-node.yml`](../l9-lint-test-node.yml) (Node/TypeScript).
 
-Pin Core by the immutable commit `54a2f2fc8d060674d544fab14388bb5eff6b8e78`
-(or the `v2` tag once published).
+Pin Core by the immutable commit `f88116503430aa18992b70d8d31063e34ff97ef1`
+(or the `v2.0.0` tag once published — never `@main`).
