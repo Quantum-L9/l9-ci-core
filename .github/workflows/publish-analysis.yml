@@ -106,19 +106,19 @@ jobs:
       # fully-qualified pinned form instead; keep the pin on a released commit.
       - id: sdk
         name: Provision immutable SDK
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@4b6b7336576490185a313e5d71be9ad9755f3e98
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@d2c2cd7f7251632825c53b8ed31570ba5d8add26
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision }}
       - name: Revalidate downloaded canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@4b6b7336576490185a313e5d71be9ad9755f3e98
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@d2c2cd7f7251632825c53b8ed31570ba5d8add26
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.locate.outputs.bundle }}
       - id: render
         name: Render publication payload
-        uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@4b6b7336576490185a313e5d71be9ad9755f3e98
+        uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@d2c2cd7f7251632825c53b8ed31570ba5d8add26
         with:
           agent-payload: ${{ steps.locate.outputs.payload }}
           profile: ${{ inputs.profile }}
@@ -146,7 +146,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
       - id: publish
         name: Publish GitHub check
-        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@4b6b7336576490185a313e5d71be9ad9755f3e98
+        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@d2c2cd7f7251632825c53b8ed31570ba5d8add26
         with:
           token: ${{ github.token }}
           repository: ${{ github.repository }}
