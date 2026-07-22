@@ -12,6 +12,8 @@ inputs:
     required: true
   agent-payload:
     required: true
+  gate-result:
+    required: true
   raw-directory:
     required: true
   output:
@@ -26,6 +28,7 @@ runs:
         L9_SDK_REVISION: ${{ inputs.sdk-revision }}
         L9_BUNDLE: ${{ inputs.bundle }}
         L9_AGENT_PAYLOAD: ${{ inputs.agent-payload }}
+        L9_GATE_RESULT: ${{ inputs.gate-result }}
         L9_RAW_DIRECTORY: ${{ inputs.raw-directory }}
         L9_MANIFEST_OUTPUT: ${{ inputs.output }}
       run: python3 "${{ github.action_path }}/manifest.py"

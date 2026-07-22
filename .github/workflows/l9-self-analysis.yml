@@ -1,6 +1,4 @@
-# L9 analysis caller template. Copy into a consumer repository at
-# .github/workflows/l9-analysis.yml and replace both immutable placeholders.
-name: L9 Analysis
+name: L9 Self Analysis
 
 on:
   pull_request:
@@ -11,13 +9,13 @@ permissions:
 
 jobs:
   analysis:
-    uses: Quantum-L9/l9-ci-core/.github/workflows/analyze-semgrep.yml@{{CORE_ANALYZE_SHA}}
+    uses: ./.github/workflows/analyze-semgrep.yml
     permissions:
       actions: read
       checks: write
       contents: read
     with:
       profile: pr_fast
-      matrix-id: pr-semgrep
+      matrix-id: core-semgrep
       sdk-revision: "{{SDK_CODE_SHA}}"
       semgrep-configs-json: '["p/python"]'

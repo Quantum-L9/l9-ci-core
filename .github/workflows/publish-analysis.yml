@@ -20,8 +20,7 @@ on:
         required: true
       sdk-revision:
         type: string
-        required: false
-        default: 6368ba17a98231d461a13b71e149e114ad766834
+        required: true
       governance-digest:
         type: string
         required: true
@@ -31,6 +30,10 @@ on:
       workflow-result:
         type: string
         required: true
+      strict-unresolved:
+        type: boolean
+        required: false
+        default: true
       artifact-url:
         type: string
         required: false
@@ -67,17 +70,18 @@ jobs:
       - name: Checkout immutable event revision
         env:
           REPOSITORY: ${{ github.repository }}
-          REVISION: ${{ github.sha }}
+          REVISION: ${{ inputs.repository-revision }}
           TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git init .
-          git remote add origin             "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
           git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
-          git remote set-url origin             "https://github.com/${REPOSITORY}.git"
+          git remote set-url origin "https://github.com/${REPOSITORY}.git"
       - name: Download immutable analysis artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: ${{ inputs.artifact-name }}
           path: .l9/runtime/publication/download
@@ -94,33 +98,52 @@ jobs:
           root=".l9/runtime/publication/download"
           bundle="${root}/l9/${MATRIX_ID}/finding-bundle.json"
           payload="${root}/l9/${MATRIX_ID}/agent-review-payload.json"
+          gate="${root}/l9/${MATRIX_ID}/gate-result.json"
           test -f "${bundle}"
           test -f "${payload}"
+          test -f "${gate}"
           {
             echo "bundle=${bundle}"
             echo "payload=${payload}"
+            echo "gate=${gate}"
           } >> "${GITHUB_OUTPUT}"
-      # This reusable workflow runs in the CALLER's checkout, so `uses: ./...`
-      # local-action refs resolve against the consumer repo (which does not
-      # vendor Core's actions) and fail. Reference Core's actions by their
-      # fully-qualified pinned form instead; keep the pin on a released commit.
       - id: sdk
         name: Provision immutable SDK
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@d2c2cd7f7251632825c53b8ed31570ba5d8add26
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@{{CORE_ACTIONS_SHA}}
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision }}
       - name: Revalidate downloaded canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@d2c2cd7f7251632825c53b8ed31570ba5d8add26
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@{{CORE_ACTIONS_SHA}}
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.locate.outputs.bundle }}
+      - id: reevaluate
+        name: Re-evaluate and verify canonical gate result
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@{{CORE_ACTIONS_SHA}}
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: gate-evaluate
+          input: ${{ steps.locate.outputs.bundle }}
+          output: .l9/runtime/publication/reevaluated-gate-result.json
+          strict: ${{ inputs.strict-unresolved }}
+      - name: Verify downloaded gate result byte-for-byte
+        env:
+          DOWNLOADED: ${{ steps.locate.outputs.gate }}
+          REEVALUATED: .l9/runtime/publication/reevaluated-gate-result.json
+        run: |
+          set -euo pipefail
+          cmp --silent "${DOWNLOADED}" "${REEVALUATED}" || {
+            echo "Canonical gate result does not match fresh SDK evaluation" >&2
+            exit 1
+          }
       - id: render
         name: Render publication payload
-        uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@d2c2cd7f7251632825c53b8ed31570ba5d8add26
+        uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@{{CORE_ACTIONS_SHA}}
         with:
           agent-payload: ${{ steps.locate.outputs.payload }}
+          gate-result: ${{ steps.locate.outputs.gate }}
           profile: ${{ inputs.profile }}
           mode: ${{ inputs.mode }}
           provider: ${{ inputs.provider }}
@@ -136,17 +159,19 @@ jobs:
           TITLE: ${{ steps.render.outputs.title }}
           SUMMARY: ${{ steps.render.outputs.summary }}
           CONCLUSION: ${{ steps.render.outputs.conclusion }}
+          GATE_STATUS: ${{ steps.render.outputs.gate-status }}
         run: |
           {
             echo "# ${TITLE}"
             echo
             echo "${SUMMARY}"
             echo
+            echo "**Canonical gate:** \`${GATE_STATUS}\`"
             echo "**Conclusion:** \`${CONCLUSION}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
       - id: publish
         name: Publish GitHub check
-        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@d2c2cd7f7251632825c53b8ed31570ba5d8add26
+        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@{{CORE_ACTIONS_SHA}}
         with:
           token: ${{ github.token }}
           repository: ${{ github.repository }}

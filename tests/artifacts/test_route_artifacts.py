@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import hashlib
 import importlib.util
+import json
 import os
 import tempfile
 import unittest
@@ -20,16 +22,19 @@ def digest(path: Path) -> str:
 
 
 class RouteArtifactTests(unittest.TestCase):
-    def test_canonical_files_are_copied_byte_for_byte(self) -> None:
+    def test_all_canonical_files_are_copied_byte_for_byte(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
-            raw = workspace / "source/raw.json"
-            bundle = workspace / "source/bundle.json"
-            payload = workspace / "source/payload.json"
-            raw.parent.mkdir(parents=True)
+            source = workspace / "source"
+            source.mkdir()
+            raw = source / "raw.json"
+            bundle = source / "bundle.json"
+            payload = source / "payload.json"
+            gate = source / "gate.json"
             raw.write_bytes(b'{"raw":true}\n')
             bundle.write_bytes(b'{"bundle":true}\n')
             payload.write_bytes(b'{"payload":true}\n')
+            gate.write_bytes(b'{"status":"pass"}\n')
             environment = {
                 "GITHUB_WORKSPACE": str(workspace),
                 "L9_PROVIDER": "semgrep",
@@ -37,19 +42,29 @@ class RouteArtifactTests(unittest.TestCase):
                 "L9_RAW_REPORT": str(raw),
                 "L9_BUNDLE": str(bundle),
                 "L9_AGENT_PAYLOAD": str(payload),
+                "L9_GATE_RESULT": str(gate),
                 "L9_DESTINATION_ROOT": "artifacts",
             }
             with patch.dict(os.environ, environment, clear=True):
                 result = module.main()
             self.assertEqual(0, result)
-            routed_bundle = workspace / "artifacts/l9/python-3.12/finding-bundle.json"
-            routed_payload = (
-                workspace / "artifacts/l9/python-3.12/agent-review-payload.json"
+            canonical = workspace / "artifacts/l9/python-3.12"
+            self.assertEqual(digest(bundle), digest(canonical / "finding-bundle.json"))
+            self.assertEqual(
+                digest(payload), digest(canonical / "agent-review-payload.json")
             )
-            self.assertEqual(digest(bundle), digest(routed_bundle))
-            self.assertEqual(digest(payload), digest(routed_payload))
+            self.assertEqual(digest(gate), digest(canonical / "gate-result.json"))
+            routing = json.loads(
+                (
+                    workspace
+                    / "artifacts/metadata/python-3.12/routing-record.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                digest(gate), routing["artifacts"]["gate_result"]["sha256"]
+            )
 
-    def test_invalid_matrix_identifier_is_rejected(self) -> None:
+    def test_missing_gate_result_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             source = workspace / "source.json"
@@ -57,15 +72,15 @@ class RouteArtifactTests(unittest.TestCase):
             environment = {
                 "GITHUB_WORKSPACE": str(workspace),
                 "L9_PROVIDER": "semgrep",
-                "L9_MATRIX_ID": "../../escape",
+                "L9_MATRIX_ID": "matrix",
                 "L9_RAW_REPORT": str(source),
                 "L9_BUNDLE": str(source),
                 "L9_AGENT_PAYLOAD": str(source),
+                "L9_GATE_RESULT": str(workspace / "missing.json"),
                 "L9_DESTINATION_ROOT": "artifacts",
             }
             with patch.dict(os.environ, environment, clear=True):
-                result = module.main()
-            self.assertEqual(2, result)
+                self.assertEqual(2, module.main())
 
 
 if __name__ == "__main__":

@@ -1,0 +1,246 @@
+name: Analyze with Semgrep and l9-ci-sdk
+on:
+  workflow_call:
+    inputs:
+      profile:
+        description: Governance execution profile.
+        type: string
+        required: true
+      matrix-id:
+        description: Collision-safe artifact matrix identifier.
+        type: string
+        required: true
+      sdk-revision:
+        description: Immutable allowlisted l9-ci-sdk commit SHA.
+        type: string
+        required: true
+      semgrep-configs-json:
+        description: JSON array of Semgrep config identifiers or paths.
+        type: string
+        required: false
+        default: '["p/python"]'
+      governance-root:
+        type: string
+        required: false
+        default: .github/governance
+      repository-root:
+        type: string
+        required: false
+        default: .
+      identity-map:
+        description: Optional repository-relative SDK identity-map path.
+        type: string
+        required: false
+        default: ""
+      provider-timeout-seconds:
+        type: number
+        required: false
+        default: 900
+      output-size-limit-bytes:
+        type: number
+        required: false
+        default: 50000000
+      artifact-retention-days:
+        type: number
+        required: false
+        default: 14
+    outputs:
+      artifact-name:
+        value: ${{ jobs.analyze.outputs.artifact-name }}
+      gate-status:
+        value: ${{ jobs.analyze.outputs.gate-status }}
+      sdk-revision:
+        value: ${{ jobs.analyze.outputs.sdk-revision }}
+permissions:
+  contents: read
+concurrency:
+  group: l9-analysis-${{ github.workflow }}-${{ github.ref }}-${{ inputs.matrix-id }}
+  cancel-in-progress: true
+jobs:
+  analyze:
+    name: Analyze (SDK-owned Semgrep execution)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.gov.outputs.mode }}
+      strict: ${{ steps.gov.outputs.strict }}
+      enabled: ${{ steps.gov.outputs.enabled }}
+      artifact-name: ${{ steps.names.outputs.artifact-name }}
+      governance-digest: ${{ steps.gov.outputs.governance-digest }}
+      sdk-revision: ${{ steps.sdk.outputs.sdk-revision }}
+      gate-status: ${{ steps.gate.outputs.gate-status }}
+    steps:
+      - name: Checkout immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${REPOSITORY}.git"
+      - id: gov
+        name: Resolve governance (Core)
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@{{CORE_ACTIONS_SHA}}
+        with:
+          profile: ${{ inputs.profile }}
+          provider: semgrep
+          event-name: ${{ github.event_name }}
+          repository: ${{ github.repository }}
+          ref: ${{ github.ref }}
+          governance-root: ${{ inputs.governance-root }}
+      - id: names
+        name: Resolve artifact name
+        env:
+          MATRIX_ID: ${{ inputs.matrix-id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${MATRIX_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+            echo "Invalid matrix-id" >&2
+            exit 2
+          fi
+          echo "artifact-name=l9-semgrep-${MATRIX_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "${GITHUB_OUTPUT}"
+      - id: timestamp
+        name: Derive deterministic generation timestamp
+        if: steps.gov.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          echo "generated-at=$(git show -s --format=%cI HEAD)" >> "${GITHUB_OUTPUT}"
+      - id: arguments
+        name: Validate Semgrep configs and build argv
+        if: steps.gov.outputs.enabled == 'true'
+        env:
+          CONFIGS_JSON: ${{ inputs.semgrep-configs-json }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+
+          configs = json.loads(os.environ["CONFIGS_JSON"])
+          if not isinstance(configs, list) or not configs:
+              raise SystemExit("semgrep-configs-json must be a non-empty JSON array")
+          if len(configs) > 32 or not all(isinstance(item, str) and item for item in configs):
+              raise SystemExit("semgrep configs must be 1-32 non-empty strings")
+          arguments = []
+          for config in configs:
+              arguments.extend(["--config", config])
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+              stream.write("arguments-json=" + json.dumps(arguments, separators=(",", ":")) + "\n")
+          PY
+      - name: Install tested Semgrep version
+        if: steps.gov.outputs.enabled == 'true'
+        run: python -m pip install --disable-pip-version-check "semgrep==1.170.0"
+      - id: sdk
+        name: Provision immutable SDK
+        if: steps.gov.outputs.enabled == 'true'
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@{{CORE_ACTIONS_SHA}}
+        with:
+          sdk-source: git
+          sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+          sdk-revision: ${{ inputs.sdk-revision }}
+      - name: Execute Semgrep through the SDK lifecycle
+        if: steps.gov.outputs.enabled == 'true'
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@{{CORE_ACTIONS_SHA}}
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: semgrep-run
+          input: artifacts/raw/semgrep/${{ inputs.matrix-id }}/report.json
+          output: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
+          root: ${{ inputs.repository-root }}
+          snapshot-id: ${{ github.sha }}
+          identity-map: ${{ inputs.identity-map }}
+          policy: ${{ steps.gov.outputs.sdk-policy }}
+          generated-at: ${{ steps.timestamp.outputs.generated-at }}
+          revision: ${{ github.sha }}
+          strict: ${{ steps.gov.outputs.strict }}
+          required: ${{ steps.gov.outputs.required-provider }}
+          arguments-json: ${{ steps.arguments.outputs.arguments-json }}
+          timeout-seconds: ${{ inputs.provider-timeout-seconds }}
+          output-size-limit-bytes: ${{ inputs.output-size-limit-bytes }}
+      - name: Validate canonical bundle
+        if: steps.gov.outputs.enabled == 'true'
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@{{CORE_ACTIONS_SHA}}
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          bundle: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
+      - name: Project agent-review payload
+        if: steps.gov.outputs.enabled == 'true'
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@{{CORE_ACTIONS_SHA}}
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: bundle-project-agent-payload
+          input: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
+          output: .l9/runtime/${{ inputs.matrix-id }}/agent-review-payload.json
+          strict: ${{ steps.gov.outputs.strict }}
+      - id: gate
+        name: Evaluate canonical gate result
+        if: steps.gov.outputs.enabled == 'true'
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@{{CORE_ACTIONS_SHA}}
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: gate-evaluate
+          input: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
+          output: .l9/runtime/${{ inputs.matrix-id }}/gate-result.json
+          strict: ${{ steps.gov.outputs.strict }}
+      - id: route
+        name: Route artifacts
+        if: steps.gov.outputs.enabled == 'true'
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@{{CORE_ACTIONS_SHA}}
+        with:
+          provider: semgrep
+          matrix-id: ${{ inputs.matrix-id }}
+          raw-report: artifacts/raw/semgrep/${{ inputs.matrix-id }}/report.json
+          bundle: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
+          agent-payload: .l9/runtime/${{ inputs.matrix-id }}/agent-review-payload.json
+          gate-result: .l9/runtime/${{ inputs.matrix-id }}/gate-result.json
+          destination-root: artifacts
+      - name: Build artifact manifest
+        if: steps.gov.outputs.enabled == 'true'
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@{{CORE_ACTIONS_SHA}}
+        with:
+          provider: semgrep
+          matrix-id: ${{ inputs.matrix-id }}
+          sdk-revision: ${{ steps.sdk.outputs.sdk-revision }}
+          bundle: ${{ steps.route.outputs.bundle }}
+          agent-payload: ${{ steps.route.outputs.agent-payload }}
+          gate-result: ${{ steps.route.outputs.gate-result }}
+          raw-directory: ${{ steps.route.outputs.raw-directory }}
+          output: artifacts/metadata/${{ inputs.matrix-id }}/artifact-manifest.json
+      - name: Upload analysis artifact set
+        if: steps.gov.outputs.enabled == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: ${{ steps.names.outputs.artifact-name }}
+          path: |
+            artifacts/raw/semgrep/${{ inputs.matrix-id }}/
+            artifacts/l9/${{ inputs.matrix-id }}/
+            artifacts/metadata/${{ inputs.matrix-id }}/
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact-retention-days }}
+  publish:
+    name: Publish analysis (Core)
+    needs: analyze
+    if: needs.analyze.outputs.enabled == 'true'
+    uses: Quantum-L9/l9-ci-core/.github/workflows/publish-analysis.yml@{{CORE_PUBLISH_SHA}}
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+    with:
+      artifact-name: ${{ needs.analyze.outputs.artifact-name }}
+      profile: ${{ inputs.profile }}
+      mode: ${{ needs.analyze.outputs.mode }}
+      provider: semgrep
+      matrix-id: ${{ inputs.matrix-id }}
+      sdk-revision: ${{ needs.analyze.outputs.sdk-revision }}
+      governance-digest: ${{ needs.analyze.outputs.governance-digest }}
+      repository-revision: ${{ github.sha }}
+      workflow-result: ${{ needs.analyze.result }}
+      strict-unresolved: ${{ needs.analyze.outputs.strict == 'true' }}

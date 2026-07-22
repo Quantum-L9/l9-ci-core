@@ -1,9 +1,12 @@
 name: Render SDK publication projection
 description: >
-  Converts an SDK-owned agent-review projection and Core metadata into a
-  bounded GitHub check payload without reconstructing findings.
+  Converts SDK-owned agent and gate projections plus Core metadata into a
+  bounded GitHub check payload without reconstructing findings or verdicts.
 inputs:
   agent-payload:
+    required: true
+  gate-result:
+    description: Canonical SDK gate-result.json used as the verdict authority.
     required: true
   profile:
     required: true
@@ -34,6 +37,8 @@ outputs:
     value: ${{ steps.render.outputs.conclusion }}
   annotation-count:
     value: ${{ steps.render.outputs.annotation-count }}
+  gate-status:
+    value: ${{ steps.render.outputs.gate-status }}
 runs:
   using: composite
   steps:
@@ -41,6 +46,7 @@ runs:
       shell: bash
       env:
         L9_AGENT_PAYLOAD: ${{ inputs.agent-payload }}
+        L9_GATE_RESULT: ${{ inputs.gate-result }}
         L9_PROFILE: ${{ inputs.profile }}
         L9_MODE: ${{ inputs.mode }}
         L9_PROVIDER: ${{ inputs.provider }}

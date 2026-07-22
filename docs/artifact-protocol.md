@@ -1,48 +1,79 @@
 # Artifact Protocol
+
 ## Pipeline
+
 ```text
+repository snapshot
+        |
+        v
+SDK-owned bounded provider execution
+        |
+        v
 provider-native report
         |
         v
-SDK normalization
+SDK normalization + validation
         |
         v
 canonical finding bundle
         |
-        v
-SDK bundle validation
+        +--> SDK agent-review projection
         |
-        v
-SDK compatibility check
-        |
-        v
-SDK agent-payload projection
+        +--> SDK gate evaluation
+                 |
+                 v
+          canonical gate-result.json
         |
         v
 byte-preserving Core routing
         |
         v
-Core artifact manifest
+Core artifact manifest binds bundle + agent payload + gate result
         |
         v
 immutable artifact upload
+        |
+        v
+Core re-evaluates bundle and byte-compares gate result
+        |
+        v
+Core publishes the SDK gate status under governance mode
+```
 
-Ownership
+## Ownership
 
-Raw provider reports are diagnostic inputs managed by Core.
+Raw provider reports are diagnostic inputs managed by Core. Provider execution is
+invoked through the SDK public CLI so timeout, output limits, version policy,
+configuration validation, and structured failures are applied by one lifecycle.
 
-Canonical finding bundles and agent-review payloads are generated and
-validated by the SDK. Core may route or upload them but may not modify,
-reinterpret, merge, or reconstruct them.
+Canonical finding bundles, agent-review payloads, and gate results are generated
+and validated by the SDK. Core may route, hash, upload, re-evaluate for integrity,
+and publish them. Core must not modify, reinterpret, merge, or reconstruct their
+findings or verdicts.
 
-Matrix isolation
+## Publication semantics
 
-Every execution requires a stable matrix-id. The identifier is incorporated
-into filesystem paths and artifact names to prevent collisions between jobs,
-retries, profiles, language versions, and provider configurations.
+The canonical gate status is the verdict authority:
 
-Failure behavior
+- `pass`: successful publication.
+- `fail`: failure in blocking mode; neutral in advisory mode.
+- `incomplete`: failure in blocking mode; neutral in advisory mode.
+- `invalid`: failure in blocking mode; neutral in advisory mode.
 
-SDK exit codes propagate directly. Core does not convert validation,
-compatibility, provider-report, strict-contract, or operational-limit failures
-into generic success or generic gate results.
+Infrastructure failure or cancellation remains visible and is never converted to
+a canonical gate result. `shadow` and `disabled` modes retain artifacts without
+publishing a GitHub check.
+
+## Matrix isolation
+
+Every execution requires a stable matrix-id. The identifier is incorporated into
+filesystem paths and artifact names to prevent collisions between jobs, retries,
+profiles, language versions, and provider configurations.
+
+## Failure behavior
+
+SDK provider, validation, compatibility, and operational-limit exit codes
+propagate directly. Gate semantic exit codes are accepted only when the SDK wrote
+a structurally valid `l9.gate-result/v1` artifact whose status matches the exit
+code. Core then routes and publishes that artifact rather than treating a FAIL or
+INCOMPLETE verdict as a broken workflow.
