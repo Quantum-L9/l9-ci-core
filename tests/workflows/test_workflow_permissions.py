@@ -12,7 +12,10 @@ _WRITE_SCOPE = re.compile(
     r"id-token|issues|packages|pages|pull-requests|"
     r"repository-projects|security-events|statuses):\s+write"
 )
-_PUBLISH_CALL = "uses: ./.github/workflows/publish-analysis.yml"
+_PUBLISH_CALL = re.compile(
+    r"(?m)^\s*uses:\s*\S*(?:publish-analysis|analyze-semgrep)"
+    r"\.yml(?:@[0-9a-fA-F]{40})?\s*$"
+)
 
 
 class WorkflowPermissionTests(unittest.TestCase):
@@ -23,25 +26,20 @@ class WorkflowPermissionTests(unittest.TestCase):
                 self.assertRegex(text, re.compile(r"(?m)^\s*contents:\s+read\s*$"))
 
     def test_checks_write_only_where_a_check_is_published(self) -> None:
-        # Capability reservation (not name reservation): checks:write is allowed
-        # ONLY in the publication workflow itself OR in a workflow that publishes
-        # through it (a job calling publish-analysis.yml needs to pass checks:write
-        # to the reusable workflow). No other write scope is permitted anywhere.
         for workflow in WORKFLOWS.glob("*.yml"):
             with self.subTest(workflow=workflow.name):
                 text = workflow.read_text(encoding="utf-8")
                 scopes = set(_WRITE_SCOPE.findall(text))
                 publishes = (
-                    workflow.name == "publish-analysis.yml" or _PUBLISH_CALL in text
+                    workflow.name == "publish-analysis.yml"
+                    or _PUBLISH_CALL.search(text) is not None
                 )
                 if "checks" in scopes:
                     self.assertTrue(
                         publishes,
                         f"{workflow.name} requests checks:write but does not "
-                        f"publish via publish-analysis.yml",
+                        "publish via publish-analysis.yml",
                     )
-                # checks is the ONLY write scope ever permitted; everything else
-                # (contents:write, id-token:write, ...) stays forbidden.
                 self.assertEqual(
                     set(),
                     scopes - {"checks"},

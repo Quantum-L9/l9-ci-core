@@ -7,12 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github/workflows"
 
-# Control-plane contract: these workflows MUST exist and MUST NOT be removed.
-# This is a REQUIRED SUBSET, not a frozen exact set — additional workflows (for
-# example a self-analysis caller) are permitted, provided they satisfy the
-# convention tests below. Enforcing the invariant ("the control plane is intact
-# and every workflow is pinned/least-privilege") instead of a snapshot lets Core
-# grow without silently dropping a required workflow.
 REQUIRED_WORKFLOWS = {
     "self-ci.yml",
     "sdk-contract-check.yml",
@@ -20,6 +14,7 @@ REQUIRED_WORKFLOWS = {
     "governance-ci.yml",
     "profile-normalize-semgrep.yml",
     "publish-analysis.yml",
+    "analyze-semgrep.yml",
     "release-validation.yml",
 }
 
@@ -36,10 +31,6 @@ class PhaseScopeTests(unittest.TestCase):
         )
 
     def test_every_external_action_is_pinned_by_sha(self) -> None:
-        # Additive workflows are allowed, but every external action reference
-        # (anything that is not a repository-local ./ path) must be pinned to a
-        # full 40-char commit SHA. This is the safety that replaces the old
-        # exact-set freeze.
         offenders: list[str] = []
         for workflow in sorted(WORKFLOWS.glob("*.yml")):
             for number, line in enumerate(
@@ -56,7 +47,14 @@ class PhaseScopeTests(unittest.TestCase):
         self.assertEqual([], offenders, f"unpinned external action refs: {offenders}")
 
     def test_phase_4_actions_exist(self) -> None:
-        required = {"render-publication", "publish-check", "validate-release"}
+        required = {
+            "render-publication",
+            "publish-check",
+            "validate-release",
+            "route-artifacts",
+            "build-artifact-manifest",
+            "invoke-sdk",
+        }
         actual = {
             path.name for path in (ROOT / ".github/actions").iterdir() if path.is_dir()
         }

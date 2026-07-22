@@ -1,21 +1,3 @@
-# L9 self-analysis (Core dogfoods its own analysis pipeline)
-#
-# Runs Core's OWN semgrep -> SDK -> publish path on Core's own Python, using the
-# repository-local actions (./) so a PR is analyzed with the actions AS CHANGED
-# by that PR. This exercises the full analyze chain (provision-sdk, invoke-sdk,
-# validate-bundle, route-artifacts, build-artifact-manifest) plus the reusable
-# publish-analysis.yml on Core itself.
-#
-# Topology note: the analyze job generates the semgrep report and runs the SDK
-# actions in ONE job (same filesystem). The reusable normalize-semgrep-report.yml
-# is deliberately NOT used here — it re-checks-out github.sha in a fresh job and
-# cannot see an uncommitted report.
-#
-# Governance: profile pr_fast is strict + blocking in .github/governance. Core's
-# scripts are scanned with community p/python rules that carry no L9 canonical
-# rule identity; under strict resolution the normalize step fails if semgrep
-# reports any finding. A red analyze job therefore means Core's own code produced
-# findings not yet mapped to canonical L9 rule IDs — an intentional diagnostic.
 name: L9 Self Analysis
 
 on:
@@ -25,160 +7,15 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: l9-self-analysis-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  L9_PROFILE: "pr_fast"
-  L9_MATRIX_ID: "core-semgrep"
-
 jobs:
-  analyze:
-    name: Self Analyze (semgrep -> SDK)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    outputs:
-      mode: ${{ steps.gov.outputs.mode }}
-      enabled: ${{ steps.gov.outputs.enabled }}
-      artifact-name: ${{ steps.names.outputs['artifact-name'] }}
-      governance-digest: ${{ steps.gov.outputs['governance-digest'] }}
-    steps:
-      - name: Checkout immutable event revision
-        env:
-          REPOSITORY: ${{ github.repository }}
-          REVISION: ${{ github.sha }}
-          TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git init .
-          git remote add origin \
-            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
-          git checkout --detach FETCH_HEAD
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
-
-      - id: gov
-        name: Resolve governance (self)
-        uses: ./.github/actions/resolve-governance
-        with:
-          profile: ${{ env.L9_PROFILE }}
-          provider: semgrep
-          event-name: ${{ github.event_name }}
-          repository: ${{ github.repository }}
-          ref: ${{ github.ref }}
-          governance-root: .github/governance
-
-      - id: names
-        name: Resolve artifact name
-        env:
-          MATRIX_ID: ${{ env.L9_MATRIX_ID }}
-        run: |
-          set -euo pipefail
-          echo "artifact-name=l9-semgrep-${MATRIX_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
-
-      - name: Run semgrep (produce raw report)
-        if: steps.gov.outputs.enabled == 'true'
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip semgrep
-          mkdir -p "artifacts/raw/semgrep/${L9_MATRIX_ID}"
-          semgrep scan \
-            --config p/python \
-            --json-output "artifacts/raw/semgrep/${L9_MATRIX_ID}/report.json"
-        env:
-          L9_MATRIX_ID: ${{ env.L9_MATRIX_ID }}
-
-      - id: sdk
-        name: Provision immutable SDK
-        if: steps.gov.outputs.enabled == 'true'
-        uses: ./.github/actions/provision-sdk
-
-      - name: Normalize provider report
-        if: steps.gov.outputs.enabled == 'true'
-        uses: ./.github/actions/invoke-sdk
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          operation: semgrep-normalize
-          input: artifacts/raw/semgrep/${{ env.L9_MATRIX_ID }}/report.json
-          output: .l9/runtime/${{ env.L9_MATRIX_ID }}/finding-bundle.json
-          root: .
-          snapshot-id: ${{ github.sha }}
-          revision: ${{ github.sha }}
-          strict: ${{ steps.gov.outputs.strict }}
-          required: ${{ steps.gov.outputs['required-provider'] }}
-          policy: ${{ steps.gov.outputs['sdk-policy'] }}
-
-      - name: Validate canonical bundle
-        if: steps.gov.outputs.enabled == 'true'
-        uses: ./.github/actions/validate-bundle
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          bundle: .l9/runtime/${{ env.L9_MATRIX_ID }}/finding-bundle.json
-
-      - name: Project agent-review payload
-        if: steps.gov.outputs.enabled == 'true'
-        uses: ./.github/actions/invoke-sdk
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          operation: bundle-project-agent-payload
-          input: .l9/runtime/${{ env.L9_MATRIX_ID }}/finding-bundle.json
-          output: .l9/runtime/${{ env.L9_MATRIX_ID }}/agent-review-payload.json
-          strict: ${{ steps.gov.outputs.strict }}
-
-      - id: route
-        name: Route artifacts
-        if: steps.gov.outputs.enabled == 'true'
-        uses: ./.github/actions/route-artifacts
-        with:
-          provider: semgrep
-          matrix-id: ${{ env.L9_MATRIX_ID }}
-          raw-report: artifacts/raw/semgrep/${{ env.L9_MATRIX_ID }}/report.json
-          bundle: .l9/runtime/${{ env.L9_MATRIX_ID }}/finding-bundle.json
-          agent-payload: .l9/runtime/${{ env.L9_MATRIX_ID }}/agent-review-payload.json
-          destination-root: artifacts
-
-      - name: Build artifact manifest
-        if: steps.gov.outputs.enabled == 'true'
-        uses: ./.github/actions/build-artifact-manifest
-        with:
-          provider: semgrep
-          matrix-id: ${{ env.L9_MATRIX_ID }}
-          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
-          bundle: ${{ steps.route.outputs.bundle }}
-          agent-payload: ${{ steps.route.outputs['agent-payload'] }}
-          raw-directory: ${{ steps.route.outputs['raw-directory'] }}
-          output: artifacts/metadata/${{ env.L9_MATRIX_ID }}/artifact-manifest.json
-
-      - name: Upload analysis artifact set
-        if: steps.gov.outputs.enabled == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: ${{ steps.names.outputs['artifact-name'] }}
-          path: |
-            artifacts/raw/semgrep/${{ env.L9_MATRIX_ID }}/
-            artifacts/l9/${{ env.L9_MATRIX_ID }}/
-            artifacts/metadata/${{ env.L9_MATRIX_ID }}/
-          if-no-files-found: error
-          retention-days: 14
-
-  publish:
-    name: Publish self-analysis
-    needs: analyze
-    if: needs.analyze.outputs.enabled == 'true'
-    uses: ./.github/workflows/publish-analysis.yml
+  analysis:
+    uses: ./.github/workflows/analyze-semgrep.yml
     permissions:
       actions: read
       checks: write
       contents: read
     with:
-      artifact-name: ${{ needs.analyze.outputs['artifact-name'] }}
       profile: pr_fast
-      mode: ${{ needs.analyze.outputs.mode }}
-      provider: semgrep
       matrix-id: core-semgrep
-      governance-digest: ${{ needs.analyze.outputs['governance-digest'] }}
-      repository-revision: ${{ github.sha }}
-      workflow-result: ${{ needs.analyze.result }}
+      sdk-revision: "{{SDK_CODE_SHA}}"
+      semgrep-configs-json: '["p/python"]'
