@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Create deterministic metadata without reading canonical semantics."""
+"""Create deterministic metadata without reconstructing canonical semantics."""
 
 from __future__ import annotations
+
 import hashlib
 import json
 import os
@@ -27,11 +28,7 @@ def required(name: str) -> str:
 def workspace_path(value: str, *, kind: str) -> Path:
     workspace = Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd())).resolve()
     candidate = Path(value)
-    path = (
-        candidate.resolve()
-        if candidate.is_absolute()
-        else (workspace / candidate).resolve()
-    )
+    path = candidate.resolve() if candidate.is_absolute() else (workspace / candidate).resolve()
     try:
         path.relative_to(workspace)
     except ValueError as error:
@@ -47,6 +44,12 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
+def canonical_file(name: str, path: Path) -> dict[str, str]:
+    if not path.is_file():
+        raise ManifestError(f"{name} does not exist")
+    return {"path": path.as_posix(), "sha256": digest(path)}
+
+
 def main() -> int:
     try:
         provider = required("L9_PROVIDER")
@@ -58,28 +61,19 @@ def main() -> int:
             raise ManifestError("invalid matrix-id")
         if not FULL_SHA.fullmatch(sdk_revision):
             raise ManifestError("sdk-revision must be a full commit SHA")
+
         bundle = workspace_path(required("L9_BUNDLE"), kind="bundle")
-        payload = workspace_path(
-            required("L9_AGENT_PAYLOAD"),
-            kind="agent payload",
-        )
+        payload = workspace_path(required("L9_AGENT_PAYLOAD"), kind="agent payload")
+        gate_result = workspace_path(required("L9_GATE_RESULT"), kind="gate result")
         raw_directory = workspace_path(
-            required("L9_RAW_DIRECTORY"),
-            kind="raw directory",
+            required("L9_RAW_DIRECTORY"), kind="raw directory"
         )
-        output = workspace_path(
-            required("L9_MANIFEST_OUTPUT"),
-            kind="manifest output",
-        )
-        if not bundle.is_file():
-            raise ManifestError("bundle does not exist")
-        if not payload.is_file():
-            raise ManifestError("agent payload does not exist")
+        output = workspace_path(required("L9_MANIFEST_OUTPUT"), kind="manifest output")
         if not raw_directory.is_dir():
             raise ManifestError("raw directory does not exist")
         raw_files = sorted(path for path in raw_directory.rglob("*") if path.is_file())
         manifest = {
-            "schema": "l9.core-artifact-manifest/v1",
+            "schema": "l9.core-artifact-manifest/v2",
             "provider": provider,
             "matrix_id": matrix_id,
             "sdk": {
@@ -89,32 +83,19 @@ def main() -> int:
             },
             "artifacts": {
                 "raw": [
-                    {
-                        "path": path.as_posix(),
-                        "sha256": digest(path),
-                    }
+                    {"path": path.as_posix(), "sha256": digest(path)}
                     for path in raw_files
                 ],
                 "canonical": {
-                    "bundle": {
-                        "path": bundle.as_posix(),
-                        "sha256": digest(bundle),
-                    },
-                    "agent_payload": {
-                        "path": payload.as_posix(),
-                        "sha256": digest(payload),
-                    },
+                    "bundle": canonical_file("bundle", bundle),
+                    "agent_payload": canonical_file("agent payload", payload),
+                    "gate_result": canonical_file("gate result", gate_result),
                 },
             },
         }
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(
-            json.dumps(
-                manifest,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            + "\n",
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
             encoding="utf-8",
         )
         return 0

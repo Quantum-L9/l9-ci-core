@@ -1,31 +1,36 @@
 name: Invoke l9-ci-sdk
 description: >
-  Invokes one permitted public SDK command without shell evaluation and
-  preserves the SDK exit code.
+  Invokes one permitted public SDK command without shell evaluation, preserves
+  SDK exit codes, and treats a written canonical gate-result as a semantic
+  outcome rather than an infrastructure failure.
 inputs:
   executable:
     description: Verified l9-ci executable emitted by provision-sdk.
     required: true
   operation:
     description: >
-      One of semgrep-normalize, bundle-validate,
-      bundle-project-agent-payload, or compatibility-check.
+      One of semgrep-normalize, semgrep-run, bundle-validate,
+      bundle-project-agent-payload, compatibility-check, or gate-evaluate.
     required: true
   input:
-    description: Input report or canonical bundle path.
+    description: >
+      Input report/bundle path. For semgrep-run this is the raw report output
+      path that the SDK-owned provider execution writes.
     required: false
   output:
-    description: Output bundle or projection path.
+    description: Output bundle, projection, or gate-result path.
     required: false
   root:
-    description: Repository root used for normalization.
+    description: Repository root used for normalization or provider execution.
     required: false
     default: .
   snapshot-id:
     description: Stable repository snapshot identifier.
     required: false
   provider-version:
-    description: Provider version recorded in canonical evidence.
+    description: >
+      Provider version for imported reports. Execute mode detects and validates
+      the installed provider version itself.
     required: false
   identity-map:
     description: Optional identity-map path.
@@ -34,13 +39,15 @@ inputs:
     description: Optional SDK policy path.
     required: false
   generated-at:
-    description: Optional deterministic generation timestamp.
+    description: Deterministic generation timestamp. Required by Semgrep operations.
     required: false
   revision:
     description: Optional repository revision.
     required: false
   strict:
-    description: Enable strict SDK semantics.
+    description: >
+      Enable strict SDK semantics. For gate-evaluate this controls
+      strict-unresolved behavior.
     required: false
     default: "true"
   required:
@@ -54,13 +61,30 @@ inputs:
   minimum-sdk-version:
     description: Optional minimum SDK version for compatibility negotiation.
     required: false
+  arguments-json:
+    description: >
+      JSON array of provider argv items for semgrep-run. Passed as discrete
+      arguments without shell evaluation.
+    required: false
+    default: "[]"
+  timeout-seconds:
+    description: Positive provider timeout for semgrep-run.
+    required: false
+    default: "300"
+  output-size-limit-bytes:
+    description: Positive bounded provider output limit for semgrep-run.
+    required: false
+    default: "50000000"
 outputs:
   exit-code:
-    description: Exact SDK exit code.
+    description: Exact SDK exit code, including semantic gate exit codes.
     value: ${{ steps.invoke.outputs.exit-code }}
   command:
     description: Public SDK command that was executed.
     value: ${{ steps.invoke.outputs.command }}
+  gate-status:
+    description: Canonical gate status when operation is gate-evaluate.
+    value: ${{ steps.invoke.outputs.gate-status }}
 runs:
   using: composite
   steps:
@@ -82,4 +106,7 @@ runs:
         L9_REQUIRED: ${{ inputs.required }}
         L9_DIRTY: ${{ inputs.dirty }}
         L9_MINIMUM_SDK_VERSION: ${{ inputs.minimum-sdk-version }}
+        L9_ARGUMENTS_JSON: ${{ inputs.arguments-json }}
+        L9_TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
+        L9_OUTPUT_SIZE_LIMIT_BYTES: ${{ inputs.output-size-limit-bytes }}
       run: python3 "${{ github.action_path }}/invoke.py"

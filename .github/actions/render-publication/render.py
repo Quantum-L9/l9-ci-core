@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Render a bounded publication payload from an SDK-owned projection."""
+"""Render a bounded publication payload from SDK-owned projections."""
 
 from __future__ import annotations
+
 import json
 import os
 import re
@@ -11,12 +12,15 @@ from typing import Any
 
 ALLOWED_MODES = {"blocking", "advisory", "shadow", "disabled"}
 ALLOWED_RESULTS = {"success", "failure", "cancelled", "skipped"}
+ALLOWED_GATE_STATUSES = {"pass", "fail", "incomplete", "invalid"}
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 MAX_TITLE = 255
 MAX_SUMMARY = 60_000
 MAX_TEXT = 60_000
 MAX_ANNOTATIONS = 50
 MAX_MESSAGE = 64_000
+GATE_PROTOCOL = "l9.gate-result/v1"
+GATE_SCHEMA_VERSION = "1.0.0"
 
 
 class PublicationError(RuntimeError):
@@ -37,11 +41,7 @@ def optional(name: str) -> str:
 def workspace_path(value: str, *, must_exist: bool) -> Path:
     workspace = Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd())).resolve()
     candidate = Path(value)
-    path = (
-        candidate.resolve()
-        if candidate.is_absolute()
-        else (workspace / candidate).resolve()
-    )
+    path = candidate.resolve() if candidate.is_absolute() else (workspace / candidate).resolve()
     try:
         path.relative_to(workspace)
     except ValueError as error:
@@ -49,6 +49,49 @@ def workspace_path(value: str, *, must_exist: bool) -> Path:
     if must_exist and not path.is_file():
         raise PublicationError(f"file does not exist: {path}")
     return path
+
+
+def load_object(path: Path, label: str) -> dict[str, Any]:
+    try:
+        document: Any = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise PublicationError(f"{label} is not valid JSON: {error}") from error
+    if not isinstance(document, dict):
+        raise PublicationError(f"{label} must contain a JSON object")
+    return document
+
+
+def validate_gate_result(document: dict[str, Any]) -> str:
+    if document.get("schema") != GATE_PROTOCOL:
+        raise PublicationError("gate result has unsupported protocol")
+    if document.get("schema_version") != GATE_SCHEMA_VERSION:
+        raise PublicationError("gate result has unsupported schema version")
+    status = document.get("status")
+    if status not in ALLOWED_GATE_STATUSES:
+        raise PublicationError(f"gate result has unsupported status: {status!r}")
+    for key in (
+        "blocking_finding_ids",
+        "unresolved_finding_ids",
+        "fatal_provider_ids",
+        "incomplete_provider_ids",
+        "reasons",
+    ):
+        value = document.get(key)
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise PublicationError(f"gate result {key} must be an array of strings")
+    summary = document.get("summary")
+    if not isinstance(summary, dict):
+        raise PublicationError("gate result summary must be an object")
+    expected = {
+        "blocking_count": len(document["blocking_finding_ids"]),
+        "unresolved_count": len(document["unresolved_finding_ids"]),
+        "fatal_provider_count": len(document["fatal_provider_ids"]),
+        "incomplete_provider_count": len(document["incomplete_provider_ids"]),
+    }
+    for key, count in expected.items():
+        if summary.get(key) != count:
+            raise PublicationError(f"gate result summary mismatch for {key}")
+    return str(status)
 
 
 def string_value(document: dict[str, Any], *keys: str) -> str:
@@ -74,10 +117,7 @@ def normalize_annotation(value: Any) -> dict[str, Any] | None:
         return None
     if not isinstance(end_line, int) or end_line < start_line:
         return None
-    level = value.get(
-        "annotation_level",
-        value.get("level", "warning"),
-    )
+    level = value.get("annotation_level", value.get("level", "warning"))
     if level not in {"notice", "warning", "failure"}:
         level = "warning"
     annotation: dict[str, Any] = {
@@ -113,35 +153,42 @@ def extract_annotations(document: dict[str, Any]) -> list[dict[str, Any]]:
     return annotations
 
 
-def workflow_conclusion(mode: str, result: str) -> str:
-    if result == "success":
-        return "success"
-    if result == "cancelled":
+def publication_conclusion(mode: str, workflow_result: str, gate_status: str) -> str:
+    """Map infrastructure result + canonical gate status to a GitHub conclusion."""
+    if workflow_result == "cancelled":
         return "cancelled"
-    if result == "skipped":
+    if workflow_result == "skipped":
         return "neutral"
-    if mode == "blocking":
-        return "failure"
-    return "neutral"
+    if workflow_result == "failure":
+        return "failure" if mode == "blocking" else "neutral"
+    if gate_status == "pass":
+        return "success"
+    return "failure" if mode == "blocking" else "neutral"
 
 
 def projection_summary(document: dict[str, Any]) -> str:
-    summary = string_value(
-        document,
-        "summary",
-        "markdown",
-        "body",
-        "text",
-    )
+    summary = string_value(document, "summary", "markdown", "body", "text")
     output = document.get("output")
     if not summary and isinstance(output, dict):
-        summary = string_value(
-            output,
-            "summary",
-            "markdown",
-            "text",
-        )
+        summary = string_value(output, "summary", "markdown", "text")
     return summary
+
+
+def gate_summary(document: dict[str, Any]) -> str:
+    status = str(document["status"])
+    summary = document["summary"]
+    lines = [
+        f"- **Canonical gate:** `{status}`",
+        f"- **Blocking findings:** {summary['blocking_count']}",
+        f"- **Unresolved findings:** {summary['unresolved_count']}",
+        f"- **Fatal providers:** {summary['fatal_provider_count']}",
+        f"- **Incomplete providers:** {summary['incomplete_provider_count']}",
+    ]
+    reasons = document.get("reasons", [])
+    if reasons:
+        lines.extend(["", "**Gate reasons:**"])
+        lines.extend(f"- {reason}" for reason in reasons[:50])
+    return "\n".join(lines)
 
 
 def emit(name: str, value: str) -> None:
@@ -158,14 +205,9 @@ def emit(name: str, value: str) -> None:
 
 def main() -> int:
     try:
-        payload_path = workspace_path(
-            required("L9_AGENT_PAYLOAD"),
-            must_exist=True,
-        )
-        output_path = workspace_path(
-            required("L9_PUBLICATION_OUTPUT"),
-            must_exist=False,
-        )
+        payload_path = workspace_path(required("L9_AGENT_PAYLOAD"), must_exist=True)
+        gate_path = workspace_path(required("L9_GATE_RESULT"), must_exist=True)
+        output_path = workspace_path(required("L9_PUBLICATION_OUTPUT"), must_exist=False)
         profile = required("L9_PROFILE")
         mode = required("L9_MODE")
         provider = required("L9_PROVIDER")
@@ -185,20 +227,14 @@ def main() -> int:
             raise PublicationError("repository revision must be a full commit SHA")
         if not re.fullmatch(r"[0-9a-f]{64}", governance_digest):
             raise PublicationError("governance digest must be a SHA-256 digest")
-        try:
-            projection = json.loads(payload_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as error:
-            raise PublicationError(
-                f"agent payload is not valid JSON: {error}"
-            ) from error
-        if not isinstance(projection, dict):
-            raise PublicationError("agent payload must contain a JSON object")
-        projected_title = string_value(
-            projection,
-            "title",
-            "name",
-        )
+
+        projection = load_object(payload_path, "agent payload")
+        gate = load_object(gate_path, "gate result")
+        gate_status = validate_gate_result(gate)
+
+        projected_title = string_value(projection, "title", "name")
         title = projected_title or f"L9 {provider} · {profile}"
+        title = f"{title} · {gate_status.upper()}"
         projected_summary = projection_summary(projection)
         annotations = extract_annotations(projection)
         metadata = [
@@ -215,34 +251,22 @@ def main() -> int:
         ]
         if artifact_url:
             metadata.append(f"- **Artifacts:** {artifact_url}")
-        summary_parts = ["\n".join(metadata)]
+        summary_parts = ["\n".join(metadata), "", "### Canonical gate", "", gate_summary(gate)]
         if projected_summary:
-            summary_parts.extend(
-                [
-                    "",
-                    "### SDK projection",
-                    "",
-                    projected_summary,
-                ]
-            )
+            summary_parts.extend(["", "### SDK projection", "", projected_summary])
         if annotations:
-            summary_parts.extend(
-                [
-                    "",
-                    f"Published annotations: {len(annotations)}",
-                ]
-            )
-        summary = "\n".join(summary_parts)[:MAX_SUMMARY]
-        conclusion = workflow_conclusion(mode, workflow_result)
+            summary_parts.extend(["", f"Published annotations: {len(annotations)}"])
+        summary_text = "\n".join(summary_parts)[:MAX_SUMMARY]
+        conclusion = publication_conclusion(mode, workflow_result, gate_status)
         publication = {
-            "schema": "l9.core-publication/v1",
+            "schema": "l9.core-publication/v2",
             "name": title[:MAX_TITLE],
             "head_sha": repository_revision,
             "status": "completed",
             "conclusion": conclusion,
             "output": {
                 "title": title[:MAX_TITLE],
-                "summary": summary,
+                "summary": summary_text,
                 "text": projected_summary[:MAX_TEXT],
                 "annotations": annotations,
             },
@@ -253,24 +277,21 @@ def main() -> int:
                 "sdk_revision": sdk_revision,
                 "governance_digest": governance_digest,
                 "workflow_result": workflow_result,
+                "gate_status": gate_status,
                 "run_url": run_url,
                 "artifact_url": artifact_url,
             },
         }
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(
-            json.dumps(
-                publication,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            + "\n",
+            json.dumps(publication, sort_keys=True, separators=(",", ":")) + "\n",
             encoding="utf-8",
         )
         emit("title", title[:MAX_TITLE])
-        emit("summary", summary)
+        emit("summary", summary_text)
         emit("conclusion", conclusion)
         emit("annotation-count", str(len(annotations)))
+        emit("gate-status", gate_status)
         return 0
     except PublicationError as error:
         print(f"render-publication: {error}", file=sys.stderr)
