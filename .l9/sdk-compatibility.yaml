@@ -6,11 +6,30 @@ metadata:
 default:
   source: git
   repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-  revision: b390dc78e3464cca539b998dfb723481927ed91b
+  revision: 0779fca8238011f8abea551895f96584676e9d17
 supported:
-  # Current default: normalizes bare hex tokens (run-random object IDs,
-  # content hashes) in failure signatures so test-failure fingerprints
-  # are stable across runs (l9-ci-sdk#19).
+  # Current default: canonicalizes rendered set literals in failure
+  # signatures — set iteration order is hash-seed dependent, so the
+  # same failure renders {'a', 'b'} or {'b', 'a'} per run
+  # (l9-ci-sdk#20).
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: 0779fca8238011f8abea551895f96584676e9d17
+    integration_contract: l9.integration-contract/v1
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+    required_cli_paths:
+      - semgrep normalize
+      - bundle validate
+      - bundle project-agent-payload
+      - compatibility check
+      - baseline compare-tests
+      - baseline scan-packet-envelope
+      - baseline compare-scan
+      - baseline validate-ledger
+  # Retained one release for rollback: bare-hex signature normalization
+  # (run-random object IDs, content hashes) (l9-ci-sdk#19).
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: b390dc78e3464cca539b998dfb723481927ed91b
@@ -27,8 +46,8 @@ supported:
       - baseline scan-packet-envelope
       - baseline compare-scan
       - baseline validate-ledger
-  # Retained one release for rollback: baseline-ratchet kernel without
-  # bare-hex signature normalization.
+  # Retained for rollback: baseline-ratchet kernel without bare-hex
+  # signature normalization.
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: d8ec01f141b9eec24d22ffac84a83ec7280eef72
@@ -45,20 +64,6 @@ supported:
       - baseline scan-packet-envelope
       - baseline compare-scan
       - baseline validate-ledger
-  # Retained one release for rollback; identical CLI minus the baseline
-  # command family.
-  - source: git
-    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-    revision: 6368ba17a98231d461a13b71e149e114ad766834
-    integration_contract: l9.integration-contract/v1
-    artifact_protocols:
-      - l9.finding-bundle/v1
-      - l9.agent-review-payload/v1
-    required_cli_paths:
-      - semgrep normalize
-      - bundle validate
-      - bundle project-agent-payload
-      - compatibility check
 policy:
   arbitrary_install_commands_allowed: false
   dependency_manifest_install_allowed: true

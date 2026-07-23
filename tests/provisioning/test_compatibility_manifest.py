@@ -4,14 +4,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".l9" / "sdk-compatibility.yaml"
-EXPECTED_SHA = "6368ba17a98231d461a13b71e149e114ad766834"
+EXPECTED_SHA = "0779fca8238011f8abea551895f96584676e9d17"
 
 
 class CompatibilityManifestTests(unittest.TestCase):
     def test_manifest_locks_the_sdk_revision(self) -> None:
         text = MANIFEST.read_text(encoding="utf-8")
         self.assertIn("schema: l9.sdk-compatibility/v1", text)
-        self.assertIn(EXPECTED_SHA, text)
+        self.assertIn(f"revision: {EXPECTED_SHA}", text)
         self.assertIn("l9.integration-contract/v1", text)
 
     def test_manifest_disables_drift_mechanisms(self) -> None:
