@@ -217,7 +217,7 @@ jobs:
           done
           "${SDK}" baseline scan-packet-envelope \
             --repository-root . \
-            --exclude-dir .l9/runtime \
+            --exclude-dir .l9 \
             --output .l9/runtime/packet-envelope-findings.json \
             "${extra[@]}"
       - name: Compare scan against PacketEnvelope debt ledger
