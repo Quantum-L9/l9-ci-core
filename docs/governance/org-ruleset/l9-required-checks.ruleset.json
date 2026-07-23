@@ -1,0 +1,65 @@
+{
+  "name": "L9 Required Checks",
+  "target": "branch",
+  "enforcement": "evaluate",
+  "bypass_actors": [
+    {
+      "actor_type": "OrganizationAdmin",
+      "bypass_mode": "always"
+    }
+  ],
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    },
+    "repository_name": {
+      "include": [
+        "Cognitive.Engine.Graphs",
+        "Constellation.Gate",
+        "Constellation.PackageTemplate",
+        "Cursor-Governance",
+        "DeckhouseOdoo",
+        "Enrichment.Inference.Engine",
+        "Gate_SDK",
+        "L9-Graphite-Memory",
+        "L9-Node-Template",
+        "L9-Ops-MCP",
+        "LLM-Router",
+        "PR_Repair",
+        "SEO-Bot",
+        "Website-Bot",
+        "igorbot",
+        "infisical-config",
+        "l9-assurance",
+        "l9-ci-debt-intelligence",
+        "l9-ci-debt-lsp",
+        "l9-ci-debt-resolver",
+        "l9-cognitive-runtime",
+        "l9-constellation-topology",
+        "l9-deploy",
+        "l9-graphiti-memory",
+        "l9-harness",
+        "l9-meta-injector",
+        "l9-tools",
+        "timeAutomation_v1.0"
+      ],
+      "exclude": [],
+      "protected": false
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "do_not_enforce_on_create": false,
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          { "context": "Lint and Type Check" },
+          { "context": "Test Suite" },
+          { "context": "Governed Semgrep Analysis" }
+        ]
+      }
+    }
+  ]
+}
