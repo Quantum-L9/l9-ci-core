@@ -18,7 +18,7 @@ on:
           the l9-ci-core compatibility allowlist.
         type: string
         required: false
-        default: d8ec01f141b9eec24d22ffac84a83ec7280eef72
+        default: b390dc78e3464cca539b998dfb723481927ed91b
       core-revision:
         description: >
           Full 40-character immutable l9-ci-core commit SHA used to fetch the
