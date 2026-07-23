@@ -1,0 +1,126 @@
+# L9 v1 compatibility kernel — three-tier separation enforcement
+# (model / service / interface). Restores the `trio-governance.yml@v1`
+# reusable-workflow contract deleted in the v2 rewrite. The original kernel
+# depended on the retired l9-ci CLI; this compat kernel enforces the same
+# boundary rule structurally: interface-tier modules must not be imported by
+# model-tier modules, and model-tier modules must not import service-tier
+# modules. When no governance policy and no recognizable tier layout exist,
+# the job emits a notice and passes. Contract: superset of the v0.1.0 inputs
+# plus every input passed by the org-starter callers (src-directory).
+name: L9 Governance Trio
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        required: false
+        default: "3.12"
+      changed-files:
+        type: string
+        required: false
+        default: ""
+      policy-path:
+        type: string
+        required: false
+        default: ".l9/governance-policy.yaml"
+      baseline-path:
+        type: string
+        required: false
+        default: ""
+      classifier-path:
+        type: string
+        required: false
+        default: ""
+      audit-token-secret-name:
+        type: string
+        required: false
+        default: ""
+      implementer-token-secret-name:
+        type: string
+        required: false
+        default: ""
+      validator-token-secret-name:
+        type: string
+        required: false
+        default: ""
+      l9-ci-install-command:
+        type: string
+        required: false
+        default: ""
+      pr-labels:
+        type: string
+        required: false
+        default: ""
+      labels-known:
+        type: boolean
+        required: false
+        default: false
+      src-directory:
+        type: string
+        required: false
+        default: "src"
+permissions:
+  contents: read
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          persist-credentials: false
+      - name: Enforce three-tier separation
+        env:
+          SRC_DIR: ${{ inputs.src-directory }}
+          POLICY_PATH: ${{ inputs.policy-path }}
+        run: |
+          set -euo pipefail
+          if [ ! -d "${SRC_DIR}" ]; then
+            echo "::notice::Source directory '${SRC_DIR}' not found; governance check skipped"
+            exit 0
+          fi
+          tiers_found=""
+          for tier in model models service services interface interfaces api routes; do
+            if [ -d "${SRC_DIR}/${tier}" ]; then
+              tiers_found="${tiers_found} ${tier}"
+            fi
+          done
+          if [ -z "${tiers_found}" ]; then
+            echo "::notice::No model/service/interface tier directories under '${SRC_DIR}'; governance check skipped"
+            exit 0
+          fi
+          echo "Tier directories detected:${tiers_found}"
+          violations=0
+          check_no_import () {
+            from_tier="$1"; banned="$2"
+            for d in ${from_tier}; do
+              dir="${SRC_DIR}/${d}"
+              [ -d "${dir}" ] || continue
+              for b in ${banned}; do
+                [ -d "${SRC_DIR}/${b}" ] || continue
+                matches="$(grep -rniE "(from|import|require\(|from ['\"]).{0,40}(\.\./)*(${b})(/|['\"])" "${dir}" \
+                  --include='*.py' --include='*.ts' --include='*.tsx' --include='*.js' 2>/dev/null || true)"
+                if [ -n "${matches}" ]; then
+                  echo "::error::Tier violation: '${d}' imports from '${b}'"
+                  echo "${matches}" | head -20
+                  violations=$((violations + 1))
+                fi
+              done
+            done
+          }
+          # Model tier must not depend on service or interface tiers.
+          check_no_import "model models" "service services interface interfaces api routes"
+          # Service tier must not depend on interface tiers.
+          check_no_import "service services" "interface interfaces api routes"
+          if [ "${violations}" -gt 0 ]; then
+            echo "::error::${violations} tier-separation violation group(s) found"
+            exit 1
+          fi
+          echo "Three-tier separation holds for${tiers_found}"
+      - name: Policy file status
+        run: |
+          if [ -f "${{ inputs.policy-path }}" ]; then
+            echo "::notice::Governance policy present at ${{ inputs.policy-path }} (structural checks applied)"
+          else
+            echo "::notice::No governance policy at ${{ inputs.policy-path }}; structural defaults applied"
+          fi
