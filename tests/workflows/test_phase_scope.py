@@ -17,6 +17,7 @@ class PhaseScopeTests(unittest.TestCase):
             "profile-normalize-semgrep.yml",
             "publish-analysis.yml",
             "release-validation.yml",
+            "baseline-ratchet.yml",
         }
         self.assertEqual(expected, actual)
 
