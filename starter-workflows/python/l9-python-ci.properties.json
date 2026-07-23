@@ -1,0 +1,15 @@
+{
+  "name": "L9 Governed Python CI",
+  "description": "The canonical L9 CI pipeline for Python repositories. Includes immutable analysis, governance resolution, and lint/test hygiene.",
+  "iconName": "python",
+  "categories": [
+    "Continuous Integration",
+    "Security",
+    "L9"
+  ],
+  "filePatterns": [
+    "pyproject.toml",
+    "requirements.txt",
+    "setup.py"
+  ]
+}
