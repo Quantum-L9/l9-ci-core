@@ -1,0 +1,81 @@
+# Keeps presets/*/.github/governance/semgrep-identity-map.yaml in sync with
+# the live Semgrep registry packs each preset actually invokes.
+#
+# strict identity resolution (see l9-ci-sdk resolve_rule_identity) never
+# synthesizes a canonical rule ID — every rule Semgrep can report must have
+# an explicit entry. If Semgrep adds a rule to p/python, p/typescript, or
+# p/javascript upstream, this job notices on the next scheduled run and
+# opens a PR adding it, instead of that rule silently breaking strict mode
+# on whichever downstream repo first triggers it.
+name: Regenerate identity maps
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    name: Check for registry drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      drift: ${{ steps.check.outputs.drift }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python3 -m pip install --upgrade "pip==26.1.2" "PyYAML==6.0.2"
+      - id: check
+        name: Run regenerate_identity_maps.py --check
+        run: |
+          set -euo pipefail
+          if python3 tools/regenerate_identity_maps.py --check; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  regenerate:
+    name: Open regeneration PR
+    needs: check
+    if: needs.check.outputs.drift == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python3 -m pip install --upgrade "pip==26.1.2" "PyYAML==6.0.2"
+      - name: Run regenerate_identity_maps.py
+        run: python3 tools/regenerate_identity_maps.py
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: regenerate semgrep identity maps from registry"
+          title: "chore: regenerate semgrep identity maps from registry"
+          body: |
+            Automated regeneration by `.github/workflows/regenerate-identity-maps.yml`.
+
+            Semgrep's `p/python`, `p/typescript`, and/or `p/javascript` registry
+            packs changed since the last regeneration. New rule IDs get a
+            default `l9:semgrep:<rule_id>` canonical mapping; no existing
+            mapping is modified or removed. Review the diff, then merge to
+            keep strict identity resolution accurate for downstream repos.
+          branch: automation/regenerate-identity-maps
+          delete-branch: true
+          labels: automation
