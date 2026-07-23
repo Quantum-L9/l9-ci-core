@@ -13,7 +13,7 @@ EXPECTED_SOURCE = "git"
 EXPECTED_REPOSITORY = "https://github.com/Quantum-L9/l9-ci-sdk.git"
 # Fallback default only. The authoritative allowlist is `.l9/sdk-compatibility.yaml`
 # (read by load_supported_revisions); keep this in sync with its `default.revision`.
-EXPECTED_REVISION = "d8ec01f141b9eec24d22ffac84a83ec7280eef72"
+EXPECTED_REVISION = "b390dc78e3464cca539b998dfb723481927ed91b"
 EXPECTED_CONTRACT = "l9.integration-contract/v1"
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 # Repo-root .l9/sdk-compatibility.yaml, relative to this action file
