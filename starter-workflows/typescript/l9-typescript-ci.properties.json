@@ -1,0 +1,14 @@
+{
+  "name": "L9 Governed TypeScript CI",
+  "description": "The canonical L9 CI pipeline for TypeScript/JavaScript repositories. Includes immutable analysis, governance resolution, and lint/test hygiene.",
+  "iconName": "typescript",
+  "categories": [
+    "Continuous Integration",
+    "Security",
+    "L9"
+  ],
+  "filePatterns": [
+    "package.json",
+    "tsconfig.json"
+  ]
+}
