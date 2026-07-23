@@ -18,6 +18,16 @@ class PhaseScopeTests(unittest.TestCase):
             "publish-analysis.yml",
             "release-validation.yml",
             "baseline-ratchet.yml",
+            # v1 compatibility kernels — reusable workflows restoring the
+            # @v1 contracts consumed by the Quantum-L9/.github org starters.
+            "pr-pipeline.yml",
+            "pre-commit-ci.yml",
+            "nightly.yml",
+            "release-publish.yml",
+            "trio-governance.yml",
+            "security.yml",
+            "scorecard.yml",
+            "sbom.yml",
         }
         self.assertEqual(expected, actual)
 

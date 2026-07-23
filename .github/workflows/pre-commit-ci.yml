@@ -1,0 +1,63 @@
+# L9 v1 compatibility kernel — pre-commit hook enforcement in CI.
+# Restores the `pre-commit-ci.yml@v1` reusable-workflow contract deleted in
+# the v2 rewrite. If the repository has no .pre-commit-config.yaml (common for
+# non-Python repos), the job emits a notice and passes instead of failing.
+name: L9 Pre-Commit CI
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        required: false
+        default: "3.12"
+      pre-commit-version:
+        type: string
+        required: false
+        default: "4.4.0"
+      config-path:
+        type: string
+        required: false
+        default: ".pre-commit-config.yaml"
+      install-command:
+        type: string
+        required: false
+        default: ""
+      enable-version-drift-check:
+        type: boolean
+        required: false
+        default: false
+permissions:
+  contents: read
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          persist-credentials: false
+      - name: Check for pre-commit config
+        id: config
+        run: |
+          set -euo pipefail
+          if [ -f "${{ inputs.config-path }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No ${{ inputs.config-path }} found; pre-commit enforcement skipped"
+          fi
+      - name: Set up Python
+        if: steps.config.outputs.present == 'true'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Run pre-commit on all files
+        if: steps.config.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade "pip==26.1.2"
+          pip install "pre-commit==${{ inputs.pre-commit-version }}"
+          if [ -n "${{ inputs.install-command }}" ]; then
+            ${{ inputs.install-command }}
+          fi
+          pre-commit run --all-files --show-diff-on-failure --config "${{ inputs.config-path }}"

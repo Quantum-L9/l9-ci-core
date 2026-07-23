@@ -1,0 +1,183 @@
+# L9 v1 compatibility kernel — PR validation pipeline (lint, type-check, tests).
+# Restores the `pr-pipeline.yml@v1` reusable-workflow contract deleted in the
+# v2 rewrite. Language-aware: Python repos run ruff/mypy/pytest, Node repos run
+# the repo's own lint/typecheck/test toolchain (ESLint, tsc, Vitest/Jest via
+# package.json scripts with sensible fallbacks). Gates that do not apply emit a
+# notice and pass. Contract: superset of the v0.1.0 inputs plus every input
+# passed by the org-starter callers (run-security, working-directory).
+name: L9 PR Pipeline
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        required: false
+        default: "3.12"
+      source-dir:
+        type: string
+        required: false
+        default: "."
+      test-dir:
+        type: string
+        required: false
+        default: "tests"
+      requirements-file:
+        type: string
+        required: false
+        default: "requirements.txt"
+      extra-install-command:
+        type: string
+        required: false
+        default: ""
+      enable-pydantic-strict:
+        type: boolean
+        required: false
+        default: false
+      l9-ci-install-command:
+        type: string
+        required: false
+        default: ""
+      changed-files:
+        type: string
+        required: false
+        default: ""
+      pr-labels:
+        type: string
+        required: false
+        default: ""
+      labels-known:
+        type: boolean
+        required: false
+        default: false
+      run-security:
+        type: boolean
+        required: false
+        default: false
+      working-directory:
+        type: string
+        required: false
+        default: "."
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          persist-credentials: false
+      - name: Detect project languages
+        id: detect
+        run: |
+          set -euo pipefail
+          python_project=false
+          node_project=false
+          if [ -f "pyproject.toml" ] || [ -f "${{ inputs.requirements-file }}" ] || [ -f "setup.py" ]; then
+            python_project=true
+          fi
+          if [ -f "package.json" ]; then
+            node_project=true
+          fi
+          echo "python=${python_project}" >> "$GITHUB_OUTPUT"
+          echo "node=${node_project}" >> "$GITHUB_OUTPUT"
+          echo "Detected: python=${python_project} node=${node_project}"
+      # ---------- Python path ----------
+      - name: Set up Python
+        if: steps.detect.outputs.python == 'true'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install Python dependencies
+        if: steps.detect.outputs.python == 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade "pip==26.1.2"
+          if [ -f "${{ inputs.requirements-file }}" ]; then
+            pip install -r "${{ inputs.requirements-file }}"
+          elif [ -f "pyproject.toml" ]; then
+            pip install -e ".[dev]" || pip install -e .
+          fi
+          pip install "ruff==0.14.5" "mypy==1.19.0" "pytest==8.4.2"
+          if [ -n "${{ inputs.l9-ci-install-command }}" ]; then
+            ${{ inputs.l9-ci-install-command }} || echo "::notice::l9-ci install command failed; continuing"
+          fi
+          if [ -n "${{ inputs.extra-install-command }}" ]; then
+            ${{ inputs.extra-install-command }}
+          fi
+      - name: Lint (ruff)
+        if: steps.detect.outputs.python == 'true'
+        run: ruff check "${{ inputs.source-dir }}"
+      - name: Type-check (mypy)
+        if: steps.detect.outputs.python == 'true'
+        run: mypy "${{ inputs.source-dir }}" || echo "::notice::mypy findings are non-blocking in the v1 compat layer"
+      - name: Tests (pytest)
+        if: steps.detect.outputs.python == 'true'
+        run: |
+          set -euo pipefail
+          if [ -d "${{ inputs.test-dir }}" ]; then
+            pytest "${{ inputs.test-dir }}" -q
+          else
+            echo "::notice::Test directory '${{ inputs.test-dir }}' not found; skipping pytest"
+          fi
+      # ---------- Node path ----------
+      - name: Set up Node
+        if: steps.detect.outputs.node == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+      - name: Install Node dependencies
+        if: steps.detect.outputs.node == 'true'
+        run: |
+          set -euo pipefail
+          if [ -f "pnpm-lock.yaml" ]; then
+            corepack enable && pnpm install --frozen-lockfile
+          elif [ -f "package-lock.json" ]; then
+            npm ci
+          elif [ -f "yarn.lock" ]; then
+            corepack enable && yarn install --frozen-lockfile
+          else
+            npm install
+          fi
+      - name: Lint (ESLint)
+        if: steps.detect.outputs.node == 'true'
+        run: |
+          set -euo pipefail
+          if node -e "const s=(require('./package.json').scripts||{});process.exit(s.lint?0:1)"; then
+            npm run lint
+          elif ls eslint.config.* .eslintrc* >/dev/null 2>&1; then
+            npx eslint .
+          else
+            echo "::notice::No lint script or ESLint config found; skipping lint"
+          fi
+      - name: Type-check (tsc)
+        if: steps.detect.outputs.node == 'true'
+        run: |
+          set -euo pipefail
+          if node -e "const s=(require('./package.json').scripts||{});process.exit(s.typecheck?0:1)"; then
+            npm run typecheck
+          elif [ -f "tsconfig.json" ]; then
+            npx tsc --noEmit
+          else
+            echo "::notice::No typecheck script or tsconfig.json found; skipping type-check"
+          fi
+      - name: Tests (Vitest/Jest)
+        if: steps.detect.outputs.node == 'true'
+        run: |
+          set -euo pipefail
+          if node -e "const s=(require('./package.json').scripts||{});process.exit(s.test?0:1)"; then
+            npm test
+          elif ls vitest.config.* >/dev/null 2>&1; then
+            npx vitest run
+          elif ls jest.config.* >/dev/null 2>&1; then
+            npx jest --ci
+          else
+            echo "::notice::No test script or test runner config found; skipping tests"
+          fi
+      # ---------- Neither ----------
+      - name: Non-applicable pipeline
+        if: steps.detect.outputs.python != 'true' && steps.detect.outputs.node != 'true'
+        run: echo "::notice::No Python or Node project detected; nothing to validate"
