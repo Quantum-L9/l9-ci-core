@@ -23,6 +23,13 @@ If you are setting up a new Python repository:
 2. Open `.github/workflows/l9-lint-test.yml` and update the `env:` block at the top:
    - `SOURCE_DIR`: e.g., `"src/"` or `"."`
    - `TEST_DIR`: e.g., `"tests/"`
+   - `PYTEST_PARALLEL`: `"true"` to opt into `pytest -n auto`. Default `"false"` —
+     leave off unless your suite is verified safe under xdist (parallel workers
+     can produce nondeterministic collection for suites with shared state).
+   - `MYPY_EXCLUDE`: optional regex passed to `mypy --exclude`. Use this to
+     mirror your repo's own `.pre-commit-config.yaml` mypy excludes (e.g. a
+     `tools/` directory that causes "Source file found twice under different
+     module names" when scanned without `__init__.py`/`--explicit-package-bases`).
 3. Commit and push.
 
 ## How to Activate CI (For AI Agents)
