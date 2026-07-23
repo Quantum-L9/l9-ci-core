@@ -1,0 +1,329 @@
+name: Baseline Ratchet
+# Reusable truthful-ratchet gate. Callers provide ledgers committed in their
+# own repository; this workflow provisions the pinned immutable SDK and
+# evaluates observed findings against those ledgers with fail-closed
+# semantics. CI never writes ledgers — only humans do, in reviewed PRs.
+#
+# Stable aggregate check names exposed to callers (for branch protection):
+#   Baseline Ratchet / Required Tests
+#   Baseline Ratchet / Quarantined Debt
+#   Baseline Ratchet / Workflow Integrity
+#   Baseline Ratchet / Ratchet Verdict
+on:
+  workflow_call:
+    inputs:
+      sdk-revision:
+        description: >
+          Full 40-character immutable l9-ci-sdk commit SHA. Must be listed in
+          the l9-ci-core compatibility allowlist.
+        type: string
+        required: false
+        default: d8ec01f141b9eec24d22ffac84a83ec7280eef72
+      core-revision:
+        description: >
+          Full 40-character immutable l9-ci-core commit SHA used to fetch the
+          provisioning action; must match the ref this workflow was called at.
+        type: string
+        required: true
+      python-version:
+        type: string
+        required: false
+        default: "3.12"
+      pytest-args:
+        description: Extra arguments appended to the pytest invocation.
+        type: string
+        required: false
+        default: ""
+      pytest-paths:
+        description: Space-separated test paths to run.
+        type: string
+        required: false
+        default: tests
+      test-quarantine-ledger:
+        description: Path to the test-quarantine ledger in the caller repo.
+        type: string
+        required: false
+        default: .l9/baselines/test-quarantine.yml
+      packet-envelope-ledger:
+        description: Path to the PacketEnvelope debt ledger in the caller repo.
+        type: string
+        required: false
+        default: .l9/baselines/packet-envelope.yml
+      packet-envelope-declaration-paths:
+        description: >
+          Space-separated repository-relative paths that declare the
+          deprecated PacketEnvelope symbol (declaration sites are exempt from
+          debt accounting; every other reference is debt).
+        type: string
+        required: false
+        default: ""
+      requirements-files:
+        description: Space-separated dependency manifests to install.
+        type: string
+        required: false
+        default: requirements-ci.txt
+      evaluated-on:
+        description: >
+          Override the evaluation date (YYYY-MM-DD) for expiry decisions.
+          Empty means today (UTC). Intended for deterministic replay only.
+        type: string
+        required: false
+        default: ""
+permissions:
+  contents: read
+concurrency:
+  group: baseline-ratchet-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  required-tests:
+    name: Required Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout caller repository at immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${REPOSITORY}.git"
+      - name: Fetch pinned l9-ci-core provisioning action
+        env:
+          CORE_REVISION: ${{ inputs.core-revision }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "${CORE_REVISION}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "core-revision must be a full 40-char SHA" >&2; exit 1; }
+          git clone --no-checkout \
+            "https://x-access-token:${TOKEN}@github.com/Quantum-L9/l9-ci-core.git" \
+            .l9/runtime/core
+          git -C .l9/runtime/core checkout --detach "${CORE_REVISION}"
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ inputs.python-version }}
+      - id: sdk
+        name: Provision immutable SDK
+        uses: ./.l9/runtime/core/.github/actions/provision-sdk
+        with:
+          sdk-revision: ${{ inputs.sdk-revision }}
+      - name: Install caller dependency manifests
+        env:
+          REQUIREMENTS: ${{ inputs.requirements-files }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --upgrade pip
+          for manifest in ${REQUIREMENTS}; do
+            [[ -f "${manifest}" ]] || {
+              echo "missing dependency manifest: ${manifest}" >&2; exit 1; }
+            python3 -m pip install --quiet -r "${manifest}"
+          done
+          python3 -m pip install --quiet pytest-reportlog
+      - name: Run pytest with structured report log
+        env:
+          PYTEST_PATHS: ${{ inputs.pytest-paths }}
+          PYTEST_ARGS: ${{ inputs.pytest-args }}
+        run: |
+          set -euo pipefail
+          # Test failures are adjudicated by the ratchet comparator, not by
+          # pytest's exit code; only internal errors (>=3) fail this step.
+          set +e
+          PYTHONPATH=. python3 -m pytest ${PYTEST_PATHS} \
+            --report-log=.l9/runtime/pytest-report.jsonl \
+            -p no:cacheprovider ${PYTEST_ARGS}
+          status=$?
+          set -e
+          if [[ ${status} -ge 3 ]]; then
+            echo "pytest internal error (exit ${status})" >&2
+            exit "${status}"
+          fi
+          test -s .l9/runtime/pytest-report.jsonl || {
+            echo "pytest report log missing or empty — failing closed" >&2
+            exit 1; }
+      - name: Compare test results against quarantine ledger
+        env:
+          SDK: ${{ steps.sdk.outputs.executable }}
+          LEDGER: ${{ inputs.test-quarantine-ledger }}
+          EVALUATED_ON: ${{ inputs.evaluated-on }}
+        run: |
+          set -euo pipefail
+          extra=()
+          [[ -n "${EVALUATED_ON}" ]] && extra+=(--evaluated-on "${EVALUATED_ON}")
+          "${SDK}" baseline compare-tests \
+            --report-log .l9/runtime/pytest-report.jsonl \
+            --ledger "${LEDGER}" \
+            --output .l9/runtime/required-tests-verdict.json \
+            "${extra[@]}"
+      - name: Upload verdict artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: baseline-ratchet-required-tests
+          path: .l9/runtime/required-tests-verdict.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  quarantined-debt:
+    name: Quarantined Debt
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout caller repository at immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${REPOSITORY}.git"
+      - name: Fetch pinned l9-ci-core provisioning action
+        env:
+          CORE_REVISION: ${{ inputs.core-revision }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "${CORE_REVISION}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "core-revision must be a full 40-char SHA" >&2; exit 1; }
+          git clone --no-checkout \
+            "https://x-access-token:${TOKEN}@github.com/Quantum-L9/l9-ci-core.git" \
+            .l9/runtime/core
+          git -C .l9/runtime/core checkout --detach "${CORE_REVISION}"
+      - id: sdk
+        name: Provision immutable SDK
+        uses: ./.l9/runtime/core/.github/actions/provision-sdk
+        with:
+          sdk-revision: ${{ inputs.sdk-revision }}
+      - name: Scan repository for deprecated PacketEnvelope debt
+        env:
+          SDK: ${{ steps.sdk.outputs.executable }}
+          DECLARATION_PATHS: ${{ inputs.packet-envelope-declaration-paths }}
+        run: |
+          set -euo pipefail
+          extra=()
+          for path in ${DECLARATION_PATHS}; do
+            extra+=(--declaration-path "${path}")
+          done
+          "${SDK}" baseline scan-packet-envelope \
+            --repository-root . \
+            --exclude-dir .l9/runtime \
+            --output .l9/runtime/packet-envelope-findings.json \
+            "${extra[@]}"
+      - name: Compare scan against PacketEnvelope debt ledger
+        env:
+          SDK: ${{ steps.sdk.outputs.executable }}
+          LEDGER: ${{ inputs.packet-envelope-ledger }}
+          EVALUATED_ON: ${{ inputs.evaluated-on }}
+        run: |
+          set -euo pipefail
+          extra=()
+          [[ -n "${EVALUATED_ON}" ]] && extra+=(--evaluated-on "${EVALUATED_ON}")
+          "${SDK}" baseline compare-scan \
+            --gate scanner/packet-envelope \
+            --findings .l9/runtime/packet-envelope-findings.json \
+            --ledger "${LEDGER}" \
+            --output .l9/runtime/quarantined-debt-verdict.json \
+            "${extra[@]}"
+      - name: Upload verdict artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: baseline-ratchet-quarantined-debt
+          path: |
+            .l9/runtime/packet-envelope-findings.json
+            .l9/runtime/quarantined-debt-verdict.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  workflow-integrity:
+    name: Workflow Integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout caller repository at immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${REPOSITORY}.git"
+      - name: Fetch pinned l9-ci-core provisioning action
+        env:
+          CORE_REVISION: ${{ inputs.core-revision }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "${CORE_REVISION}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "core-revision must be a full 40-char SHA" >&2; exit 1; }
+          git clone --no-checkout \
+            "https://x-access-token:${TOKEN}@github.com/Quantum-L9/l9-ci-core.git" \
+            .l9/runtime/core
+          git -C .l9/runtime/core checkout --detach "${CORE_REVISION}"
+      - id: sdk
+        name: Provision immutable SDK
+        uses: ./.l9/runtime/core/.github/actions/provision-sdk
+        with:
+          sdk-revision: ${{ inputs.sdk-revision }}
+      - name: Validate ledgers fail-closed
+        env:
+          SDK: ${{ steps.sdk.outputs.executable }}
+          TEST_LEDGER: ${{ inputs.test-quarantine-ledger }}
+          PE_LEDGER: ${{ inputs.packet-envelope-ledger }}
+        run: |
+          set -euo pipefail
+          "${SDK}" baseline validate-ledger \
+            --ledger "${TEST_LEDGER}" --kind test-quarantine
+          "${SDK}" baseline validate-ledger \
+            --ledger "${PE_LEDGER}" --kind baseline
+      - name: Forbid fail-open constructs in caller workflows
+        run: |
+          set -euo pipefail
+          python3 .l9/runtime/core/tools/check_workflow_integrity.py \
+            --workflows-dir .github/workflows \
+            --exclude .l9/runtime
+
+  ratchet-verdict:
+    name: Ratchet Verdict
+    needs: [required-tests, quarantined-debt, workflow-integrity]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Aggregate fail-closed verdict
+        env:
+          REQUIRED_TESTS: ${{ needs.required-tests.result }}
+          QUARANTINED_DEBT: ${{ needs.quarantined-debt.result }}
+          WORKFLOW_INTEGRITY: ${{ needs.workflow-integrity.result }}
+        run: |
+          set -euo pipefail
+          echo "Required Tests:     ${REQUIRED_TESTS}"
+          echo "Quarantined Debt:   ${QUARANTINED_DEBT}"
+          echo "Workflow Integrity: ${WORKFLOW_INTEGRITY}"
+          verdict=pass
+          for result in "${REQUIRED_TESTS}" "${QUARANTINED_DEBT}" \
+            "${WORKFLOW_INTEGRITY}"; do
+            # Anything other than explicit success fails the ratchet:
+            # failure, cancellation, and skips are all fail-closed.
+            if [[ "${result}" != "success" ]]; then
+              verdict=fail
+            fi
+          done
+          echo "Ratchet verdict: ${verdict}"
+          [[ "${verdict}" == "pass" ]]
