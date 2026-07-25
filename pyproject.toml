@@ -4,8 +4,21 @@ version = "2.0.0.dev1"
 description = "Validation harness for the l9-ci-core thin control plane"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
-[tool.ruff]
-line-length = 88
-target-version = "py311"
+
+# Ruff configuration lives in ruff.toml (its own single source of truth).
+# A `[tool.ruff]` table here would be silently ignored whenever ruff.toml
+# exists, so it is intentionally not duplicated.
+
+[tool.mypy]
+# Type gate for Core's own control-plane code. Scoped to the executable
+# Python (composite-action entrypoints + operator tools); tests are covered
+# by the unittest suite. Stubs for the sole third-party import (yaml) come
+# from types-PyYAML in requirements-ci.txt.
+python_version = "3.11"
+files = [".github/actions", "tools"]
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

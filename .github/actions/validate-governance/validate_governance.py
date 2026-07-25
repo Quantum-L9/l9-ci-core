@@ -18,6 +18,8 @@ spec.loader.exec_module(resolver)
 
 def validate_promotions(documents: dict[str, object]) -> None:
     promotion = documents["promotion-policy.yaml"]
+    if not isinstance(promotion, dict):
+        raise resolver.GovernanceError("promotion-policy.yaml must be an object")
     transitions = promotion.get("transitions")
     if not isinstance(transitions, dict):
         raise resolver.GovernanceError("promotion transitions must be an object")

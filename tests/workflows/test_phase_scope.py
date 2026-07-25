@@ -28,6 +28,11 @@ class PhaseScopeTests(unittest.TestCase):
             "security.yml",
             "scorecard.yml",
             "sbom.yml",
+            # Scheduled maintenance automation — keeps the preset semgrep
+            # identity maps in sync with the live registry. Not part of the
+            # analysis/publication path; triggers only on schedule +
+            # workflow_dispatch (see test_workflow_permissions).
+            "regenerate-identity-maps.yml",
         }
         self.assertEqual(expected, actual)
 
