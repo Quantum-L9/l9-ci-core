@@ -1,0 +1,16 @@
+# Ruff is the linter/formatter for l9-ci-core's Python control-plane code.
+#
+# This file is the single source of truth for Ruff configuration. When a
+# `ruff.toml` is present Ruff ignores any `[tool.ruff]` table in
+# pyproject.toml, so the Ruff settings were moved out of pyproject.toml to
+# avoid two divergent configs. These values are kept coherent with the rest
+# of the toolchain: line-length 88 and the py311 target match
+# `requires-python = ">=3.11"` in pyproject.toml, and the pinned
+# `ruff==0.14.5` in .pre-commit-config.yaml / the CI lint job.
+line-length = 88
+target-version = "py311"
+
+[lint]
+# Ruff's default rule set (pyflakes `F` + a curated pycodestyle `E` subset).
+# Stated explicitly so the effective rules are visible rather than implied.
+select = ["E4", "E7", "E9", "F"]

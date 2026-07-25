@@ -18,4 +18,4 @@ runs:
       env:
         L9_RELEASE_TAG: ${{ inputs.tag }}
         L9_EXPECTED_VERSION: ${{ inputs.expected-version }}
-      run: python3 "${{ github.action_path }}/validate.py"
+      run: python3 "${{ github.action_path }}/validate_release.py"

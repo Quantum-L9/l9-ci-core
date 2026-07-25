@@ -11,4 +11,4 @@ runs:
     - shell: bash
       env:
         L9_GOVERNANCE_ROOT: ${{ inputs.governance-root }}
-      run: python3 "${{ github.action_path }}/validate.py"
+      run: python3 "${{ github.action_path }}/validate_governance.py"

@@ -15,7 +15,21 @@ class WorkflowPermissionTests(unittest.TestCase):
                 text = workflow.read_text(encoding="utf-8")
                 self.assertRegex(text, re.compile(r"(?m)^\s*contents:\s+read\s*$"))
 
-    def test_only_publication_workflow_requests_checks_write(self) -> None:
+    # Write permissions are read-only everywhere except these two audited
+    # exceptions. Any change to this table is a trust-boundary change.
+    #
+    #   publish-analysis.yml    checks:write — publishes the GitHub check run.
+    #   regenerate-identity-maps.yml
+    #                           contents/pull-requests:write — opens a PR when
+    #                           the semgrep registry drifts. Confined to its
+    #                           `regenerate` job and unreachable from untrusted
+    #                           events (enforced by the trigger test below).
+    WRITE_EXCEPTIONS = {
+        "publish-analysis.yml": ["checks"],
+        "regenerate-identity-maps.yml": ["contents", "pull-requests"],
+    }
+
+    def test_only_authorized_workflows_request_write(self) -> None:
         write_pattern = re.compile(
             r"(?m)^\s+(actions|checks|contents|deployments|discussions|"
             r"id-token|issues|packages|pages|pull-requests|"
@@ -25,10 +39,26 @@ class WorkflowPermissionTests(unittest.TestCase):
             with self.subTest(workflow=workflow.name):
                 text = workflow.read_text(encoding="utf-8")
                 matches = write_pattern.findall(text)
-                if workflow.name == "publish-analysis.yml":
-                    self.assertEqual(["checks"], matches)
-                else:
-                    self.assertEqual([], matches)
+                expected = self.WRITE_EXCEPTIONS.get(workflow.name, [])
+                self.assertEqual(expected, matches)
+
+    def test_write_scoped_workflows_are_not_pull_request_triggered(self) -> None:
+        # A workflow that can obtain write permissions must never run on
+        # untrusted `pull_request` events, or a fork PR could reach that scope.
+        # publish-analysis.yml is reusable (workflow_call) and gated by the
+        # caller; the maintenance workflow must be schedule/dispatch only.
+        trigger_pattern = re.compile(r"(?m)^\s*(pull_request|pull_request_target):")
+        for name in self.WRITE_EXCEPTIONS:
+            workflow = WORKFLOWS / name
+            if name == "publish-analysis.yml":
+                continue
+            with self.subTest(workflow=name):
+                text = workflow.read_text(encoding="utf-8")
+                self.assertIsNone(
+                    trigger_pattern.search(text),
+                    f"{name} requests write permissions and must not be "
+                    "triggered by pull_request events",
+                )
 
 
 if __name__ == "__main__":

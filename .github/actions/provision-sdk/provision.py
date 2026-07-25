@@ -33,8 +33,17 @@ def _load_yaml_module():
     try:
         import yaml
     except ModuleNotFoundError:
-        run([sys.executable, "-m", "pip", "install", "--quiet",
-             "--disable-pip-version-check", "pyyaml"])
+        run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--disable-pip-version-check",
+                "pyyaml",
+            ]
+        )
         import yaml
     return yaml
 
@@ -185,8 +194,18 @@ def create_runtime(checkout: Path, runtime: Path) -> Path:
     # `python -m l9_ci` fails at import (ModuleNotFoundError: yaml).
     requirements = checkout / "requirements.txt"
     if requirements.is_file():
-        run([str(venv_python), "-m", "pip", "install", "--quiet",
-             "--disable-pip-version-check", "-r", str(requirements)])
+        run(
+            [
+                str(venv_python),
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--disable-pip-version-check",
+                "-r",
+                str(requirements),
+            ]
+        )
     if os.name == "nt":
         python = venv / "Scripts" / "python.exe"
         executable = runtime / "l9-ci.cmd"

@@ -99,7 +99,9 @@ def build_updated_document(
     live_rule_ids: set[str],
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     existing_rules: dict[str, Any] = dict(existing.get("rules", {}))
-    added = sorted(rule_id for rule_id in live_rule_ids if rule_id not in existing_rules)
+    added = sorted(
+        rule_id for rule_id in live_rule_ids if rule_id not in existing_rules
+    )
     removed_upstream = sorted(
         rule_id for rule_id in existing_rules if rule_id not in live_rule_ids
     )
@@ -107,7 +109,9 @@ def build_updated_document(
         existing_rules[rule_id] = {
             "canonical_rule_id": f"{CANONICAL_NAMESPACE}{rule_id}",
         }
-    metadata = dict(existing.get("metadata", {"provider_id": "semgrep", "version": "1"}))
+    metadata = dict(
+        existing.get("metadata", {"provider_id": "semgrep", "version": "1"})
+    )
     if added:
         try:
             metadata["version"] = str(int(metadata.get("version", "1")) + 1)
@@ -116,7 +120,9 @@ def build_updated_document(
     document = {
         "schema": IDENTITY_MAP_SCHEMA,
         "metadata": metadata,
-        "rules": {rule_id: existing_rules[rule_id] for rule_id in sorted(existing_rules)},
+        "rules": {
+            rule_id: existing_rules[rule_id] for rule_id in sorted(existing_rules)
+        },
         "note": existing.get(
             "note",
             (
