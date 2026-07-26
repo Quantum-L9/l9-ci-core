@@ -53,11 +53,15 @@ jobs:
         run: |
           set -euo pipefail
           git init .
-          git remote add origin \
-            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          # Authenticate with a per-fetch Authorization header instead of
+          # embedding the token in the remote URL, so the credential is never
+          # written to the remote URL or .git/config (mirrors actions/checkout).
+          auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          git -c protocol.version=2 \
+            -c "http.https://github.com/.extraheader=${auth_header}" \
+            fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
       # OPTIONAL — pin Node. ubuntu-latest ships Node 20+, used as-is. To pin,
       # uncomment and set a full 40-char SHA you trust for actions/setup-node:
       # - uses: actions/setup-node@<full-40-char-sha>  # v4.x
@@ -94,11 +98,15 @@ jobs:
         run: |
           set -euo pipefail
           git init .
-          git remote add origin \
-            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          # Authenticate with a per-fetch Authorization header instead of
+          # embedding the token in the remote URL, so the credential is never
+          # written to the remote URL or .git/config (mirrors actions/checkout).
+          auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          git -c protocol.version=2 \
+            -c "http.https://github.com/.extraheader=${auth_header}" \
+            fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
       - name: Install dependencies
         run: |
           set -euo pipefail
@@ -130,11 +138,15 @@ jobs:
         run: |
           set -euo pipefail
           git init .
-          git remote add origin \
-            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          # Authenticate with a per-fetch Authorization header instead of
+          # embedding the token in the remote URL, so the credential is never
+          # written to the remote URL or .git/config (mirrors actions/checkout).
+          auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          git -c protocol.version=2 \
+            -c "http.https://github.com/.extraheader=${auth_header}" \
+            fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
       - name: Install dependencies
         run: |
           set -euo pipefail
