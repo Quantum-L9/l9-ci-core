@@ -45,22 +45,38 @@ canonical finding/evidence model, no copied SDK schema, no rule-identity or
 severity-normalization logic, no scanner adapters, no AST/Tree-sitter/graph
 engine).
 
-**Workflow set is frozen** at exactly seven files
-(`tests/workflows/test_phase_scope.py` enforces this):
+**Workflow set is inventory-locked** — `tests/workflows/test_phase_scope.py`
+asserts the `.github/workflows/` directory equals an explicit expected set,
+so no workflow may be added or removed silently. The set has three layers:
 
-```
-self-ci.yml
-sdk-contract-check.yml
-normalize-semgrep-report.yml
-governance-ci.yml
-profile-normalize-semgrep.yml
-publish-analysis.yml
-release-validation.yml
-```
+1. **Core analysis/publication (the original seven):**
 
-Adding an eighth reusable workflow (or a new analysis kernel) is a scope
-change, not a normal edit — it requires an explicit, authorized plan, not an
-opportunistic PR.
+   ```
+   self-ci.yml
+   sdk-contract-check.yml
+   normalize-semgrep-report.yml
+   governance-ci.yml
+   profile-normalize-semgrep.yml
+   publish-analysis.yml
+   release-validation.yml
+   ```
+
+2. **v1 compatibility kernels** (restoring the org `@v1` reusable-workflow
+   contracts — see §6): `pr-pipeline.yml`, `pre-commit-ci.yml`, `nightly.yml`,
+   `release-publish.yml`, `trio-governance.yml`, `security.yml`,
+   `scorecard.yml`, `sbom.yml`, plus `baseline-ratchet.yml`.
+
+3. **Scheduled maintenance:** `regenerate-identity-maps.yml` — keeps the
+   preset semgrep identity maps in sync with the live registry; runs on
+   `schedule` + `workflow_dispatch` only (never `pull_request`) and is the
+   one workflow permitted `contents`/`pull-requests: write`, scoped to its
+   PR-opening job (`tests/workflows/test_workflow_permissions.py` enforces
+   both the exception and the trigger restriction).
+
+Adding or removing any workflow (a new reusable workflow, a new analysis
+kernel) is a scope change, not a normal edit — it requires updating the
+expected set in `test_phase_scope.py` under an explicit, authorized plan,
+not an opportunistic PR.
 
 ---
 
@@ -72,15 +88,21 @@ Request flow for the analysis path (`profile-normalize-semgrep.yml` /
 1. **Provision SDK** (`actions/provision-sdk`) — clones the pinned SDK
    revision from `.l9/sdk-compatibility.yaml`, installs its `requirements.txt`
    into an isolated venv, verifies the CLI responds, emits `executable`.
-2. **Resolve governance** (`actions/resolve-governance`) — reads the
-   consumer's `.github/governance/*.yaml`, resolves `{profile, provider,
-   event}` to `{mode, enabled, strict, required-provider, sdk-policy,
-   governance-digest}` per `rule-modes.yaml` / `provider-requiredness.yaml` /
-   `execution-profiles.yaml`.
+2. **Resolve governance** (`actions/resolve-governance`) — reads and
+   schema-checks all six of the consumer's `.github/governance/*.yaml`
+   (`execution-profiles.yaml`, `rule-modes.yaml`, `provider-requiredness.yaml`,
+   `quality-thresholds.yaml`, `waivers.yaml`, `promotion-policy.yaml`) and
+   resolves `{profile, provider, event}` to `{mode, enabled, strict,
+   required-provider, sdk-policy, waiver-ids, governance-digest}`.
+   (`promotion-policy.yaml` is loaded and validated but its transitions gate
+   the human rollout process, not the per-run resolution;
+   `actions/validate-governance` enforces their consistency.)
 3. **Invoke SDK** (`actions/invoke-sdk`) — a safe adapter over exactly four
    public SDK CLI operations (see §6, no shell evaluation, no arbitrary
    commands): `semgrep-normalize`, `bundle-validate`,
    `bundle-project-agent-payload`, `compatibility-check`.
+   `actions/validate-bundle` wraps the `bundle-validate` operation for the
+   normalization and publication paths.
 4. **Route artifacts** (`actions/route-artifacts`) → **build manifest**
    (`actions/build-artifact-manifest`) → upload.
 5. **Publish** (`publish-analysis.yml` → `actions/render-publication` +
@@ -174,8 +196,10 @@ difference is the semgrep `--config` ruleset inside the copied
 - `.l9/sdk-compatibility.yaml` (`default.revision` plus every
   `supported[].revision`) is the single source of truth for the SDK pin; when
   bumping it, keep every mirror copy in sync — `provision-sdk/action.yml`,
-  `publish-analysis.yml`, `normalize-semgrep-report.yml`,
-  `sdk-contract-check.yml`, and the `.l9` contract docs — and pin only a
+  `provision-sdk/provision.py`, `publish-analysis.yml`,
+  `normalize-semgrep-report.yml`, `sdk-contract-check.yml`, the `README.md`
+  "Pinned SDK" line, and the `.l9` contract docs that restate the revision
+  (`.l9/architecture.yaml`, `.l9/artifact-protocol.yaml`) — and pin only a
   commit whose SDK `.l9/integration-contract.yaml` still exposes `semgrep
   normalize`, `bundle validate`, `bundle project-agent-payload`, and
   `compatibility check` (`sdk-contract-check.yml` verifies this on every PR).
@@ -193,7 +217,16 @@ difference is the semgrep `--config` ruleset inside the copied
 Org `@v1` kernel starters (historical, frozen at a fixed SHA) exist only so
 already-imported wrappers keep resolving. They are **not** the integration
 path for new work — new work always starts from `docs/templates/` /
-`l9-ci-pack/README.md` (v2). Do not restore retired v1 kernels onto `main`.
+`l9-ci-pack/README.md` (v2).
+
+The v1 **compatibility kernels** now living on `main` (the reusable workflows
+listed in §1 layer 2 — `pr-pipeline.yml`, `pre-commit-ci.yml`, `nightly.yml`,
+`release-publish.yml`, `trio-governance.yml`, `security.yml`, `scorecard.yml`,
+`sbom.yml`, `baseline-ratchet.yml`) are an intentional, inventory-locked
+re-provisioning of those `@v1` contracts so imported wrappers keep resolving;
+they are not the retired ad-hoc kernels. Do not add *new* one-off v1-style
+kernels outside this locked set, and do not remove a compatibility kernel
+without updating `test_phase_scope.py` under an authorized plan.
 
 ## 7. Dormant SDK CLI surface (not yet wired into Core)
 

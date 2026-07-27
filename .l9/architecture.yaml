@@ -16,7 +16,7 @@ dependency_direction:
     - l9-ci-sdk -> l9-ci-core
 sdk:
   repository: Quantum-L9/l9-ci-sdk
-  revision: 6368ba17a98231d461a13b71e149e114ad766834
+  revision: 0779fca8238011f8abea551895f96584676e9d17
   integration_contract: l9.integration-contract/v1
 owned_by_core:
   - GitHub Actions orchestration

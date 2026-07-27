@@ -43,7 +43,7 @@ bash docs/release/tag-and-release.sh
 Pass an explicit commit to release a specific revision:
 
 ```bash
-bash docs/release/tag-and-release.sh 54a2f2fc8d060674d544fab14388bb5eff6b8e78
+bash docs/release/tag-and-release.sh <full-40-char-commit-sha>
 ```
 
 The script prints each command before running it and is safe to re-run (it
