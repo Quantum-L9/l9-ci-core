@@ -52,11 +52,15 @@ jobs:
         run: |
           set -euo pipefail
           git init .
-          git remote add origin \
-            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          # Authenticate with a per-fetch Authorization header instead of
+          # embedding the token in the remote URL, so the credential is never
+          # written to the remote URL or .git/config (mirrors actions/checkout).
+          auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          git -c protocol.version=2 \
+            -c "http.https://github.com/.extraheader=${auth_header}" \
+            fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
@@ -93,11 +97,15 @@ jobs:
         run: |
           set -euo pipefail
           git init .
-          git remote add origin \
-            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          # Authenticate with a per-fetch Authorization header instead of
+          # embedding the token in the remote URL, so the credential is never
+          # written to the remote URL or .git/config (mirrors actions/checkout).
+          auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          git -c protocol.version=2 \
+            -c "http.https://github.com/.extraheader=${auth_header}" \
+            fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
