@@ -9,6 +9,15 @@ license = { text = "Proprietary" }
 # A `[tool.ruff]` table here would be silently ignored whenever ruff.toml
 # exists, so it is intentionally not duplicated.
 
+# Mirrors requirements-ci.txt exactly (the toolchain this repo's own
+# self-validation/mypy gate installs) so Dependabot's uv ecosystem can see
+# and bump it via uv.lock instead of only requirements-ci.txt drifting
+# silently. Does NOT cover the ruff/mypy/pytest versions pr-pipeline.yml
+# pins for *downstream consumer* repos — that is a deliberate, org-wide
+# toolchain pin with a much larger blast radius, out of scope here.
+[project.optional-dependencies]
+dev = ["PyYAML==6.0.2", "types-PyYAML==6.0.12.20260724"]
+
 [tool.mypy]
 # Type gate for Core's own control-plane code. Scoped to the executable
 # Python (composite-action entrypoints + operator tools); tests are covered

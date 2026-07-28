@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # Python deps: Dependabot's `uv` ecosystem understands pyproject.toml (PEP 621)
+  # + uv.lock together and keeps them in sync in a single PR.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    labels: ["dependencies", "python"]
+    commit-message:
+      prefix: "deps(uv)"
+
+  # GitHub Actions. Dependabot's github-actions ecosystem only scans
+  # `<directory>/.github/workflows`, so the preset consumed by downstream repos
+  # (presets/python/.github/workflows/l9-lint-test.yml) needs its own explicit
+  # directory entry alongside this repo's own workflows -- "/" alone would miss it.
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/"
+      - "/presets/python"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    labels: ["dependencies", "github-actions"]
+    commit-message:
+      prefix: "ci"
