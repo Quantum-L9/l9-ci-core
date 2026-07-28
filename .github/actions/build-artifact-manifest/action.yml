@@ -1,6 +1,8 @@
+---
 name: Build artifact manifest
-description: >
-  Creates deterministic Core metadata over already validated artifacts.
+description: >-
+  Creates deterministic Core metadata over validated raw and SDK-produced
+  canonical artifacts.
 inputs:
   provider:
     required: true
@@ -12,14 +14,23 @@ inputs:
     required: true
   agent-payload:
     required: true
+  gate-result:
+    description: Optional SDK-produced canonical gate-result path.
+    required: false
+    default: ""
   raw-directory:
     required: true
   output:
     required: true
+outputs:
+  manifest:
+    description: Generated artifact-manifest path.
+    value: ${{ steps.manifest.outputs.manifest }}
 runs:
   using: composite
   steps:
-    - shell: bash
+    - id: build
+      shell: bash
       env:
         L9_PROVIDER: ${{ inputs.provider }}
         L9_MATRIX_ID: ${{ inputs.matrix-id }}
@@ -29,3 +40,76 @@ runs:
         L9_RAW_DIRECTORY: ${{ inputs.raw-directory }}
         L9_MANIFEST_OUTPUT: ${{ inputs.output }}
       run: python3 "${{ github.action_path }}/manifest.py"
+    - id: manifest
+      shell: bash
+      env:
+        L9_GATE_RESULT: ${{ inputs.gate-result }}
+        L9_MANIFEST_OUTPUT: ${{ inputs.output }}
+      run: |
+        set -euo pipefail
+        python3 - <<'PY'
+        from __future__ import annotations
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        from typing import Any
+        workspace = Path(
+            os.environ.get("GITHUB_WORKSPACE", Path.cwd())
+        ).resolve()
+        manifest_value = os.environ["L9_MANIFEST_OUTPUT"].strip()
+        gate_value = os.environ["L9_GATE_RESULT"].strip()
+        manifest = Path(manifest_value)
+        manifest = (
+            manifest.resolve()
+            if manifest.is_absolute()
+            else (workspace / manifest).resolve()
+        )
+        manifest.relative_to(workspace)
+        if not manifest.is_file():
+            raise SystemExit("artifact manifest does not exist")
+        if gate_value:
+            gate = Path(gate_value)
+            gate = (
+                gate.resolve()
+                if gate.is_absolute()
+                else (workspace / gate).resolve()
+            )
+            gate.relative_to(workspace)
+            if not gate.is_file():
+                raise SystemExit("gate result does not exist")
+            document: Any = json.loads(
+                manifest.read_text(encoding="utf-8")
+            )
+            if not isinstance(document, dict):
+                raise SystemExit("artifact manifest must be an object")
+            artifacts = document.get("artifacts")
+            if not isinstance(artifacts, dict):
+                raise SystemExit(
+                    "artifact manifest artifacts must be an object"
+                )
+            canonical = artifacts.get("canonical")
+            if not isinstance(canonical, dict):
+                raise SystemExit(
+                    "artifact manifest canonical section must be an object"
+                )
+            canonical["gate_result"] = {
+                "path": gate.as_posix(),
+                "sha256": hashlib.sha256(
+                    gate.read_bytes()
+                ).hexdigest(),
+            }
+            manifest.write_text(
+                json.dumps(
+                    document,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with open(output, "a", encoding="utf-8") as stream:
+                stream.write(f"manifest={manifest.as_posix()}\n")
+        PY

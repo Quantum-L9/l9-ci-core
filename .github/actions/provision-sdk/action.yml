@@ -1,10 +1,11 @@
+---
 name: Provision immutable l9-ci-sdk
-description: >
+description: >-
   Prepares an isolated runtime for an explicitly permitted immutable SDK
-  revision and verifies its public CLI contract.
+  revision and verifies its public integration contract.
 inputs:
   sdk-source:
-    description: SDK source type. Phase 1 permits only "git".
+    description: SDK source type. Core currently permits only git.
     required: false
     default: git
   sdk-repository:
@@ -12,11 +13,11 @@ inputs:
     required: false
     default: https://github.com/Quantum-L9/l9-ci-sdk.git
   sdk-revision:
-    description: Full 40-character immutable SDK commit SHA.
+    description: Full immutable SDK commit listed in Core compatibility policy.
     required: false
-    default: 0779fca8238011f8abea551895f96584676e9d17
+    default: 0c487747b0fcd172edaefe9e843dac818de8fc12
   runtime-directory:
-    description: Runtime directory relative to the workspace.
+    description: Runtime directory relative to GITHUB_WORKSPACE.
     required: false
     default: .l9/runtime/sdk
 outputs:
@@ -27,10 +28,10 @@ outputs:
     description: Absolute path to the detached SDK checkout.
     value: ${{ steps.provision.outputs.sdk-root }}
   sdk-revision:
-    description: Verified SDK commit SHA.
+    description: Verified immutable SDK commit.
     value: ${{ steps.provision.outputs.sdk-revision }}
   contract:
-    description: Verified integration contract identifier.
+    description: Verified SDK integration-contract identifier.
     value: ${{ steps.provision.outputs.contract }}
 runs:
   using: composite

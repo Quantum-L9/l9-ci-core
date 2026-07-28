@@ -1,35 +1,55 @@
+---
 name: Validate canonical finding bundle
-description: >
-  Runs schema, semantic, and compatibility validation through the SDK.
+description: >-
+  Runs schema, semantic, and compatibility validation through the exact SDK
+  executable provisioned for the current analysis run.
 inputs:
   executable:
-    required: true
     description: Verified SDK executable.
-  bundle:
     required: true
-    description: Canonical finding bundle path.
+  bundle:
+    description: Canonical finding-bundle path.
+    required: true
   minimum-sdk-version:
-    required: false
     description: Optional minimum acceptable SDK version.
+    required: false
+outputs:
+  bundle:
+    description: Validated canonical finding-bundle path.
+    value: ${{ steps.validate.outputs.bundle }}
 runs:
   using: composite
   steps:
-    # invoke-sdk is referenced by its fully-qualified pinned ref, NOT a relative
-    # `./` path. A composite action's `uses: ./...` resolves against the CALLER's
-    # workspace, so a consumer repo (which does not vendor Core's actions) fails
-    # with "Can't find action.yml under .github/actions/invoke-sdk". The pin is a
-    # committed Core SHA carrying an identical invoke-sdk; keep it on a released
-    # commit when bumping.
-    - name: Validate bundle
-      uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@98f012f05b92e8fd9a5149215f8a1a28abc155d7
-      with:
-        executable: ${{ inputs.executable }}
-        operation: bundle-validate
-        input: ${{ inputs.bundle }}
+    - id: validate
+      name: Validate bundle
+      shell: bash
+      env:
+        EXECUTABLE: ${{ inputs.executable }}
+        BUNDLE: ${{ inputs.bundle }}
+      run: |
+        set -euo pipefail
+        test -x "${EXECUTABLE}"
+        test -f "${BUNDLE}"
+        "${EXECUTABLE}" bundle validate "${BUNDLE}"
+        echo "bundle=${BUNDLE}" >> "${GITHUB_OUTPUT}"
     - name: Verify compatibility
-      uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@98f012f05b92e8fd9a5149215f8a1a28abc155d7
-      with:
-        executable: ${{ inputs.executable }}
-        operation: compatibility-check
-        input: ${{ inputs.bundle }}
-        minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
+      shell: bash
+      env:
+        EXECUTABLE: ${{ inputs.executable }}
+        BUNDLE: ${{ inputs.bundle }}
+        MINIMUM_SDK_VERSION: ${{ inputs.minimum-sdk-version }}
+      run: |
+        set -euo pipefail
+        command=(
+          "${EXECUTABLE}"
+          compatibility
+          check
+          --bundle "${BUNDLE}"
+        )
+        if [ -n "${MINIMUM_SDK_VERSION}" ]; then
+          command+=(
+            --minimum-SDK-version
+            "${MINIMUM_SDK_VERSION}"
+          )
+        fi
+        "${command[@]}"

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-USES = re.compile(r"^\s*uses:\s*([^#\s]+)", re.MULTILINE)
+USES = re.compile(r"^\s*uses:\s*(?:>-\s*\n\s*)?([^#\s]+)", re.MULTILINE)
 FULL_SHA_REF = re.compile(r"^[^@]+@[0-9a-fA-F]{40}$")
 
 

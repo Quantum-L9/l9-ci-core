@@ -1,3 +1,4 @@
+---
 name: Publish L9 analysis
 on:
   workflow_call:
@@ -21,7 +22,11 @@ on:
       sdk-revision:
         type: string
         required: false
-        default: 0779fca8238011f8abea551895f96584676e9d17
+        default: 0c487747b0fcd172edaefe9e843dac818de8fc12
+      minimum-sdk-version:
+        type: string
+        required: false
+        default: "1.0.0"
       governance-digest:
         type: string
         required: true
@@ -29,12 +34,16 @@ on:
         type: string
         required: true
       workflow-result:
+        description: SDK-derived success or failure conclusion.
         type: string
         required: true
       artifact-url:
         type: string
         required: false
         default: ""
+    outputs:
+      check-run-url:
+        value: ${{ jobs.publish.outputs['check-run-url'] }}
 permissions:
   actions: read
   checks: write
@@ -46,6 +55,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Record non-publication mode
+        shell: bash
         env:
           MODE: ${{ inputs.mode }}
         run: |
@@ -63,19 +73,17 @@ jobs:
     if: inputs.mode == 'blocking' || inputs.mode == 'advisory'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      check-run-url: ${{ steps.publish.outputs['check-run-url'] }}
     steps:
-      - name: Checkout immutable event revision
-        env:
-          REPOSITORY: ${{ github.repository }}
-          REVISION: ${{ github.sha }}
-          TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git init .
-          git remote add origin             "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
-          git checkout --detach FETCH_HEAD
-          git remote set-url origin             "https://github.com/${REPOSITORY}.git"
+      - name: Checkout Core workflow source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .l9/runtime/core-control-plane
+          fetch-depth: 1
+          persist-credentials: false
       - name: Download immutable analysis artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -83,6 +91,7 @@ jobs:
           path: .l9/runtime/publication/download
       - id: locate
         name: Locate canonical artifacts
+        shell: bash
         env:
           MATRIX_ID: ${{ inputs.matrix-id }}
         run: |
@@ -93,45 +102,105 @@ jobs:
           fi
           root=".l9/runtime/publication/download"
           bundle="${root}/l9/${MATRIX_ID}/finding-bundle.json"
+          gate_result="${root}/l9/${MATRIX_ID}/gate-result.json"
           payload="${root}/l9/${MATRIX_ID}/agent-review-payload.json"
-          test -f "${bundle}"
-          test -f "${payload}"
+          manifest="${root}/metadata/${MATRIX_ID}/artifact-manifest.json"
+          for artifact in \
+            "${bundle}" \
+            "${gate_result}" \
+            "${payload}" \
+            "${manifest}"
+          do
+            test -f "${artifact}"
+          done
           {
             echo "bundle=${bundle}"
+            echo "gate-result=${gate_result}"
             echo "payload=${payload}"
+            echo "manifest=${manifest}"
           } >> "${GITHUB_OUTPUT}"
-      # This reusable workflow runs in the CALLER's checkout, so `uses: ./...`
-      # local-action refs resolve against the consumer repo (which does not
-      # vendor Core's actions) and fail. Reference Core's actions by their
-      # fully-qualified pinned form instead; keep the pin on a released commit.
+      - name: Verify manifest-bound gate result
+        shell: bash
+        env:
+          MANIFEST: ${{ steps.locate.outputs.manifest }}
+          GATE_RESULT: ${{ steps.locate.outputs['gate-result'] }}
+          WORKFLOW_RESULT: ${{ inputs.workflow-result }}
+        run: |
+          set -euo pipefail
+          case "${WORKFLOW_RESULT}" in
+            success|failure)
+              ;;
+            *)
+              echo "workflow-result must be success or failure" >&2
+              exit 2
+              ;;
+          esac
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from typing import Any
+          manifest = Path(os.environ["MANIFEST"])
+          gate_result = Path(os.environ["GATE_RESULT"])
+          document: Any = json.loads(
+              manifest.read_text(encoding="utf-8")
+          )
+          if not isinstance(document, dict):
+              raise SystemExit("artifact manifest must be an object")
+          artifacts = document.get("artifacts")
+          if not isinstance(artifacts, dict):
+              raise SystemExit("manifest artifacts must be an object")
+          canonical = artifacts.get("canonical")
+          if not isinstance(canonical, dict):
+              raise SystemExit("manifest canonical section is missing")
+          gate_entry = canonical.get("gate_result")
+          if not isinstance(gate_entry, dict):
+              raise SystemExit("manifest gate_result entry is missing")
+          expected = gate_entry.get("sha256")
+          actual = hashlib.sha256(
+              gate_result.read_bytes()
+          ).hexdigest()
+          if expected != actual:
+              raise SystemExit("gate-result digest does not match manifest")
+          PY
       - id: sdk
         name: Provision immutable SDK
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@d2c2cd7f7251632825c53b8ed31570ba5d8add26
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/provision-sdk
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision }}
+          runtime-directory: .l9/runtime/publication/sdk
       - name: Revalidate downloaded canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@d2c2cd7f7251632825c53b8ed31570ba5d8add26
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/validate-bundle
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.locate.outputs.bundle }}
+          minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
       - id: render
         name: Render publication payload
-        uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@d2c2cd7f7251632825c53b8ed31570ba5d8add26
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/render-publication
         with:
           agent-payload: ${{ steps.locate.outputs.payload }}
           profile: ${{ inputs.profile }}
           mode: ${{ inputs.mode }}
           provider: ${{ inputs.provider }}
-          sdk-revision: ${{ steps.sdk.outputs.sdk-revision }}
+          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
           governance-digest: ${{ inputs.governance-digest }}
           repository-revision: ${{ inputs.repository-revision }}
           workflow-result: ${{ inputs.workflow-result }}
-          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          run-url: >-
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{
+            github.run_id }}
           artifact-url: ${{ inputs.artifact-url }}
           output: .l9/runtime/publication/publication.json
       - name: Write workflow summary
+        shell: bash
         env:
           TITLE: ${{ steps.render.outputs.title }}
           SUMMARY: ${{ steps.render.outputs.summary }}
@@ -146,15 +215,17 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
       - id: publish
         name: Publish GitHub check
-        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@d2c2cd7f7251632825c53b8ed31570ba5d8add26
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/publish-check
         with:
           token: ${{ github.token }}
           repository: ${{ github.repository }}
           publication: .l9/runtime/publication/publication.json
       - name: Record check URL
+        shell: bash
         env:
-          CHECK_URL: ${{ steps.publish.outputs.check-run-url }}
+          CHECK_URL: ${{ steps.publish.outputs['check-run-url'] }}
         run: |
-          if [[ -n "${CHECK_URL}" ]]; then
-            echo "Published check: ${CHECK_URL}"
-          fi
+          set -euo pipefail
+          test -n "${CHECK_URL}"
+          echo "Published check: ${CHECK_URL}"

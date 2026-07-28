@@ -12,6 +12,9 @@ class PhaseScopeTests(unittest.TestCase):
         expected = {
             "self-ci.yml",
             "sdk-contract-check.yml",
+            # Authoritative Core-owned reusable Semgrep analysis entry
+            # point (see .l9/sdk-compatibility.yaml handoff registry).
+            "analyze-semgrep.yml",
             "normalize-semgrep-report.yml",
             "governance-ci.yml",
             "profile-normalize-semgrep.yml",

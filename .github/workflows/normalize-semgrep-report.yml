@@ -1,10 +1,17 @@
+---
 name: Normalize Semgrep report
 on:
   workflow_call:
     inputs:
       report-path:
+        description: Report path in the caller checkout or downloaded artifact.
         type: string
         required: true
+      report-artifact-name:
+        description: Optional artifact containing the provider report.
+        type: string
+        required: false
+        default: ""
       snapshot-id:
         type: string
         required: true
@@ -19,6 +26,11 @@ on:
         type: string
         required: false
         default: .
+      repository-revision:
+        description: Immutable caller revision represented by the bundle.
+        type: string
+        required: false
+        default: ""
       identity-map:
         type: string
         required: false
@@ -39,42 +51,98 @@ on:
         type: string
         required: false
         default: unset
+      sdk-revision:
+        type: string
+        required: false
+        default: 0c487747b0fcd172edaefe9e843dac818de8fc12
       minimum-sdk-version:
         type: string
         required: false
-        default: ""
+        default: "1.0.0"
       retention-days:
         type: number
         required: false
         default: 14
+    outputs:
+      artifact-name:
+        value: ${{ jobs.normalize.outputs['artifact-name'] }}
+      bundle-path:
+        value: ${{ jobs.normalize.outputs['bundle-path'] }}
+      payload-path:
+        value: ${{ jobs.normalize.outputs['payload-path'] }}
+      gate-result-path:
+        value: ${{ jobs.normalize.outputs['gate-result-path'] }}
+      workflow-conclusion:
+        value: ${{ jobs.normalize.outputs['workflow-conclusion'] }}
+      sdk-revision:
+        value: ${{ jobs.normalize.outputs['sdk-revision'] }}
 permissions:
   contents: read
 concurrency:
-  group: normalize-semgrep-${{ github.workflow }}-${{ github.ref }}-${{ inputs.matrix-id }}
+  group: >-
+    normalize-semgrep-${{ github.workflow }}-${{ github.ref }}-${{
+    inputs.matrix-id }}
   cancel-in-progress: true
 jobs:
   normalize:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     outputs:
-      artifact-name: ${{ steps.names.outputs.artifact-name }}
+      artifact-name: ${{ steps.names.outputs['artifact-name'] }}
       bundle-path: ${{ steps.route.outputs.bundle }}
-      payload-path: ${{ steps.route.outputs.agent-payload }}
+      payload-path: ${{ steps.route.outputs['agent-payload'] }}
+      gate-result-path: ${{ steps.route.outputs['gate-result'] }}
+      workflow-conclusion: >-
+        ${{ steps.gate.outputs['workflow-conclusion'] }}
+      sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
     steps:
-      - name: Checkout immutable event revision
+      - name: Checkout immutable caller revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ inputs.repository-revision || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout Core workflow source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .l9/runtime/core-control-plane
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Download provider-report artifact
+        if: ${{ inputs.report-artifact-name != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.report-artifact-name }}
+          path: .l9/runtime/provider-input
+      - id: report
+        name: Resolve provider report
+        shell: bash
         env:
-          REPOSITORY: ${{ github.repository }}
-          REVISION: ${{ github.sha }}
-          TOKEN: ${{ github.token }}
+          REPORT_PATH: ${{ inputs.report-path }}
+          REPORT_ARTIFACT_NAME: ${{ inputs.report-artifact-name }}
         run: |
           set -euo pipefail
-          git init .
-          git remote add origin             "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
-          git checkout --detach FETCH_HEAD
-          git remote set-url origin             "https://github.com/${REPOSITORY}.git"
+          if [ -n "${REPORT_ARTIFACT_NAME}" ]; then
+            candidate=".l9/runtime/provider-input/${REPORT_PATH}"
+          else
+            candidate="${REPORT_PATH}"
+          fi
+          resolved="$(realpath -e "${candidate}")"
+          case "${resolved}" in
+            "${GITHUB_WORKSPACE}"/*)
+              ;;
+            *)
+              echo "provider report escapes GITHUB_WORKSPACE" >&2
+              exit 2
+              ;;
+          esac
+          test -f "${resolved}"
+          echo "report=${resolved}" >> "${GITHUB_OUTPUT}"
       - id: names
         name: Resolve collision-safe paths
+        shell: bash
         env:
           MATRIX_ID: ${{ inputs.matrix-id }}
         run: |
@@ -90,21 +158,25 @@ jobs:
             echo "work=${work}"
             echo "bundle=${work}/finding-bundle.json"
             echo "payload=${work}/agent-review-payload.json"
+            echo "gate-result=${work}/gate-result.json"
             echo "artifact-name=${artifact_name}"
           } >> "${GITHUB_OUTPUT}"
       - id: sdk
         name: Provision immutable SDK
-        uses: ./.github/actions/provision-sdk
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/provision-sdk
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: 0779fca8238011f8abea551895f96584676e9d17
+          sdk-revision: ${{ inputs.sdk-revision }}
+          runtime-directory: .l9/runtime/sdk
       - name: Normalize provider report
-        uses: ./.github/actions/invoke-sdk
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/invoke-sdk
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-normalize
-          input: ${{ inputs.report-path }}
+          input: ${{ steps.report.outputs.report }}
           output: ${{ steps.names.outputs.bundle }}
           root: ${{ inputs.repository-root }}
           snapshot-id: ${{ inputs.snapshot-id }}
@@ -114,15 +186,27 @@ jobs:
           strict: ${{ inputs.strict }}
           required: ${{ inputs.required-provider }}
           dirty: ${{ inputs.dirty }}
-          revision: ${{ github.sha }}
+          revision: ${{ inputs.repository-revision || github.sha }}
       - name: Validate canonical bundle
-        uses: ./.github/actions/validate-bundle
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/validate-bundle
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.names.outputs.bundle }}
           minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
+      - id: gate
+        name: Evaluate canonical SDK gate
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/invoke-sdk
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: gate-evaluate
+          input: ${{ steps.names.outputs.bundle }}
+          output: ${{ steps.names.outputs['gate-result'] }}
+          strict-unresolved: ${{ inputs.strict }}
       - name: Project agent-review payload
-        uses: ./.github/actions/invoke-sdk
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/invoke-sdk
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -131,34 +215,40 @@ jobs:
           strict: ${{ inputs.strict }}
       - id: route
         name: Route artifacts
-        uses: ./.github/actions/route-artifacts
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/route-artifacts
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
-          raw-report: ${{ inputs.report-path }}
+          raw-report: ${{ steps.report.outputs.report }}
           bundle: ${{ steps.names.outputs.bundle }}
           agent-payload: ${{ steps.names.outputs.payload }}
+          gate-result: ${{ steps.names.outputs['gate-result'] }}
           destination-root: artifacts
       - name: Revalidate routed canonical bundle
-        uses: ./.github/actions/validate-bundle
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/validate-bundle
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.route.outputs.bundle }}
           minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
       - name: Build artifact manifest
-        uses: ./.github/actions/build-artifact-manifest
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/build-artifact-manifest
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
-          sdk-revision: ${{ steps.sdk.outputs.sdk-revision }}
+          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
           bundle: ${{ steps.route.outputs.bundle }}
-          agent-payload: ${{ steps.route.outputs.agent-payload }}
-          raw-directory: ${{ steps.route.outputs.raw-directory }}
-          output: artifacts/metadata/${{ inputs.matrix-id }}/artifact-manifest.json
+          agent-payload: ${{ steps.route.outputs['agent-payload'] }}
+          gate-result: ${{ steps.route.outputs['gate-result'] }}
+          raw-directory: ${{ steps.route.outputs['raw-directory'] }}
+          output: >-
+            artifacts/metadata/${{ inputs.matrix-id }}/artifact-manifest.json
       - name: Upload Phase 2 artifact set
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ steps.names.outputs.artifact-name }}
+          name: ${{ steps.names.outputs['artifact-name'] }}
           path: |
             artifacts/raw/semgrep/${{ inputs.matrix-id }}/
             artifacts/l9/${{ inputs.matrix-id }}/

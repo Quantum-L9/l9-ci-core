@@ -57,6 +57,49 @@ on:
         type: string
         required: false
         default: "."
+      run-semgrep-analysis:
+        description: Run the Core-owned SDK Semgrep handoff after validation.
+        type: boolean
+        required: false
+        default: false
+      analysis-profile:
+        description: Core governance profile used by optional analysis.
+        type: string
+        required: false
+        default: pr_fast
+      analysis-language:
+        description: SDK Semgrep ruleset language.
+        type: string
+        required: false
+        default: python
+      semgrep-version:
+        description: Exact Semgrep runtime version.
+        type: string
+        required: false
+        default: "1.171.0"
+      sdk-revision:
+        description: Immutable SDK revision approved by Core.
+        type: string
+        required: false
+        default: 0c487747b0fcd172edaefe9e843dac818de8fc12
+      analysis-retention-days:
+        description: Retention period for optional analysis artifacts.
+        type: number
+        required: false
+        default: 14
+    outputs:
+      analysis-artifact-name:
+        description: Optional Core analysis artifact name.
+        value: ${{ jobs.analysis.outputs['artifact-name'] }}
+      analysis-bundle-path:
+        description: Optional canonical finding-bundle path.
+        value: ${{ jobs.analysis.outputs['bundle-path'] }}
+      analysis-gate-result-path:
+        description: Optional canonical gate-result path.
+        value: ${{ jobs.analysis.outputs['gate-result-path'] }}
+      analysis-workflow-conclusion:
+        description: Optional SDK-derived analysis conclusion.
+        value: ${{ jobs.analysis.outputs['workflow-conclusion'] }}
 permissions:
   contents: read
 jobs:
@@ -181,3 +224,20 @@ jobs:
       - name: Non-applicable pipeline
         if: steps.detect.outputs.python != 'true' && steps.detect.outputs.node != 'true'
         run: echo "::notice::No Python or Node project detected; nothing to validate"
+
+  analysis:
+    name: Optional Core-orchestrated Semgrep analysis
+    needs:
+      - validate
+    if: ${{ inputs.run-semgrep-analysis }}
+    uses: ./.github/workflows/analyze-semgrep.yml
+    with:
+      profile: ${{ inputs.analysis-profile }}
+      matrix-id: pr-pipeline-semgrep
+      language: ${{ inputs.analysis-language }}
+      semgrep-version: ${{ inputs.semgrep-version }}
+      governance-root: .github/governance
+      repository-revision: ${{ github.sha }}
+      sdk-revision: ${{ inputs.sdk-revision }}
+      retention-days: ${{ inputs.analysis-retention-days }}
+      publish: false

@@ -1,4 +1,5 @@
-name: SDK v2 contract validation
+---
+name: SDK handoff contract validation
 on:
   pull_request:
   push:
@@ -13,35 +14,86 @@ concurrency:
 jobs:
   sdk-contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout immutable event revision
-        env:
-          REPOSITORY: ${{ github.repository }}
-          REVISION: ${{ github.sha }}
-          TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git init .
-          git remote add origin             "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
-          git checkout --detach FETCH_HEAD
-          git remote set-url origin             "https://github.com/${REPOSITORY}.git"
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
       - id: sdk
         name: Provision and verify SDK
         uses: ./.github/actions/provision-sdk
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: 0779fca8238011f8abea551895f96584676e9d17
-      - name: Verify emitted contract
+          sdk-revision: 0c487747b0fcd172edaefe9e843dac818de8fc12
+          runtime-directory: .l9/runtime/sdk-contract
+      - name: Verify emitted contract and handoff CLI
+        shell: bash
         env:
           SDK_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
-          SDK_REVISION: ${{ steps.sdk.outputs.sdk-revision }}
+          SDK_REVISION: ${{ steps.sdk.outputs['sdk-revision'] }}
           SDK_CONTRACT: ${{ steps.sdk.outputs.contract }}
         run: |
           set -euo pipefail
           test -x "${SDK_EXECUTABLE}"
-          test "${SDK_REVISION}" =             "0779fca8238011f8abea551895f96584676e9d17"
+          test "${SDK_REVISION}" = \
+            "0c487747b0fcd172edaefe9e843dac818de8fc12"
           test "${SDK_CONTRACT}" = "l9.integration-contract/v1"
           "${SDK_EXECUTABLE}" --help
+          "${SDK_EXECUTABLE}" semgrep run --help
+          "${SDK_EXECUTABLE}" semgrep normalize --help
+          "${SDK_EXECUTABLE}" bundle validate --help
+          "${SDK_EXECUTABLE}" bundle project-agent-payload --help
+          "${SDK_EXECUTABLE}" compatibility check --help
+          "${SDK_EXECUTABLE}" gate evaluate --help
+      - name: Verify Core compatibility authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          from pathlib import Path
+          from typing import Any
+          import yaml
+          path = Path(".l9/sdk-compatibility.yaml")
+          document: Any = yaml.safe_load(
+              path.read_text(encoding="utf-8")
+          )
+          if not isinstance(document, dict):
+              raise SystemExit("compatibility manifest must be an object")
+          default = document.get("default")
+          if not isinstance(default, dict):
+              raise SystemExit("compatibility default is missing")
+          expected = "0c487747b0fcd172edaefe9e843dac818de8fc12"
+          if default.get("revision") != expected:
+              raise SystemExit("default SDK revision does not match handoff")
+          handoff = document.get("handoff")
+          if not isinstance(handoff, dict):
+              raise SystemExit("handoff contract is missing")
+          if handoff.get("SDK_revision") != expected:
+              raise SystemExit("handoff SDK revision does not match default")
+          if handoff.get("reusable_workflow") != (
+              ".github/workflows/analyze-semgrep.yml"
+          ):
+              raise SystemExit("handoff workflow path is incorrect")
+          PY
+      - name: Install Core contract-test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install \
+            --disable-pip-version-check \
+            -r requirements-ci.txt
+      - name: Validate SDK-to-Core handoff contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pytest -q \
+            tests/contracts/test_sdk_handoff.py \
+            tests/provisioning/test_compatibility_manifest.py \
+            tests/workflows/test_phase_2_workflow.py \
+            tests/workflows/test_phase_3_workflows.py \
+            tests/workflows/test_phase_4_workflows.py

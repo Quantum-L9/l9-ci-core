@@ -1,24 +1,32 @@
+---
 name: Invoke l9-ci-sdk
-description: >
-  Invokes one permitted public SDK command without shell evaluation and
-  preserves the SDK exit code.
+description: >-
+  Invokes an approved public SDK operation without evaluating user-controlled
+  command strings. Provider execution and gate evaluation are exposed as
+  explicit operations alongside the existing import and projection commands.
 inputs:
   executable:
     description: Verified l9-ci executable emitted by provision-sdk.
     required: true
   operation:
-    description: >
-      One of semgrep-normalize, bundle-validate,
-      bundle-project-agent-payload, or compatibility-check.
+    description: >-
+      semgrep-run, semgrep-normalize, bundle-validate,
+      bundle-project-agent-payload, compatibility-check, or gate-evaluate.
     required: true
   input:
     description: Input report or canonical bundle path.
     required: false
   output:
-    description: Output bundle or projection path.
+    description: Output bundle, projection, or gate-result path.
+    required: false
+  raw-output:
+    description: Raw provider-report output path for semgrep-run.
+    required: false
+  language:
+    description: Ruleset language for semgrep-run.
     required: false
   root:
-    description: Repository root used for normalization.
+    description: Repository root used for provider execution or normalization.
     required: false
     default: .
   snapshot-id:
@@ -40,7 +48,11 @@ inputs:
     description: Optional repository revision.
     required: false
   strict:
-    description: Enable strict SDK semantics.
+    description: Enable strict normalization and projection semantics.
+    required: false
+    default: "true"
+  strict-unresolved:
+    description: Fail the gate when unresolved strict-contract state exists.
     required: false
     default: "true"
   required:
@@ -48,7 +60,7 @@ inputs:
     required: false
     default: "true"
   dirty:
-    description: "Repository dirty-state value: true, false, or unset."
+    description: "Repository dirty state: true, false, or unset."
     required: false
     default: unset
   minimum-sdk-version:
@@ -57,14 +69,26 @@ inputs:
 outputs:
   exit-code:
     description: Exact SDK exit code.
-    value: ${{ steps.invoke.outputs.exit-code }}
+    value: >-
+      ${{ steps.invoke.outputs['exit-code'] ||
+          steps.semgrep-run.outputs['exit-code'] ||
+          steps.gate-evaluate.outputs['exit-code'] }}
   command:
     description: Public SDK command that was executed.
-    value: ${{ steps.invoke.outputs.command }}
+    value: >-
+      ${{ steps.invoke.outputs.command ||
+          steps.semgrep-run.outputs.command ||
+          steps.gate-evaluate.outputs.command }}
+  workflow-conclusion:
+    description: success or failure for gate-evaluate.
+    value: ${{ steps.gate-evaluate.outputs['workflow-conclusion'] }}
 runs:
   using: composite
   steps:
     - id: invoke
+      if: >-
+        ${{ inputs.operation != 'semgrep-run' &&
+            inputs.operation != 'gate-evaluate' }}
       shell: bash
       env:
         L9_EXECUTABLE: ${{ inputs.executable }}
@@ -83,3 +107,159 @@ runs:
         L9_DIRTY: ${{ inputs.dirty }}
         L9_MINIMUM_SDK_VERSION: ${{ inputs.minimum-sdk-version }}
       run: python3 "${{ github.action_path }}/invoke.py"
+    - id: semgrep-run
+      if: ${{ inputs.operation == 'semgrep-run' }}
+      shell: bash
+      env:
+        EXECUTABLE: ${{ inputs.executable }}
+        LANGUAGE: ${{ inputs.language }}
+        ROOT: ${{ inputs.root }}
+        RAW_OUTPUT: ${{ inputs.raw-output }}
+        OUTPUT: ${{ inputs.output }}
+        SNAPSHOT_ID: ${{ inputs.snapshot-id }}
+        POLICY: ${{ inputs.policy }}
+        GENERATED_AT: ${{ inputs.generated-at }}
+        REVISION: ${{ inputs.revision }}
+        STRICT: ${{ inputs.strict }}
+        REQUIRED_PROVIDER: ${{ inputs.required }}
+        DIRTY: ${{ inputs.dirty }}
+      run: |
+        set -euo pipefail
+        test -x "${EXECUTABLE}"
+        test -n "${RAW_OUTPUT}"
+        test -n "${OUTPUT}"
+        test -n "${SNAPSHOT_ID}"
+        case "${LANGUAGE}" in
+          python|typescript)
+            ;;
+          *)
+            echo "language must be python or typescript" >&2
+            exit 2
+            ;;
+        esac
+        case "${STRICT}" in
+          true|false)
+            ;;
+          *)
+            echo "strict must be true or false" >&2
+            exit 2
+            ;;
+        esac
+        case "${REQUIRED_PROVIDER}" in
+          true|false)
+            ;;
+          *)
+            echo "required must be true or false" >&2
+            exit 2
+            ;;
+        esac
+        case "${DIRTY}" in
+          true|false|unset)
+            ;;
+          *)
+            echo "dirty must be true, false, or unset" >&2
+            exit 2
+            ;;
+        esac
+        mkdir -p "$(dirname "${RAW_OUTPUT}")" "$(dirname "${OUTPUT}")"
+        command=(
+          "${EXECUTABLE}"
+          semgrep
+          run
+          --language "${LANGUAGE}"
+          --root "${ROOT}"
+          --raw-output "${RAW_OUTPUT}"
+          --output "${OUTPUT}"
+          --snapshot-id "${SNAPSHOT_ID}"
+        )
+        if [ -n "${POLICY}" ]; then
+          command+=(--policy "${POLICY}")
+        fi
+        if [ -n "${GENERATED_AT}" ]; then
+          command+=(--generated-at "${GENERATED_AT}")
+        fi
+        if [ -n "${REVISION}" ]; then
+          command+=(--revision "${REVISION}")
+        fi
+        if [ "${STRICT}" = "true" ]; then
+          command+=(--strict)
+        fi
+        if [ "${REQUIRED_PROVIDER}" = "true" ]; then
+          command+=(--required)
+        fi
+        case "${DIRTY}" in
+          true)
+            command+=(--dirty)
+            ;;
+          false)
+            command+=(--no-dirty)
+            ;;
+        esac
+        printf -v rendered '%q ' "${command[@]}"
+        rendered="${rendered% }"
+        set +e
+        "${command[@]}"
+        exit_code=$?
+        set -e
+        {
+          echo "exit-code=${exit_code}"
+          echo "command=${rendered}"
+        } >> "${GITHUB_OUTPUT}"
+        exit "${exit_code}"
+    - id: gate-evaluate
+      if: ${{ inputs.operation == 'gate-evaluate' }}
+      shell: bash
+      env:
+        EXECUTABLE: ${{ inputs.executable }}
+        BUNDLE: ${{ inputs.input }}
+        OUTPUT: ${{ inputs.output }}
+        STRICT_UNRESOLVED: ${{ inputs.strict-unresolved }}
+      run: |
+        set -euo pipefail
+        test -x "${EXECUTABLE}"
+        test -f "${BUNDLE}"
+        test -n "${OUTPUT}"
+        case "${STRICT_UNRESOLVED}" in
+          true|false)
+            ;;
+          *)
+            echo "strict-unresolved must be true or false" >&2
+            exit 2
+            ;;
+        esac
+        mkdir -p "$(dirname "${OUTPUT}")"
+        command=(
+          "${EXECUTABLE}"
+          gate
+          evaluate
+          --bundle "${BUNDLE}"
+          --output "${OUTPUT}"
+        )
+        if [ "${STRICT_UNRESOLVED}" = "true" ]; then
+          command+=(--strict-unresolved)
+        else
+          command+=(--no-strict-unresolved)
+        fi
+        printf -v rendered '%q ' "${command[@]}"
+        rendered="${rendered% }"
+        set +e
+        "${command[@]}"
+        exit_code=$?
+        set -e
+        case "${exit_code}" in
+          0)
+            conclusion="success"
+            ;;
+          1|6)
+            conclusion="failure"
+            ;;
+          *)
+            echo "SDK gate evaluation failed with ${exit_code}" >&2
+            exit "${exit_code}"
+            ;;
+        esac
+        {
+          echo "exit-code=${exit_code}"
+          echo "command=${rendered}"
+          echo "workflow-conclusion=${conclusion}"
+        } >> "${GITHUB_OUTPUT}"

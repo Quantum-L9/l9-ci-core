@@ -27,10 +27,13 @@ class Phase3WorkflowTests(unittest.TestCase):
             "policy: ${{ needs.governance.outputs.sdk-policy }}",
             text,
         )
-        self.assertIn(
-            "required-provider: "
-            "${{ needs.governance.outputs.required-provider == 'true' }}",
+        self.assertRegex(
             text,
+            re.compile(
+                r"required-provider:\s*(?:>-\s*\n\s*)?"
+                r"\$\{\{ needs\.governance\.outputs"
+                r"\.required-provider == 'true' \}\}"
+            ),
         )
 
     def test_disabled_mode_skips_normalization(self) -> None:
