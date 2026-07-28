@@ -21,7 +21,7 @@ on:
       sdk-revision:
         type: string
         required: false
-        default: 0779fca8238011f8abea551895f96584676e9d17
+        default: 0c487747b0fcd172edaefe9e843dac818de8fc12
       governance-digest:
         type: string
         required: true
