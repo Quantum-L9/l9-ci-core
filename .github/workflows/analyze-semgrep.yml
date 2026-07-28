@@ -133,7 +133,7 @@ jobs:
       - id: gov
         name: Resolve governance (Core)
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2989db3d4b5dc2450d4c06c1276da981daf6cf20
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@eb2481e75e4cec1ffa2c6aed5cbc5831a0ce0cda
         with:
           profile: ${{ inputs.profile }}
           provider: semgrep
