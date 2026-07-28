@@ -1,17 +1,69 @@
+---
 schema: l9.sdk-compatibility/v1
 metadata:
   status: authoritative
   consumer: Quantum-L9/l9-ci-core
   producer: Quantum-L9/l9-ci-sdk
+  handoff_workflow: .github/workflows/analyze-semgrep.yml
 default:
   source: git
   repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-  revision: 0779fca8238011f8abea551895f96584676e9d17
+  revision: 0c487747b0fcd172edaefe9e843dac818de8fc12
+  integration_contract: l9.integration-contract/v1
+  artifact_protocols:
+    - l9.finding-bundle/v1
+    - l9.agent-review-payload/v1
+    - l9.gate-result/v1
+  required_cli_paths:
+    - semgrep run
+    - semgrep normalize
+    - bundle validate
+    - bundle project-agent-payload
+    - compatibility check
+    - gate evaluate
+    - manifest generate
+    - manifest check
+handoff:
+  provider: semgrep
+  reusable_workflow: .github/workflows/analyze-semgrep.yml
+  SDK_revision: 0c487747b0fcd172edaefe9e843dac818de8fc12
+  provider_execution_owner: Core
+  provider_normalization_owner: SDK
+  gate_decision_owner: SDK
+  publication_owner: Core
+  supported_languages:
+    - python
+    - typescript
+  required_profiles:
+    - pr_fast
+    - merge
+    - nightly
+    - release
+    - supply_chain
+  required_artifacts:
+    - artifacts/raw/semgrep/<matrix-id>/report.json
+    - artifacts/l9/<matrix-id>/finding-bundle.json
+    - artifacts/l9/<matrix-id>/gate-result.json
+    - artifacts/l9/<matrix-id>/agent-review-payload.json
+    - artifacts/metadata/<matrix-id>/artifact-manifest.json
 supported:
-  # Current default: canonicalizes rendered set literals in failure
-  # signatures — set iteration order is hash-seed dependent, so the
-  # same failure renders {'a', 'b'} or {'b', 'a'} per run
-  # (l9-ci-sdk#20).
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: 0c487747b0fcd172edaefe9e843dac818de8fc12
+    integration_contract: l9.integration-contract/v1
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+      - l9.gate-result/v1
+    required_cli_paths:
+      - semgrep run
+      - semgrep normalize
+      - bundle validate
+      - bundle project-agent-payload
+      - compatibility check
+      - gate evaluate
+      - manifest generate
+      - manifest check
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: 0779fca8238011f8abea551895f96584676e9d17
@@ -28,8 +80,6 @@ supported:
       - baseline scan-packet-envelope
       - baseline compare-scan
       - baseline validate-ledger
-  # Retained one release for rollback: bare-hex signature normalization
-  # (run-random object IDs, content hashes) (l9-ci-sdk#19).
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: b390dc78e3464cca539b998dfb723481927ed91b
@@ -46,8 +96,6 @@ supported:
       - baseline scan-packet-envelope
       - baseline compare-scan
       - baseline validate-ledger
-  # Retained for rollback: baseline-ratchet kernel without bare-hex
-  # signature normalization.
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: d8ec01f141b9eec24d22ffac84a83ec7280eef72
@@ -74,3 +122,6 @@ policy:
   unlisted_revisions_allowed: false
   fallback_to_parent_allowed: false
   fallback_to_legacy_cli_allowed: false
+  reusable_workflow_requires_immutable_reference: true
+  one_SDK_revision_per_analysis_run: true
+  Core_must_not_reconstruct_gate_result: true

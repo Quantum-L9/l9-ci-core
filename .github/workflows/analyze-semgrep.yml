@@ -1,0 +1,620 @@
+---
+name: Analyze Semgrep through l9-ci-sdk
+on:
+  workflow_call:
+    inputs:
+      profile:
+        description: Core governance execution profile.
+        type: string
+        required: true
+      matrix-id:
+        description: Collision-safe identifier for this provider execution.
+        type: string
+        required: true
+      language:
+        description: SDK Semgrep ruleset language.
+        type: string
+        required: true
+      semgrep-version:
+        description: Exact Semgrep package version.
+        type: string
+        required: false
+        default: "1.171.0"
+      governance-root:
+        description: Caller-relative governance configuration directory.
+        type: string
+        required: false
+        default: .github/governance
+      repository-revision:
+        description: Full immutable caller commit analyzed by the workflow.
+        type: string
+        required: true
+      sdk-revision:
+        description: Full SDK commit listed in Core compatibility governance.
+        type: string
+        required: false
+        default: 0c487747b0fcd172edaefe9e843dac818de8fc12
+      minimum-sdk-version:
+        description: Minimum acceptable SDK semantic version.
+        type: string
+        required: false
+        default: "1.0.0"
+      evaluation-date:
+        description: Optional deterministic waiver-evaluation date.
+        type: string
+        required: false
+        default: ""
+      retention-days:
+        description: Analysis artifact retention period.
+        type: number
+        required: false
+        default: 14
+      publish:
+        description: Publish blocking or advisory results as a GitHub check.
+        type: boolean
+        required: false
+        default: true
+    outputs:
+      artifact-name:
+        description: Uploaded analysis artifact name.
+        value: ${{ jobs.analyze.outputs['artifact-name'] }}
+      bundle-path:
+        description: Canonical finding-bundle path.
+        value: ${{ jobs.analyze.outputs['bundle-path'] }}
+      gate-result-path:
+        description: Canonical gate-result path.
+        value: ${{ jobs.analyze.outputs['gate-result-path'] }}
+      agent-payload-path:
+        description: Canonical agent-review payload path.
+        value: ${{ jobs.analyze.outputs['agent-payload-path'] }}
+      workflow-conclusion:
+        description: SDK-derived success or failure conclusion.
+        value: ${{ jobs.analyze.outputs['workflow-conclusion'] }}
+concurrency:
+  group: >-
+    l9-core-semgrep-${{ github.repository }}-${{ github.ref }}-${{
+    inputs.matrix-id }}
+  cancel-in-progress: true
+jobs:
+  analyze:
+    name: Execute provider and SDK pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    outputs:
+      artifact-name: ${{ steps.names.outputs['artifact-name'] }}
+      bundle-path: ${{ steps.route.outputs.bundle }}
+      gate-result-path: ${{ steps.route-gate.outputs['gate-result'] }}
+      agent-payload-path: ${{ steps.route.outputs['agent-payload'] }}
+      workflow-conclusion: ${{ steps.result.outputs['workflow-conclusion'] }}
+      governance-digest: ${{ steps.governance.outputs['governance-digest'] }}
+      mode: ${{ steps.governance.outputs.mode }}
+      enabled: ${{ steps.governance.outputs.enabled }}
+      sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+    steps:
+      - id: validate-inputs
+        name: Validate immutable workflow inputs
+        shell: bash
+        env:
+          MATRIX_ID: ${{ inputs.matrix-id }}
+          LANGUAGE: ${{ inputs.language }}
+          SEMGREP_VERSION: ${{ inputs.semgrep-version }}
+          REPOSITORY_REVISION: ${{ inputs.repository-revision }}
+          SDK_REVISION: ${{ inputs.sdk-revision }}
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${MATRIX_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+            echo "matrix-id is invalid" >&2
+            exit 2
+          fi
+          case "${LANGUAGE}" in
+            python|typescript)
+              ;;
+            *)
+              echo "language must be python or typescript" >&2
+              exit 2
+              ;;
+          esac
+          if [[ ! "${SEMGREP_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "semgrep-version must be an exact semantic version" >&2
+            exit 2
+          fi
+          if [[ ! "${REPOSITORY_REVISION}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "repository-revision must be a full lowercase SHA" >&2
+            exit 2
+          fi
+          if [[ ! "${SDK_REVISION}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "sdk-revision must be a full lowercase SHA" >&2
+            exit 2
+          fi
+          if [ "${WORKFLOW_REPOSITORY}" != "Quantum-L9/l9-ci-core" ]; then
+            echo "workflow must execute from Quantum-L9/l9-ci-core" >&2
+            exit 2
+          fi
+          if [[ ! "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "workflow SHA must be immutable" >&2
+            exit 2
+          fi
+      - name: Checkout immutable caller revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.repository-revision }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout the Core source defining this reusable workflow
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .l9/runtime/core-control-plane
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify Core control-plane checkout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          actual="$(
+            git -C .l9/runtime/core-control-plane rev-parse HEAD
+          )"
+          test "${actual}" = "${EXPECTED_SHA}"
+      - id: governance
+        name: Resolve governance
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/resolve-governance
+        with:
+          profile: ${{ inputs.profile }}
+          provider: semgrep
+          event-name: ${{ github.event_name }}
+          repository: ${{ github.repository }}
+          ref: ${{ github.ref }}
+          governance-root: ${{ inputs.governance-root }}
+          evaluation-date: ${{ inputs.evaluation-date }}
+      - id: names
+        name: Resolve analysis paths
+        shell: bash
+        env:
+          MATRIX_ID: ${{ inputs.matrix-id }}
+        run: |
+          set -euo pipefail
+          work=".l9/runtime/analysis/${MATRIX_ID}"
+          artifact_name="l9-semgrep-${MATRIX_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p \
+            "${work}" \
+            "artifacts/raw/semgrep/${MATRIX_ID}" \
+            "artifacts/l9/${MATRIX_ID}" \
+            "artifacts/metadata/${MATRIX_ID}"
+          {
+            echo "work=${work}"
+            echo "raw-report=artifacts/raw/semgrep/${MATRIX_ID}/report.json"
+            echo "bundle=${work}/finding-bundle.json"
+            echo "gate-result=${work}/gate-result.json"
+            echo "agent-payload=${work}/agent-review-payload.json"
+            echo "artifact-name=${artifact_name}"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Install exact Semgrep runtime
+        if: steps.governance.outputs.enabled == 'true'
+        shell: bash
+        env:
+          SEMGREP_VERSION: ${{ inputs.semgrep-version }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install \
+            --disable-pip-version-check \
+            "semgrep==${SEMGREP_VERSION}"
+      - id: sdk
+        name: Provision immutable SDK
+        if: steps.governance.outputs.enabled == 'true'
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/provision-sdk
+        with:
+          sdk-source: git
+          sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+          sdk-revision: ${{ inputs.sdk-revision }}
+          runtime-directory: .l9/runtime/sdk
+      - name: Run Semgrep and normalize through the SDK
+        if: steps.governance.outputs.enabled == 'true'
+        shell: bash
+        env:
+          EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          LANGUAGE: ${{ inputs.language }}
+          RAW_REPORT: ${{ steps.names.outputs['raw-report'] }}
+          BUNDLE: ${{ steps.names.outputs.bundle }}
+          REPOSITORY_REVISION: ${{ inputs.repository-revision }}
+          STRICT: ${{ steps.governance.outputs.strict }}
+          REQUIRED_PROVIDER: >-
+            ${{ steps.governance.outputs['required-provider'] }}
+          SDK_POLICY: ${{ steps.governance.outputs['sdk-policy'] }}
+        run: |
+          set -euo pipefail
+          args=(
+            semgrep run
+            --language "${LANGUAGE}"
+            --root .
+            --raw-output "${RAW_REPORT}"
+            --output "${BUNDLE}"
+            --snapshot-id "${REPOSITORY_REVISION}"
+            --revision "${REPOSITORY_REVISION}"
+            --no-dirty
+          )
+          if [ "${STRICT}" = "true" ]; then
+            args+=(--strict)
+          fi
+          if [ "${REQUIRED_PROVIDER}" = "true" ]; then
+            args+=(--required)
+          fi
+          if [ -n "${SDK_POLICY}" ]; then
+            args+=(--policy "${SDK_POLICY}")
+          fi
+          "${EXECUTABLE}" "${args[@]}"
+      - name: Validate canonical bundle
+        if: steps.governance.outputs.enabled == 'true'
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/validate-bundle
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          bundle: ${{ steps.names.outputs.bundle }}
+          minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
+      - id: gate
+        name: Evaluate canonical SDK gate
+        if: steps.governance.outputs.enabled == 'true'
+        shell: bash
+        env:
+          EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          BUNDLE: ${{ steps.names.outputs.bundle }}
+          GATE_RESULT: ${{ steps.names.outputs['gate-result'] }}
+          STRICT: ${{ steps.governance.outputs.strict }}
+        run: |
+          set -euo pipefail
+          args=(
+            gate evaluate
+            --bundle "${BUNDLE}"
+            --output "${GATE_RESULT}"
+          )
+          if [ "${STRICT}" = "true" ]; then
+            args+=(--strict-unresolved)
+          else
+            args+=(--no-strict-unresolved)
+          fi
+          set +e
+          "${EXECUTABLE}" "${args[@]}"
+          gate_exit_code=$?
+          set -e
+          case "${gate_exit_code}" in
+            0)
+              conclusion="success"
+              ;;
+            1|6)
+              conclusion="failure"
+              ;;
+            *)
+              echo "SDK gate evaluation failed with ${gate_exit_code}" >&2
+              exit "${gate_exit_code}"
+              ;;
+          esac
+          {
+            echo "exit-code=${gate_exit_code}"
+            echo "workflow-conclusion=${conclusion}"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Project SDK agent-review payload
+        if: steps.governance.outputs.enabled == 'true'
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/invoke-sdk
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: bundle-project-agent-payload
+          input: ${{ steps.names.outputs.bundle }}
+          output: ${{ steps.names.outputs['agent-payload'] }}
+          strict: ${{ steps.governance.outputs.strict }}
+      - id: route
+        name: Route raw and canonical artifacts
+        if: steps.governance.outputs.enabled == 'true'
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/route-artifacts
+        with:
+          provider: semgrep
+          matrix-id: ${{ inputs.matrix-id }}
+          raw-report: ${{ steps.names.outputs['raw-report'] }}
+          bundle: ${{ steps.names.outputs.bundle }}
+          agent-payload: ${{ steps.names.outputs['agent-payload'] }}
+          destination-root: artifacts
+      - id: route-gate
+        name: Route canonical gate result
+        if: steps.governance.outputs.enabled == 'true'
+        shell: bash
+        env:
+          MATRIX_ID: ${{ inputs.matrix-id }}
+          SOURCE: ${{ steps.names.outputs['gate-result'] }}
+        run: |
+          set -euo pipefail
+          destination="artifacts/l9/${MATRIX_ID}/gate-result.json"
+          mkdir -p "$(dirname "${destination}")"
+          cp "${SOURCE}" "${destination}"
+          cmp --silent "${SOURCE}" "${destination}"
+          echo "gate-result=${destination}" >> "${GITHUB_OUTPUT}"
+      - name: Revalidate routed canonical bundle
+        if: steps.governance.outputs.enabled == 'true'
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/validate-bundle
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          bundle: ${{ steps.route.outputs.bundle }}
+          minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
+      - name: Build artifact manifest
+        if: steps.governance.outputs.enabled == 'true'
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/build-artifact-manifest
+        with:
+          provider: semgrep
+          matrix-id: ${{ inputs.matrix-id }}
+          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+          bundle: ${{ steps.route.outputs.bundle }}
+          agent-payload: ${{ steps.route.outputs['agent-payload'] }}
+          raw-directory: ${{ steps.route.outputs['raw-directory'] }}
+          output: >-
+            artifacts/metadata/${{ inputs.matrix-id }}/artifact-manifest.json
+      - name: Add SDK gate result to artifact manifest
+        if: steps.governance.outputs.enabled == 'true'
+        shell: bash
+        env:
+          MATRIX_ID: ${{ inputs.matrix-id }}
+          GATE_RESULT: ${{ steps.route-gate.outputs['gate-result'] }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from typing import Any
+          matrix_id = os.environ["MATRIX_ID"]
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          manifest_path = (
+              workspace
+              / "artifacts"
+              / "metadata"
+              / matrix_id
+              / "artifact-manifest.json"
+          )
+          gate_path = (workspace / os.environ["GATE_RESULT"]).resolve()
+          gate_path.relative_to(workspace)
+          manifest_path.relative_to(workspace)
+          if not gate_path.is_file():
+              raise SystemExit("gate result does not exist")
+          document: Any = json.loads(
+              manifest_path.read_text(encoding="utf-8")
+          )
+          if not isinstance(document, dict):
+              raise SystemExit("artifact manifest must be an object")
+          artifacts = document.get("artifacts")
+          if not isinstance(artifacts, dict):
+              raise SystemExit("artifact manifest has no artifacts object")
+          canonical = artifacts.get("canonical")
+          if not isinstance(canonical, dict):
+              raise SystemExit("artifact manifest has no canonical object")
+          digest = hashlib.sha256(gate_path.read_bytes()).hexdigest()
+          canonical["gate_result"] = {
+              "path": gate_path.as_posix(),
+              "sha256": digest,
+          }
+          manifest_path.write_text(
+              json.dumps(
+                  document,
+                  sort_keys=True,
+                  separators=(",", ":"),
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+      - name: Upload complete analysis artifact set
+        if: steps.governance.outputs.enabled == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.names.outputs['artifact-name'] }}
+          path: |
+            artifacts/raw/semgrep/${{ inputs.matrix-id }}/
+            artifacts/l9/${{ inputs.matrix-id }}/
+            artifacts/metadata/${{ inputs.matrix-id }}/
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+          compression-level: 6
+          overwrite: false
+          include-hidden-files: false
+      - id: result
+        name: Export orchestration result
+        if: always()
+        shell: bash
+        env:
+          ENABLED: ${{ steps.governance.outputs.enabled }}
+          JOB_STATUS: ${{ job.status }}
+          GATE_CONCLUSION: ${{ steps.gate.outputs['workflow-conclusion'] }}
+        run: |
+          set -euo pipefail
+          if [ "${ENABLED}" != "true" ]; then
+            conclusion="success"
+          elif [ "${JOB_STATUS}" != "success" ]; then
+            conclusion="failure"
+          elif [ -z "${GATE_CONCLUSION}" ]; then
+            conclusion="failure"
+          else
+            conclusion="${GATE_CONCLUSION}"
+          fi
+          echo "workflow-conclusion=${conclusion}" >> "${GITHUB_OUTPUT}"
+  publish:
+    name: Publish SDK-derived analysis result
+    needs:
+      - analyze
+    if: >-
+      inputs.publish &&
+      needs.analyze.result == 'success' &&
+      needs.analyze.outputs.enabled == 'true' &&
+      (
+        needs.analyze.outputs.mode == 'blocking' ||
+        needs.analyze.outputs.mode == 'advisory'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the Core source defining this reusable workflow
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .l9/runtime/core-control-plane
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Download immutable analysis artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.analyze.outputs['artifact-name'] }}
+          path: .l9/runtime/publication/download
+      - id: locate
+        name: Locate canonical publication artifacts
+        shell: bash
+        env:
+          MATRIX_ID: ${{ inputs.matrix-id }}
+        run: |
+          set -euo pipefail
+          root=".l9/runtime/publication/download"
+          bundle="${root}/l9/${MATRIX_ID}/finding-bundle.json"
+          gate_result="${root}/l9/${MATRIX_ID}/gate-result.json"
+          payload="${root}/l9/${MATRIX_ID}/agent-review-payload.json"
+          manifest="${root}/metadata/${MATRIX_ID}/artifact-manifest.json"
+          for required_file in \
+            "${bundle}" \
+            "${gate_result}" \
+            "${payload}" \
+            "${manifest}"
+          do
+            test -f "${required_file}"
+          done
+          {
+            echo "bundle=${bundle}"
+            echo "gate-result=${gate_result}"
+            echo "payload=${payload}"
+            echo "manifest=${manifest}"
+          } >> "${GITHUB_OUTPUT}"
+      - id: sdk
+        name: Provision publication SDK
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/provision-sdk
+        with:
+          sdk-source: git
+          sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+          sdk-revision: ${{ inputs.sdk-revision }}
+          runtime-directory: .l9/runtime/publication/sdk
+      - name: Revalidate downloaded canonical bundle
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/validate-bundle
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          bundle: ${{ steps.locate.outputs.bundle }}
+          minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
+      - id: render
+        name: Render SDK publication projection
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/render-publication
+        with:
+          agent-payload: ${{ steps.locate.outputs.payload }}
+          profile: ${{ inputs.profile }}
+          mode: ${{ needs.analyze.outputs.mode }}
+          provider: semgrep
+          sdk-revision: ${{ needs.analyze.outputs['sdk-revision'] }}
+          governance-digest: >-
+            ${{ needs.analyze.outputs['governance-digest'] }}
+          repository-revision: ${{ inputs.repository-revision }}
+          workflow-result: >-
+            ${{ needs.analyze.outputs['workflow-conclusion'] }}
+          run-url: >-
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{
+            github.run_id }}
+          output: .l9/runtime/publication/publication.json
+      - name: Write analysis summary
+        shell: bash
+        env:
+          TITLE: ${{ steps.render.outputs.title }}
+          SUMMARY: ${{ steps.render.outputs.summary }}
+          CONCLUSION: ${{ steps.render.outputs.conclusion }}
+        run: |
+          set -euo pipefail
+          {
+            echo "# ${TITLE}"
+            echo
+            echo "${SUMMARY}"
+            echo
+            echo "**Conclusion:** \`${CONCLUSION}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+      - id: publish-check
+        name: Publish GitHub check
+        uses: >-
+          ./.l9/runtime/core-control-plane/.github/actions/publish-check
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          publication: .l9/runtime/publication/publication.json
+      - name: Record published check
+        shell: bash
+        env:
+          CHECK_URL: ${{ steps.publish-check.outputs['check-run-url'] }}
+        run: |
+          set -euo pipefail
+          test -n "${CHECK_URL}"
+          echo "Published check: ${CHECK_URL}"
+  enforce:
+    name: Enforce Core orchestration result
+    needs:
+      - analyze
+      - publish
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Enforce analysis and publication outcomes
+        shell: bash
+        env:
+          ANALYZE_RESULT: ${{ needs.analyze.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          PUBLISH_REQUESTED: ${{ inputs.publish }}
+          ENABLED: ${{ needs.analyze.outputs.enabled }}
+          MODE: ${{ needs.analyze.outputs.mode }}
+          WORKFLOW_CONCLUSION: >-
+            ${{ needs.analyze.outputs['workflow-conclusion'] }}
+        run: |
+          set -euo pipefail
+          if [ "${ANALYZE_RESULT}" != "success" ]; then
+            echo "analysis orchestration did not complete successfully" >&2
+            exit 1
+          fi
+          if [ "${ENABLED}" != "true" ]; then
+            echo "Semgrep is disabled by Core governance"
+            exit 0
+          fi
+          case "${MODE}" in
+            blocking|advisory)
+              if [ "${PUBLISH_REQUESTED}" = "true" ] \
+                && [ "${PUBLISH_RESULT}" != "success" ]; then
+                echo "analysis publication did not complete successfully" >&2
+                exit 1
+              fi
+              ;;
+            shadow|disabled)
+              ;;
+            *)
+              echo "unsupported governance mode: ${MODE}" >&2
+              exit 2
+              ;;
+          esac
+          if [ "${MODE}" = "blocking" ] \
+            && [ "${WORKFLOW_CONCLUSION}" != "success" ]; then
+            echo "SDK gate result blocks the workflow" >&2
+            exit 1
+          fi
+          echo "Core orchestration completed with ${WORKFLOW_CONCLUSION}"
