@@ -1,0 +1,336 @@
+# Core-owned end-to-end semgrep analysis kernel (v2 orchestration handoff).
+#
+# This is THE reusable analysis workflow consumers call. It owns the entire
+# chain Core is responsible for — governance resolution, SDK provisioning,
+# provider execution via the SDK, canonical-bundle validation, SDK gate
+# evaluation, agent-payload projection, artifact routing + manifest + upload,
+# and GitHub-check publication — so consumer repositories (including
+# l9-ci-sdk itself) carry only a thin trigger-and-call stub.
+#
+# Division of authority (per the SDK integration contract,
+# l9.integration-contract/v1):
+#   SDK owns  — provider execution (`l9-ci semgrep run` executes semgrep AND
+#               normalizes the raw report into the canonical bundle in one
+#               SDK-owned process), schema/semantic validation, agent-payload
+#               projection, and the gate decision (`l9-ci gate evaluate` is
+#               the single gate-decision authority; its exit code and emitted
+#               gate-result artifact ARE the verdict).
+#   Core owns — orchestration, governance/profile resolution, workflow
+#               permissions, artifact upload/retention, and publishing the
+#               SDK's verdict as a GitHub check. Core never reconstructs or
+#               overrides the SDK's gate decision.
+#
+# Gate wiring: the `gate` step runs `l9-ci gate evaluate` against the
+# validated bundle, captures the canonical gate-result artifact into the
+# uploaded artifact set, and records the SDK exit code. The job fails on the
+# SDK's non-zero gate exit ONLY in blocking mode, and only AFTER the artifact
+# set (including gate-result.json) has been uploaded — so evidence always
+# lands even when the gate fails. In advisory/shadow modes the gate outcome
+# is published but never fails the job.
+#
+# Action references are fully qualified and pinned: this reusable workflow
+# executes in the CALLER's checkout, so `uses: ./...` local-action refs would
+# resolve against the consumer repo (which does not vendor Core's actions)
+# and fail. The nested `publish-analysis.yml` call uses the local `./` form,
+# which GitHub resolves against the same commit of THIS repository.
+# `uses:` does not support expression interpolation, so the Core SHA is
+# duplicated literally on every pinned line — update all together when
+# bumping (grep: CORE_ACTIONS_PIN).
+name: Analyze (semgrep)
+on:
+  workflow_call:
+    inputs:
+      profile:
+        description: >
+          Governance execution profile (pr_fast, merge, nightly, release,
+          supply_chain). Must allow the triggering event in the caller's
+          .github/governance/execution-profiles.yaml.
+        type: string
+        required: true
+      matrix-id:
+        description: Stable artifact matrix identifier (e.g. pr-semgrep).
+        type: string
+        required: true
+      language:
+        description: SDK semgrep language ruleset ("python" or "typescript").
+        type: string
+        required: false
+        default: python
+      semgrep-version:
+        description: >
+          Exact semgrep pin (not a range) — a semgrep minor/patch bump can
+          add or remove findings and must be a reviewed, deliberate change.
+        type: string
+        required: false
+        default: "1.171.0"
+      sdk-revision:
+        description: >
+          Full 40-character immutable l9-ci-sdk commit SHA. Empty means the
+          Core pin (.l9/sdk-compatibility.yaml default). Any explicit value
+          must be listed in that compatibility allowlist.
+        type: string
+        required: false
+        default: ""
+      governance-root:
+        description: Governance pack directory in the CALLER's repository.
+        type: string
+        required: false
+        default: .github/governance
+      artifact-retention-days:
+        type: number
+        required: false
+        default: 14
+    outputs:
+      artifact-name:
+        description: Uploaded analysis artifact set name.
+        value: ${{ jobs.analyze.outputs.artifact-name }}
+      gate-status:
+        description: SDK gate verdict (pass, fail, incomplete).
+        value: ${{ jobs.analyze.outputs.gate-status }}
+      gate-exit-code:
+        description: Raw `l9-ci gate evaluate` exit code.
+        value: ${{ jobs.analyze.outputs.gate-exit-code }}
+      mode:
+        description: Resolved governance mode (blocking, advisory, shadow, disabled).
+        value: ${{ jobs.analyze.outputs.mode }}
+      enabled:
+        description: Whether governance enabled this profile/provider.
+        value: ${{ jobs.analyze.outputs.enabled }}
+      sdk-revision:
+        description: Provisioned immutable SDK revision.
+        value: ${{ jobs.analyze.outputs.sdk-revision }}
+permissions:
+  contents: read
+jobs:
+  analyze:
+    name: Analyze (semgrep -> SDK)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.gov.outputs.mode }}
+      enabled: ${{ steps.gov.outputs.enabled }}
+      governance-digest: ${{ steps.gov.outputs['governance-digest'] }}
+      artifact-name: ${{ steps.names.outputs['artifact-name'] }}
+      sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+      gate-status: ${{ steps.gate.outputs['gate-status'] }}
+      gate-exit-code: ${{ steps.gate.outputs['gate-exit-code'] }}
+    steps:
+      - name: Checkout immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${REPOSITORY}.git"
+      - id: gov
+        name: Resolve governance (Core)
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2989db3d4b5dc2450d4c06c1276da981daf6cf20
+        with:
+          profile: ${{ inputs.profile }}
+          provider: semgrep
+          event-name: ${{ github.event_name }}
+          repository: ${{ github.repository }}
+          ref: ${{ github.ref }}
+          governance-root: ${{ inputs.governance-root }}
+      - id: names
+        name: Resolve artifact name
+        env:
+          MATRIX_ID: ${{ inputs.matrix-id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${MATRIX_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+            echo "Invalid matrix-id" >&2
+            exit 2
+          fi
+          echo "artifact-name=l9-semgrep-${MATRIX_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            >> "$GITHUB_OUTPUT"
+      - id: sdk
+        name: Provision immutable SDK
+        if: steps.gov.outputs.enabled == 'true'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2989db3d4b5dc2450d4c06c1276da981daf6cf20
+        with:
+          sdk-source: git
+          sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+          sdk-revision: ${{ inputs.sdk-revision || '0c487747b0fcd172edaefe9e843dac818de8fc12' }}
+      - name: Run + normalize semgrep (SDK)
+        if: steps.gov.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip "semgrep==${L9_SEMGREP_VERSION}"
+          # `l9-ci semgrep run` runs semgrep with the community registry
+          # ruleset for the language plus the SDK's packaged L9 ruleset,
+          # then normalizes the raw report into a canonical bundle through
+          # the SDK's own identity resolution — one process, one command.
+          # A completed scan with findings still exits 0 (gating is the
+          # SDK gate step's job); real execution failures propagate.
+          args=(
+            semgrep run
+            --language "${L9_LANGUAGE}"
+            --root .
+            --raw-output "artifacts/raw/semgrep/${L9_MATRIX_ID}/report.json"
+            --output ".l9/runtime/${L9_MATRIX_ID}/finding-bundle.json"
+            --snapshot-id "${GITHUB_SHA}"
+            --revision "${GITHUB_SHA}"
+          )
+          if [ "${L9_STRICT:-}" = "true" ]; then
+            args+=(--strict)
+          fi
+          if [ "${L9_REQUIRED:-}" = "true" ]; then
+            args+=(--required)
+          fi
+          if [ -n "${L9_SDK_POLICY:-}" ]; then
+            args+=(--policy "${L9_SDK_POLICY}")
+          fi
+          "${L9_EXECUTABLE}" "${args[@]}"
+        env:
+          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          L9_MATRIX_ID: ${{ inputs.matrix-id }}
+          L9_LANGUAGE: ${{ inputs.language }}
+          L9_SEMGREP_VERSION: ${{ inputs.semgrep-version }}
+          L9_STRICT: ${{ steps.gov.outputs.strict }}
+          L9_REQUIRED: ${{ steps.gov.outputs['required-provider'] }}
+          L9_SDK_POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
+      - name: Validate canonical bundle
+        if: steps.gov.outputs.enabled == 'true'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2989db3d4b5dc2450d4c06c1276da981daf6cf20
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          bundle: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
+      - id: gate
+        name: Evaluate gate (SDK verdict)
+        if: steps.gov.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          # The SDK is the single gate-decision authority. Capture its
+          # canonical gate-result artifact and exit code; enforcement is
+          # deferred to the final assert step so the artifact set (with the
+          # gate result inside) is always uploaded first.
+          args=(
+            gate evaluate
+            --bundle ".l9/runtime/${L9_MATRIX_ID}/finding-bundle.json"
+            --output ".l9/runtime/${L9_MATRIX_ID}/gate-result.json"
+          )
+          if [ "${L9_STRICT:-}" = "true" ]; then
+            args+=(--strict-unresolved)
+          else
+            args+=(--no-strict-unresolved)
+          fi
+          exit_code=0
+          "${L9_EXECUTABLE}" "${args[@]}" || exit_code=$?
+          case "${exit_code}" in
+            0) status="pass" ;;
+            1) status="fail" ;;
+            6) status="incomplete" ;;
+            *)
+              echo "gate evaluate failed with unexpected exit ${exit_code}" >&2
+              exit "${exit_code}"
+              ;;
+          esac
+          {
+            echo "gate-status=${status}"
+            echo "gate-exit-code=${exit_code}"
+          } >> "$GITHUB_OUTPUT"
+          echo "SDK gate verdict: ${status} (exit ${exit_code})"
+        env:
+          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          L9_MATRIX_ID: ${{ inputs.matrix-id }}
+          L9_STRICT: ${{ steps.gov.outputs.strict }}
+      - name: Project agent-review payload
+        if: steps.gov.outputs.enabled == 'true'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2989db3d4b5dc2450d4c06c1276da981daf6cf20
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: bundle-project-agent-payload
+          input: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
+          output: .l9/runtime/${{ inputs.matrix-id }}/agent-review-payload.json
+          strict: ${{ steps.gov.outputs.strict }}
+      - id: route
+        name: Route artifacts
+        if: steps.gov.outputs.enabled == 'true'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2989db3d4b5dc2450d4c06c1276da981daf6cf20
+        with:
+          provider: semgrep
+          matrix-id: ${{ inputs.matrix-id }}
+          raw-report: artifacts/raw/semgrep/${{ inputs.matrix-id }}/report.json
+          bundle: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
+          agent-payload: .l9/runtime/${{ inputs.matrix-id }}/agent-review-payload.json
+          destination-root: artifacts
+      - name: Stage gate result with canonical artifacts
+        if: steps.gov.outputs.enabled == 'true'
+        env:
+          L9_MATRIX_ID: ${{ inputs.matrix-id }}
+        run: |
+          set -euo pipefail
+          cp ".l9/runtime/${L9_MATRIX_ID}/gate-result.json" \
+            "artifacts/l9/${L9_MATRIX_ID}/gate-result.json"
+      - name: Build artifact manifest
+        if: steps.gov.outputs.enabled == 'true'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2989db3d4b5dc2450d4c06c1276da981daf6cf20
+        with:
+          provider: semgrep
+          matrix-id: ${{ inputs.matrix-id }}
+          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+          bundle: ${{ steps.route.outputs.bundle }}
+          agent-payload: ${{ steps.route.outputs['agent-payload'] }}
+          raw-directory: ${{ steps.route.outputs['raw-directory'] }}
+          output: artifacts/metadata/${{ inputs.matrix-id }}/artifact-manifest.json
+      - name: Upload analysis artifact set
+        if: steps.gov.outputs.enabled == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: ${{ steps.names.outputs['artifact-name'] }}
+          path: |
+            artifacts/raw/semgrep/${{ inputs.matrix-id }}/
+            artifacts/l9/${{ inputs.matrix-id }}/
+            artifacts/metadata/${{ inputs.matrix-id }}/
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact-retention-days }}
+      - name: Enforce SDK gate verdict
+        if: steps.gov.outputs.enabled == 'true'
+        env:
+          GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
+          GATE_EXIT: ${{ steps.gate.outputs['gate-exit-code'] }}
+          MODE: ${{ steps.gov.outputs.mode }}
+        run: |
+          set -euo pipefail
+          echo "SDK gate verdict: ${GATE_STATUS} (exit ${GATE_EXIT}); mode: ${MODE}"
+          if [ "${GATE_STATUS}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
+            echo "Blocking mode: failing job on SDK gate verdict '${GATE_STATUS}'" >&2
+            exit "${GATE_EXIT}"
+          fi
+  publish:
+    name: Publish analysis (Core)
+    needs: analyze
+    if: needs.analyze.outputs.enabled == 'true'
+    # Nested local reusable-workflow call: resolved against the same commit
+    # of THIS repository, so publish-analysis.yml and its own pinned action
+    # refs travel together with this file.
+    uses: ./.github/workflows/publish-analysis.yml
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+    with:
+      artifact-name: ${{ needs.analyze.outputs['artifact-name'] }}
+      profile: ${{ inputs.profile }}
+      mode: ${{ needs.analyze.outputs.mode }}
+      provider: semgrep
+      matrix-id: ${{ inputs.matrix-id }}
+      sdk-revision: ${{ needs.analyze.outputs['sdk-revision'] }}
+      governance-digest: ${{ needs.analyze.outputs['governance-digest'] }}
+      repository-revision: ${{ github.sha }}
+      workflow-result: ${{ needs.analyze.result }}

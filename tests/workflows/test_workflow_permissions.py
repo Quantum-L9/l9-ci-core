@@ -15,10 +15,14 @@ class WorkflowPermissionTests(unittest.TestCase):
                 text = workflow.read_text(encoding="utf-8")
                 self.assertRegex(text, re.compile(r"(?m)^\s*contents:\s+read\s*$"))
 
-    # Write permissions are read-only everywhere except these two audited
+    # Write permissions are read-only everywhere except these audited
     # exceptions. Any change to this table is a trust-boundary change.
     #
     #   publish-analysis.yml    checks:write — publishes the GitHub check run.
+    #   analyze-semgrep.yml     checks:write — its `publish` job grants the
+    #                           nested publish-analysis.yml call the check-run
+    #                           scope. workflow_call-only; the caller gates
+    #                           the trigger surface.
     #   regenerate-identity-maps.yml
     #                           contents/pull-requests:write — opens a PR when
     #                           the semgrep registry drifts. Confined to its
@@ -26,6 +30,7 @@ class WorkflowPermissionTests(unittest.TestCase):
     #                           events (enforced by the trigger test below).
     WRITE_EXCEPTIONS = {
         "publish-analysis.yml": ["checks"],
+        "analyze-semgrep.yml": ["checks"],
         "regenerate-identity-maps.yml": ["contents", "pull-requests"],
     }
 
@@ -45,12 +50,14 @@ class WorkflowPermissionTests(unittest.TestCase):
     def test_write_scoped_workflows_are_not_pull_request_triggered(self) -> None:
         # A workflow that can obtain write permissions must never run on
         # untrusted `pull_request` events, or a fork PR could reach that scope.
-        # publish-analysis.yml is reusable (workflow_call) and gated by the
-        # caller; the maintenance workflow must be schedule/dispatch only.
+        # publish-analysis.yml and analyze-semgrep.yml are reusable
+        # (workflow_call) and gated by the caller; the maintenance workflow
+        # must be schedule/dispatch only.
         trigger_pattern = re.compile(r"(?m)^\s*(pull_request|pull_request_target):")
+        reusable = {"publish-analysis.yml", "analyze-semgrep.yml"}
         for name in self.WRITE_EXCEPTIONS:
             workflow = WORKFLOWS / name
-            if name == "publish-analysis.yml":
+            if name in reusable:
                 continue
             with self.subTest(workflow=name):
                 text = workflow.read_text(encoding="utf-8")
