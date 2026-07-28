@@ -13,6 +13,11 @@ class PhaseScopeTests(unittest.TestCase):
             "self-ci.yml",
             "sdk-contract-check.yml",
             "normalize-semgrep-report.yml",
+            # v2 orchestration handoff — the Core-owned end-to-end analysis
+            # kernel consumers call as a reusable workflow (workflow_call
+            # only); wraps provider execution, SDK gate evaluation, artifact
+            # upload, and publication.
+            "analyze-semgrep.yml",
             "governance-ci.yml",
             "profile-normalize-semgrep.yml",
             "publish-analysis.yml",
