@@ -235,6 +235,20 @@ Therefore:
 - `MANIFEST.sha256` records the sha256 of tracked files; regenerate the
   entries for any file you change so it stays honest.
 
+## 9. Repository command contract
+
+Before changing Core, read [`.l9/architecture.yaml`](.l9/architecture.yaml), [`.l9/ownership.yaml`](.l9/ownership.yaml), and [`.l9/sdk-compatibility.yaml`](.l9/sdk-compatibility.yaml).
+
+- Run `make agent-check` before declaring work complete, committing, pushing, or opening a pull request.
+- Do not bypass, replace, or weaken `agent-check` with direct tool commands.
+- Use `make change-policy` to inspect selected gates and missing companion changes.
+- Changed-file gates add targeted proof but never replace the complete Core test suite.
+- Keep the root Makefile delegation-only. Behavior belongs in `tools/l9_repo/`; declarative policy belongs in `.l9/repo-workflow.json`.
+- Keep `tools/check_workflow_integrity.py` in the `validate` phase.
+- Never add SDK-owned analysis semantics, provider parsing, canonical findings, identity resolution, severity normalization, or policy classification to this component.
+- `make push` and `make pr` must remain protected-branch rejecting, clean-tree requiring, non-force, single-flight, and non-bypassable.
+- Exit `1` means executed checks found debt. Exit `2` means validation infrastructure, configuration, context, or repository state is invalid.
+
 ## Edit-time constraints (unchanged)
 
 1. Read `.l9/architecture.yaml`, `.l9/ownership.yaml`,

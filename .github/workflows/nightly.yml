@@ -112,7 +112,9 @@ jobs:
           fi
       - name: Python dependency freshness report
         if: steps.detect.outputs.python == 'true'
-        run: pip list --outdated || true
+        run: |
+          report="$(pip list --outdated || true)"
+          printf '%s\n' "${report}"
       # ---------- Node path ----------
       - name: Set up Node
         if: steps.detect.outputs.node == 'true'
@@ -141,7 +143,9 @@ jobs:
           fi
       - name: Node dependency freshness report
         if: steps.detect.outputs.node == 'true'
-        run: npm outdated || true
+        run: |
+          report="$(npm outdated || true)"
+          printf '%s\n' "${report}"
       # ---------- Extended tests ----------
       - name: Extended tests
         if: inputs.run-extended-tests
