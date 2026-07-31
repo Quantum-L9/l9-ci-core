@@ -66,6 +66,7 @@ on:
         required: false
 permissions:
   contents: read
+  packages: read
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -124,6 +125,8 @@ jobs:
           node-version: "20"
       - name: Validate Node package (publish dry-run)
         if: steps.detect.outputs.node == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -f "pnpm-lock.yaml" ]; then

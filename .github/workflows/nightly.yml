@@ -63,6 +63,7 @@ on:
         default: false
 permissions:
   contents: read
+  packages: read
 jobs:
   nightly:
     runs-on: ubuntu-latest
@@ -123,6 +124,8 @@ jobs:
           node-version: "20"
       - name: Node full test run
         if: steps.detect.outputs.node == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -f "pnpm-lock.yaml" ]; then

@@ -59,6 +59,7 @@ on:
         default: "."
 permissions:
   contents: read
+  packages: read
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -131,6 +132,8 @@ jobs:
           node-version: "20"
       - name: Install Node dependencies
         if: steps.detect.outputs.node == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -f "pnpm-lock.yaml" ]; then
