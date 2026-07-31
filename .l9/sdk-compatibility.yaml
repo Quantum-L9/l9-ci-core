@@ -6,13 +6,36 @@ metadata:
 default:
   source: git
   repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-  revision: 0c487747b0fcd172edaefe9e843dac818de8fc12
+  revision: f546f122d33601ea5a4b2592e3482c5c39eddd82
 supported:
-  # Current default: first revision carrying the full v2 orchestration
-  # handoff surface — `semgrep run` (provider execution + normalization
-  # in one SDK-owned process) and `gate evaluate` (the SDK's single
-  # gate-decision authority emitting the canonical gate-result artifact
-  # Core publishes verbatim rather than reconstructing a verdict).
+  # Current default: l9-ci-sdk v1.0.0 — the frozen analysis-contract
+  # surface the release identifies for consumption by Core. Carries the
+  # full v2 orchestration handoff — `semgrep run` (provider execution +
+  # normalization in one SDK-owned process) and `gate evaluate` (the
+  # SDK's single gate-decision authority emitting the canonical
+  # gate-result artifact Core publishes verbatim rather than
+  # reconstructing a verdict).
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: f546f122d33601ea5a4b2592e3482c5c39eddd82
+    integration_contract: l9.integration-contract/v1
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+    required_cli_paths:
+      - semgrep run
+      - semgrep normalize
+      - gate evaluate
+      - bundle validate
+      - bundle project-agent-payload
+      - compatibility check
+      - baseline compare-tests
+      - baseline scan-packet-envelope
+      - baseline compare-scan
+      - baseline validate-ledger
+  # Retained as a tested rollback: the prior default, first revision to
+  # carry the full v2 orchestration handoff surface (`semgrep run` +
+  # `gate evaluate`).
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: 0c487747b0fcd172edaefe9e843dac818de8fc12
@@ -39,24 +62,6 @@ supported:
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: 0779fca8238011f8abea551895f96584676e9d17
-    integration_contract: l9.integration-contract/v1
-    artifact_protocols:
-      - l9.finding-bundle/v1
-      - l9.agent-review-payload/v1
-    required_cli_paths:
-      - semgrep normalize
-      - bundle validate
-      - bundle project-agent-payload
-      - compatibility check
-      - baseline compare-tests
-      - baseline scan-packet-envelope
-      - baseline compare-scan
-      - baseline validate-ledger
-  # Retained for rollback: bare-hex signature normalization (run-random
-  # object IDs, content hashes) (l9-ci-sdk#19).
-  - source: git
-    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-    revision: b390dc78e3464cca539b998dfb723481927ed91b
     integration_contract: l9.integration-contract/v1
     artifact_protocols:
       - l9.finding-bundle/v1

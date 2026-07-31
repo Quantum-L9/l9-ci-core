@@ -5,7 +5,7 @@ metadata:
   status: authoritative
 sdk_contract:
   schema: l9.integration-contract/v1
-  revision: 0c487747b0fcd172edaefe9e843dac818de8fc12
+  revision: f546f122d33601ea5a4b2592e3482c5c39eddd82
 workspace_layout:
   root: artifacts
   raw:

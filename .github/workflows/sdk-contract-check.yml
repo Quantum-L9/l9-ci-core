@@ -33,7 +33,7 @@ jobs:
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: 0c487747b0fcd172edaefe9e843dac818de8fc12
+          sdk-revision: f546f122d33601ea5a4b2592e3482c5c39eddd82
       - name: Verify emitted contract
         env:
           SDK_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
@@ -42,6 +42,77 @@ jobs:
         run: |
           set -euo pipefail
           test -x "${SDK_EXECUTABLE}"
-          test "${SDK_REVISION}" =             "0c487747b0fcd172edaefe9e843dac818de8fc12"
+          test "${SDK_REVISION}" =             "f546f122d33601ea5a4b2592e3482c5c39eddd82"
           test "${SDK_CONTRACT}" = "l9.integration-contract/v1"
           "${SDK_EXECUTABLE}" --help
+      - name: Prove every required CLI path resolves
+        env:
+          SDK_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+        run: |
+          set -euo pipefail
+          # Every path the v1.0.0 compatibility entry declares in
+          # .l9/sdk-compatibility.yaml must exist on the provisioned SDK.
+          # The provisioner already proves this, but assert it here too so a
+          # contract regression fails this dedicated gate visibly rather than
+          # only inside the composite action.
+          while IFS= read -r path; do
+            echo "probe: l9-ci ${path} --help"
+            # shellcheck disable=SC2086
+            "${SDK_EXECUTABLE}" ${path} --help >/dev/null
+          done <<'PATHS'
+          semgrep run
+          semgrep normalize
+          gate evaluate
+          bundle validate
+          bundle project-agent-payload
+          compatibility check
+          baseline compare-tests
+          baseline scan-packet-envelope
+          baseline compare-scan
+          baseline validate-ledger
+          PATHS
+      - name: End-to-end pipeline smoke (both presets, strict)
+        env:
+          SDK_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          # Prove BEHAVIOUR, not just argparse registration: drive a committed
+          # raw Semgrep report through the SDK-owned pipeline under strict mode,
+          # loading each preset's finding-policy and identity-map so both are
+          # exercised against the released SDK loader (not assumed compatible
+          # just because both are YAML). Uses `semgrep normalize` with a
+          # committed fixture rather than `semgrep run`, so no live semgrep
+          # binary is required and the smoke stays deterministic.
+          for lang in python typescript; do
+            case "${lang}" in
+              python) ext=py ;;
+              typescript) ext=ts ;;
+            esac
+            work="$(mktemp -d)"
+            mkdir -p "${work}/src"
+            printf 'x\n' > "${work}/src/example.${ext}"
+            cp "${WORKSPACE}/tests/fixtures/smoke/${lang}-report.json" \
+              "${work}/report.json"
+            policy="${WORKSPACE}/presets/${lang}/.github/governance/semgrep-policy.yaml"
+            identity="${WORKSPACE}/presets/${lang}/.github/governance/semgrep-identity-map.yaml"
+            echo "== ${lang}: normalize (strict; preset policy + identity map) =="
+            ( cd "${work}" && "${SDK_EXECUTABLE}" semgrep normalize \
+                --input report.json --output finding-bundle.json \
+                --provider-version 1.171.0 --root . \
+                --snapshot-id smoke-sha --revision smoke-sha \
+                --policy "${policy}" --identity-map "${identity}" --strict )
+            echo "== ${lang}: bundle validate =="
+            ( cd "${work}" && "${SDK_EXECUTABLE}" bundle validate finding-bundle.json )
+            echo "== ${lang}: gate evaluate (emits gate-result.json) =="
+            ( cd "${work}" && "${SDK_EXECUTABLE}" gate evaluate \
+                --bundle finding-bundle.json --output gate-result.json \
+                --no-strict-unresolved )
+            echo "== ${lang}: project agent-review payload =="
+            ( cd "${work}" && "${SDK_EXECUTABLE}" bundle project-agent-payload \
+                --input finding-bundle.json --output agent-review-payload.json )
+            test -s "${work}/finding-bundle.json"
+            test -s "${work}/gate-result.json"
+            test -s "${work}/agent-review-payload.json"
+            rm -rf "${work}"
+          done

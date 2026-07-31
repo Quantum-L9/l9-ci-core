@@ -18,7 +18,12 @@ spec.loader.exec_module(module)
 class InvokeSDKTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
-        self.workspace = Path(self.temp.name)
+        # invoke.resolve_workspace_path canonicalizes symlinks via Path.resolve()
+        # as a path-escape defense, so it emits resolved paths. Resolve the
+        # workspace root here too; otherwise on platforms whose temp dir is a
+        # symlink (e.g. macOS /var -> /private/var) the fixtures stay unresolved
+        # and the exact-path assertions mismatch. Keeps the assertions strict.
+        self.workspace = Path(self.temp.name).resolve()
         self.executable = self.workspace / "l9-ci"
         self.executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         self.executable.chmod(self.executable.stat().st_mode | stat.S_IXUSR)
