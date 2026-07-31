@@ -1,0 +1,340 @@
+{
+  "$schema": "./repo-workflow.schema.json",
+  "schema_version": 1,
+  "metadata": {
+    "artifact_id": "l9-ci-core-repository-execution-runtime",
+    "artifact_version": "4.3.0",
+    "contract_status": "authoritative",
+    "beneficiary": "Quantum-L9/l9-ci-core",
+    "authority_scope": "repository-execution"
+  },
+  "authority": {
+    "target_authorities": [
+      "AGENTS.md",
+      ".l9/architecture.yaml",
+      ".l9/ownership.yaml",
+      ".l9/sdk-compatibility.yaml"
+    ],
+    "component_authority": ".l9/repo-workflow.json",
+    "component_schema": ".l9/repo-workflow.schema.json",
+    "generated_artifacts": [
+      "Makefile"
+    ],
+    "derived_documents": [
+      "README.md",
+      "AUTHORITY.md",
+      "OPERATIONS.md",
+      "VALIDATION.md",
+      "MANIFEST.md",
+      "AGENTS-ADDENDUM.md"
+    ],
+    "dependency_manifests": {
+      "target_required": [
+        "requirements-ci.txt"
+      ],
+      "component_bundled": [
+        "requirements-repo-runtime.txt"
+      ]
+    }
+  },
+  "repository": {
+    "protected_branches": [
+      "main"
+    ],
+    "require_pull_request": true
+  },
+  "commands": {
+    "setup": [
+      [
+        "@python",
+        "-m",
+        "pip",
+        "install",
+        "-r",
+        "requirements-ci.txt"
+      ],
+      [
+        "@python",
+        "-m",
+        "pip",
+        "install",
+        "-r",
+        "requirements-repo-runtime.txt"
+      ]
+    ],
+    "validate": [
+      [
+        "@python",
+        "tools/check_workflow_integrity.py"
+      ]
+    ],
+    "check": [
+      [
+        "ruff",
+        "check",
+        "."
+      ],
+      [
+        "ruff",
+        "format",
+        "--check",
+        "."
+      ],
+      [
+        "mypy"
+      ]
+    ],
+    "test": [
+      [
+        "@python",
+        "-m",
+        "unittest",
+        "discover",
+        "--start-directory",
+        "tests",
+        "--pattern",
+        "test_*.py",
+        "--verbose"
+      ]
+    ]
+  },
+  "push": {
+    "run_check": true,
+    "require_clean_worktree": true,
+    "reject_force_push": true,
+    "reject_protected_branch": true,
+    "set_upstream": true,
+    "lockfile_command": [
+      "uv",
+      "lock",
+      "--check"
+    ],
+    "rebase_before_push": false
+  },
+  "pull_request": {
+    "base": "main",
+    "draft_by_default": false
+  },
+  "clean_paths": [
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache"
+  ],
+  "workspace": {
+    "default": ".",
+    "allow_override": true
+  },
+  "automation": {
+    "lock": {
+      "name": "l9-repo.lock",
+      "stale_after_seconds": 1800
+    }
+  },
+  "change_policy": {
+    "gate_order": [
+      "workflow",
+      "actions",
+      "sdk-compatibility",
+      "command-facade"
+    ],
+    "gates": {
+      "workflow": {
+        "match_any_prefix": [
+          ".github/workflows/"
+        ],
+        "blocking": true,
+        "commands": [
+          [
+            "@python",
+            "-m",
+            "unittest",
+            "discover",
+            "--start-directory",
+            "tests/workflows",
+            "--pattern",
+            "test_*.py",
+            "--verbose"
+          ]
+        ]
+      },
+      "actions": {
+        "match_any_prefix": [
+          ".github/actions/"
+        ],
+        "blocking": true,
+        "commands": [
+          [
+            "@python",
+            "-m",
+            "unittest",
+            "discover",
+            "--start-directory",
+            "tests/architecture",
+            "--pattern",
+            "test_*.py",
+            "--verbose"
+          ]
+        ]
+      },
+      "sdk-compatibility": {
+        "match_any_prefix": [
+          ".l9/sdk-compatibility.yaml"
+        ],
+        "blocking": true,
+        "commands": [
+          [
+            "@python",
+            "-m",
+            "unittest",
+            "discover",
+            "--start-directory",
+            "tests/provisioning",
+            "--pattern",
+            "test_*.py",
+            "--verbose"
+          ],
+          [
+            "@python",
+            "-m",
+            "unittest",
+            "discover",
+            "--start-directory",
+            "tests/workflows",
+            "--pattern",
+            "test_phase_3_workflows.py",
+            "--verbose"
+          ]
+        ]
+      },
+      "command-facade": {
+        "match_any_prefix": [
+          "tools/l9_repo/",
+          ".l9/repo-workflow",
+          "Makefile",
+          "Repo.mk"
+        ],
+        "blocking": true,
+        "commands": [
+          [
+            "@python",
+            "-m",
+            "unittest",
+            "discover",
+            "--start-directory",
+            "tests/tools",
+            "--pattern",
+            "test_l9_repo*.py",
+            "--verbose"
+          ]
+        ]
+      }
+    },
+    "companion_rules": [
+      {
+        "id": "manifest-integrity",
+        "match_any_prefix": [
+          ""
+        ],
+        "require_all_paths": [
+          "MANIFEST.sha256"
+        ],
+        "message": "every tracked change requires a regenerated MANIFEST.sha256"
+      },
+      {
+        "id": "workflow-tests",
+        "match_any_prefix": [
+          ".github/workflows/"
+        ],
+        "require_any_prefix": [
+          "tests/workflows/"
+        ],
+        "message": "workflow changes require workflow-test coverage"
+      },
+      {
+        "id": "action-tests",
+        "match_any_prefix": [
+          ".github/actions/"
+        ],
+        "require_any_prefix": [
+          "tests/"
+        ],
+        "message": "composite-action changes require companion tests"
+      },
+      {
+        "id": "sdk-pin-mirrors",
+        "match_any_prefix": [
+          ".l9/sdk-compatibility.yaml"
+        ],
+        "require_any_prefix": [
+          "tests/provisioning/"
+        ],
+        "require_all_paths": [
+          ".github/actions/provision-sdk/action.yml",
+          ".github/actions/provision-sdk/provision.py",
+          ".github/workflows/normalize-semgrep-report.yml",
+          ".github/workflows/publish-analysis.yml",
+          ".github/workflows/sdk-contract-check.yml",
+          ".l9/architecture.yaml",
+          ".l9/artifact-protocol.yaml",
+          "MANIFEST.sha256"
+        ],
+        "message": "SDK compatibility changes require every documented Core pin mirror and provisioning tests"
+      },
+      {
+        "id": "facade-contract",
+        "match_any_prefix": [
+          "tools/l9_repo/",
+          ".l9/repo-workflow",
+          "Makefile",
+          "Repo.mk"
+        ],
+        "require_any_prefix": [
+          "tests/tools/"
+        ],
+        "require_all_paths": [
+          "AGENTS.md",
+          "OPERATIONS.md",
+          "MANIFEST.sha256"
+        ],
+        "message": "repository command-facade changes require tests, agent instructions, command documentation, and manifest refresh"
+      }
+    ]
+  },
+  "agent_contracts": {
+    "required_files": [
+      "AGENTS.md",
+      ".l9/architecture.yaml",
+      ".l9/ownership.yaml",
+      ".l9/sdk-compatibility.yaml",
+      "tools/check_workflow_integrity.py"
+    ],
+    "reference_requirements": [
+      {
+        "target": ".l9/architecture.yaml",
+        "instruction_files": [
+          "AGENTS.md"
+        ]
+      },
+      {
+        "target": ".l9/ownership.yaml",
+        "instruction_files": [
+          "AGENTS.md"
+        ]
+      },
+      {
+        "target": ".l9/sdk-compatibility.yaml",
+        "instruction_files": [
+          "AGENTS.md"
+        ]
+      }
+    ]
+  },
+  "reporting": {
+    "agent_check_json": "artifacts/agent-check-evidence.json",
+    "agent_check_markdown": "artifacts/agent-check-evidence.md",
+    "capture_limit_chars": 20000
+  },
+  "status": {
+    "fetch_remote": true
+  }
+}

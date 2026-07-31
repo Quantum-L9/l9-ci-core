@@ -98,8 +98,7 @@ jobs:
               [ -d "${dir}" ] || continue
               for b in ${banned}; do
                 [ -d "${SRC_DIR}/${b}" ] || continue
-                matches="$(grep -rniE "(from|import|require\(|from ['\"]).{0,40}(\.\./)*(${b})(/|['\"])" "${dir}" \
-                  --include='*.py' --include='*.ts' --include='*.tsx' --include='*.js' 2>/dev/null || true)"
+                matches="$(grep -rniE --include='*.py' --include='*.ts' --include='*.tsx' --include='*.js' "(from|import|require\(|from ['\"]).{0,40}(\.\./)*(${b})(/|['\"])" "${dir}" 2>/dev/null || true)"
                 if [ -n "${matches}" ]; then
                   echo "::error::Tier violation: '${d}' imports from '${b}'"
                   echo "${matches}" | head -20
