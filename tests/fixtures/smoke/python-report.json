@@ -1,0 +1,19 @@
+{
+  "version": "1.171.0",
+  "results": [
+    {
+      "check_id": "python.aws-lambda.security.dangerous-asyncio-create-exec.dangerous-asyncio-create-exec",
+      "path": "src/example.py",
+      "start": { "line": 1, "col": 1, "offset": 0 },
+      "end": { "line": 1, "col": 12, "offset": 11 },
+      "extra": {
+        "message": "Smoke fixture finding (Python preset).",
+        "severity": "ERROR",
+        "fingerprint": "smoke-python-0001",
+        "metadata": { "category": "security" }
+      }
+    }
+  ],
+  "errors": [],
+  "paths": { "scanned": ["src/example.py"], "skipped": [] }
+}

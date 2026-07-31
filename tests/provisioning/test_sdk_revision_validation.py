@@ -27,6 +27,18 @@ class SDKRevisionValidationTests(unittest.TestCase):
     def test_exact_revision_is_accepted(self) -> None:
         self.validate(module.EXPECTED_REVISION)
 
+    def test_sdk_v1_revision_is_accepted(self) -> None:
+        self.validate("f546f122d33601ea5a4b2592e3482c5c39eddd82")
+
+    def test_prior_default_remains_a_supported_rollback(self) -> None:
+        self.validate("0c487747b0fcd172edaefe9e843dac818de8fc12")
+
+    def test_removed_rollback_revision_is_now_rejected(self) -> None:
+        # b390dc78… was dropped from the compatibility manifest; an unlisted
+        # (even if full 40-hex) revision must fail closed.
+        with self.assertRaises(module.ProvisioningError):
+            self.validate("b390dc78e3464cca539b998dfb723481927ed91b")
+
     def test_short_revision_is_rejected(self) -> None:
         with self.assertRaises(module.ProvisioningError):
             self.validate("c78486e")

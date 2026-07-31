@@ -1,0 +1,19 @@
+{
+  "version": "1.171.0",
+  "results": [
+    {
+      "check_id": "javascript.angular.security.detect-angular-element-taint.detect-angular-element-taint",
+      "path": "src/example.ts",
+      "start": { "line": 1, "col": 1, "offset": 0 },
+      "end": { "line": 1, "col": 12, "offset": 11 },
+      "extra": {
+        "message": "Smoke fixture finding (TypeScript preset).",
+        "severity": "ERROR",
+        "fingerprint": "smoke-typescript-0001",
+        "metadata": { "category": "security" }
+      }
+    }
+  ],
+  "errors": [],
+  "paths": { "scanned": ["src/example.ts"], "skipped": [] }
+}

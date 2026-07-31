@@ -13,7 +13,11 @@ EXPECTED_SOURCE = "git"
 EXPECTED_REPOSITORY = "https://github.com/Quantum-L9/l9-ci-sdk.git"
 # Fallback default only. The authoritative allowlist is `.l9/sdk-compatibility.yaml`
 # (read by load_supported_revisions); keep this in sync with its `default.revision`.
-EXPECTED_REVISION = "0c487747b0fcd172edaefe9e843dac818de8fc12"
+EXPECTED_REVISION = "f546f122d33601ea5a4b2592e3482c5c39eddd82"
+# Fallback default only. The verified contract Core emits is the one declared by
+# the selected manifest entry (select_manifest_entry) and cross-checked against
+# the SDK's own integration-contract.yaml; this constant is used only when no
+# entry-specific contract is available.
 EXPECTED_CONTRACT = "l9.integration-contract/v1"
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 # Repo-root .l9/sdk-compatibility.yaml, relative to this action file
@@ -48,12 +52,9 @@ def _load_yaml_module():
     return yaml
 
 
-def load_supported_revisions(
-    manifest_path: Path = COMPATIBILITY_MANIFEST,
-) -> frozenset[str]:
-    """The set of SDK revisions Core allows, read from the compatibility
-    manifest (its `default` plus every `supported[]` entry). The file is the
-    single source of truth for the allowlist; fail closed if it is unreadable."""
+def _load_manifest(manifest_path: Path) -> dict:
+    """Parse the compatibility manifest. It is the single source of truth for the
+    allowlist, so fail closed if it is missing or malformed."""
     if not manifest_path.is_file():
         raise ProvisioningError(
             f"SDK compatibility manifest not found: {manifest_path}"
@@ -65,23 +66,85 @@ def load_supported_revisions(
         raise ProvisioningError(
             f"SDK compatibility manifest is not valid YAML: {error}"
         ) from error
-    entries = []
-    default = data.get("default")
-    if isinstance(default, dict):
-        entries.append(default)
+    return data
+
+
+def load_supported_entries(
+    manifest_path: Path = COMPATIBILITY_MANIFEST,
+) -> list[dict]:
+    """Every full SDK compatibility record — the `supported[]` entries. The
+    top-level `default` block is only a pointer (source/repository/revision) to
+    one of these, not a record of its own, so it is not returned here. Fail
+    closed if the manifest is unreadable or lists no supported revisions."""
+    data = _load_manifest(manifest_path)
     supported = data.get("supported")
-    if isinstance(supported, list):
-        entries.extend(entry for entry in supported if isinstance(entry, dict))
-    revisions = {
-        entry["revision"].strip().lower()
+    entries = (
+        [entry for entry in supported if isinstance(entry, dict)]
+        if isinstance(supported, list)
+        else []
+    )
+    entries = [
+        entry
         for entry in entries
         if isinstance(entry.get("revision"), str) and entry["revision"].strip()
-    }
-    if not revisions:
+    ]
+    if not entries:
         raise ProvisioningError(
             "SDK compatibility manifest lists no supported revisions"
         )
+    return entries
+
+
+def load_supported_revisions(
+    manifest_path: Path = COMPATIBILITY_MANIFEST,
+) -> frozenset[str]:
+    """The set of SDK revisions Core allows: every `supported[]` revision plus
+    the `default` pointer's revision. Fail closed if the manifest is unreadable."""
+    revisions = {
+        entry["revision"].strip().lower()
+        for entry in load_supported_entries(manifest_path)
+    }
+    default = _load_manifest(manifest_path).get("default")
+    if isinstance(default, dict) and isinstance(default.get("revision"), str):
+        revisions.add(default["revision"].strip().lower())
     return frozenset(revisions)
+
+
+def select_manifest_entry(
+    revision: str,
+    manifest_path: Path = COMPATIBILITY_MANIFEST,
+) -> dict:
+    """The single `supported[]` compatibility record matching ``revision``. The
+    manifest is the executable contract: the returned entry drives contract
+    verification and the CLI probes, so fail closed if the entry is absent or
+    omits the fields Core proves (``integration_contract``, a nonempty
+    ``required_cli_paths`` list)."""
+    wanted = revision.strip().lower()
+    matches = [
+        entry
+        for entry in load_supported_entries(manifest_path)
+        if entry["revision"].strip().lower() == wanted
+    ]
+    if not matches:
+        raise ProvisioningError(
+            f"no compatibility entry for revision {revision!r} in {manifest_path.name}"
+        )
+    entry = matches[0]
+    contract = entry.get("integration_contract")
+    if not isinstance(contract, str) or not contract.strip():
+        raise ProvisioningError(
+            f"compatibility entry for {revision!r} omits integration_contract"
+        )
+    paths = entry.get("required_cli_paths")
+    if (
+        not isinstance(paths, list)
+        or not paths
+        or not all(isinstance(path, str) and path.strip() for path in paths)
+    ):
+        raise ProvisioningError(
+            f"compatibility entry for {revision!r} omits required_cli_paths"
+        )
+    return entry
 
 
 def run(
@@ -165,23 +228,36 @@ def checkout_sdk(repository: str, revision: str, checkout: Path) -> None:
         )
 
 
-def verify_contract_file(checkout: Path) -> None:
+def verify_contract_file(checkout: Path, entry: dict) -> None:
+    """Cross-check the SDK's own integration contract against the compatibility
+    entry Core selected. The manifest — not a hand-picked list of text fragments
+    — is the contract of record: the SDK must declare the same
+    ``integration_contract`` schema and the ``l9-ci`` executable, or provisioning
+    fails closed. Actual command existence is proven by execution in probe_cli."""
     contract = checkout / ".l9" / "integration-contract.yaml"
     if not contract.is_file():
         raise ProvisioningError("SDK is missing .l9/integration-contract.yaml")
-    text = contract.read_text(encoding="utf-8")
-    required_fragments = (
-        "schema: l9.integration-contract/v1",
-        "executable: l9-ci",
-        "semgrep normalize",
-        "bundle validate",
-        "bundle project-agent-payload",
-        "compatibility check",
-    )
-    missing = [fragment for fragment in required_fragments if fragment not in text]
-    if missing:
+    yaml = _load_yaml_module()
+    try:
+        data = yaml.safe_load(contract.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as error:
         raise ProvisioningError(
-            "SDK integration contract is incompatible; missing: " + ", ".join(missing)
+            f"SDK integration-contract.yaml is not valid YAML: {error}"
+        ) from error
+    expected_contract = entry["integration_contract"].strip()
+    declared = data.get("schema")
+    if declared != expected_contract:
+        raise ProvisioningError(
+            "SDK integration contract schema "
+            f"{declared!r} does not match the compatibility entry "
+            f"{expected_contract!r}"
+        )
+    cli = data.get("CLI")
+    executable = cli.get("executable") if isinstance(cli, dict) else None
+    if executable != "l9-ci":
+        raise ProvisioningError(
+            f"SDK integration contract declares executable {executable!r}, "
+            "expected 'l9-ci'"
         )
 
 
@@ -230,14 +306,22 @@ def create_runtime(checkout: Path, runtime: Path) -> Path:
     return executable.resolve()
 
 
-def probe_cli(executable: Path) -> None:
-    probes = (
-        ["--help"],
-        ["semgrep", "--help"],
-        ["bundle", "--help"],
-        ["compatibility", "--help"],
+def probe_cli(executable: Path, required_cli_paths: list[str]) -> None:
+    """Prove that every CLI path the selected compatibility entry declares
+    actually exists on the provisioned SDK by executing ``<path> --help``. The
+    manifest is the executable contract: Core must not claim a command is
+    required without proving it resolves. Fail closed on the first missing path."""
+    root = subprocess.run(
+        [str(executable), "--help"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     )
-    for arguments in probes:
+    if root.returncode != 0:
+        raise ProvisioningError(f"SDK CLI probe failed: --help\n{root.stdout}")
+    for path in required_cli_paths:
+        arguments = [*path.split(), "--help"]
         result = subprocess.run(
             [str(executable), *arguments],
             check=False,
@@ -247,18 +331,9 @@ def probe_cli(executable: Path) -> None:
         )
         if result.returncode != 0:
             raise ProvisioningError(
-                f"SDK CLI probe failed: {' '.join(arguments)}\n{result.stdout}"
+                f"SDK CLI path {path!r} is not available "
+                f"(probe `{' '.join(arguments)}` failed)\n{result.stdout}"
             )
-    root_help = subprocess.run(
-        [str(executable), "--help"],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    ).stdout
-    for command in ("semgrep", "bundle", "compatibility"):
-        if command not in root_help:
-            raise ProvisioningError(f"SDK CLI root help does not expose {command!r}")
 
 
 def emit_output(name: str, value: str) -> None:
@@ -286,6 +361,9 @@ def main() -> int:
             ".l9/runtime/sdk",
         )
         validate_inputs(source, repository, revision)
+        entry = select_manifest_entry(revision)
+        contract = entry["integration_contract"].strip()
+        required_cli_paths = [path.strip() for path in entry["required_cli_paths"]]
         workspace = Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd())).resolve()
         runtime = (workspace / runtime_input).resolve()
         try:
@@ -299,14 +377,14 @@ def main() -> int:
         runtime.mkdir(parents=True)
         checkout = runtime / "source"
         checkout_sdk(repository, revision, checkout)
-        verify_contract_file(checkout)
+        verify_contract_file(checkout, entry)
         executable = create_runtime(checkout, runtime)
-        probe_cli(executable)
+        probe_cli(executable, required_cli_paths)
         emit_output("executable", str(executable))
         emit_output("sdk-root", str(checkout.resolve()))
         emit_output("sdk-revision", revision)
-        emit_output("contract", EXPECTED_CONTRACT)
-        print(f"Provisioned l9-ci-sdk {revision} with contract {EXPECTED_CONTRACT}")
+        emit_output("contract", contract)
+        print(f"Provisioned l9-ci-sdk {revision} with contract {contract}")
         return 0
     except ProvisioningError as error:
         print(f"provision-sdk: {error}", file=sys.stderr)
