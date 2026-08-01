@@ -38,13 +38,15 @@ jobs:
           persist-credentials: false
       - name: Check for pre-commit config
         id: config
+        env:
+          CONFIG_PATH: ${{ inputs.config-path }}
         run: |
           set -euo pipefail
-          if [ -f "${{ inputs.config-path }}" ]; then
+          if [ -f "$CONFIG_PATH" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No ${{ inputs.config-path }} found; pre-commit enforcement skipped"
+            echo "::notice::No $CONFIG_PATH found; pre-commit enforcement skipped"
           fi
       - name: Set up Python
         if: steps.config.outputs.present == 'true'
@@ -53,11 +55,15 @@ jobs:
           python-version: ${{ inputs.python-version }}
       - name: Run pre-commit on all files
         if: steps.config.outputs.present == 'true'
+        env:
+          PRE_COMMIT_VERSION: ${{ inputs.pre-commit-version }}
+          INSTALL_COMMAND: ${{ inputs.install-command }}
+          CONFIG_PATH: ${{ inputs.config-path }}
         run: |
           set -euo pipefail
           python -m pip install --upgrade "pip==26.1.2"
-          pip install "pre-commit==${{ inputs.pre-commit-version }}"
-          if [ -n "${{ inputs.install-command }}" ]; then
-            ${{ inputs.install-command }}
+          pip install "pre-commit==$PRE_COMMIT_VERSION"
+          if [ -n "$INSTALL_COMMAND" ]; then
+            bash -c "$INSTALL_COMMAND"
           fi
-          pre-commit run --all-files --show-diff-on-failure --config "${{ inputs.config-path }}"
+          pre-commit run --all-files --show-diff-on-failure --config "$CONFIG_PATH"

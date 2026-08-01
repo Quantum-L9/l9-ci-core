@@ -60,7 +60,13 @@ class RegenerationError(RuntimeError):
 
 def fetch_rule_ids(pack: str, *, timeout: float = 30.0) -> set[str]:
     url = f"{REGISTRY_BASE}{pack}"
+    # Defense-in-depth: urllib honors file://, so refuse anything but https
+    # before opening the (registry-base + pack) URL.
+    if not url.startswith("https://"):
+        msg = f"refusing non-https registry URL: {url!r}"
+        raise RegenerationError(msg)
     try:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- https scheme enforced above
         with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
             payload = response.read()
     except OSError as error:

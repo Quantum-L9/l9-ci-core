@@ -117,9 +117,11 @@ jobs:
           fi
           echo "Three-tier separation holds for${tiers_found}"
       - name: Policy file status
+        env:
+          POLICY_PATH: ${{ inputs.policy-path }}
         run: |
-          if [ -f "${{ inputs.policy-path }}" ]; then
-            echo "::notice::Governance policy present at ${{ inputs.policy-path }} (structural checks applied)"
+          if [ -f "$POLICY_PATH" ]; then
+            echo "::notice::Governance policy present at $POLICY_PATH (structural checks applied)"
           else
-            echo "::notice::No governance policy at ${{ inputs.policy-path }}; structural defaults applied"
+            echo "::notice::No governance policy at $POLICY_PATH; structural defaults applied"
           fi

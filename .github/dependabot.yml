@@ -6,6 +6,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Wait for newly published versions to age before proposing them; a
+    # freshly published (possibly compromised) release is not adopted on day 0.
+    cooldown:
+      default-days: 7
     groups:
       python-minor-patch:
         patterns: ["*"]
@@ -24,6 +28,10 @@ updates:
       - "/presets/python"
     schedule:
       interval: "weekly"
+    # Wait for newly published versions to age before proposing them; a
+    # freshly published (possibly compromised) release is not adopted on day 0.
+    cooldown:
+      default-days: 7
     groups:
       github-actions-minor-patch:
         patterns: ["*"]
