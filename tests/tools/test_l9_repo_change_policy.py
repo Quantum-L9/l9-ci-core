@@ -110,7 +110,7 @@ class ChangePolicyTests(unittest.TestCase):
         self.assertEqual(facade.required_any, ("tests/tools/",))
         self.assertEqual(
             set(facade.missing_all),
-            {"AGENTS.md", "OPERATIONS.md", "MANIFEST.sha256"},
+            {"AGENTS.md", "docs/repository-execution-runtime.md", "MANIFEST.sha256"},
         )
 
     def test_explicit_files_are_deduplicated_and_sorted(self) -> None:
