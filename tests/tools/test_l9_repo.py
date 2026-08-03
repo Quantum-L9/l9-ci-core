@@ -593,7 +593,7 @@ class WorkflowTests(unittest.TestCase):
     def test_checksum_manifest_mismatch_is_rejected(self) -> None:
         temporary, root = make_git_fixture()
         self.addCleanup(temporary.cleanup)
-        (root / "README.md").write_text("tampered\n", encoding="utf-8")
+        (root / "SECURITY.md").write_text("tampered\n", encoding="utf-8")
         with self.assertRaisesRegex(WorkflowError, "checksum mismatch"):
             RepositoryWorkflow(root).structural_validate()
 
