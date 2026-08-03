@@ -8,16 +8,17 @@ class AuthorityError(RuntimeError):
     """Raised when repository-runtime authority or derivation drifts."""
 
 
-def _read_identity_document(path: Path, artifact_id: str, version: str) -> list[str]:
+def _read_identity_document(
+    root: Path, relative: str, artifact_id: str, version: str
+) -> list[str]:
+    path = root / relative
     if path.is_symlink() or not path.is_file():
-        return [f"missing derived document: {path.as_posix()}"]
+        return [f"missing derived document: {relative}"]
     content = path.read_text(encoding="utf-8", errors="replace")
     errors: list[str] = []
     for token in (artifact_id, version):
         if token not in content:
-            errors.append(
-                f"{path.as_posix()} does not declare authoritative token {token!r}"
-            )
+            errors.append(f"{relative} does not declare authoritative token {token!r}")
     return errors
 
 
@@ -39,7 +40,7 @@ def validate_authority(root: Path, config: dict[str, Any]) -> None:
             errors.append(f"missing generated artifact: {relative}")
 
     for relative in authority["derived_documents"]:
-        errors.extend(_read_identity_document(root / relative, artifact_id, version))
+        errors.extend(_read_identity_document(root, relative, artifact_id, version))
 
     dependencies = authority["dependency_manifests"]
     for relative in dependencies["component_bundled"]:
