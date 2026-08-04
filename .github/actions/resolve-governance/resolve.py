@@ -173,7 +173,7 @@ def resolve_requiredness(
 def resolve_policy(
     documents: dict[str, Any],
     profile_name: str,
-    governance_root: Path,
+    _governance_root: Path,
 ) -> str:
     profiles = documents["quality-thresholds.yaml"].get("profiles")
     if not isinstance(profiles, dict):

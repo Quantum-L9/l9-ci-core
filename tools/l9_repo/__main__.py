@@ -43,6 +43,16 @@ CONFIG_PATH = pathlib.Path(".l9/repo-workflow.json")
 SCHEMA_PATH = pathlib.Path(".l9/repo-workflow.schema.json")
 TEMPLATE_PATH = pathlib.Path("tools/l9_repo/Makefile.template")
 
+# Semantic version "x.y.z" has exactly three dot-separated components.
+_SEMVER_COMPONENT_COUNT = 3
+# A `sha256sum`-style manifest line is "<64 hex chars><two spaces><path>".
+_SHA256_HEX_LENGTH = 64
+_MANIFEST_FIELD_SEPARATOR = "  "
+_MANIFEST_PATH_OFFSET = _SHA256_HEX_LENGTH + len(_MANIFEST_FIELD_SEPARATOR)
+_MANIFEST_MIN_LINE_LENGTH = _MANIFEST_PATH_OFFSET + 1
+# agent-check exits 2 when an infrastructure/configuration failure occurred.
+_INFRASTRUCTURE_EXIT_CODE = 2
+
 
 class AgentCheckFailure(RuntimeError):
     """Raised after all checks run and one or more findings remain."""
@@ -191,7 +201,9 @@ def validate_config_data(data: object) -> dict[str, Any]:
         _fail("metadata.artifact_id is not canonical")
     version = _require_string(metadata["artifact_version"], "metadata.artifact_version")
     parts = version.split(".")
-    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+    if len(parts) != _SEMVER_COMPONENT_COUNT or not all(
+        part.isdigit() for part in parts
+    ):
         _fail("metadata.artifact_version must be semantic version x.y.z")
     if metadata["contract_status"] != "authoritative":
         _fail("metadata.contract_status must be authoritative")
@@ -484,11 +496,15 @@ def verify_checksum_manifest(
     ):
         if not raw.strip():
             continue
-        if len(raw) < 67 or raw[64:66] != "  ":
+        if (
+            len(raw) < _MANIFEST_MIN_LINE_LENGTH
+            or raw[_SHA256_HEX_LENGTH:_MANIFEST_PATH_OFFSET]
+            != _MANIFEST_FIELD_SEPARATOR
+        ):
             errors.append(f"{relative}:{line_number}: malformed checksum entry")
             continue
         entries += 1
-        digest, name = raw[:64], raw[66:]
+        digest, name = raw[:_SHA256_HEX_LENGTH], raw[_MANIFEST_PATH_OFFSET:]
         if name in seen:
             errors.append(f"{relative}:{line_number}: duplicate path {name}")
             continue
@@ -896,7 +912,7 @@ class RepositoryWorkflow:
             policy_sha256=policy_sha256,
         )
         evidence = f"{json_path} and {markdown_path}"
-        if overall_exit_code == 2:
+        if overall_exit_code == _INFRASTRUCTURE_EXIT_CODE:
             raise WorkflowError(
                 f"agent-check encountered {infrastructure_failures} infrastructure/configuration failure(s); evidence: {evidence}"
             )
