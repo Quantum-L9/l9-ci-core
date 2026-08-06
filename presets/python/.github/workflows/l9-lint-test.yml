@@ -65,6 +65,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
+          # Pinned consumer CI toolchain (bot-visible; Dependabot-tracked).
+          if [ -f requirements-consumer-ci.txt ]; then pip install -r requirements-consumer-ci.txt; fi
           if [ -f requirements-ci.txt ]; then pip install -r requirements-ci.txt; fi
           command -v ruff >/dev/null 2>&1 || pip install ruff
           command -v mypy >/dev/null 2>&1 || pip install mypy
@@ -86,10 +88,18 @@ jobs:
           if [ -n "${MYPY_EXCLUDE}" ]; then
             MYPY_EXCLUDE_ARGS=(--exclude "${MYPY_EXCLUDE}")
           fi
+          # Repository-owned mypy configuration (pyproject.toml / mypy.ini /
+          # setup.cfg) is authoritative for strictness and per-module import
+          # handling. No global --ignore-missing-imports: a repo that needs to
+          # ignore a specific untyped import declares it in its own config, and
+          # a repo using Pydantic opts into the pydantic mypy plugin there
+          # (plugins = pydantic.mypy). --install-types fetches declared stub
+          # packages; it does not weaken checking. mypy is a required, blocking
+          # gate — a non-zero exit fails this step.
           mypy "${SOURCE_DIR}" \
             "${MYPY_EXCLUDE_ARGS[@]}" \
             --show-error-codes --pretty \
-            --install-types --non-interactive --ignore-missing-imports
+            --install-types --non-interactive
 
   test:
     name: Test Suite

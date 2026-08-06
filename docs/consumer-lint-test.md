@@ -43,6 +43,25 @@ Type checking (`tsc --noEmit` for JS/TS, `mypy` for Python) and the test suite
 are separate concerns and remain in the consumer repository. The SDK Biome
 workflow does not type-check and does not run tests.
 
+## Consumer type-check contract (Python / mypy)
+
+- **Required, blocking by default.** The `mypy` step fails the job on any type
+  error. The reusable `pr-pipeline.yml` exposes a `mypy-required` input that
+  defaults to `true`; requiredness is explicit — there is no silent state, and
+  findings are never converted to a passing notice unless the caller opts in
+  with `mypy-required: false` (advisory).
+- **Repository-owned configuration.** Strictness and per-module import handling
+  come from the consumer's `pyproject.toml` (`[tool.mypy]`) / `mypy.ini` /
+  `setup.cfg`. The workflows pass **no** global `--ignore-missing-imports`; a
+  repo ignores a specific untyped import in its own config with a
+  `[[tool.mypy.overrides]]` `ignore_missing_imports = true` block.
+- **Pydantic is opt-in, not global.** A repo using Pydantic enables the plugin
+  in its own config (`plugins = ["pydantic.mypy"]`). The plugin is never forced
+  on globally.
+- **Pinned tools are bot-visible.** The mypy/ruff/pytest versions the CI
+  surfaces install are pinned in `requirements-consumer-ci.txt` (not inline in
+  `run:` blocks) so Dependabot can propose bumps as reviewable PRs.
+
 ## Adopt it
 
 1. Copy [`templates/l9-lint-test.yml`](./templates/l9-lint-test.yml) into your
