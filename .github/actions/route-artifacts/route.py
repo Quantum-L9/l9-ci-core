@@ -12,6 +12,9 @@ from pathlib import Path
 
 SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
+# The three artifact kinds (raw, bundle, payload) must resolve to distinct paths.
+_DISTINCT_DESTINATION_COUNT = 3
+
 
 class RoutingError(RuntimeError):
     pass
@@ -100,7 +103,7 @@ def main() -> int:
             bundle_destination.resolve(),
             payload_destination.resolve(),
         }
-        if len(destinations) != 3:
+        if len(destinations) != _DISTINCT_DESTINATION_COUNT:
             raise RoutingError("artifact destinations collide")
         copy_exact(raw_source, raw_destination)
         copy_exact(bundle_source, bundle_destination)

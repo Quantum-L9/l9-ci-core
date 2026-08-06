@@ -15,6 +15,10 @@ class CheckPublicationError(RuntimeError):
     pass
 
 
+# GitHub's check-run API accepts at most 50 annotations per request.
+MAX_ANNOTATIONS = 50
+
+
 def required(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
@@ -61,7 +65,7 @@ def validate_document(document: Any) -> dict[str, Any]:
     annotations = output.get("annotations", [])
     if not isinstance(annotations, list):
         raise CheckPublicationError("publication annotations must be an array")
-    if len(annotations) > 50:
+    if len(annotations) > MAX_ANNOTATIONS:
         raise CheckPublicationError(
             "publication exceeds the per-request annotation limit"
         )

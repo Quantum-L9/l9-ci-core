@@ -40,7 +40,7 @@ def single_flight(path: pathlib.Path, *, stale_after: int = 1800) -> Iterator[No
         except FileNotFoundError:
             age = 0
         if age <= stale_after:
-            raise LockBusy(f"operation already running: {path}")
+            raise LockBusy(f"operation already running: {path}") from None
         try:
             entries = list(path.iterdir())
             if any(
