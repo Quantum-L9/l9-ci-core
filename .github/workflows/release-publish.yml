@@ -66,6 +66,7 @@ on:
         required: false
 permissions:
   contents: read
+  packages: read
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -96,12 +97,14 @@ jobs:
           python-version: ${{ inputs.python-version }}
       - name: Build and validate Python distribution
         if: steps.detect.outputs.python == 'true'
+        env:
+          EXTRA_INSTALL_COMMAND: ${{ inputs.extra-install-command }}
         run: |
           set -euo pipefail
           python -m pip install --upgrade "pip==26.1.2"
           pip install "build==1.3.0" "twine==6.2.0"
-          if [ -n "${{ inputs.extra-install-command }}" ]; then
-            ${{ inputs.extra-install-command }}
+          if [ -n "$EXTRA_INSTALL_COMMAND" ]; then
+            bash -c "$EXTRA_INSTALL_COMMAND"
           fi
           python -m build
           twine check dist/*
@@ -124,6 +127,8 @@ jobs:
           node-version: "20"
       - name: Validate Node package (publish dry-run)
         if: steps.detect.outputs.node == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -f "pnpm-lock.yaml" ]; then

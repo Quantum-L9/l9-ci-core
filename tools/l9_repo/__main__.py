@@ -888,7 +888,7 @@ class RepositoryWorkflow:
             for finding in companion
         ]
         if infrastructure_failures:
-            overall_exit_code = 2
+            overall_exit_code = _INFRASTRUCTURE_EXIT_CODE
         elif finding_failures:
             overall_exit_code = 1
         else:
@@ -1226,12 +1226,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     except (WorkflowError, ChangePolicyError, ContractWiringError) as error:
         print(str(error), file=sys.stderr)
-        return 2
+        return _INFRASTRUCTURE_EXIT_CODE
     except subprocess.CalledProcessError as error:
         return error.returncode or 1
     except OSError as error:
         print(str(error), file=sys.stderr)
-        return 2
+        return _INFRASTRUCTURE_EXIT_CODE
     return 0
 
 

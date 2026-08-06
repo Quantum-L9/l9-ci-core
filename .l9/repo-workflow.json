@@ -3,7 +3,7 @@
   "schema_version": 1,
   "metadata": {
     "artifact_id": "l9-ci-core-repository-execution-runtime",
-    "artifact_version": "4.3.0",
+    "artifact_version": "4.3.1",
     "contract_status": "authoritative",
     "beneficiary": "Quantum-L9/l9-ci-core",
     "authority_scope": "repository-execution"
@@ -21,12 +21,7 @@
       "Makefile"
     ],
     "derived_documents": [
-      "README.md",
-      "AUTHORITY.md",
-      "OPERATIONS.md",
-      "VALIDATION.md",
-      "MANIFEST.md",
-      "AGENTS-ADDENDUM.md"
+      "docs/repository-execution-runtime.md"
     ],
     "dependency_manifests": {
       "target_required": [
@@ -293,10 +288,10 @@
         ],
         "require_all_paths": [
           "AGENTS.md",
-          "OPERATIONS.md",
+          "docs/repository-execution-runtime.md",
           "MANIFEST.sha256"
         ],
-        "message": "repository command-facade changes require tests, agent instructions, command documentation, and manifest refresh"
+        "message": "repository command-facade changes require tests, agent instructions, operator documentation, and manifest refresh"
       }
     ]
   },
