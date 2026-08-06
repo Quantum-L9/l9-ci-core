@@ -12,9 +12,6 @@ from pathlib import Path
 
 SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
-# The three artifact kinds (raw, bundle, payload) must resolve to distinct paths.
-_DISTINCT_DESTINATION_COUNT = 3
-
 
 class RoutingError(RuntimeError):
     pass
@@ -93,41 +90,55 @@ def main() -> int:
             env("L9_DESTINATION_ROOT"),
             must_exist=False,
         )
+        # The projected SARIF is an optional, SDK-produced derived artifact. Core
+        # routes it byte-for-byte alongside the canonical bundle and never
+        # generates or edits SARIF itself.
+        sarif_value = os.environ.get("L9_SARIF", "").strip()
+        sarif_source = (
+            workspace_path(sarif_value, must_exist=True) if sarif_value else None
+        )
         raw_directory = destination_root / "raw" / provider / matrix_id
         canonical_directory = destination_root / "l9" / matrix_id
         raw_destination = raw_directory / raw_source.name
         bundle_destination = canonical_directory / "finding-bundle.json"
         payload_destination = canonical_directory / "agent-review-payload.json"
-        destinations = {
-            raw_destination.resolve(),
-            bundle_destination.resolve(),
-            payload_destination.resolve(),
-        }
-        if len(destinations) != _DISTINCT_DESTINATION_COUNT:
+        sarif_destination = canonical_directory / "results.sarif"
+        routed = [raw_destination, bundle_destination, payload_destination]
+        if sarif_source is not None:
+            routed.append(sarif_destination)
+        if len({destination.resolve() for destination in routed}) != len(routed):
             raise RoutingError("artifact destinations collide")
         copy_exact(raw_source, raw_destination)
         copy_exact(bundle_source, bundle_destination)
         copy_exact(payload_source, payload_destination)
+        if sarif_source is not None:
+            copy_exact(sarif_source, sarif_destination)
         metadata_directory = destination_root / "metadata" / matrix_id
         metadata_directory.mkdir(parents=True, exist_ok=True)
+        artifacts_record: dict[str, dict[str, str]] = {
+            "raw": {
+                "path": raw_destination.as_posix(),
+                "sha256": sha256(raw_destination),
+            },
+            "bundle": {
+                "path": bundle_destination.as_posix(),
+                "sha256": sha256(bundle_destination),
+            },
+            "agent_payload": {
+                "path": payload_destination.as_posix(),
+                "sha256": sha256(payload_destination),
+            },
+        }
+        if sarif_source is not None:
+            artifacts_record["sarif"] = {
+                "path": sarif_destination.as_posix(),
+                "sha256": sha256(sarif_destination),
+            }
         routing_record = {
             "schema": "l9.core-routing-record/v1",
             "provider": provider,
             "matrix_id": matrix_id,
-            "artifacts": {
-                "raw": {
-                    "path": raw_destination.as_posix(),
-                    "sha256": sha256(raw_destination),
-                },
-                "bundle": {
-                    "path": bundle_destination.as_posix(),
-                    "sha256": sha256(bundle_destination),
-                },
-                "agent_payload": {
-                    "path": payload_destination.as_posix(),
-                    "sha256": sha256(payload_destination),
-                },
-            },
+            "artifacts": artifacts_record,
         }
         routing_path = metadata_directory / "routing-record.json"
         routing_path.write_text(
@@ -142,6 +153,7 @@ def main() -> int:
         emit("raw-directory", str(raw_directory))
         emit("bundle", str(bundle_destination))
         emit("agent-payload", str(payload_destination))
+        emit("sarif", str(sarif_destination) if sarif_source is not None else "")
         return 0
     except RoutingError as error:
         print(f"route-artifacts: {error}", file=sys.stderr)

@@ -67,6 +67,68 @@ class RouteArtifactTests(unittest.TestCase):
                 result = module.main()
             self.assertEqual(2, result)
 
+    def _base_environment(self, workspace: Path) -> dict[str, str]:
+        raw = workspace / "source/raw.json"
+        bundle = workspace / "source/bundle.json"
+        payload = workspace / "source/payload.json"
+        raw.parent.mkdir(parents=True, exist_ok=True)
+        raw.write_bytes(b'{"raw":true}\n')
+        bundle.write_bytes(b'{"bundle":true}\n')
+        payload.write_bytes(b'{"payload":true}\n')
+        return {
+            "GITHUB_WORKSPACE": str(workspace),
+            "L9_PROVIDER": "semgrep",
+            "L9_MATRIX_ID": "python-3.12",
+            "L9_RAW_REPORT": str(raw),
+            "L9_BUNDLE": str(bundle),
+            "L9_AGENT_PAYLOAD": str(payload),
+            "L9_DESTINATION_ROOT": "artifacts",
+        }
+
+    def test_sarif_is_routed_byte_for_byte(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            environment = self._base_environment(workspace)
+            sarif = workspace / "source/results.sarif"
+            sarif.write_bytes(b'{"version":"2.1.0","runs":[]}\n')
+            environment["L9_SARIF"] = str(sarif)
+            with patch.dict(os.environ, environment, clear=True):
+                self.assertEqual(0, module.main())
+            routed_sarif = workspace / "artifacts/l9/python-3.12/results.sarif"
+            self.assertTrue(routed_sarif.is_file())
+            self.assertEqual(digest(sarif), digest(routed_sarif))
+            record = (
+                workspace / "artifacts/metadata/python-3.12/routing-record.json"
+            ).read_text(encoding="utf-8")
+            self.assertIn('"sarif"', record)
+
+    def test_sarif_is_optional_and_backward_compatible(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            environment = self._base_environment(workspace)  # no L9_SARIF
+            with patch.dict(os.environ, environment, clear=True):
+                self.assertEqual(0, module.main())
+            self.assertFalse(
+                (workspace / "artifacts/l9/python-3.12/results.sarif").exists()
+            )
+            record = (
+                workspace / "artifacts/metadata/python-3.12/routing-record.json"
+            ).read_text(encoding="utf-8")
+            self.assertNotIn('"sarif"', record)
+
+    def test_sarif_path_escape_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            environment = self._base_environment(workspace)
+            outside = workspace.parent / "outside.sarif"
+            outside.write_bytes(b"{}\n")
+            environment["L9_SARIF"] = str(outside)
+            try:
+                with patch.dict(os.environ, environment, clear=True):
+                    self.assertEqual(2, module.main())
+            finally:
+                outside.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()

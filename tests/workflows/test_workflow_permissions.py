@@ -18,7 +18,10 @@ class WorkflowPermissionTests(unittest.TestCase):
     # Write permissions are read-only everywhere except these audited
     # exceptions. Any change to this table is a trust-boundary change.
     #
-    #   publish-analysis.yml    checks:write — publishes the GitHub check run.
+    #   publish-analysis.yml    checks:write — publishes the GitHub check run;
+    #                           security-events:write — uploads the SDK-projected
+    #                           SARIF to code scanning. workflow_call-only, gated
+    #                           by the caller.
     #   analyze-semgrep.yml     checks:write — its `publish` job grants the
     #                           nested publish-analysis.yml call the check-run
     #                           scope. workflow_call-only; the caller gates
@@ -29,7 +32,7 @@ class WorkflowPermissionTests(unittest.TestCase):
     #                           `regenerate` job and unreachable from untrusted
     #                           events (enforced by the trigger test below).
     WRITE_EXCEPTIONS = {
-        "publish-analysis.yml": ["checks"],
+        "publish-analysis.yml": ["checks", "security-events"],
         "analyze-semgrep.yml": ["checks"],
         "regenerate-identity-maps.yml": ["contents", "pull-requests"],
     }

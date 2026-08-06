@@ -13,6 +13,12 @@ inputs:
     required: true
   agent-payload:
     required: true
+  sarif:
+    description: >
+      Optional SDK-projected SARIF file to route as a first-class derived
+      artifact. Empty when SARIF projection is not enabled.
+    required: false
+    default: ""
   destination-root:
     required: false
     default: artifacts
@@ -23,6 +29,8 @@ outputs:
     value: ${{ steps.route.outputs.bundle }}
   agent-payload:
     value: ${{ steps.route.outputs.agent-payload }}
+  sarif:
+    value: ${{ steps.route.outputs.sarif }}
 runs:
   using: composite
   steps:
@@ -34,5 +42,6 @@ runs:
         L9_RAW_REPORT: ${{ inputs.raw-report }}
         L9_BUNDLE: ${{ inputs.bundle }}
         L9_AGENT_PAYLOAD: ${{ inputs.agent-payload }}
+        L9_SARIF: ${{ inputs.sarif }}
         L9_DESTINATION_ROOT: ${{ inputs.destination-root }}
       run: python3 "${{ github.action_path }}/route.py"
