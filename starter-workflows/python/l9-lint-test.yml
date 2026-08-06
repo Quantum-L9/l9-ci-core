@@ -63,6 +63,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
+          # Pinned consumer CI toolchain (bot-visible; Dependabot-tracked).
+          if [ -f requirements-consumer-ci.txt ]; then pip install -r requirements-consumer-ci.txt; fi
           if [ -f requirements-ci.txt ]; then pip install -r requirements-ci.txt; fi
           command -v ruff >/dev/null 2>&1 || pip install ruff
           command -v mypy >/dev/null 2>&1 || pip install mypy
@@ -75,9 +77,12 @@ jobs:
 
       - name: mypy
         run: |
+          # Repository-owned mypy configuration is authoritative; no global
+          # --ignore-missing-imports. Pydantic repos opt into the pydantic mypy
+          # plugin in their own config. mypy is a required, blocking gate.
           mypy "${SOURCE_DIR}" \
             --show-error-codes --pretty \
-            --install-types --non-interactive --ignore-missing-imports
+            --install-types --non-interactive
 
   test:
     name: Test Suite

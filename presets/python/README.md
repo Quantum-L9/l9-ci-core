@@ -32,6 +32,41 @@ If you are setting up a new Python repository:
      module names" when scanned without `__init__.py`/`--explicit-package-bases`).
 3. Commit and push.
 
+## Type checking (mypy)
+
+**Required and blocking.** The `mypy` step fails the `lint` job on any type
+error — it is not advisory in this preset, and findings are never downgraded to
+a notice. (The reusable `pr-pipeline.yml` compatibility workflow exposes a
+`mypy-required` input that defaults to `true`; only an explicit
+`mypy-required: false` makes it advisory.)
+
+**Configuration ownership.** Your repository owns mypy configuration.
+Strictness, `python_version`, and per-module import handling come from your
+`pyproject.toml` (`[tool.mypy]`), `mypy.ini`, or `setup.cfg`. The workflow does
+**not** pass a global `--ignore-missing-imports`; if a specific third-party
+import is untyped, ignore it narrowly in your own config:
+
+```toml
+[[tool.mypy.overrides]]
+module = ["some_untyped_dep.*"]
+ignore_missing_imports = true
+```
+
+Add the stub packages you need (e.g. `types-requests`) to your repo's own
+dependency manifest; `--install-types --non-interactive` installs declared
+stubs but does not weaken checking.
+
+**Pydantic opt-in.** Pydantic's mypy plugin is **not** enabled globally. A repo
+that uses Pydantic enables it in its own config:
+
+```toml
+[tool.mypy]
+plugins = ["pydantic.mypy"]
+```
+
+The `pip`-tracked tool pins (mypy version, etc.) live in
+`requirements-consumer-ci.txt` and are kept current by Dependabot.
+
 ## How to Activate CI (For AI Agents)
 
 Agents (Cursor, Manus, Claude Code) should be instructed to:

@@ -49,6 +49,38 @@ class CheckFileTests(unittest.TestCase):
     def test_benign_grep_guard_is_exempt(self) -> None:
         self.assertEqual([], self._check("      run: grep -q foo file || true\n"))
 
+    def test_blocking_mypy_step_is_clean(self) -> None:
+        # A required, blocking mypy invocation (no fail-open suffix) must pass:
+        # a non-zero mypy exit propagates and fails the job.
+        self.assertEqual([], self._check('      run: mypy "$SOURCE_DIR"\n'))
+
+    def test_fail_open_mypy_true_suffix_is_flagged(self) -> None:
+        # `mypy ... || true` / `|| exit 0` silently masks type debt — the
+        # explicit-blocking discipline requires this be caught.
+        self.assertTrue(
+            any(
+                "fail-open" in v
+                for v in self._check('      run: mypy "$SOURCE_DIR" || true\n')
+            )
+        )
+        self.assertTrue(
+            any(
+                "fail-open" in v
+                for v in self._check('      run: mypy "$SOURCE_DIR" || exit 0\n')
+            )
+        )
+
+    def test_advisory_mypy_notice_branch_is_permitted(self) -> None:
+        # The explicit advisory branch (guarded by mypy-required=false) surfaces
+        # findings as a notice rather than `|| true`; a `|| echo ::notice::` is
+        # not a `|| true` fail-open and must not be flagged.
+        self.assertEqual(
+            [],
+            self._check(
+                '      run: mypy "$SOURCE_DIR" || echo "::notice::mypy advisory"\n'
+            ),
+        )
+
     def test_command_substitution_is_exempt(self) -> None:
         self.assertEqual([], self._check("      run: x=$(cmd || true)\n"))
 
