@@ -39,6 +39,8 @@ permissions:
   actions: read
   checks: write
   contents: read
+  # Required only to upload the SDK-projected SARIF to GitHub code scanning.
+  security-events: write
 jobs:
   shadow:
     if: inputs.mode == 'shadow' || inputs.mode == 'disabled'
@@ -94,12 +96,19 @@ jobs:
           root=".l9/runtime/publication/download"
           bundle="${root}/l9/${MATRIX_ID}/finding-bundle.json"
           payload="${root}/l9/${MATRIX_ID}/agent-review-payload.json"
+          sarif="${root}/l9/${MATRIX_ID}/results.sarif"
           test -f "${bundle}"
           test -f "${payload}"
           {
             echo "bundle=${bundle}"
             echo "payload=${payload}"
           } >> "${GITHUB_OUTPUT}"
+          # SARIF is an optional derived artifact; publish it only when present.
+          if [ -f "${sarif}" ]; then
+            echo "sarif=${sarif}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "sarif=" >> "${GITHUB_OUTPUT}"
+          fi
       # This reusable workflow runs in the CALLER's checkout, so `uses: ./...`
       # local-action refs resolve against the consumer repo (which does not
       # vendor Core's actions) and fail. Reference Core's actions by their
@@ -116,6 +125,15 @@ jobs:
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.locate.outputs.bundle }}
+      - name: Upload SDK-projected SARIF to code scanning
+        if: steps.locate.outputs.sarif != ''
+        uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b  # v3
+        with:
+          sarif_file: ${{ steps.locate.outputs.sarif }}
+          # The SARIF is produced deterministically by the SDK for this exact
+          # commit; label the code-scanning category by matrix so parallel
+          # analyses do not overwrite each other's results.
+          category: l9-${{ inputs.matrix-id }}
       - id: render
         name: Render publication payload
         uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@2989db3d4b5dc2450d4c06c1276da981daf6cf20
