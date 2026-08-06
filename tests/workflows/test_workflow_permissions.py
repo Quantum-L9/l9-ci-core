@@ -47,6 +47,42 @@ class WorkflowPermissionTests(unittest.TestCase):
                 expected = self.WRITE_EXCEPTIONS.get(workflow.name, [])
                 self.assertEqual(expected, matches)
 
+    # Preset/starter workflows that invoke the SDK-owned reusable Biome
+    # workflow. They live outside .github/workflows (so the globs above skip
+    # them) but must hold the same least-privilege line: contents: read only,
+    # no write scopes, and the reusable call pinned to a full SHA.
+    BIOME_LINT_TEST_WORKFLOWS = (
+        "presets/typescript/.github/workflows/l9-lint-test.yml",
+        "starter-workflows/typescript/l9-lint-test.yml",
+    )
+
+    def test_biome_lint_test_presets_are_read_only(self) -> None:
+        write_pattern = re.compile(
+            r"(?m)^\s+(actions|checks|contents|deployments|discussions|"
+            r"id-token|issues|packages|pages|pull-requests|"
+            r"repository-projects|security-events|statuses):\s+write"
+        )
+        for relative in self.BIOME_LINT_TEST_WORKFLOWS:
+            workflow = ROOT / relative
+            with self.subTest(workflow=relative):
+                text = workflow.read_text(encoding="utf-8")
+                self.assertRegex(text, re.compile(r"(?m)^\s*contents:\s+read\s*$"))
+                self.assertEqual(
+                    [],
+                    write_pattern.findall(text),
+                    f"{relative} invokes a reusable workflow and must stay "
+                    "least-privilege (contents: read only)",
+                )
+                self.assertRegex(
+                    text,
+                    re.compile(
+                        r"uses:\s*Quantum-L9/l9-ci-sdk/\.github/workflows/"
+                        r"l9-biome-scan\.yml@[0-9a-f]{40}"
+                    ),
+                    f"{relative} must pin the SDK Biome reusable workflow to a "
+                    "full 40-char SHA",
+                )
+
     def test_write_scoped_workflows_are_not_pull_request_triggered(self) -> None:
         # A workflow that can obtain write permissions must never run on
         # untrusted `pull_request` events, or a fork PR could reach that scope.

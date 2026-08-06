@@ -22,6 +22,27 @@ the rewrite.
 
 So the replacement ships as a **template you copy**, not a workflow you call.
 
+## Formatter/linter ownership
+
+Exactly one formatter owns each language; a second formatter for the same
+language produces a diff that churns on every save.
+
+| Languages | Owner | How |
+|---|---|---|
+| `javascript`, `typescript`, `json`, `jsonc` | **Biome** | The SDK-owned reusable workflow `Quantum-L9/l9-ci-sdk/.github/workflows/l9-biome-scan.yml` (format + lint + import organization), invoked as the `biome` job and pinned to a full commit SHA. |
+| `python` | **ruff** | `ruff check` + `ruff format --check` in the `lint` job. |
+
+Biome — not ESLint — owns JS/TS/JSON formatting and linting. ESLint is **not**
+a second formatter owner. A repository may retain ESLint only for
+**supplemental** rules Biome does not implement (e.g. a framework-specific
+plugin), never for formatting and never as a competing format authority; run it
+as an extra step in the consumer's own workflow, and never add a Prettier config
+alongside Biome.
+
+Type checking (`tsc --noEmit` for JS/TS, `mypy` for Python) and the test suite
+are separate concerns and remain in the consumer repository. The SDK Biome
+workflow does not type-check and does not run tests.
+
 ## Adopt it
 
 1. Copy [`templates/l9-lint-test.yml`](./templates/l9-lint-test.yml) into your

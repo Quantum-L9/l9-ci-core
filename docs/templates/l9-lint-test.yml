@@ -8,9 +8,16 @@
 # whose workflow set is fixed by `tests/workflows/test_phase_scope.py`. Generic
 # ruff / mypy / pytest hygiene is owned by the consuming repository, not Core.
 #
+# Formatter/linter ownership (see docs/consumer-lint-test.md):
+#   - JS / TS / JSON: Biome, via the SDK-owned reusable `l9-biome-scan.yml`
+#     workflow (the `biome` job below). ESLint is NOT a second formatter owner.
+#   - Python: ruff (format + lint), in the `lint` job below.
+#   - Types: tsc --noEmit (JS/TS) / mypy (Python). Tests: the `test` job.
+# A consumer keeps the jobs for its language(s) and deletes the rest.
+#
 # v2 conventions preserved here:
 #   - immutable event-revision checkout (no floating action ref)
-#   - external actions pinned to full commit SHAs
+#   - external actions and the SDK reusable workflow pinned to full commit SHAs
 #   - explicit least-privilege permissions (contents: read, no write scopes)
 name: L9 Lint and Test
 
@@ -37,6 +44,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # JS/TS/JSON consumers: Biome (format + lint + import organization) is owned
+  # by the SDK reusable workflow — a single read-only gate with a
+  # checksum-verified biome binary and zero external actions. Pair it with the
+  # `typecheck` guidance (tsc --noEmit) and the `test` job. Python-only
+  # consumers delete this job. Reusable-workflow inputs cannot read `env:`, so
+  # scan-path and the rollout flag are set literally.
+  biome:
+    name: Biome (format + lint) — SDK-owned
+    permissions:
+      contents: read
+    uses: Quantum-L9/l9-ci-sdk/.github/workflows/l9-biome-scan.yml@f546f122d33601ea5a4b2592e3482c5c39eddd82
+    with:
+      scan-path: "."
+      # Advisory-to-blocking rollout: false = full scan + annotate + exit 0.
+      # Flip to true to make Biome findings blocking once the repo is clean.
+      enforce-biome: false
+
   lint:
     name: Lint and Type Check
     runs-on: ubuntu-latest
@@ -61,6 +85,8 @@ jobs:
             -c "http.https://github.com/.extraheader=${auth_header}" \
             fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
+      # JS/TS consumers: replace the Python setup + ruff/mypy steps below with a
+      # `tsc --noEmit` type check (see presets/typescript for the full shape).
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
