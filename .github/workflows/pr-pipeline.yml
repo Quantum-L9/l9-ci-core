@@ -73,11 +73,13 @@ jobs:
           persist-credentials: false
       - name: Detect project languages
         id: detect
+        env:
+          REQUIREMENTS_FILE: ${{ inputs.requirements-file }}
         run: |
           set -euo pipefail
           python_project=false
           node_project=false
-          if [ -f "pyproject.toml" ] || [ -f "${{ inputs.requirements-file }}" ] || [ -f "setup.py" ]; then
+          if [ -f "pyproject.toml" ] || [ -f "$REQUIREMENTS_FILE" ] || [ -f "setup.py" ]; then
             python_project=true
           fi
           if [ -f "package.json" ]; then
@@ -94,35 +96,45 @@ jobs:
           python-version: ${{ inputs.python-version }}
       - name: Install Python dependencies
         if: steps.detect.outputs.python == 'true'
+        env:
+          REQUIREMENTS_FILE: ${{ inputs.requirements-file }}
+          L9_CI_INSTALL_COMMAND: ${{ inputs.l9-ci-install-command }}
+          EXTRA_INSTALL_COMMAND: ${{ inputs.extra-install-command }}
         run: |
           set -euo pipefail
           python -m pip install --upgrade "pip==26.1.2"
-          if [ -f "${{ inputs.requirements-file }}" ]; then
-            pip install -r "${{ inputs.requirements-file }}"
+          if [ -f "$REQUIREMENTS_FILE" ]; then
+            pip install -r "$REQUIREMENTS_FILE"
           elif [ -f "pyproject.toml" ]; then
             pip install -e ".[dev]" || pip install -e .
           fi
           pip install "ruff==0.14.5" "mypy==1.19.0" "pytest==8.4.2"
-          if [ -n "${{ inputs.l9-ci-install-command }}" ]; then
-            ${{ inputs.l9-ci-install-command }} || echo "::notice::l9-ci install command failed; continuing"
+          if [ -n "$L9_CI_INSTALL_COMMAND" ]; then
+            bash -c "$L9_CI_INSTALL_COMMAND" || echo "::notice::l9-ci install command failed; continuing"
           fi
-          if [ -n "${{ inputs.extra-install-command }}" ]; then
-            ${{ inputs.extra-install-command }}
+          if [ -n "$EXTRA_INSTALL_COMMAND" ]; then
+            bash -c "$EXTRA_INSTALL_COMMAND"
           fi
       - name: Lint (ruff)
         if: steps.detect.outputs.python == 'true'
-        run: ruff check "${{ inputs.source-dir }}"
+        env:
+          SOURCE_DIR: ${{ inputs.source-dir }}
+        run: ruff check "$SOURCE_DIR"
       - name: Type-check (mypy)
         if: steps.detect.outputs.python == 'true'
-        run: mypy "${{ inputs.source-dir }}" || echo "::notice::mypy findings are non-blocking in the v1 compat layer"
+        env:
+          SOURCE_DIR: ${{ inputs.source-dir }}
+        run: mypy "$SOURCE_DIR" || echo "::notice::mypy findings are non-blocking in the v1 compat layer"
       - name: Tests (pytest)
         if: steps.detect.outputs.python == 'true'
+        env:
+          TEST_DIR: ${{ inputs.test-dir }}
         run: |
           set -euo pipefail
-          if [ -d "${{ inputs.test-dir }}" ]; then
-            pytest "${{ inputs.test-dir }}" -q
+          if [ -d "$TEST_DIR" ]; then
+            pytest "$TEST_DIR" -q
           else
-            echo "::notice::Test directory '${{ inputs.test-dir }}' not found; skipping pytest"
+            echo "::notice::Test directory '$TEST_DIR' not found; skipping pytest"
           fi
       # ---------- Node path ----------
       - name: Set up Node

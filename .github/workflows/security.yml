@@ -76,20 +76,24 @@ jobs:
           python-version: ${{ inputs.python-version }}
       - name: Python dependency audit (pip-audit)
         if: steps.detect.outputs.python == 'true'
+        env:
+          L9_CI_INSTALL_COMMAND: ${{ inputs.l9-ci-install-command }}
         run: |
           set -euo pipefail
           python -m pip install --upgrade "pip==26.1.2"
           pip install "pip-audit==2.9.0"
-          if [ -n "${{ inputs.l9-ci-install-command }}" ]; then
-            ${{ inputs.l9-ci-install-command }} || echo "::notice::l9-ci install command failed; continuing"
+          if [ -n "$L9_CI_INSTALL_COMMAND" ]; then
+            bash -c "$L9_CI_INSTALL_COMMAND" || echo "::notice::l9-ci install command failed; continuing"
           fi
           pip-audit --desc || pip-audit --desc -r requirements.txt
       - name: Python static security scan (bandit)
         if: steps.detect.outputs.python == 'true'
+        env:
+          SOURCE_DIR: ${{ inputs.source-dir }}
         run: |
           set -euo pipefail
           pip install "bandit==1.8.6"
-          bandit -r "${{ inputs.source-dir }}" -ll -f screen \
+          bandit -r "$SOURCE_DIR" -ll -f screen \
             --exclude ./venv,./.venv,./tests,./build,./dist \
             || echo "::notice::Bandit warnings are non-blocking"
       - name: Node dependency audit (npm audit)

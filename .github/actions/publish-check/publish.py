@@ -110,8 +110,15 @@ def main() -> int:
                 "Content-Type": "application/json",
             },
         )
+        # Defense-in-depth: urllib honors file://, so refuse anything but the
+        # https GitHub API endpoint before opening the request.
+        if not request.full_url.startswith("https://"):
+            raise CheckPublicationError(
+                f"refusing non-https Checks API URL: {request.full_url!r}"
+            )
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- https scheme enforced above
+            with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
                 result = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
             body = error.read().decode("utf-8", errors="replace")
