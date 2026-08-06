@@ -77,7 +77,7 @@ jobs:
           git checkout --detach FETCH_HEAD
           git remote set-url origin             "https://github.com/${REPOSITORY}.git"
       - name: Download immutable analysis artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: ${{ inputs.artifact-name }}
           path: .l9/runtime/publication/download
