@@ -9,8 +9,17 @@ It provides a zero-friction, copy-paste deployment of the `l9-ci-core` governed 
 | File | Purpose | Lock Status |
 |------|---------|-------------|
 | `.github/workflows/l9-analysis.yml` | The governed analysis pipeline (Semgrep, SDK, Manifests) | **100% Locked** (TypeScript/JavaScript config only) |
-| `.github/workflows/l9-lint-test.yml` | Code hygiene (ESLint, tsc, test runner) | **Structure Locked**, Env configurable |
+| `.github/workflows/l9-lint-test.yml` | Code hygiene: **Biome** (format + lint, SDK-owned reusable workflow), `tsc --noEmit`, test runner | **Structure Locked**, Env + biome `with:` configurable |
 | `.github/governance/*.yaml` | Governance rules (Profiles, Modes, Waivers) | **100% Locked** |
+
+## Formatter/linter ownership
+
+Biome owns JS/TS/JSON **format + lint** via the SDK-owned reusable workflow
+`Quantum-L9/l9-ci-sdk/.github/workflows/l9-biome-scan.yml` (pinned to a full
+commit SHA). ESLint is **not** a second formatter owner in this preset — a repo
+may keep ESLint only for supplemental rules Biome does not cover, never for
+formatting. `tsc --noEmit` (type check) and the repository test suite stay in
+your repo. See [`docs/consumer-lint-test.md`](../../docs/consumer-lint-test.md).
 
 ## How to Activate CI (For Humans)
 
@@ -23,10 +32,32 @@ If you are setting up a new TypeScript/JavaScript repository:
 2. Open `.github/workflows/l9-lint-test.yml` and update the `env:` block at the top:
    - `NODE_VERSION`: the Node.js version your repo targets, e.g. `"20"`
    - `PACKAGE_MANAGER`: `"npm"`, `"pnpm"`, or `"yarn"`
-   - `SOURCE_DIR`: e.g., `"src/"` or `"."`
+   - `SOURCE_DIR`: e.g., `"src/"` or `"."` (used by `tsc`/tests)
    - `HAS_TYPESCRIPT`: `"true"` if the repo uses TypeScript (has `tsconfig.json`), `"false"` for plain JavaScript
-3. Ensure `package.json` defines a `lint` script (falls back to `npx eslint` if absent) and a `test` script (skipped with a notice if absent).
-4. Commit and push.
+3. Configure the `biome` job's `with:` inputs (reusable-workflow inputs cannot
+   read `env:`, so they are set on the job directly):
+   - `scan-path`: path passed to `biome ci`, e.g. `"."` or `"src"`.
+   - `enforce-biome`: rollout flag (see below).
+4. Copy `biome.json` into your repository root (same convention as `ruff.toml`)
+   and adjust `files.includes` for your JSON/JS/TS footprint.
+5. Ensure `package.json` defines a `test` script (skipped with a notice if
+   absent). No `lint` script is required — Biome owns format + lint.
+6. Commit and push.
+
+## Advisory-to-blocking rollout
+
+The `biome` job invokes the SDK reusable workflow with an `enforce-biome`
+input that controls the rollout stage:
+
+| `enforce-biome` | Behavior | When |
+|---|---|---|
+| `false` (default) | Full scan, annotate findings, **exit 0** (advisory). | Initial adoption — surface Biome findings without blocking merges. |
+| `true` | Fail the job on Biome findings (**blocking**). | Once the repo is clean, flip to enforce format + lint on every PR. |
+
+Roll out by adopting at `enforce-biome: false`, driving the codebase to zero
+Biome findings, then editing the single `with:` line to `enforce-biome: true`.
+This staged rollout mirrors the Semgrep rule `disabled → shadow → advisory →
+blocking` promotion discipline.
 
 ## How to Activate CI (For AI Agents)
 
