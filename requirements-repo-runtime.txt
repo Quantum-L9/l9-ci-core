@@ -1,5 +1,5 @@
 # Dependencies owned by the repository execution runtime.
 jsonschema==4.26.0
 mypy==1.19.0
-ruff==0.14.5
-types-jsonschema==4.25.1.20250822
+ruff==0.16.0
+types-jsonschema==4.26.0.20260518
