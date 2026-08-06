@@ -63,6 +63,7 @@ on:
         default: false
 permissions:
   contents: read
+  packages: read
 jobs:
   nightly:
     runs-on: ubuntu-latest
@@ -121,8 +122,11 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
+          registry-url: https://npm.pkg.github.com
       - name: Node full test run
         if: steps.detect.outputs.node == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -f "pnpm-lock.yaml" ]; then
