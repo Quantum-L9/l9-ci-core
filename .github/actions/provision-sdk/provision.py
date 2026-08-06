@@ -19,6 +19,11 @@ EXPECTED_REVISION = "f546f122d33601ea5a4b2592e3482c5c39eddd82"
 # the SDK's own integration-contract.yaml; this constant is used only when no
 # entry-specific contract is available.
 EXPECTED_CONTRACT = "l9.integration-contract/v1"
+# Semgrep runtime floor used only when the pinned SDK checkout declares no
+# `[project.optional-dependencies].semgrep` group of its own. `semgrep run`
+# shells out to the semgrep binary, so the provisioned SDK venv must carry it;
+# the pin travels with the pinned SDK revision whenever the SDK declares it.
+SEMGREP_RUNTIME_FALLBACK = "semgrep>=1.100"
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 # Repo-root .l9/sdk-compatibility.yaml, relative to this action file
 # (.github/actions/provision-sdk/provision.py -> parents[3] == repo root).
@@ -261,6 +266,66 @@ def verify_contract_file(checkout: Path, entry: dict) -> None:
         )
 
 
+def resolve_semgrep_requirements(checkout: Path) -> list[str]:
+    """Semgrep runtime specifiers sourced from the pinned SDK checkout.
+
+    Prefer the SDK's own ``[project.optional-dependencies].semgrep`` group so the
+    pin travels with the pinned SDK revision. Fall back to the documented
+    provider floor only when the checkout declares no such group. The manifest
+    of record is the SDK the revision resolves to, never a hand-picked version
+    in Core."""
+    pyproject = checkout / "pyproject.toml"
+    if pyproject.is_file():
+        try:
+            import tomllib
+        except ModuleNotFoundError:  # pragma: no cover - py<3.11 runners
+            tomllib = None  # type: ignore[assignment]
+        if tomllib is not None:
+            try:
+                data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+            except tomllib.TOMLDecodeError as error:
+                raise ProvisioningError(
+                    f"SDK pyproject.toml is not valid TOML: {error}"
+                ) from error
+            project = data.get("project")
+            extras = (
+                project.get("optional-dependencies")
+                if isinstance(project, dict)
+                else None
+            )
+            group = extras.get("semgrep") if isinstance(extras, dict) else None
+            if isinstance(group, list):
+                specifiers = [
+                    item.strip()
+                    for item in group
+                    if isinstance(item, str) and item.strip()
+                ]
+                if specifiers:
+                    return specifiers
+    return [SEMGREP_RUNTIME_FALLBACK]
+
+
+def install_semgrep_runtime(checkout: Path, venv_python: Path) -> list[str]:
+    """Install the SDK's optional Semgrep execution runtime into the venv.
+
+    ``semgrep run`` executes the semgrep binary, so a provisioned SDK that only
+    carries the import-time requirements cannot run it. Returns the installed
+    specifiers for evidence."""
+    specifiers = resolve_semgrep_requirements(checkout)
+    run(
+        [
+            str(venv_python),
+            "-m",
+            "pip",
+            "install",
+            "--quiet",
+            "--disable-pip-version-check",
+            *specifiers,
+        ]
+    )
+    return specifiers
+
+
 def create_runtime(checkout: Path, runtime: Path) -> Path:
     venv = runtime / "venv"
     run([sys.executable, "-m", "venv", str(venv)])
@@ -282,6 +347,9 @@ def create_runtime(checkout: Path, runtime: Path) -> Path:
                 str(requirements),
             ]
         )
+    # SDK-owned Semgrep execution (`semgrep run`) needs the semgrep binary in the
+    # provisioned venv; the pin is sourced from the pinned SDK checkout.
+    install_semgrep_runtime(checkout, venv_python)
     if os.name == "nt":
         python = venv / "Scripts" / "python.exe"
         executable = runtime / "l9-ci.cmd"

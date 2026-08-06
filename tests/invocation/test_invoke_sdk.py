@@ -68,6 +68,80 @@ class InvokeSDKTests(unittest.TestCase):
         self.assertIn("--required", command)
         self.assertIn("--no-dirty", command)
 
+    def test_semgrep_run_maps_to_sdk_execution(self) -> None:
+        bundle = self.workspace / "bundle.json"
+        raw = self.workspace / "raw" / "report.json"
+        with patch.dict(
+            os.environ,
+            self.environment(
+                L9_OPERATION="semgrep-run",
+                L9_LANGUAGE="python",
+                L9_OUTPUT=str(bundle),
+                L9_RAW_OUTPUT=str(raw),
+                L9_SEMGREP_PROFILE="l9-baseline",
+                L9_PROVIDER_VERSION="",
+            ),
+            clear=True,
+        ):
+            command = module.build_command(self.executable)
+        self.assertEqual(
+            [str(self.executable), "semgrep", "run", "--language", "python"],
+            command[:5],
+        )
+        self.assertIn("--output", command)
+        self.assertIn(str(bundle), command)
+        self.assertIn("--raw-output", command)
+        self.assertIn(str(raw), command)
+        self.assertIn("--profile", command)
+        self.assertIn("l9-baseline", command)
+        self.assertIn("--strict", command)
+        self.assertIn("--required", command)
+        self.assertIn("--no-dirty", command)
+        # Core never parses the provider report or authors a --config list.
+        self.assertNotIn("--config", command)
+        self.assertNotIn("--provider-version", command)
+
+    def test_semgrep_run_rejects_unsupported_language(self) -> None:
+        with patch.dict(
+            os.environ,
+            self.environment(
+                L9_OPERATION="semgrep-run",
+                L9_LANGUAGE="ruby",
+                L9_OUTPUT=str(self.workspace / "bundle.json"),
+            ),
+            clear=True,
+        ):
+            with self.assertRaises(module.InvocationError):
+                module.build_command(self.executable)
+
+    def test_semgrep_run_requires_language(self) -> None:
+        with patch.dict(
+            os.environ,
+            self.environment(
+                L9_OPERATION="semgrep-run",
+                L9_LANGUAGE="",
+                L9_OUTPUT=str(self.workspace / "bundle.json"),
+            ),
+            clear=True,
+        ):
+            with self.assertRaises(module.InvocationError):
+                module.build_command(self.executable)
+
+    def test_semgrep_run_raw_output_path_escape_is_rejected(self) -> None:
+        outside = self.workspace.parent / "outside-raw.json"
+        with patch.dict(
+            os.environ,
+            self.environment(
+                L9_OPERATION="semgrep-run",
+                L9_LANGUAGE="python",
+                L9_OUTPUT=str(self.workspace / "bundle.json"),
+                L9_RAW_OUTPUT=str(outside),
+            ),
+            clear=True,
+        ):
+            with self.assertRaises(module.InvocationError):
+                module.build_command(self.executable)
+
     def test_unknown_operation_is_rejected(self) -> None:
         with patch.dict(
             os.environ,

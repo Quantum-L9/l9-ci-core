@@ -8,7 +8,7 @@ inputs:
     required: true
   operation:
     description: >
-      One of semgrep-normalize, bundle-validate,
+      One of semgrep-run, semgrep-normalize, bundle-validate,
       bundle-project-agent-payload, or compatibility-check.
     required: true
   input:
@@ -16,6 +16,21 @@ inputs:
     required: false
   output:
     description: Output bundle or projection path.
+    required: false
+  language:
+    description: >
+      Semgrep language for semgrep-run (python or typescript). The SDK owns
+      ruleset selection for the language; Core authors no --config list.
+    required: false
+  raw-output:
+    description: >
+      Path where semgrep-run writes the raw provider report (optional; the SDK
+      derives one from the output stem when omitted).
+    required: false
+  semgrep-profile:
+    description: >
+      Optional versioned packaged ruleset profile for semgrep-run (SDK
+      profiles.yaml). Omit to use the SDK's default profile.
     required: false
   root:
     description: Repository root used for normalization.
@@ -71,6 +86,9 @@ runs:
         L9_OPERATION: ${{ inputs.operation }}
         L9_INPUT: ${{ inputs.input }}
         L9_OUTPUT: ${{ inputs.output }}
+        L9_LANGUAGE: ${{ inputs.language }}
+        L9_RAW_OUTPUT: ${{ inputs.raw-output }}
+        L9_SEMGREP_PROFILE: ${{ inputs.semgrep-profile }}
         L9_ROOT: ${{ inputs.root }}
         L9_SNAPSHOT_ID: ${{ inputs.snapshot-id }}
         L9_PROVIDER_VERSION: ${{ inputs.provider-version }}

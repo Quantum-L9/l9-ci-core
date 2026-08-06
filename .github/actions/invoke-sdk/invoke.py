@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 OPERATIONS = {
+    "semgrep-run",
     "semgrep-normalize",
     "bundle-validate",
     "bundle-project-agent-payload",
@@ -15,6 +16,9 @@ OPERATIONS = {
 }
 BOOLEAN_VALUES = {"true", "false"}
 DIRTY_VALUES = {"true", "false", "unset"}
+# Languages the SDK-owned packaged Semgrep ruleset supports. Core selects one;
+# it never authors --config lists (the SDK owns ruleset selection).
+SEMGREP_LANGUAGES = {"python", "typescript"}
 
 
 class InvocationError(RuntimeError):
@@ -94,6 +98,80 @@ def build_command(executable: Path) -> list[str]:
     dirty = env("L9_DIRTY", "unset")
     if dirty not in DIRTY_VALUES:
         raise InvocationError("dirty must be true, false, or unset")
+    if operation == "semgrep-run":
+        # SDK-owned execution: the SDK runs Semgrep with its packaged, versioned
+        # ruleset for one language and normalizes in a single step. Core selects
+        # the language (and optionally a packaged profile) but never authors a
+        # --config ruleset list and never parses the provider report.
+        language = require(env("L9_LANGUAGE"), "language")
+        if language not in SEMGREP_LANGUAGES:
+            raise InvocationError(
+                f"language must be one of {sorted(SEMGREP_LANGUAGES)}"
+            )
+        output_path = resolve_workspace_path(
+            output_value,
+            "output",
+            must_exist=False,
+        )
+        root = resolve_workspace_path(
+            env("L9_ROOT", "."),
+            "root",
+            must_exist=True,
+        )
+        snapshot_id = require(env("L9_SNAPSHOT_ID"), "snapshot-id")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        command = [
+            str(executable),
+            "semgrep",
+            "run",
+            "--language",
+            language,
+            "--output",
+            str(output_path),
+            "--root",
+            str(root),
+            "--snapshot-id",
+            snapshot_id,
+        ]
+        raw_output = env("L9_RAW_OUTPUT")
+        if raw_output:
+            raw_path = resolve_workspace_path(
+                raw_output,
+                "raw-output",
+                must_exist=False,
+            )
+            raw_path.parent.mkdir(parents=True, exist_ok=True)
+            command.extend(["--raw-output", str(raw_path)])
+        profile = env("L9_SEMGREP_PROFILE")
+        if profile:
+            command.extend(["--profile", profile])
+        add_optional_path(
+            command,
+            "--identity-map",
+            env("L9_IDENTITY_MAP"),
+            "identity-map",
+        )
+        add_optional_path(
+            command,
+            "--policy",
+            env("L9_POLICY"),
+            "policy",
+        )
+        generated_at = env("L9_GENERATED_AT")
+        if generated_at:
+            command.extend(["--generated-at", generated_at])
+        revision = env("L9_REVISION")
+        if revision:
+            command.extend(["--revision", revision])
+        if strict:
+            command.append("--strict")
+        if required:
+            command.append("--required")
+        if dirty == "true":
+            command.append("--dirty")
+        elif dirty == "false":
+            command.append("--no-dirty")
+        return command
     if operation == "semgrep-normalize":
         input_path = resolve_workspace_path(
             input_value,
