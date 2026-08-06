@@ -123,6 +123,7 @@ jobs:
         with:
           node-version: "20"
           registry-url: https://npm.pkg.github.com
+          always-auth: true
       - name: Node full test run
         if: steps.detect.outputs.node == 'true'
         env:
@@ -147,6 +148,8 @@ jobs:
           fi
       - name: Node dependency freshness report
         if: steps.detect.outputs.node == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           report="$(npm outdated || true)"
           printf '%s\n' "${report}"
