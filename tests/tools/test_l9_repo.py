@@ -17,6 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from l9_repo import locking, push_preflight  # noqa: E402
+from l9_repo.authority import AuthorityError, validate_authority  # noqa: E402
 from l9_repo.__main__ import (  # noqa: E402
     AgentCheckFailure,
     RepositoryWorkflow,
@@ -205,6 +206,41 @@ class ConfigTests(unittest.TestCase):
         data["reporting"]["agent_check_json"] = "../evidence.json"  # type: ignore[index]
         with self.assertRaisesRegex(WorkflowError, "safe relative path"):
             validate_config_data(data)
+
+
+class AuthorityIntegrationTests(unittest.TestCase):
+    def test_target_repository_root_docs_do_not_need_component_identity(self) -> None:
+        temporary, root = make_git_fixture()
+        self.addCleanup(temporary.cleanup)
+        (root / "README.md").write_text("# l9-ci-core\n", encoding="utf-8")
+        for pack_only in (
+            "AUTHORITY.md",
+            "MANIFEST.md",
+            "OPERATIONS.md",
+            "VALIDATION.md",
+        ):
+            path = root / pack_only
+            if path.exists():
+                path.unlink()
+        config = json.loads((root / ".l9/repo-workflow.json").read_text())
+        validate_authority(root, config)
+
+    def test_derived_runtime_doc_must_declare_identity_and_version(self) -> None:
+        temporary, root = make_git_fixture()
+        self.addCleanup(temporary.cleanup)
+        config = json.loads((root / ".l9/repo-workflow.json").read_text())
+        derived = root / config["authority"]["derived_documents"][0]
+        derived.write_text("# Runtime\n", encoding="utf-8")
+        with self.assertRaisesRegex(AuthorityError, "authoritative token"):
+            validate_authority(root, config)
+
+    def test_all_target_authorities_are_required(self) -> None:
+        temporary, root = make_git_fixture()
+        self.addCleanup(temporary.cleanup)
+        config = json.loads((root / ".l9/repo-workflow.json").read_text())
+        (root / ".l9/ownership.yaml").unlink()
+        with self.assertRaisesRegex(AuthorityError, "missing target authority"):
+            validate_authority(root, config)
 
 
 class WorkflowTests(unittest.TestCase):
@@ -557,7 +593,7 @@ class WorkflowTests(unittest.TestCase):
     def test_checksum_manifest_mismatch_is_rejected(self) -> None:
         temporary, root = make_git_fixture()
         self.addCleanup(temporary.cleanup)
-        (root / "README.md").write_text("tampered\n", encoding="utf-8")
+        (root / "SECURITY.md").write_text("tampered\n", encoding="utf-8")
         with self.assertRaisesRegex(WorkflowError, "checksum mismatch"):
             RepositoryWorkflow(root).structural_validate()
 
@@ -708,9 +744,9 @@ class PrimitiveTests(unittest.TestCase):
     ) -> None:
         temporary, root = make_git_fixture()
         self.addCleanup(temporary.cleanup)
-        readme = root / "README.md"
-        readme.write_text(
-            readme.read_text(encoding="utf-8").replace("4.3.0", "9.9.9"),
+        derived = root / "docs/repository-execution-runtime.md"
+        derived.write_text(
+            derived.read_text(encoding="utf-8").replace("4.3.1", "9.9.9"),
             encoding="utf-8",
         )
         regenerate_manifest(root)
@@ -722,7 +758,9 @@ class PrimitiveTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         (root / "requirements-repo-runtime.txt").unlink()
         regenerate_manifest(root)
-        with self.assertRaisesRegex(WorkflowError, "missing dependency manifest"):
+        with self.assertRaisesRegex(
+            WorkflowError, "missing component dependency manifest"
+        ):
             RepositoryWorkflow(root).structural_validate()
 
 

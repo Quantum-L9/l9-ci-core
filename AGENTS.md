@@ -235,19 +235,6 @@ Therefore:
 - `MANIFEST.sha256` records the sha256 of tracked files; regenerate the
   entries for any file you change so it stays honest.
 
-## 9. Repository execution contract
-
-Authority order and boundaries are defined in [`AUTHORITY.md`](AUTHORITY.md) and executable policy in [`.l9/repo-workflow.json`](.l9/repo-workflow.json).
-
-- Read `.l9/architecture.yaml`, `.l9/ownership.yaml`, and `.l9/sdk-compatibility.yaml` before changing Core.
-- Run `make agent-check` before declaring work complete, committing, pushing, or opening a pull request.
-- Do not bypass, weaken, or replace `agent-check` with direct tool commands.
-- Targeted change gates add proof; they never replace the complete configured suite.
-- Keep the root Makefile generated and delegation-only. Runtime behavior belongs in `tools/l9_repo/`; policy belongs in `.l9/repo-workflow.json`.
-- Never add SDK-owned analysis, canonical evidence/findings, classification, severity normalization, repository graphing, Assurance decisions, repair planning, or learning behavior.
-- Push and PR operations must remain clean-tree requiring, protected-branch rejecting, non-force, single-flight, and non-bypassable.
-- Exit `1` means blocking findings. Exit `2` means invalid configuration, infrastructure, context, authority, or repository state.
-
 ## Edit-time constraints (unchanged)
 
 1. Read `.l9/architecture.yaml`, `.l9/ownership.yaml`,
@@ -262,3 +249,16 @@ Authority order and boundaries are defined in [`AUTHORITY.md`](AUTHORITY.md) and
 
 A change that duplicates SDK behavior is invalid even when all functional
 tests pass.
+
+---
+
+## 9. Repository execution runtime
+
+The local repository-execution contract is [`.l9/repo-workflow.json`](.l9/repo-workflow.json), validated by [`.l9/repo-workflow.schema.json`](.l9/repo-workflow.schema.json). Operator behavior and failure recovery are documented in [`docs/repository-execution-runtime.md`](docs/repository-execution-runtime.md).
+
+- Run `make validate` after changing the runtime policy, implementation, generated Makefile, authority wiring, or checksum manifest.
+- Run `make change-policy` to inspect targeted gates and companion obligations for the current change set.
+- Run `make agent-check` before declaring work complete, committing, pushing, or opening a pull request. Targeted gates add evidence; they never replace the full configured check and test matrices.
+- Keep the root `Makefile` generated and delegation-only. Runtime behavior belongs in `tools/l9_repo/`; executable policy belongs in `.l9/repo-workflow.json`.
+- Do not bypass or weaken the completion proof, protected-branch refusal, clean-tree requirement, no-force policy, single-flight lock, or evidence emission.
+- Exit `1` means blocking repository findings. Exit `2` means invalid configuration, infrastructure, comparison context, authority wiring, or repository state.
