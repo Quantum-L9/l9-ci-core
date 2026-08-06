@@ -4,6 +4,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 MODULE_PATH = (
     Path(__file__).resolve().parents[2]
@@ -85,6 +86,71 @@ class ProbeCliTests(unittest.TestCase):
         with self.assertRaises(module.ProvisioningError) as caught:
             module.probe_cli(exe, ["semgrep run", "gate evaluate"])
         self.assertIn("gate evaluate", str(caught.exception))
+
+
+class SemgrepRuntimeProvisioningTests(unittest.TestCase):
+    """`semgrep run` executes the semgrep binary, so provisioning must install a
+    Semgrep runtime into the SDK venv, pinned from the pinned SDK checkout."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.checkout = Path(self.temp.name).resolve()
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def _write_pyproject(self, body: str) -> None:
+        (self.checkout / "pyproject.toml").write_text(body, encoding="utf-8")
+
+    def test_requirements_sourced_from_sdk_optional_group(self) -> None:
+        self._write_pyproject(
+            "[project]\n"
+            'name = "l9-ci-sdk"\n'
+            "[project.optional-dependencies]\n"
+            'semgrep = ["semgrep==1.171.0"]\n'
+        )
+        self.assertEqual(
+            module.resolve_semgrep_requirements(self.checkout),
+            ["semgrep==1.171.0"],
+        )
+
+    def test_requirements_fall_back_when_no_group_declared(self) -> None:
+        self._write_pyproject('[project]\nname = "l9-ci-sdk"\n')
+        self.assertEqual(
+            module.resolve_semgrep_requirements(self.checkout),
+            [module.SEMGREP_RUNTIME_FALLBACK],
+        )
+
+    def test_install_semgrep_runtime_pip_installs_specifiers(self) -> None:
+        self._write_pyproject(
+            "[project]\n"
+            'name = "l9-ci-sdk"\n'
+            "[project.optional-dependencies]\n"
+            'semgrep = ["semgrep==1.171.0"]\n'
+        )
+        calls: list[list[str]] = []
+
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            return None
+
+        venv_python = self.checkout / "venv" / "bin" / "python"
+        with patch.object(module, "run", fake_run):
+            installed = module.install_semgrep_runtime(self.checkout, venv_python)
+        self.assertEqual(installed, ["semgrep==1.171.0"])
+        self.assertEqual(len(calls), 1)
+        command = calls[0]
+        self.assertEqual(
+            command[:5],
+            [
+                str(venv_python),
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+            ],
+        )
+        self.assertIn("semgrep==1.171.0", command)
 
 
 if __name__ == "__main__":

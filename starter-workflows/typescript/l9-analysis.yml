@@ -20,6 +20,9 @@ env:
   L9_CORE_REF: "f88116503430aa18992b70d8d31063e34ff97ef1"
   L9_PROFILE: "pr_fast"
   L9_MATRIX_ID: "pr-semgrep"
+  # SDK-owned Semgrep execution language. The SDK selects the packaged
+  # TypeScript ruleset; this workflow authors no --config list.
+  L9_LANGUAGE: "typescript"
 
 permissions:
   contents: read
@@ -79,33 +82,22 @@ jobs:
           set -euo pipefail
           echo "artifact-name=l9-semgrep-${MATRIX_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
-      - name: Run semgrep
-        if: steps.gov.outputs.enabled == 'true'
-        run: |
-          set -euo pipefail
-          pip install --upgrade pip semgrep
-          mkdir -p "artifacts/raw/semgrep/${L9_MATRIX_ID}"
-          semgrep scan \
-            --config p/typescript \
-            --config p/javascript \
-            --json \
-            --output "artifacts/raw/semgrep/${L9_MATRIX_ID}/report.json" \
-            --error --quiet || true
-        env:
-          L9_MATRIX_ID: ${{ env.L9_MATRIX_ID }}
-
       - id: sdk
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@f88116503430aa18992b70d8d31063e34ff97ef1
 
-      - name: Normalize provider report
+      - name: Run analysis (SDK-owned semgrep run + normalize)
         if: steps.gov.outputs.enabled == 'true'
         uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@f88116503430aa18992b70d8d31063e34ff97ef1
         with:
           executable: ${{ steps.sdk.outputs.executable }}
-          operation: semgrep-normalize
-          input: artifacts/raw/semgrep/${{ env.L9_MATRIX_ID }}/report.json
+          # The provisioned SDK runs semgrep with its packaged TypeScript ruleset
+          # and normalizes in one step; this workflow authors no --config list
+          # and never parses the provider report.
+          operation: semgrep-run
+          language: ${{ env.L9_LANGUAGE }}
+          raw-output: artifacts/raw/semgrep/${{ env.L9_MATRIX_ID }}/report.json
           output: .l9/runtime/${{ env.L9_MATRIX_ID }}/finding-bundle.json
           root: .
           snapshot-id: ${{ github.sha }}
