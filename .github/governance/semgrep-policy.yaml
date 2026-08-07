@@ -1,0 +1,11 @@
+{
+  "schema": "l9.finding-policy/v1",
+  "metadata": {
+    "version": "1"
+  },
+  "defaults": {
+    "mode": "advisory"
+  },
+  "rules": {},
+  "note": "Core self-analysis dogfood: findings default to advisory until explicitly promoted. Matches presets/python finding-policy posture."
+}

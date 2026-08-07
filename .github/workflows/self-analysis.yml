@@ -1,0 +1,29 @@
+# Self-only dogfood caller for the Core analysis kernel.
+# Triggers on PRs/pushes to this repository and invokes analyze-semgrep.yml
+# (workflow_call) so Core runs the same SDK-owned semgrep → gate → publish
+# path offered to consumers. Not a reusable consumer surface.
+name: Core self analysis
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: core-self-analysis-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  analyze:
+    name: Analyze (semgrep)
+    uses: ./.github/workflows/analyze-semgrep.yml
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+      security-events: write
+    with:
+      profile: pr_fast
+      matrix-id: self-semgrep
+      language: python

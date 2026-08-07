@@ -62,8 +62,12 @@ rejects an empty include list. Any new ruleset must use `~DEFAULT_BRANCH` or
 ## The 11 repos with zero L9 CI coverage (excluded from this draft)
 
 - `.github`, `l9-repo-template` — not consumer repos, no action needed.
-- `l9-ci-core`, `l9-ci-sdk` — source-of-truth repos, use self-CI (`self-ci.yml`)
-  with different check names; would need their own ruleset entry, not this one.
+- `l9-ci-core`, `l9-ci-sdk` — source-of-truth repos, use self-CI with different
+  check names (still excluded from this consumer ruleset). After Core's
+  self-CI beef-up, Core PR checks include: **Lint and Type Check** / **Unit
+  tests** (`self-ci.yml`), sdk-contract, governance validate, **Core self
+  analysis**, **Core self security**. They would need their own ruleset
+  entry, not this one.
 - `Governance-Active`, `Quantum-Website-Cursor`, `SplitWisely.ai`,
   `SustainabilitySolutions1`, `ai-agency-genesis-portal`, `l9-infra`,
   `quantum-dashboard` — real product repos with no L9 CI at all. Per the

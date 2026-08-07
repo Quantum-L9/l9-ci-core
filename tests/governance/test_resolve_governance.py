@@ -16,7 +16,9 @@ class ResolveGovernanceTests(unittest.TestCase):
         self.root = ROOT / ".github/governance"
         self.documents = module.load_documents(self.root)
 
-    def test_pr_fast_semgrep_is_blocking_and_required(self) -> None:
+    def test_pr_fast_semgrep_is_advisory_and_required(self) -> None:
+        # Core dogfood rollout: rule-modes.yaml overrides pr_fast/merge
+        # semgrep to advisory (default profile mode remains blocking).
         profile = module.validate_profile(
             self.documents,
             "pr_fast",
@@ -34,7 +36,7 @@ class ResolveGovernanceTests(unittest.TestCase):
             "pr_fast",
             "semgrep",
         )
-        self.assertEqual("blocking", mode)
+        self.assertEqual("advisory", mode)
         self.assertTrue(required)
         self.assertTrue(profile["strict"])
 

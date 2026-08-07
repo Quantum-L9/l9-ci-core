@@ -22,10 +22,15 @@ class WorkflowPermissionTests(unittest.TestCase):
     #                           security-events:write — uploads the SDK-projected
     #                           SARIF to code scanning. workflow_call-only, gated
     #                           by the caller.
-    #   analyze-semgrep.yml     checks:write — its `publish` job grants the
-    #                           nested publish-analysis.yml call the check-run
-    #                           scope. workflow_call-only; the caller gates
-    #                           the trigger surface.
+    #   analyze-semgrep.yml     checks:write + security-events:write — its
+    #                           `publish` job grants the nested
+    #                           publish-analysis.yml call check-run and SARIF
+    #                           upload scope. workflow_call-only; the caller
+    #                           gates the trigger surface.
+    #   self-analysis.yml       checks:write + security-events:write — audited
+    #                           self-only dogfood caller of analyze-semgrep on
+    #                           pull_request/push; grants the reusable the
+    #                           same publish scopes.
     #   regenerate-identity-maps.yml
     #                           contents/pull-requests:write — opens a PR when
     #                           the semgrep registry drifts. Confined to its
@@ -33,7 +38,8 @@ class WorkflowPermissionTests(unittest.TestCase):
     #                           events (enforced by the trigger test below).
     WRITE_EXCEPTIONS = {
         "publish-analysis.yml": ["checks", "security-events"],
-        "analyze-semgrep.yml": ["checks"],
+        "analyze-semgrep.yml": ["checks", "security-events"],
+        "self-analysis.yml": ["checks", "security-events"],
         "regenerate-identity-maps.yml": ["contents", "pull-requests"],
     }
 
@@ -90,13 +96,16 @@ class WorkflowPermissionTests(unittest.TestCase):
         # A workflow that can obtain write permissions must never run on
         # untrusted `pull_request` events, or a fork PR could reach that scope.
         # publish-analysis.yml and analyze-semgrep.yml are reusable
-        # (workflow_call) and gated by the caller; the maintenance workflow
-        # must be schedule/dispatch only.
+        # (workflow_call) and gated by the caller. self-analysis.yml is an
+        # audited self-only dogfood caller that deliberately triggers on
+        # pull_request to exercise the kernel in this repo. The maintenance
+        # workflow must be schedule/dispatch only.
         trigger_pattern = re.compile(r"(?m)^\s*(pull_request|pull_request_target):")
         reusable = {"publish-analysis.yml", "analyze-semgrep.yml"}
+        audited_pr_callers = {"self-analysis.yml"}
         for name in self.WRITE_EXCEPTIONS:
             workflow = WORKFLOWS / name
-            if name in reusable:
+            if name in reusable or name in audited_pr_callers:
                 continue
             with self.subTest(workflow=name):
                 text = workflow.read_text(encoding="utf-8")
