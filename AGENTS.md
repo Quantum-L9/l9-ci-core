@@ -195,6 +195,12 @@ already-imported wrappers keep resolving. They are **not** the integration
 path for new work — new work always starts from `docs/templates/` /
 `l9-ci-pack/README.md` (v2). Do not restore retired v1 kernels onto `main`.
 
+> Live `@v1` / `@v1.0.0` tip: `978cf948133fa4d9cd6b78ecbb383295869cb70f`
+> (PR #44 v1-compat). Behavior and moving-tag policy:
+> [`docs/v1-compatibility.md`](docs/v1-compatibility.md). Tag create/verify
+> scripts live in `Quantum-L9/.github` (`ops/tag-v1.sh`,
+> `ops/verify-v1-anchor.sh`).
+
 ## 7. Dormant SDK CLI surface (not yet wired into Core)
 
 `invoke-sdk` allowlists exactly four SDK operations today: `semgrep-normalize`,
