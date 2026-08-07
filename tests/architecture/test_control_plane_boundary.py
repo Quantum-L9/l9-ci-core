@@ -16,7 +16,7 @@ FORBIDDEN_PATH_PARTS = {
     "tree-sitter",
     "repository_graph",
 }
-EXCLUDED_ROOTS = {".git", ".l9", "tests"}
+EXCLUDED_ROOTS = {".git", ".l9", "tests", ".venv", ".mypy_cache", ".ruff_cache"}
 
 
 class ControlPlaneBoundaryTests(unittest.TestCase):

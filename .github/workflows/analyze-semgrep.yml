@@ -162,44 +162,33 @@ jobs:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision || '0c487747b0fcd172edaefe9e843dac818de8fc12' }}
-      - name: Run + normalize semgrep (SDK)
+      - name: Install semgrep (exact pin)
         if: steps.gov.outputs.enabled == 'true'
+        env:
+          L9_SEMGREP_VERSION: ${{ inputs.semgrep-version }}
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip "semgrep==${L9_SEMGREP_VERSION}"
-          # `l9-ci semgrep run` runs semgrep with the community registry
-          # ruleset for the language plus the SDK's packaged L9 ruleset,
-          # then normalizes the raw report into a canonical bundle through
-          # the SDK's own identity resolution — one process, one command.
-          # A completed scan with findings still exits 0 (gating is the
-          # SDK gate step's job); real execution failures propagate.
-          args=(
-            semgrep run
-            --language "${L9_LANGUAGE}"
-            --root .
-            --raw-output "artifacts/raw/semgrep/${L9_MATRIX_ID}/report.json"
-            --output ".l9/runtime/${L9_MATRIX_ID}/finding-bundle.json"
-            --snapshot-id "${GITHUB_SHA}"
-            --revision "${GITHUB_SHA}"
-          )
-          if [ "${L9_STRICT:-}" = "true" ]; then
-            args+=(--strict)
-          fi
-          if [ "${L9_REQUIRED:-}" = "true" ]; then
-            args+=(--required)
-          fi
-          if [ -n "${L9_SDK_POLICY:-}" ]; then
-            args+=(--policy "${L9_SDK_POLICY}")
-          fi
-          "${L9_EXECUTABLE}" "${args[@]}"
-        env:
-          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
-          L9_MATRIX_ID: ${{ inputs.matrix-id }}
-          L9_LANGUAGE: ${{ inputs.language }}
-          L9_SEMGREP_VERSION: ${{ inputs.semgrep-version }}
-          L9_STRICT: ${{ steps.gov.outputs.strict }}
-          L9_REQUIRED: ${{ steps.gov.outputs['required-provider'] }}
-          L9_SDK_POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
+      - name: Run + normalize semgrep (SDK)
+        if: steps.gov.outputs.enabled == 'true'
+        # CORE_ACTIONS_PIN
+        # `l9-ci semgrep run` (via invoke-sdk) runs semgrep with the
+        # community registry ruleset for the language plus the SDK's
+        # packaged L9 ruleset, then normalizes into a canonical bundle —
+        # one SDK-owned process. Gating is the separate gate step.
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2989db3d4b5dc2450d4c06c1276da981daf6cf20
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: semgrep-run
+          language: ${{ inputs.language }}
+          raw-output: artifacts/raw/semgrep/${{ inputs.matrix-id }}/report.json
+          output: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
+          root: .
+          snapshot-id: ${{ github.sha }}
+          revision: ${{ github.sha }}
+          strict: ${{ steps.gov.outputs.strict }}
+          required: ${{ steps.gov.outputs['required-provider'] }}
+          policy: ${{ steps.gov.outputs['sdk-policy'] }}
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
@@ -256,6 +245,18 @@ jobs:
           input: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
           output: .l9/runtime/${{ inputs.matrix-id }}/agent-review-payload.json
           strict: ${{ steps.gov.outputs.strict }}
+      - name: Project SARIF (SDK-owned)
+        if: steps.gov.outputs.enabled == 'true'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2989db3d4b5dc2450d4c06c1276da981daf6cf20
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          # The SDK deterministically projects the canonical bundle to SARIF;
+          # Core never translates findings or uploads raw provider JSON as SARIF.
+          operation: bundle-project-sarif
+          input: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
+          output: .l9/runtime/${{ inputs.matrix-id }}/results.sarif
+          strict: ${{ steps.gov.outputs.strict }}
       - id: route
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true'
@@ -267,6 +268,7 @@ jobs:
           raw-report: artifacts/raw/semgrep/${{ inputs.matrix-id }}/report.json
           bundle: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
           agent-payload: .l9/runtime/${{ inputs.matrix-id }}/agent-review-payload.json
+          sarif: .l9/runtime/${{ inputs.matrix-id }}/results.sarif
           destination-root: artifacts
       - name: Stage gate result with canonical artifacts
         if: steps.gov.outputs.enabled == 'true'
@@ -324,6 +326,7 @@ jobs:
       actions: read
       checks: write
       contents: read
+      security-events: write
     with:
       artifact-name: ${{ needs.analyze.outputs['artifact-name'] }}
       profile: ${{ inputs.profile }}
