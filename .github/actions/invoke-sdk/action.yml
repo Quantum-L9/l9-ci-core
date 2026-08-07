@@ -9,7 +9,8 @@ inputs:
   operation:
     description: >
       One of semgrep-run, semgrep-normalize, bundle-validate,
-      bundle-project-agent-payload, or compatibility-check.
+      bundle-project-agent-payload, bundle-project-sarif, or
+      compatibility-check.
     required: true
   input:
     description: Input report or canonical bundle path.

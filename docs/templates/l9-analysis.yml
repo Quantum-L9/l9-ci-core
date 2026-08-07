@@ -135,6 +135,18 @@ jobs:
           output: .l9/runtime/${{ env.L9_MATRIX_ID }}/agent-review-payload.json
           strict: ${{ steps.gov.outputs.strict }}
 
+      - name: Project SARIF (SDK-owned)
+        if: steps.gov.outputs.enabled == 'true'
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@f88116503430aa18992b70d8d31063e34ff97ef1
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          # The SDK deterministically projects the canonical bundle to SARIF;
+          # Core never translates findings or uploads raw provider JSON as SARIF.
+          operation: bundle-project-sarif
+          input: .l9/runtime/${{ env.L9_MATRIX_ID }}/finding-bundle.json
+          output: .l9/runtime/${{ env.L9_MATRIX_ID }}/results.sarif
+          strict: ${{ steps.gov.outputs.strict }}
+
       - id: route
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true'
@@ -145,6 +157,7 @@ jobs:
           raw-report: artifacts/raw/semgrep/${{ env.L9_MATRIX_ID }}/report.json
           bundle: .l9/runtime/${{ env.L9_MATRIX_ID }}/finding-bundle.json
           agent-payload: .l9/runtime/${{ env.L9_MATRIX_ID }}/agent-review-payload.json
+          sarif: .l9/runtime/${{ env.L9_MATRIX_ID }}/results.sarif
           destination-root: artifacts
 
       - name: Build artifact manifest

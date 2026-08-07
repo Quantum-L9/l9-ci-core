@@ -12,6 +12,7 @@ OPERATIONS = {
     "semgrep-normalize",
     "bundle-validate",
     "bundle-project-agent-payload",
+    "bundle-project-sarif",
     "compatibility-check",
 }
 BOOLEAN_VALUES = {"true", "false"}
@@ -256,6 +257,28 @@ def build_command(executable: Path) -> list[str]:
             str(executable),
             "bundle",
             "project-agent-payload",
+            "--input",
+            str(bundle),
+            "--output",
+            str(output_path),
+        ]
+        if strict:
+            command.append("--strict")
+        return command
+    if operation == "bundle-project-sarif":
+        # SDK-owned deterministic SARIF projection from the canonical bundle.
+        # Core never translates findings to SARIF itself and never uploads raw
+        # provider JSON as SARIF — it maps arguments and hands off to the SDK.
+        output_path = resolve_workspace_path(
+            output_value,
+            "output",
+            must_exist=False,
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        command = [
+            str(executable),
+            "bundle",
+            "project-sarif",
             "--input",
             str(bundle),
             "--output",

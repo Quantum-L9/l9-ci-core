@@ -19,6 +19,6 @@
 # per-module import handling; the workflows do NOT pass a global
 # --ignore-missing-imports. Stub packages a repo needs go in the consumer's own
 # dependency manifest, not here.
-ruff==0.14.5
+ruff==0.16.1
 mypy==2.3.0
 pytest==8.4.2

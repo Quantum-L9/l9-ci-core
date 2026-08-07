@@ -16,7 +16,7 @@ license = { text = "Proprietary" }
 # pins for *downstream consumer* repos — that is a deliberate, org-wide
 # toolchain pin with a much larger blast radius, out of scope here.
 [project.optional-dependencies]
-dev = ["PyYAML==6.0.2", "types-PyYAML==6.0.12.20260724"]
+dev = ["PyYAML==6.0.3", "types-PyYAML==6.0.12.20260724"]
 
 [tool.mypy]
 # Type gate for Core's own control-plane code. Scoped to the executable

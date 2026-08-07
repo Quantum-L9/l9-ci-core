@@ -187,6 +187,53 @@ class InvokeSDKTests(unittest.TestCase):
             command,
         )
 
+    def test_bundle_project_sarif_command(self) -> None:
+        bundle = self.workspace / "bundle.json"
+        bundle.write_text("{}\n", encoding="utf-8")
+        sarif = self.workspace / "results.sarif"
+        with patch.dict(
+            os.environ,
+            self.environment(
+                L9_OPERATION="bundle-project-sarif",
+                L9_INPUT=str(bundle),
+                L9_OUTPUT=str(sarif),
+                L9_STRICT="true",
+            ),
+            clear=True,
+        ):
+            command = module.build_command(self.executable)
+        self.assertEqual(
+            [
+                str(self.executable),
+                "bundle",
+                "project-sarif",
+                "--input",
+                str(bundle),
+                "--output",
+                str(sarif),
+                "--strict",
+            ],
+            command,
+        )
+        # Core hands off to the SDK; it never translates findings itself.
+        self.assertNotIn("--config", command)
+
+    def test_bundle_project_sarif_output_path_escape_is_rejected(self) -> None:
+        bundle = self.workspace / "bundle.json"
+        bundle.write_text("{}\n", encoding="utf-8")
+        outside = self.workspace.parent / "outside.sarif"
+        with patch.dict(
+            os.environ,
+            self.environment(
+                L9_OPERATION="bundle-project-sarif",
+                L9_INPUT=str(bundle),
+                L9_OUTPUT=str(outside),
+            ),
+            clear=True,
+        ):
+            with self.assertRaises(module.InvocationError):
+                module.build_command(self.executable)
+
 
 if __name__ == "__main__":
     unittest.main()
