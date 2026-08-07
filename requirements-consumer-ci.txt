@@ -21,4 +21,4 @@
 # dependency manifest, not here.
 ruff==0.16.1
 mypy==2.3.0
-pytest==8.4.2
+pytest==9.1.1
