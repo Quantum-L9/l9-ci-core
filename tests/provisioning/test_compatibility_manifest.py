@@ -7,12 +7,12 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".l9" / "sdk-compatibility.yaml"
 # l9-ci-sdk v1.0.0 — the frozen analysis-contract surface Core adopts.
-EXPECTED_SHA = "f546f122d33601ea5a4b2592e3482c5c39eddd82"
+EXPECTED_SHA = "b1a491414ed04bb18d665f8a8755de80947c8200"
 # Retained as a tested rollback (the prior default).
-ROLLBACK_SHA = "0c487747b0fcd172edaefe9e843dac818de8fc12"
+ROLLBACK_SHA = "f546f122d33601ea5a4b2592e3482c5c39eddd82"
 # Removed: two generations behind the released contract; lacks the
 # `semgrep run` + `gate evaluate` handoff, so no longer an active rollback.
-REMOVED_SHA = "b390dc78e3464cca539b998dfb723481927ed91b"
+REMOVED_SHA = "0779fca8238011f8abea551895f96584676e9d17"
 
 
 class CompatibilityManifestTests(unittest.TestCase):
@@ -45,7 +45,7 @@ class CompatibilityManifestTests(unittest.TestCase):
         entry = next(
             item for item in data["supported"] if item["revision"] == EXPECTED_SHA
         )
-        for path in ("semgrep run", "gate evaluate", "bundle validate"):
+        for path in ("semgrep run", "gate evaluate", "bundle validate", "bundle project-sarif"):
             with self.subTest(path=path):
                 self.assertIn(path, entry["required_cli_paths"])
 

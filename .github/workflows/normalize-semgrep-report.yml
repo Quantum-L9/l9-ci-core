@@ -98,7 +98,7 @@ jobs:
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: 0c487747b0fcd172edaefe9e843dac818de8fc12
+          sdk-revision: 0c487747b0fcd172edaefe9e843dac818de8fc12  # supported rollback; default pin lives in sdk-compatibility.yaml
       - name: Normalize provider report
         uses: ./.github/actions/invoke-sdk
         with:
