@@ -127,7 +127,7 @@ jobs:
           bundle: ${{ steps.locate.outputs.bundle }}
       - name: Upload SDK-projected SARIF to code scanning
         if: steps.locate.outputs.sarif != ''
-        uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b  # v3
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
         with:
           sarif_file: ${{ steps.locate.outputs.sarif }}
           # The SARIF is produced deterministically by the SDK for this exact
