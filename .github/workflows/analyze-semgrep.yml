@@ -133,7 +133,7 @@ jobs:
       - id: gov
         name: Resolve governance (Core)
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@373bb6d26084e67ef76aaab95021364182a34ee7
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@a642641ad89b2f37022e8ce76e4bcf94791ff75a
         with:
           profile: ${{ inputs.profile }}
           provider: semgrep
@@ -157,7 +157,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@373bb6d26084e67ef76aaab95021364182a34ee7
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@a642641ad89b2f37022e8ce76e4bcf94791ff75a
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -176,7 +176,7 @@ jobs:
         # community registry ruleset for the language plus the SDK's
         # packaged L9 ruleset, then normalizes into a canonical bundle —
         # one SDK-owned process. Gating is the separate gate step.
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@373bb6d26084e67ef76aaab95021364182a34ee7
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@a642641ad89b2f37022e8ce76e4bcf94791ff75a
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -192,7 +192,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@373bb6d26084e67ef76aaab95021364182a34ee7
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@a642641ad89b2f37022e8ce76e4bcf94791ff75a
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
@@ -238,7 +238,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@373bb6d26084e67ef76aaab95021364182a34ee7
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@a642641ad89b2f37022e8ce76e4bcf94791ff75a
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -248,7 +248,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@373bb6d26084e67ef76aaab95021364182a34ee7
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@a642641ad89b2f37022e8ce76e4bcf94791ff75a
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           # The SDK deterministically projects the canonical bundle to SARIF;
@@ -261,7 +261,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@373bb6d26084e67ef76aaab95021364182a34ee7
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@a642641ad89b2f37022e8ce76e4bcf94791ff75a
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
@@ -281,7 +281,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@373bb6d26084e67ef76aaab95021364182a34ee7
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@a642641ad89b2f37022e8ce76e4bcf94791ff75a
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
