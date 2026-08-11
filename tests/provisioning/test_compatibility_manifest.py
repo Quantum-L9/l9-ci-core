@@ -45,7 +45,12 @@ class CompatibilityManifestTests(unittest.TestCase):
         entry = next(
             item for item in data["supported"] if item["revision"] == EXPECTED_SHA
         )
-        for path in ("semgrep run", "gate evaluate", "bundle validate", "bundle project-sarif"):
+        for path in (
+            "semgrep run",
+            "gate evaluate",
+            "bundle validate",
+            "bundle project-sarif",
+        ):
             with self.subTest(path=path):
                 self.assertIn(path, entry["required_cli_paths"])
 
