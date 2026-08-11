@@ -118,13 +118,13 @@ jobs:
             pip install -e ".[dev]" || pip install -e .
           fi
           # Consumer CI toolchain pins live in a bot-visible manifest so
-          # Dependabot can propose bumps; fall back to the known-good pins only
-          # if a consumer checkout lacks the file.
-          if [ -f requirements-consumer-ci.txt ]; then
-            pip install -r requirements-consumer-ci.txt
-          else
-            pip install "ruff==0.14.5" "mypy==1.19.0" "pytest==8.4.2"
+          # Dependabot can propose bumps. Always install from that file —
+          # no inline hardcoded fallback (issue #57).
+          if [ ! -f requirements-consumer-ci.txt ]; then
+            echo "::error::requirements-consumer-ci.txt missing; refuse hardcoded toolchain fallback"
+            exit 1
           fi
+          pip install -r requirements-consumer-ci.txt
           if [ -n "$L9_CI_INSTALL_COMMAND" ]; then
             bash -c "$L9_CI_INSTALL_COMMAND" || echo "::notice::l9-ci install command failed; continuing"
           fi
