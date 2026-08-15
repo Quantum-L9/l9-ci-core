@@ -9,17 +9,25 @@ copy the SDK workflow implementation into Core.
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-PRESET = ROOT / "presets" / "typescript" / ".github" / "workflows" / "l9-lint-test.yml"
+PRESET_DIR = ROOT / "presets" / "typescript"
+PRESET = PRESET_DIR / ".github" / "workflows" / "l9-lint-test.yml"
 STARTER = ROOT / "starter-workflows" / "typescript" / "l9-lint-test.yml"
 LINT_TEST_FILES = (PRESET, STARTER)
 COMPAT_MANIFEST = ROOT / ".l9" / "sdk-compatibility.yaml"
+ACTIVATION_SKILL = ROOT / "skills" / "l9-ci-activation-typescript" / "SKILL.md"
+PRESET_README = PRESET_DIR / "README.md"
+STAMP = PRESET_DIR / "stamp.sh"
+LOCKED_BIOME = PRESET_DIR / "biome.json"
 
 BIOME_WORKFLOW = ".github/workflows/l9-biome-scan.yml"
 BIOME_USES = re.compile(
@@ -133,6 +141,66 @@ class TypeScriptBiomeConvergenceTests(unittest.TestCase):
                 self.assertEqual(
                     [], write_pattern.findall(text), f"{path.name} requests write scope"
                 )
+
+    def test_preset_ships_locked_biome_json(self) -> None:
+        self.assertTrue(LOCKED_BIOME.is_file(), "presets/typescript/biome.json missing")
+        contract = json.loads(LOCKED_BIOME.read_text(encoding="utf-8"))
+        self.assertEqual(
+            contract["$schema"], "https://biomejs.dev/schemas/2.5.8/schema.json"
+        )
+        self.assertTrue(contract["formatter"]["enabled"])
+        self.assertTrue(contract["linter"]["enabled"])
+        self.assertIn("javascript", contract)
+        self.assertIn("json", contract)
+        includes = contract["files"]["includes"]
+        self.assertIn("**", includes)
+        self.assertIn("!**/node_modules", includes)
+        self.assertNotIn(
+            "!**/website_pack/generated",
+            includes,
+            "locked contract must stay consumer-generic",
+        )
+
+    def test_activation_skill_stamps_and_forbids_hand_authoring(self) -> None:
+        skill = ACTIVATION_SKILL.read_text(encoding="utf-8")
+        readme = PRESET_README.read_text(encoding="utf-8")
+        for text, label in ((skill, "activation skill"), (readme, "preset README")):
+            with self.subTest(doc=label):
+                self.assertIn("stamp.sh", text)
+                self.assertIn("do not hand-author", text.lower())
+                self.assertNotIn(
+                    "npx eslint",
+                    text,
+                    f"{label} still routes lint through ESLint",
+                )
+
+    def test_stamp_script_copies_when_absent_and_keeps_existing(self) -> None:
+        self.assertTrue(STAMP.is_file(), "presets/typescript/stamp.sh missing")
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            first = subprocess.run(
+                ["bash", str(STAMP), str(target)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertIn("stamped biome.json", first.stdout)
+            stamped = (target / "biome.json").read_text(encoding="utf-8")
+            self.assertEqual(stamped, LOCKED_BIOME.read_text(encoding="utf-8"))
+            self.assertTrue((target / ".biomeignore").is_file())
+            self.assertTrue((target / ".editorconfig").is_file())
+            recs = json.loads((target / ".vscode" / "extensions.json").read_text())
+            self.assertIn("biomejs.biome", recs["recommendations"])
+
+            (target / "biome.json").write_text('{"root": false}\n', encoding="utf-8")
+            second = subprocess.run(
+                ["bash", str(STAMP), str(target)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertIn("keep existing biome.json", second.stdout)
+            self.assertEqual((target / "biome.json").read_text(encoding="utf-8"), '{"root": false}\n')
 
 
 if __name__ == "__main__":
