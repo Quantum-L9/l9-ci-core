@@ -1,31 +1,32 @@
 # L9 consumer lint + test workflow for Node.js / TypeScript (TEMPLATE)
 #
-# Copy into the CONSUMER repo at `.github/workflows/l9-lint-test-node.yml`.
-# Node counterpart to l9-lint-test.yml (Python). Provides the TypeScript/Node
-# hygiene half that v1's pr-pipeline never covered.
+# Synced by Quantum-L9/.github `ops/sync-v2-starters.sh` into
+# `l9-ci-pack/workflows/l9-lint-test-node.yml`. Prefer
+# `presets/typescript/.github/workflows/l9-lint-test.yml` as the live
+# contract; this file must stay Biome-owned so a docs/templates fallback
+# cannot reintroduce ESLint.
 #
-# Three independent gates (each surfaces as its own required check):
-#   lint       -> eslint .          lint / style / correctness (your eslint config)
-#   typecheck  -> tsc --noEmit      type-check the whole tree against the type
-#                                   system (honors tsconfig, e.g. strict: true).
-#                                   NO compiled output; it proves the types are
-#                                   sound, it does not run the code.
-#   test       -> vitest run        one-shot, non-interactive run of *.test.ts.
-#                                   `run` is mandatory in CI — bare `vitest` is
-#                                   watch mode and would hang the job forever.
+# Formatter/linter ownership: Biome owns JS/TS/JSON (format + lint) via the
+# SDK-owned reusable workflow below. ESLint is NOT a second formatter owner
+# here. Type checking (tsc) and the repository test suite stay in this repo.
 #
-# v2 conventions: immutable event-revision checkout, contents: read only (no
-# write scopes). Node comes preinstalled on ubuntu-latest; see the optional
-# setup-node block to pin a specific version. Package manager auto-detected
-# from the lockfile (npm / pnpm / yarn).
+# Conventions:
+#   - Immutable event-revision checkout (no floating action ref)
+#   - SDK reusable workflow pinned to a full 40-char commit SHA
+#   - Least privilege (contents: read only)
 name: L9 Lint and Test (Node)
-
 on:
   pull_request:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
+
+# ── CONFIGURABLE: agent sets these during activation ───────────────────────────
+env:
+  NODE_VERSION: "20"
+  PACKAGE_MANAGER: "npm"
+  SOURCE_DIR: "."
+  HAS_TYPESCRIPT: "true"
 
 permissions:
   contents: read
@@ -34,59 +35,26 @@ concurrency:
   group: l9-lint-test-node-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# ── Reusable anchors kept inline per job (templates must stay copy-paste-able).
-# Each job: immutable checkout -> install deps -> run one gate.
-
 jobs:
-  lint:
-    name: ESLint
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  # Biome (format + lint + import organization) is owned by the SDK reusable
+  # workflow — a single read-only gate with a checksum-verified biome binary
+  # and zero external actions. Reusable-workflow inputs cannot read `env:`, so
+  # scan-path and the rollout flag are set literally here.
+  biome:
+    name: Biome (format + lint) — SDK-owned
     permissions:
       contents: read
-    steps:
-      - name: Checkout immutable event revision
-        env:
-          REPOSITORY: ${{ github.repository }}
-          REVISION: ${{ github.sha }}
-          TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git init .
-          git remote add origin "https://github.com/${REPOSITORY}.git"
-          # Authenticate with a per-fetch Authorization header instead of
-          # embedding the token in the remote URL, so the credential is never
-          # written to the remote URL or .git/config (mirrors actions/checkout).
-          auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
-          git -c protocol.version=2 \
-            -c "http.https://github.com/.extraheader=${auth_header}" \
-            fetch --depth=1 origin "${REVISION}"
-          git checkout --detach FETCH_HEAD
-      # OPTIONAL — pin Node. ubuntu-latest ships Node 20+, used as-is. To pin,
-      # uncomment and set a full 40-char SHA you trust for actions/setup-node:
-      # - uses: actions/setup-node@<full-40-char-sha>  # v4.x
-      #   with:
-      #     node-version-file: package.json   # or .nvmrc, or node-version: "20"
-      - name: Install dependencies
-        run: |
-          set -euo pipefail
-          corepack enable || true
-          if [ -f pnpm-lock.yaml ]; then
-            corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile
-          elif [ -f yarn.lock ]; then
-            corepack prepare yarn@stable --activate && yarn install --immutable
-          elif [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-            npm ci
-          else
-            npm install
-          fi
-      - name: ESLint
-        run: npx --no-install eslint . || npx eslint .
+    uses: Quantum-L9/l9-ci-sdk/.github/workflows/l9-biome-scan.yml@f546f122d33601ea5a4b2592e3482c5c39eddd82
+    with:
+      scan-path: "."
+      # Advisory-to-blocking rollout: false = full scan + annotate + exit 0.
+      # Flip to true to make Biome findings blocking once the repo is clean.
+      enforce-biome: false
 
   typecheck:
-    name: tsc --noEmit
+    name: Type Check (tsc --noEmit)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -107,26 +75,37 @@ jobs:
             -c "http.https://github.com/.extraheader=${auth_header}" \
             fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ env.PACKAGE_MANAGER }}
+
       - name: Install dependencies
         run: |
           set -euo pipefail
-          corepack enable || true
-          if [ -f pnpm-lock.yaml ]; then
-            corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile
-          elif [ -f yarn.lock ]; then
-            corepack prepare yarn@stable --activate && yarn install --immutable
-          elif [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-            npm ci
+          case "${PACKAGE_MANAGER}" in
+            npm)  if [ -f package-lock.json ]; then npm ci; else npm install; fi ;;
+            pnpm) corepack enable && (if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi) ;;
+            yarn) corepack enable && (if [ -f yarn.lock ]; then yarn install --frozen-lockfile; else yarn install; fi) ;;
+            *) echo "::error::unknown PACKAGE_MANAGER ${PACKAGE_MANAGER}" && exit 1 ;;
+          esac
+
+      - name: tsc --noEmit
+        if: env.HAS_TYPESCRIPT == 'true'
+        run: |
+          set -euo pipefail
+          if [ -f tsconfig.json ]; then
+            npx --yes tsc --noEmit -p tsconfig.json
           else
-            npm install
+            echo "::notice::no tsconfig.json found, skipping type check"
           fi
-      - name: Type-check (tsc --noEmit)
-        run: npx --no-install tsc --noEmit || npx tsc --noEmit
 
   test:
-    name: Vitest
+    name: Test Suite
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -139,30 +118,35 @@ jobs:
           set -euo pipefail
           git init .
           git remote add origin "https://github.com/${REPOSITORY}.git"
-          # Authenticate with a per-fetch Authorization header instead of
-          # embedding the token in the remote URL, so the credential is never
-          # written to the remote URL or .git/config (mirrors actions/checkout).
           auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
           git -c protocol.version=2 \
             -c "http.https://github.com/.extraheader=${auth_header}" \
             fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
+
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ env.PACKAGE_MANAGER }}
+
       - name: Install dependencies
         run: |
           set -euo pipefail
-          corepack enable || true
-          if [ -f pnpm-lock.yaml ]; then
-            corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile
-          elif [ -f yarn.lock ]; then
-            corepack prepare yarn@stable --activate && yarn install --immutable
-          elif [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-            npm ci
-          else
-            npm install
-          fi
-      - name: Vitest (one-shot, non-interactive)
+          case "${PACKAGE_MANAGER}" in
+            npm)  if [ -f package-lock.json ]; then npm ci; else npm install; fi ;;
+            pnpm) corepack enable && (if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi) ;;
+            yarn) corepack enable && (if [ -f yarn.lock ]; then yarn install --frozen-lockfile; else yarn install; fi) ;;
+            *) echo "::error::unknown PACKAGE_MANAGER ${PACKAGE_MANAGER}" && exit 1 ;;
+          esac
+
+      - name: Run test suite
         env:
           CI: "true"
-        run: npx --no-install vitest run || npx vitest run
-        # For coverage, install @vitest/coverage-v8 and use:
-        #   npx vitest run --coverage
+        run: |
+          set -euo pipefail
+          if [ -f package.json ] && node -e "process.exit(require('./package.json').scripts && require('./package.json').scripts.test ? 0 : 1)" 2>/dev/null; then
+            ${PACKAGE_MANAGER} test
+          else
+            echo "::notice::no test script defined in package.json, skipping"
+          fi
