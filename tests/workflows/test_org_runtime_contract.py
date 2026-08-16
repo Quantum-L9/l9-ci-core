@@ -52,7 +52,9 @@ def workflow_inputs(text: str) -> set[str]:
     names = set()
     for match in re.finditer(r"^\s{6}([a-z0-9-]+):\n(?:\s{8}description:.*?\n)*", text):
         names.add(match.group(1).replace("-", "_"))
-    for match in re.finditer(r"^\s{6}([a-z0-9-]+):\n(?=(?:\s{8}\S+:\s.*\n)*?\s{8}type:)", text):
+    for match in re.finditer(
+        r"^\s{6}([a-z0-9-]+):\n(?=(?:\s{8}\S+:\s.*\n)*?\s{8}type:)", text
+    ):
         names.add(match.group(1).replace("-", "_"))
     return names
 
@@ -86,7 +88,11 @@ class OrgRuntimeContractTests(unittest.TestCase):
             "route-artifacts",
             "build-artifact-manifest",
         ):
-            self.assertIn(f"/.github/actions/{action}@a642641ad89b2f37022e8ce76e4bcf94791ff75a", text, action)
+            self.assertIn(
+                f"/.github/actions/{action}@a642641ad89b2f37022e8ce76e4bcf94791ff75a",
+                text,
+                action,
+            )
         # Core never re-decides the gate; it only enforces in blocking mode.
         self.assertIn("gate evaluate", text)
         self.assertIn("Blocking mode: failing job on SDK gate verdict", text)
@@ -98,7 +104,9 @@ class OrgRuntimeContractTests(unittest.TestCase):
             self.assertIn(f'"{name}"', text, name)
         # The materializer rejects unknown keys; mirror that list here.
         self.assertIn("unknown = sorted(set(pack) - KNOWN)", text)
-        self.assertIn('sys.exit(f"governance input contains unknown files: {unknown}")', text)
+        self.assertIn(
+            'sys.exit(f"governance input contains unknown files: {unknown}")', text
+        )
         self.assertTrue(known)
 
     def test_contract_prohibits_org_administration_in_core(self) -> None:
@@ -118,7 +126,10 @@ class OrgRuntimeContractTests(unittest.TestCase):
     def test_contract_pinning_policy(self) -> None:
         contract = load_contract()
         pin = contract["pinning"]
-        self.assertEqual(pin["core_revision"]["policy"], "full-40-char-sha-or-immutable-semver-tag-only")
+        self.assertEqual(
+            pin["core_revision"]["policy"],
+            "full-40-char-sha-or-immutable-semver-tag-only",
+        )
         self.assertEqual(pin["core_revision"]["selected_by"], "control_plane")
         sdk = pin["sdk_revision"]
         self.assertFalse(sdk["floating_git_references_allowed"])
