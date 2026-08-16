@@ -34,10 +34,10 @@ class SDKRevisionValidationTests(unittest.TestCase):
         self.validate("0c487747b0fcd172edaefe9e843dac818de8fc12")
 
     def test_removed_rollback_revision_is_now_rejected(self) -> None:
-        # b390dc78… was dropped from the compatibility manifest; an unlisted
+        # 0779fca… was dropped from the compatibility manifest; an unlisted
         # (even if full 40-hex) revision must fail closed.
         with self.assertRaises(module.ProvisioningError):
-            self.validate("b390dc78e3464cca539b998dfb723481927ed91b")
+            self.validate("0779fca8238011f8abea551895f96584676e9d17")
 
     def test_short_revision_is_rejected(self) -> None:
         with self.assertRaises(module.ProvisioningError):

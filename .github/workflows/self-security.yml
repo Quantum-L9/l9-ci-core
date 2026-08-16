@@ -1,0 +1,24 @@
+# Self-only dogfood caller for the v1 security kernel (gitleaks + pip-audit).
+# Read-only; does not publish checks or code-scanning results.
+name: Core self security
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: core-self-security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  security:
+    name: Security scan
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+    with:
+      python-version: "3.12"
+      source-dir: "."
+      run-npm-audit: false
