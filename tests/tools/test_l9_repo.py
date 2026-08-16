@@ -19,11 +19,13 @@ sys.path.insert(0, str(ROOT / "tools"))
 from l9_repo import locking, push_preflight  # noqa: E402
 from l9_repo.authority import AuthorityError, validate_authority  # noqa: E402
 from l9_repo.__main__ import (  # noqa: E402
+    MANIFEST_CHECK_ENV,
     AgentCheckFailure,
     RepositoryWorkflow,
     WorkflowError,
     main,
     validate_config_data,
+    verify_checksum_manifest,
 )
 
 
@@ -594,8 +596,21 @@ class WorkflowTests(unittest.TestCase):
         temporary, root = make_git_fixture()
         self.addCleanup(temporary.cleanup)
         (root / "SECURITY.md").write_text("tampered\n", encoding="utf-8")
-        with self.assertRaisesRegex(WorkflowError, "checksum mismatch"):
+        with (
+            mock.patch.dict(os.environ, {MANIFEST_CHECK_ENV: "1"}),
+            self.assertRaisesRegex(WorkflowError, "checksum mismatch"),
+        ):
             RepositoryWorkflow(root).structural_validate()
+
+    def test_checksum_manifest_is_skipped_when_switched_off(self) -> None:
+        """The opt-out must skip verification, not silently pass a bad tree."""
+        temporary, root = make_git_fixture()
+        self.addCleanup(temporary.cleanup)
+        (root / "SECURITY.md").write_text("tampered\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {MANIFEST_CHECK_ENV: "0"}):
+            RepositoryWorkflow(root).structural_validate()
+        with self.assertRaisesRegex(WorkflowError, "checksum mismatch"):
+            verify_checksum_manifest(root)
 
     def test_status_without_any_remote_ref_reports_unavailable(self) -> None:
         config = self.workflow.config()
@@ -641,7 +656,10 @@ class WorkflowTests(unittest.TestCase):
         digest = hashlib.sha256(outside.read_bytes()).hexdigest()
         with (root / "MANIFEST.sha256").open("a", encoding="utf-8") as handle:
             handle.write(f"{digest}  linked.txt\n")
-        with self.assertRaisesRegex(WorkflowError, "symlinked"):
+        with (
+            mock.patch.dict(os.environ, {MANIFEST_CHECK_ENV: "1"}),
+            self.assertRaisesRegex(WorkflowError, "symlinked"),
+        ):
             RepositoryWorkflow(root).structural_validate()
 
     def test_clean_never_escapes_root(self) -> None:

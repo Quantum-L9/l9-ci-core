@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -480,6 +481,29 @@ def validate_config_data(data: object) -> dict[str, Any]:
     _validate_keys(status, "status", required={"fetch_remote"})
     _require_bool(status["fetch_remote"], "status.fetch_remote")
     return root
+
+
+MANIFEST_CHECK_ENV = "L9_MANIFEST_CHECK"
+
+
+def manifest_check_enabled() -> bool:
+    """Is tracked-file checksum verification switched on?
+
+    Operator decision (2026-08-16): OFF by default. Regenerating
+    `MANIFEST.sha256` on every tracked change was blocking routine work, so
+    the check is opt-in until that workflow is revisited. Set
+    ``L9_MANIFEST_CHECK=1`` to restore it.
+
+    Consequence while off: `MANIFEST.sha256` still ships, but nothing verifies
+    it, so tracked-file tampering is not detected by `make validate`. The
+    checker itself is unchanged and stays covered by the test suite.
+    """
+    return os.environ.get(MANIFEST_CHECK_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def verify_checksum_manifest(
@@ -960,7 +984,8 @@ class RepositoryWorkflow:
             _fail("jsonschema is required for structural validation; run make setup")
         except Exception as error:
             _fail(f"repo-workflow schema validation failed: {error}")
-        verify_checksum_manifest(self.root)
+        if manifest_check_enabled():
+            verify_checksum_manifest(self.root)
         template = self.root / TEMPLATE_PATH
         makefile = self.root / "Makefile"
         if not template.is_file():

@@ -232,8 +232,11 @@ Therefore:
   workspace and fails with "Can't find action.yml" for every consumer.
 - A `run:`-based step that copies a file must tolerate source == destination
   (a consumer may already have written the artifact at its routed location).
-- `MANIFEST.sha256` records the sha256 of tracked files; regenerate the
-  entries for any file you change so it stays honest.
+- `MANIFEST.sha256` records the sha256 of tracked files. Verification is
+  **opt-in** as of 2026-08-16 (`L9_MANIFEST_CHECK=1`); by default `make
+  validate` does not check it, so tracked-file tampering is not detected.
+  Regenerate the entries for any file you change so the manifest stays honest
+  and the switch can be turned back on without a cleanup pass.
 
 ## Edit-time constraints (unchanged)
 

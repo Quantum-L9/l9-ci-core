@@ -46,3 +46,9 @@ Evidence is written under `artifacts/`, which remains untracked.
 - Force push, protected-branch mutation, shell-string command execution, and
   hidden bypasses are prohibited.
 - `MANIFEST.sha256` must be regenerated for every tracked change.
+- Verification of that manifest is **opt-in** as of 2026-08-16. `make validate`
+  skips it unless `L9_MANIFEST_CHECK=1` is set (operator decision: the
+  regenerate-every-change workflow was blocking routine work). While the switch
+  is off the manifest is recorded but unverified, so it provides no
+  tamper-detection. `verify_checksum_manifest` itself is unchanged and remains
+  covered by `tests/tools/test_l9_repo.py`.
