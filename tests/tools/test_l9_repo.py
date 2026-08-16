@@ -118,7 +118,10 @@ def make_git_fixture() -> tuple[tempfile.TemporaryDirectory[str], pathlib.Path]:
         ROOT,
         root,
         dirs_exist_ok=True,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "artifacts"),
+        # .git must never be copied: inside a git worktree it is a gitfile
+        # pointing at the outer repository, so temp-fixture git ops would
+        # silently mutate the real worktree instead of the fixture repo.
+        ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", "artifacts"),
     )
     initialize_target_fixture(root)
     configure_simple_commands(root)
