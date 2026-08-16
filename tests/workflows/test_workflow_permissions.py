@@ -39,6 +39,9 @@ class WorkflowPermissionTests(unittest.TestCase):
     WRITE_EXCEPTIONS = {
         "publish-analysis.yml": ["checks", "security-events"],
         "analyze-semgrep.yml": ["checks", "security-events"],
+        # Organization-facing entrypoint: the nested publish job needs the
+        # same checked scopes analyze-semgrep.yml's publish job uses.
+        "org-ci.yml": ["checks", "security-events"],
         "self-analysis.yml": ["checks", "security-events"],
         "regenerate-identity-maps.yml": ["contents", "pull-requests"],
     }

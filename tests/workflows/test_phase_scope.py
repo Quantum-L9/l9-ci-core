@@ -42,6 +42,10 @@ class PhaseScopeTests(unittest.TestCase):
             # analysis/publication path; triggers only on schedule +
             # workflow_dispatch (see test_workflow_permissions).
             "regenerate-identity-maps.yml",
+            # The single organization-facing Core entrypoint
+            # (l9.org-runtime-contract/v1) selected by l9-ci-control-plane at
+            # a full immutable Core SHA. Reusable workflow_call only.
+            "org-ci.yml",
         }
         self.assertEqual(expected, actual)
 
