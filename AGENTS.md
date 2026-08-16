@@ -306,6 +306,7 @@ The local repository-execution contract is [`.l9/repo-workflow.json`](.l9/repo-w
 - Run `make change-policy` to inspect targeted gates and companion obligations for the current change set.
 - Run `make agent-check` before declaring work complete, committing, pushing, or opening a pull request. Targeted gates add evidence; they never replace the full configured check and test matrices.
 - Keep the root `Makefile` generated and delegation-only. Runtime behavior belongs in `tools/l9_repo/`; executable policy belongs in `.l9/repo-workflow.json`.
+- Configured command argv is consumed argv-only from an executable allowlist (`@python` or the pinned `ruff` / `mypy` / `uv` toolchain). Unknown executables are rejected fail-closed at configuration load; arguments are passed literally and never evaluated by a shell.
 - Do not bypass or weaken the completion proof, protected-branch refusal, clean-tree requirement, no-force policy, single-flight lock, or evidence emission.
 - Exit `1` means blocking repository findings. Exit `2` means invalid configuration, infrastructure, comparison context, authority wiring, or repository state.
 

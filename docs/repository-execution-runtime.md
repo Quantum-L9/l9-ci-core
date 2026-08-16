@@ -36,6 +36,14 @@ Authority resolves in this order:
 
 Evidence is written under `artifacts/`, which remains untracked.
 
+Configured command argv (including `change_policy` gate commands and
+`push.lockfile_command`) is consumed **argv-only and allowlisted**: `argv[0]`
+must be `@python` (the workspace interpreter) or one of the pinned toolchain
+`ruff`, `mypy`, `uv`. Any other executable is rejected fail-closed at
+configuration load, so a repository contract can never smuggle arbitrary
+commands through the runner. Command arguments are passed literally and are
+never evaluated by a shell.
+
 ## Invariants
 
 - Targeted gates add evidence and never replace the full configured suite.
@@ -43,6 +51,8 @@ Evidence is written under `artifacts/`, which remains untracked.
   configuration, infrastructure, comparison context, or repository state.
 - Validation must preserve the initial subject, policy digest, index, tracked
   worktree, and untracked-file set.
+- Configured commands are allowlisted (`@python`, `ruff`, `mypy`, `uv`) and
+  executed argv-only.
 - Force push, protected-branch mutation, shell-string command execution, and
   hidden bypasses are prohibited.
 - `MANIFEST.sha256` must be regenerated for every tracked change.

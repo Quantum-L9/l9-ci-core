@@ -179,6 +179,34 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowError, "argv array"):
             validate_config_data(data)
 
+    def test_commands_allow_pinned_toolchain(self) -> None:
+        data = self.load_config()
+        data["commands"] = {
+            "setup": [["@python", "-m", "pip", "install", "-r", "x.txt"]],
+            "validate": [["ruff", "check", "."]],
+            "check": [["mypy"]],
+            "test": [["uv", "lock", "--check"]],
+        }
+        self.assertIs(validate_config_data(data), data)
+
+    def test_command_rejects_unallowlisted_executable(self) -> None:
+        data = self.load_config()
+        data["commands"]["check"] = [["definitely-not-a-real-tool"]]
+        with self.assertRaisesRegex(WorkflowError, "argv-only allowlist"):
+            validate_config_data(data)
+
+    def test_gate_command_rejects_unallowlisted_executable(self) -> None:
+        data = self.load_config()
+        data["change_policy"]["gates"]["workflow"]["commands"] = [["arbitrary-script"]]
+        with self.assertRaisesRegex(WorkflowError, "argv-only allowlist"):
+            validate_config_data(data)
+
+    def test_lockfile_command_rejects_unallowlisted_executable(self) -> None:
+        data = self.load_config()
+        data["push"]["lockfile_command"] = ["arbitrary-script"]
+        with self.assertRaisesRegex(WorkflowError, "argv-only allowlist"):
+            validate_config_data(data)
+
     def test_unsafe_clean_path_is_rejected(self) -> None:
         data = self.load_config()
         data["clean_paths"] = ["../escape"]
@@ -325,7 +353,7 @@ class WorkflowTests(unittest.TestCase):
         )
         self.assertTrue((root / "artifacts/agent-check-evidence.md").is_file())
 
-    def test_missing_executable_is_infrastructure_exit_two_after_other_steps(
+    def test_unallowlisted_executable_is_rejected_before_running(
         self,
     ) -> None:
         temporary, root = make_git_fixture()
@@ -333,15 +361,49 @@ class WorkflowTests(unittest.TestCase):
         config_path = root / ".l9/repo-workflow.json"
         config = json.loads(config_path.read_text())
         config["commands"]["validate"] = [["definitely-not-a-real-tool"]]
+        config_path.write_text(json.dumps(config, indent=2) + "\n")
+        regenerate_manifest(root)
+        run_git(root, "add", ".l9/repo-workflow.json", "MANIFEST.sha256")
+        run_git(root, "commit", "-m", "configure arbitrary executable")
+        workflow = RepositoryWorkflow(root)
+        with self.assertRaisesRegex(WorkflowError, "argv-only allowlist"):
+            workflow.agent_check(explicit=["MANIFEST.sha256"])
+        self.assertFalse((root / "artifacts/agent-check-evidence.json").is_file())
+
+    def test_argv_only_transport_preserves_literal_arguments(self) -> None:
+        temporary, root = make_git_fixture()
+        self.addCleanup(temporary.cleanup)
+        workflow = RepositoryWorkflow(root)
+        argv = workflow.render_argv(
+            ["@python", "-c", "import sys; print(sys.argv[1])", "a;b $c"]
+        )
+        result = workflow.run(argv, capture=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("a;b $c", result.stdout.strip())
+
+    def test_missing_allowlisted_executable_is_infrastructure(
+        self,
+    ) -> None:
+        temporary, root = make_git_fixture()
+        self.addCleanup(temporary.cleanup)
+        bin_dir = root / "shim-bin"
+        bin_dir.mkdir()
+        git_path = shutil.which("git")
+        self.assertIsNotNone(git_path)
+        (bin_dir / "git").symlink_to(git_path)
+        config_path = root / ".l9/repo-workflow.json"
+        config = json.loads(config_path.read_text())
+        config["commands"]["validate"] = [["ruff", "check", "."]]
         config["commands"]["check"] = [simple_command(0, "check still ran")]
         config["commands"]["test"] = [simple_command(0, "test still ran")]
         config_path.write_text(json.dumps(config, indent=2) + "\n")
         regenerate_manifest(root)
         run_git(root, "add", ".l9/repo-workflow.json", "MANIFEST.sha256")
-        run_git(root, "commit", "-m", "configure infra failure")
+        run_git(root, "commit", "-m", "configure missing allowlisted tool")
         workflow = RepositoryWorkflow(root)
-        with self.assertRaisesRegex(WorkflowError, "infrastructure"):
-            workflow.agent_check(explicit=["MANIFEST.sha256"])
+        with mock.patch.dict(os.environ, {"PATH": str(bin_dir)}):
+            with self.assertRaisesRegex(WorkflowError, "infrastructure"):
+                workflow.agent_check(explicit=["MANIFEST.sha256"])
         payload = json.loads((root / "artifacts/agent-check-evidence.json").read_text())
         self.assertEqual(payload["overall_exit_code"], 2)
         classes = [step["classification"] for step in payload["steps"]]

@@ -52,6 +52,12 @@ _MANIFEST_PATH_OFFSET = _SHA256_HEX_LENGTH + len(_MANIFEST_FIELD_SEPARATOR)
 _MANIFEST_MIN_LINE_LENGTH = _MANIFEST_PATH_OFFSET + 1
 # agent-check exits 2 when an infrastructure/configuration failure occurred.
 _INFRASTRUCTURE_EXIT_CODE = 2
+# Repository-owned deterministic validation is consumed argv-only. Configured
+# commands may name only the workspace interpreter token (`@python`) or the
+# pinned Core toolchain; any other executable is rejected fail-closed so a
+# repository contract can never smuggle arbitrary commands through the
+# runner. Command arguments are passed literally and never parsed by a shell.
+_ALLOWED_COMMAND_EXECUTABLES = frozenset({"ruff", "mypy", "uv"})
 
 
 class AgentCheckFailure(RuntimeError):
@@ -150,6 +156,22 @@ def _validate_argv_matrix(value: object, path: str) -> list[list[str]]:
         _validate_argv(item, f"{path}[{index}]", allow_empty=False)
         for index, item in enumerate(value)
     ]
+
+
+def _require_allowlisted_executable(argv: list[str], path: str, index: int) -> None:
+    executable = argv[0]
+    if executable != "@python" and executable not in _ALLOWED_COMMAND_EXECUTABLES:
+        _fail(
+            f"{path}[{index}][0] must be @python or one of "
+            f"{sorted(_ALLOWED_COMMAND_EXECUTABLES)} (argv-only allowlist)"
+        )
+
+
+def _validate_argv_command(value: object, path: str) -> list[list[str]]:
+    validated = _validate_argv_matrix(value, path)
+    for index, argv in enumerate(validated):
+        _require_allowlisted_executable(argv, path, index)
+    return validated
 
 
 def _validate_safe_relative_path(value: object, path: str) -> str:
@@ -270,7 +292,7 @@ def validate_config_data(data: object) -> dict[str, Any]:
     command_names = {"setup", "validate", "check", "test"}
     _validate_keys(commands, "commands", required=command_names)
     for name in sorted(command_names):
-        _validate_argv_matrix(commands[name], f"commands.{name}")
+        _validate_argv_command(commands[name], f"commands.{name}")
 
     push = _require_dict(root["push"], "push")
     push_keys = {
@@ -292,7 +314,11 @@ def validate_config_data(data: object) -> dict[str, Any]:
         _require_bool(push[key], f"push.{key}", expected=True)
     _require_bool(push["set_upstream"], "push.set_upstream")
     _require_bool(push["rebase_before_push"], "push.rebase_before_push")
-    _validate_argv(push["lockfile_command"], "push.lockfile_command", allow_empty=True)
+    lockfile_command = _validate_argv(
+        push["lockfile_command"], "push.lockfile_command", allow_empty=True
+    )
+    if lockfile_command:
+        _require_allowlisted_executable(lockfile_command, "push.lockfile_command", 0)
 
     pull_request = _require_dict(root["pull_request"], "pull_request")
     _validate_keys(
@@ -353,7 +379,7 @@ def validate_config_data(data: object) -> dict[str, Any]:
             allow_empty_items=True,
         )
         _require_bool(gate["blocking"], f"change_policy.gates.{gate_id}.blocking")
-        _validate_argv_matrix(
+        _validate_argv_command(
             gate["commands"], f"change_policy.gates.{gate_id}.commands"
         )
 
@@ -574,7 +600,7 @@ class RepositoryWorkflow:
         return validate_config_data(data)
 
     def command_matrix(self, name: str) -> list[list[str]]:
-        return _validate_argv_matrix(
+        return _validate_argv_command(
             self.config()["commands"][name], f"commands.{name}"
         )
 
