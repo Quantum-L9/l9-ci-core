@@ -1,0 +1,45 @@
+{
+  "schema": "l9.execution-profiles/v1",
+  "profiles": {
+    "pr_fast": {
+      "sdk_profile": "ci_fast",
+      "strict": true,
+      "default_mode": "blocking",
+      "providers": ["semgrep"],
+      "policy": "",
+      "allowed_events": ["pull_request"]
+    },
+    "merge": {
+      "sdk_profile": "ci_fast",
+      "strict": true,
+      "default_mode": "blocking",
+      "providers": ["semgrep"],
+      "policy": "",
+      "allowed_events": ["push", "merge"]
+    },
+    "nightly": {
+      "sdk_profile": "ci_deep",
+      "strict": true,
+      "default_mode": "advisory",
+      "providers": ["semgrep"],
+      "policy": "",
+      "allowed_events": ["nightly"]
+    },
+    "release": {
+      "sdk_profile": "ci_deep",
+      "strict": true,
+      "default_mode": "blocking",
+      "providers": ["semgrep"],
+      "policy": "",
+      "allowed_events": ["release"]
+    },
+    "supply_chain": {
+      "sdk_profile": "ci_deep",
+      "strict": true,
+      "default_mode": "blocking",
+      "providers": ["semgrep"],
+      "policy": "",
+      "allowed_events": ["supply_chain"]
+    }
+  }
+}
