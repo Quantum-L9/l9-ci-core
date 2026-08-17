@@ -1,0 +1,83 @@
+schema: l9.org-runtime-interface/v1
+metadata:
+  repository: Quantum-L9/l9-ci-core
+  version: 1.0.0
+  status: candidate
+  campaign: l9-ci-core-org-runtime-v1
+  updated: '2026-08-16'
+  companion_contract: .l9/org-runtime-contract.yaml
+# The machine-readable candidate interface the control plane
+# (l9-ci-control-plane) can validate at an immutable Core commit SHA. Every
+# VALIDATED claim below is re-derived against executable Core behavior by
+# tests/workflows/test_org_runtime_interface.py — a claim that cannot be
+# re-derived must stay UNKNOWN. UNKNOWN is honest; it is never fabrication.
+entrypoint:
+  workflow: .github/workflows/org-ci.yml
+  selected_by: l9-ci-control-plane
+  pin_policy: full-40-char-immutable-sha
+  composition:
+    - resolve-governance
+    - provision-sdk
+    - invoke-sdk
+    - validate-bundle
+    - route-artifacts
+    - build-artifact-manifest
+claims:
+  - id: entrypoint-reusable
+    statement: >-
+      The organization entrypoint is a reusable workflow_call composing the
+      authoritative Core actions at a pinned full SHA, and never triggers on
+      repository events.
+    evidence:
+      - .github/workflows/org-ci.yml
+      - tests/workflows/test_org_runtime_contract.py
+    status: VALIDATED
+  - id: governance-input-bounded
+    statement: >-
+      The control-plane governance input accepts at most the six known
+      governance filenames and fail-closes on unknown keys, invalid JSON, or
+      unsafe filenames.
+    evidence:
+      - .github/workflows/org-ci.yml
+      - tests/workflows/test_org_runtime_contract.py
+    status: VALIDATED
+  - id: core-defaults-bounded
+    statement: >-
+      When the governance input is empty, Core applies its own bounded
+      standard defaults — exactly the six known governance files under
+      .github/org-governance-defaults/ — and fail-closes when they are
+      missing.
+    evidence:
+      - .github/org-governance-defaults/
+      - tests/governance/test_org_governance_defaults.py
+    status: VALIDATED
+  - id: sdk-revision-allowlisted
+    statement: >-
+      The SDK revision is pinned to a full 40-character immutable commit SHA
+      that is allowlisted in .l9/sdk-compatibility.yaml; floating refs,
+      branches, and tags are refused.
+    evidence:
+      - .l9/sdk-compatibility.yaml
+      - tests/provisioning/
+    status: VALIDATED
+  - id: publication-outputs
+    statement: >-
+      The entrypoint publishes the resolved gate verdict and the uploaded
+      analysis artifact set through the declared workflow outputs.
+    evidence:
+      - .github/workflows/org-ci.yml
+      - .github/workflows/publish-analysis.yml
+      - tests/workflows/test_org_runtime_contract.py
+    status: VALIDATED
+  - id: control-plane-live-consumption
+    statement: >-
+      l9-ci-control-plane consumes this entrypoint in production at this
+      commit SHA today.
+    evidence: []
+    status: UNKNOWN
+  - id: remote-end-to-end-run
+    statement: >-
+      The entrypoint completes end-to-end in GitHub Actions against a real
+      consumer repository at this commit SHA.
+    evidence: []
+    status: UNKNOWN
