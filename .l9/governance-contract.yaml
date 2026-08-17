@@ -9,10 +9,12 @@ boundary:
     - provider enablement
     - provider requiredness
     - SDK policy-file selection
-    - organization rollout mode
     - waiver lifecycle validation
     - promotion authorization
     - publication-mode selection
+    # Organization rollout is control-plane authority
+    # (l9-ci-control-plane), not Core — see
+    # .l9/org-runtime-contract.yaml control_plane_owns.
   sdk_owns:
     - finding identity resolution
     - finding classification

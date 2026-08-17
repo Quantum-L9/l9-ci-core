@@ -37,11 +37,6 @@ class PhaseScopeTests(unittest.TestCase):
             "security.yml",
             "scorecard.yml",
             "sbom.yml",
-            # Scheduled maintenance automation — keeps the preset semgrep
-            # identity maps in sync with the live registry. Not part of the
-            # analysis/publication path; triggers only on schedule +
-            # workflow_dispatch (see test_workflow_permissions).
-            "regenerate-identity-maps.yml",
             # The single organization-facing Core entrypoint
             # (l9.org-runtime-contract/v1) selected by l9-ci-control-plane at
             # a full immutable Core SHA. Reusable workflow_call only.

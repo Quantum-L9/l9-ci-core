@@ -29,7 +29,8 @@ owned_by_core:
   - artifact upload and retention
   - gate publication
   - pull-request summaries
-  - organization rollout policy
+# Organization rollout policy is control-plane authority (l9-ci-control-plane),
+# not Core — see .l9/org-runtime-contract.yaml control_plane_owns.
 not_owned_by_core:
   - provider execution implementation
   - provider-native report parsing

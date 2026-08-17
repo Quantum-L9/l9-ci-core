@@ -31,11 +31,6 @@ class WorkflowPermissionTests(unittest.TestCase):
     #                           self-only dogfood caller of analyze-semgrep on
     #                           pull_request/push; grants the reusable the
     #                           same publish scopes.
-    #   regenerate-identity-maps.yml
-    #                           contents/pull-requests:write — opens a PR when
-    #                           the semgrep registry drifts. Confined to its
-    #                           `regenerate` job and unreachable from untrusted
-    #                           events (enforced by the trigger test below).
     WRITE_EXCEPTIONS = {
         "publish-analysis.yml": ["checks", "security-events"],
         "analyze-semgrep.yml": ["checks", "security-events"],
@@ -43,7 +38,6 @@ class WorkflowPermissionTests(unittest.TestCase):
         # same checked scopes analyze-semgrep.yml's publish job uses.
         "org-ci.yml": ["checks", "security-events"],
         "self-analysis.yml": ["checks", "security-events"],
-        "regenerate-identity-maps.yml": ["contents", "pull-requests"],
     }
 
     def test_only_authorized_workflows_request_write(self) -> None:
@@ -101,8 +95,7 @@ class WorkflowPermissionTests(unittest.TestCase):
         # publish-analysis.yml and analyze-semgrep.yml are reusable
         # (workflow_call) and gated by the caller. self-analysis.yml is an
         # audited self-only dogfood caller that deliberately triggers on
-        # pull_request to exercise the kernel in this repo. The maintenance
-        # workflow must be schedule/dispatch only.
+        # pull_request to exercise the kernel in this repo.
         trigger_pattern = re.compile(r"(?m)^\s*(pull_request|pull_request_target):")
         reusable = {"publish-analysis.yml", "analyze-semgrep.yml"}
         audited_pr_callers = {"self-analysis.yml"}
