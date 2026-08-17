@@ -61,15 +61,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install lint tools
+      - name: Install consumer CI toolchain
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@v2
+      - name: Install extra CI requirements
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
-          # Pinned consumer CI toolchain (bot-visible; Dependabot-tracked).
-          if [ -f requirements-consumer-ci.txt ]; then pip install -r requirements-consumer-ci.txt; fi
           if [ -f requirements-ci.txt ]; then pip install -r requirements-ci.txt; fi
-          command -v ruff >/dev/null 2>&1 || pip install ruff
-          command -v mypy >/dev/null 2>&1 || pip install mypy
 
       - name: ruff check
         run: ruff check "${SOURCE_DIR}" --output-format=github
@@ -131,14 +128,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install consumer CI toolchain
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@v2
       - name: Install test tools
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
           if [ -f requirements-ci.txt ]; then pip install -r requirements-ci.txt; fi
           pip install -e ".[dev]" || pip install -e . || \
             echo "::notice::no local editable package to install"
-          command -v pytest >/dev/null 2>&1 || pip install pytest
           python -c "import pytest_cov" 2>/dev/null || pip install pytest-cov
           python -c "import xdist" 2>/dev/null || pip install pytest-xdist
           python -c "import pytest_timeout" 2>/dev/null || pip install pytest-timeout

@@ -2,12 +2,11 @@
 # Install: pre-commit install
 # Run manually: pre-commit run --all-files
 #
-# rev pinned to match the exact ruff version installed in
-# .github/workflows/pr-pipeline.yml to avoid local/CI drift.
+# rev must equal ruff== in .github/actions/install-consumer-ci/requirements-consumer-ci.txt
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.5
+    rev: v0.16.1
     hooks:
       - id: ruff
         args: [--fix]

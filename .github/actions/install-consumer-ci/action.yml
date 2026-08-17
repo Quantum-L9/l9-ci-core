@@ -1,0 +1,12 @@
+name: Install consumer CI toolchain
+description: >
+  Installs the Core-owned ruff/mypy/pytest pins. Versions are not
+  Dependabot-owned and must not be invented in the caller.
+runs:
+  using: composite
+  steps:
+    - name: Install pinned consumer CI tools
+      shell: bash
+      env:
+        L9_CI_CORE_REF: ${{ github.action_ref }}
+      run: bash "${{ github.action_path }}/install.sh"

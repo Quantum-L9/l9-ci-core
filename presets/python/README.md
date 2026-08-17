@@ -64,8 +64,9 @@ that uses Pydantic enables it in its own config:
 plugins = ["pydantic.mypy"]
 ```
 
-The `pip`-tracked tool pins (mypy version, etc.) live in
-`requirements-consumer-ci.txt` and are kept current by Dependabot.
+Tool versions (ruff / mypy / pytest) are installed by
+`Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@v2`. Do not copy
+pin files and do not Dependabot-bump those packages.
 
 ## How to Activate CI (For AI Agents)
 
