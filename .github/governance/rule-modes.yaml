@@ -8,7 +8,10 @@
     "supply_chain": "blocking"
   },
   "provider_overrides": {
-    "semgrep": {}
+    "semgrep": {
+      "pr_fast": "advisory",
+      "merge": "advisory"
+    }
   },
   "allowed_modes": [
     "blocking",

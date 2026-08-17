@@ -1,0 +1,7 @@
+# Proven false positives: deleted skill docs showing SonarCloud basic-auth
+# placeholder `"$SONAR_TOKEN:"` (not a credential). History-only; files gone.
+# Commit e596ff6 — curl-auth-user on .claude/skills/l9-pr-remediation/*
+e596ff6cb96fbdec355370e85b8e9638cac7a2db:.claude/skills/l9-pr-remediation/references/signal-ingestion.md:curl-auth-user:148
+e596ff6cb96fbdec355370e85b8e9638cac7a2db:.claude/skills/l9-pr-remediation/references/signal-ingestion.md:curl-auth-user:149
+e596ff6cb96fbdec355370e85b8e9638cac7a2db:.claude/skills/l9-pr-remediation/references/review-sources.md:curl-auth-user:91
+e596ff6cb96fbdec355370e85b8e9638cac7a2db:.claude/skills/l9-pr-remediation/references/review-sources.md:curl-auth-user:92

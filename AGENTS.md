@@ -45,56 +45,92 @@ canonical finding/evidence model, no copied SDK schema, no rule-identity or
 severity-normalization logic, no scanner adapters, no AST/Tree-sitter/graph
 engine).
 
-**Workflow set is frozen** at exactly seven files
-(`tests/workflows/test_phase_scope.py` enforces this):
+**Workflow inventory** is enforced by
+`tests/workflows/test_phase_scope.py`. Categories:
 
 ```
+# Self PR CI / contract gates
 self-ci.yml
 sdk-contract-check.yml
-normalize-semgrep-report.yml
 governance-ci.yml
+release-validation.yml
+
+# Self-only dogfood callers (authorized stubs — not a consumer surface)
+self-analysis.yml          # thin caller → analyze-semgrep.yml
+self-security.yml          # thin caller → security.yml (v1 kernel)
+
+# Reusable analysis / publication kernels (workflow_call)
+analyze-semgrep.yml        # preferred consumer kernel
 profile-normalize-semgrep.yml
 publish-analysis.yml
-release-validation.yml
+baseline-ratchet.yml
+normalize-semgrep-report.yml   # nested helper (not a standalone consumer entry)
+
+# v1 compatibility kernels (callable; historical @v1 contracts)
+pr-pipeline.yml
+pre-commit-ci.yml
+nightly.yml
+release-publish.yml
+trio-governance.yml
+security.yml
+scorecard.yml
+sbom.yml
+
+# Maintenance
+regenerate-identity-maps.yml
 ```
 
-Adding an eighth reusable workflow (or a new analysis kernel) is a scope
-change, not a normal edit — it requires an explicit, authorized plan, not an
-opportunistic PR.
+Adding a new analysis kernel (or expanding the consumer-callable set) is a
+scope change — it requires an explicit, authorized plan, not an opportunistic
+PR. Self-only dogfood stubs (`self-analysis.yml`, `self-security.yml`) are
+allowed when `test_phase_scope.py` is updated in the same change.
 
 ---
 
 ## 2. How it works
 
-Request flow for the analysis path (`profile-normalize-semgrep.yml` /
-`publish-analysis.yml`), in order:
+**Preferred consumer path** is `analyze-semgrep.yml`: SDK-owned `semgrep run`
+→ bundle validate → `gate evaluate` → agent-payload + SARIF projection →
+artifact route/manifest/upload → nested `publish-analysis.yml`. Consumers
+(and Core's own `self-analysis.yml`) should be thin `workflow_call` stubs
+into that kernel.
 
-1. **Provision SDK** (`actions/provision-sdk`) — clones the pinned SDK
-   revision from `.l9/sdk-compatibility.yaml`, installs its `requirements.txt`
-   into an isolated venv, verifies the CLI responds, emits `executable`.
-2. **Resolve governance** (`actions/resolve-governance`) — reads the
+Legacy normalize-only path (`profile-normalize-semgrep.yml` /
+`publish-analysis.yml`) remains for callers that already produce a raw
+semgrep report outside the kernel. Request flow for the preferred kernel, in
+order:
+
+1. **Resolve governance** (`actions/resolve-governance`) — reads the
    consumer's `.github/governance/*.yaml`, resolves `{profile, provider,
    event}` to `{mode, enabled, strict, required-provider, sdk-policy,
    governance-digest}` per `rule-modes.yaml` / `provider-requiredness.yaml` /
    `execution-profiles.yaml`.
-3. **Invoke SDK** (`actions/invoke-sdk`) — a safe adapter over exactly four
-   public SDK CLI operations (see §6, no shell evaluation, no arbitrary
-   commands): `semgrep-normalize`, `bundle-validate`,
-   `bundle-project-agent-payload`, `compatibility-check`.
-4. **Route artifacts** (`actions/route-artifacts`) → **build manifest**
-   (`actions/build-artifact-manifest`) → upload.
+2. **Provision SDK** (`actions/provision-sdk`) — clones the pinned SDK
+   revision from `.l9/sdk-compatibility.yaml`, installs its `requirements.txt`
+   into an isolated venv, verifies the CLI responds, emits `executable`.
+3. **Invoke SDK** (`actions/invoke-sdk`) — a safe adapter over the allowlisted
+   public SDK CLI operations (no shell evaluation, no arbitrary commands):
+   `semgrep-run`, `semgrep-normalize`, `bundle-validate`,
+   `bundle-project-agent-payload`, `bundle-project-sarif`,
+   `compatibility-check`. The analyze kernel also runs `gate evaluate`
+   (SDK verdict) and installs the pinned `semgrep` binary before
+   `semgrep-run`.
+4. **Route artifacts** (`actions/route-artifacts`, including SARIF) →
+   **build manifest** (`actions/build-artifact-manifest`) → upload.
 5. **Publish** (`publish-analysis.yml` → `actions/render-publication` +
    `actions/publish-check`) — renders the SDK's agent-review projection into
-   a workflow summary + bounded PR annotations, then publishes the GitHub
-   check per the resolved mode (`blocking` publishes a real conclusion;
-   `shadow` retains artifacts with **no** check).
+   a workflow summary + bounded PR annotations, uploads SARIF when present,
+   then publishes the GitHub check per the resolved mode (`blocking`
+   publishes a real conclusion; `shadow` retains artifacts with **no**
+   check).
 
 `workflow_call` (reusable) vs self-only:
 
 | Workflow | Callable by consumers? |
 |---|---|
-| `profile-normalize-semgrep.yml`, `publish-analysis.yml` | Yes — `workflow_call` |
-| `self-ci.yml`, `sdk-contract-check.yml`, `normalize-semgrep-report.yml`, `governance-ci.yml`, `release-validation.yml` | No — self-only (Core's own CI/release gates) |
+| `analyze-semgrep.yml`, `profile-normalize-semgrep.yml`, `publish-analysis.yml`, `baseline-ratchet.yml`, v1 kernels (`pr-pipeline.yml`, `pre-commit-ci.yml`, `nightly.yml`, `release-publish.yml`, `trio-governance.yml`, `security.yml`, `scorecard.yml`, `sbom.yml`) | Yes — `workflow_call` |
+| `self-ci.yml`, `sdk-contract-check.yml`, `governance-ci.yml`, `release-validation.yml`, `self-analysis.yml`, `self-security.yml`, `regenerate-identity-maps.yml` | No — self-only (Core's own CI/dogfood/release/maintenance) |
+| `normalize-semgrep-report.yml` | Nested helper — not a standalone consumer entry |
 
 ---
 
@@ -133,9 +169,10 @@ recreate them here or sync them into the org pack.
 ## 4. What a consumer repo must do to integrate
 
 Works identically for **Python** and **Node.js** — `semgrep` is the single,
-language-agnostic provider the pinned SDK normalizes. The only per-language
-difference is the semgrep `--config` ruleset inside the copied
-`l9-analysis.yml`.
+language-agnostic provider. The preferred caller is a thin stub into
+`analyze-semgrep.yml`; the only per-language difference is `L9_LANGUAGE`
+(`python` or `typescript`). The SDK owns ruleset selection — consumers author
+no `--config` list.
 
 1. **Copy governance** — the six files in
    [`docs/templates/governance/`](docs/templates/governance/) (or the org
@@ -144,9 +181,10 @@ difference is the semgrep `--config` ruleset inside the copied
    commas (the resolver parses them with `json.loads`).
 2. **Copy the analysis caller** —
    [`docs/templates/l9-analysis.yml`](docs/templates/l9-analysis.yml) →
-   `.github/workflows/l9-analysis.yml`. Set the semgrep ruleset:
-   - Python: `--config p/python`
-   - Node/TypeScript: `--config p/javascript --config p/typescript`
+   `.github/workflows/l9-analysis.yml` (or the matching preset under
+   `presets/`). Set `L9_LANGUAGE` to `python` or `typescript`, pin Core by
+   full SHA on the `uses:` line, and grant `checks: write` +
+   `security-events: write` on the job that calls `analyze-semgrep.yml`.
 3. **Optional hygiene** — copy
    [`docs/templates/l9-lint-test.yml`](docs/templates/l9-lint-test.yml)
    (Python: ruff/mypy/pytest) or
@@ -156,10 +194,9 @@ difference is the semgrep `--config` ruleset inside the copied
 4. **Set profile / rollout** — pick `pr_fast` / `merge` / `nightly` /
    `release` / `supply_chain` in `execution-profiles.yaml`; roll a new
    provider or stricter policy out `shadow → advisory → blocking` via
-   `rule-modes.yaml` + `promotion-policy.yaml`. `checks: write` permission is
-   only needed on the job that calls `publish-analysis.yml`.
+   `rule-modes.yaml` + `promotion-policy.yaml`.
 5. **Verify** — artifact uploaded, GitHub check published (or shadow evidence
-   retained), lint/test green if adopted.
+   retained), SARIF uploaded when enabled, lint/test green if adopted.
 
 ---
 
@@ -195,27 +232,35 @@ already-imported wrappers keep resolving. They are **not** the integration
 path for new work — new work always starts from `docs/templates/` /
 `l9-ci-pack/README.md` (v2). Do not restore retired v1 kernels onto `main`.
 
-## 7. Dormant SDK CLI surface (not yet wired into Core)
+> `@v1.0.0` freeze: `978cf948133fa4d9cd6b78ecbb383295869cb70f` (PR #44
+> v1-compat). `@v1` is a moving compatibility tag and may be ahead of that
+> freeze — see [`docs/v1-compatibility.md`](docs/v1-compatibility.md). Tag
+> create/verify scripts live in `Quantum-L9/.github` (`ops/tag-v1.sh`,
+> `ops/verify-v1-anchor.sh`).
 
-`invoke-sdk` allowlists exactly four SDK operations today: `semgrep-normalize`,
-`bundle-validate`, `bundle-project-agent-payload`, `compatibility-check`. The
-pinned SDK exposes more that Core does **not** call:
+## 7. SDK CLI surface (wired vs dormant)
 
-| SDK CLI | Wired into `invoke-sdk`? | Status |
-|---|---|---|
-| `gate evaluate` | No | Dormant — SDK owns gate semantics; Core's publish path uses workflow conclusion/mode instead |
-| `providers list` | No | Dormant — no inventory action |
-| `providers detect` | No | Dormant — no capability-driven provider selection |
-| `semgrep detect` | No | Dormant — no SDK preflight for binary/version |
-| `semgrep normalize --derive-snapshot` | Flag unused | Core always passes an explicit `snapshot-id` |
-| `SemgrepProvider.execute` (SPI) | No CLI / no Core caller | Consumers run `semgrep scan` outside the SDK |
+`invoke-sdk` allowlists: `semgrep-run`, `semgrep-normalize`, `bundle-validate`,
+`bundle-project-agent-payload`, `bundle-project-sarif`, `compatibility-check`.
+`analyze-semgrep.yml` additionally runs `gate evaluate` as an SDK-owned step
+(exit code is the verdict; Core publishes it, never re-decides it).
 
-**Default:** documented here, wiring deferred until after a verified
-`v2.0.0` cut — expanding `invoke-sdk`'s allowlist or the frozen workflow set
-mid-verification churns the candidate SHA. If a dormant op is explicitly
-authorized before a release cut, wire it into `invoke-sdk` + the publication
-path, update `required_cli_paths` / the integration contract, and add tests
-before re-locking the candidate SHA.
+| SDK CLI | Status |
+|---|---|
+| `semgrep run` | **Wired** — `invoke-sdk` `semgrep-run` in `analyze-semgrep.yml` |
+| `gate evaluate` | **Wired** — `analyze-semgrep.yml` gate step (SDK verdict) |
+| `bundle project-sarif` | **Wired** — `invoke-sdk` `bundle-project-sarif` in `analyze-semgrep.yml` |
+| `semgrep normalize` / `bundle validate` / `bundle project-agent-payload` / `compatibility check` | **Wired** — `invoke-sdk` (+ normalize/profile paths) |
+| `providers list` | Dormant — no inventory action |
+| `providers detect` | Dormant — no capability-driven provider selection |
+| `semgrep detect` | Dormant — no SDK preflight for binary/version |
+| `semgrep normalize --derive-snapshot` | Flag unused — Core always passes an explicit `snapshot-id` |
+| `SemgrepProvider.execute` (SPI) | No CLI / no Core caller — SDK `semgrep run` owns execution |
+
+Expanding `invoke-sdk`'s allowlist or adding a new analysis kernel mid-cut
+churns the candidate SHA. If a dormant op is explicitly authorized, wire it
+into `invoke-sdk` + the publication path, update `required_cli_paths` / the
+integration contract, and add tests before re-locking the candidate SHA.
 
 ---
 
@@ -245,8 +290,9 @@ Therefore:
 2. Preserve the one-way dependency from Core to SDK.
 3. Do not implement SDK-owned behavior in Core.
 4. Do not introduce floating dependencies.
-5. Do not add analysis workflows beyond the frozen seven without explicit
-   authorization.
+5. Do not add analysis kernels without explicit authorization. Self-only
+   dogfood stubs (`self-analysis.yml`, `self-security.yml`) are OK when
+   `test_phase_scope.py` is updated in the same change.
 6. Run the complete standard-library test suite: `python3 -m unittest
    discover tests`.
 
@@ -265,3 +311,20 @@ The local repository-execution contract is [`.l9/repo-workflow.json`](.l9/repo-w
 - Keep the root `Makefile` generated and delegation-only. Runtime behavior belongs in `tools/l9_repo/`; executable policy belongs in `.l9/repo-workflow.json`.
 - Do not bypass or weaken the completion proof, protected-branch refusal, clean-tree requirement, no-force policy, single-flight lock, or evidence emission.
 - Exit `1` means blocking repository findings. Exit `2` means invalid configuration, infrastructure, comparison context, authority wiring, or repository state.
+
+<!-- BEGIN L9 FORMATTER OWNERSHIP (generated — do not edit) -->
+
+## Formatter ownership
+
+Workspace class: `biome_default` — Default for every governed workspace: Biome owns JS/TS/JSON, Ruff owns Python.
+
+Exactly one formatter owns each language. Do not reformat a file with a tool other than its owner, and do not add config for a competing formatter: the result is a diff that churns on every save.
+
+| Languages | Owner | Note |
+|---|---|---|
+| `javascript`, `javascriptreact`, `typescript`, `typescriptreact`, `json`, `jsonc` | **biome** | bound by the governed IDE profile |
+| `python` | **ruff** | bound by the governed IDE profile |
+
+Generated from `environment/ide/policy.json` in the governance clone by `ops/scripts/adapters/agentdocs.sh`. Edit the policy, not this block.
+
+<!-- END L9 FORMATTER OWNERSHIP -->

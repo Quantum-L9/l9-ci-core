@@ -33,7 +33,7 @@ jobs:
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: f546f122d33601ea5a4b2592e3482c5c39eddd82
+          sdk-revision: b1a491414ed04bb18d665f8a8755de80947c8200
       - name: Verify emitted contract
         env:
           SDK_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           test -x "${SDK_EXECUTABLE}"
-          test "${SDK_REVISION}" =             "f546f122d33601ea5a4b2592e3482c5c39eddd82"
+          test "${SDK_REVISION}" =             "b1a491414ed04bb18d665f8a8755de80947c8200"
           test "${SDK_CONTRACT}" = "l9.integration-contract/v1"
           "${SDK_EXECUTABLE}" --help
       - name: Prove every required CLI path resolves
@@ -65,6 +65,7 @@ jobs:
           gate evaluate
           bundle validate
           bundle project-agent-payload
+          bundle project-sarif
           compatibility check
           baseline compare-tests
           baseline scan-packet-envelope
@@ -111,8 +112,12 @@ jobs:
             echo "== ${lang}: project agent-review payload =="
             ( cd "${work}" && "${SDK_EXECUTABLE}" bundle project-agent-payload \
                 --input finding-bundle.json --output agent-review-payload.json )
+            echo "== ${lang}: project SARIF =="
+            ( cd "${work}" && "${SDK_EXECUTABLE}" bundle project-sarif \
+                --input finding-bundle.json --output results.sarif )
             test -s "${work}/finding-bundle.json"
             test -s "${work}/gate-result.json"
             test -s "${work}/agent-review-payload.json"
+            test -s "${work}/results.sarif"
             rm -rf "${work}"
           done

@@ -6,15 +6,34 @@ metadata:
 default:
   source: git
   repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-  revision: f546f122d33601ea5a4b2592e3482c5c39eddd82
+  revision: b1a491414ed04bb18d665f8a8755de80947c8200
 supported:
-  # Current default: l9-ci-sdk v1.0.0 — the frozen analysis-contract
-  # surface the release identifies for consumption by Core. Carries the
-  # full v2 orchestration handoff — `semgrep run` (provider execution +
-  # normalization in one SDK-owned process) and `gate evaluate` (the
-  # SDK's single gate-decision authority emitting the canonical
-  # gate-result artifact Core publishes verbatim rather than
-  # reconstructing a verdict).
+  # Current default: l9-ci-sdk PR-005A — adds deterministic
+  # `bundle project-sarif` so Core can dogfood SDK-projected SARIF upload
+  # without translating findings itself. Still carries the full v2
+  # orchestration handoff (`semgrep run` + `gate evaluate`).
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: b1a491414ed04bb18d665f8a8755de80947c8200
+    integration_contract: l9.integration-contract/v1
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+      - l9.sarif-log/v1
+    required_cli_paths:
+      - semgrep run
+      - semgrep normalize
+      - gate evaluate
+      - bundle validate
+      - bundle project-agent-payload
+      - bundle project-sarif
+      - compatibility check
+      - baseline compare-tests
+      - baseline scan-packet-envelope
+      - baseline compare-scan
+      - baseline validate-ledger
+  # Retained as a tested rollback: l9-ci-sdk v1.0.0 — prior default with
+  # `semgrep run` + `gate evaluate`, but without `bundle project-sarif`.
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: f546f122d33601ea5a4b2592e3482c5c39eddd82
@@ -33,9 +52,8 @@ supported:
       - baseline scan-packet-envelope
       - baseline compare-scan
       - baseline validate-ledger
-  # Retained as a tested rollback: the prior default, first revision to
-  # carry the full v2 orchestration handoff surface (`semgrep run` +
-  # `gate evaluate`).
+  # Retained as a tested rollback: first revision to carry the full v2
+  # orchestration handoff surface (`semgrep run` + `gate evaluate`).
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: 0c487747b0fcd172edaefe9e843dac818de8fc12
@@ -47,27 +65,6 @@ supported:
       - semgrep run
       - semgrep normalize
       - gate evaluate
-      - bundle validate
-      - bundle project-agent-payload
-      - compatibility check
-      - baseline compare-tests
-      - baseline scan-packet-envelope
-      - baseline compare-scan
-      - baseline validate-ledger
-  # Retained one release for rollback: canonicalizes rendered set
-  # literals in failure signatures — set iteration order is hash-seed
-  # dependent, so the same failure renders {'a', 'b'} or {'b', 'a'} per
-  # run (l9-ci-sdk#20). Predates `semgrep run` / `gate evaluate`; usable
-  # only by the normalize-only ingestion path.
-  - source: git
-    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-    revision: 0779fca8238011f8abea551895f96584676e9d17
-    integration_contract: l9.integration-contract/v1
-    artifact_protocols:
-      - l9.finding-bundle/v1
-      - l9.agent-review-payload/v1
-    required_cli_paths:
-      - semgrep normalize
       - bundle validate
       - bundle project-agent-payload
       - compatibility check
