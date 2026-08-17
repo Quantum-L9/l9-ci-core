@@ -46,9 +46,14 @@ Evidence is written under `artifacts/`, which remains untracked.
 - Force push, protected-branch mutation, shell-string command execution, and
   hidden bypasses are prohibited.
 - `MANIFEST.sha256` must be regenerated for every tracked change.
-- Verification of that manifest is **opt-in** as of 2026-08-16. `make validate`
-  skips it unless `L9_MANIFEST_CHECK=1` is set (operator decision: the
-  regenerate-every-change workflow was blocking routine work). While the switch
-  is off the manifest is recorded but unverified, so it provides no
-  tamper-detection. `verify_checksum_manifest` itself is unchanged and remains
-  covered by `tests/tools/test_l9_repo.py`.
+- Two surfaces verify it: `make validate` via the repository facade, and
+  `tests/tools/test_manifest_integrity.py` on the pull-request path, because
+  `self-ci.yml` and `governance-ci.yml` run `unittest discover` and never
+  invoke the facade. Without the test, a dependency bump or docs edit that
+  skipped the manifest merged green and only failed later on someone's local
+  `make validate` or in Phase 4 release validation — which is how #81 and #82
+  left `main` unable to pass `make validate`.
+- `L9_MANIFEST_CHECK=0` disables both, for bisects and salvage work on a
+  knowingly drifted tree. While disabled the manifest is recorded but
+  unverified and provides no tamper-detection, so keep the window to the single
+  command that needs it.

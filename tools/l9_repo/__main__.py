@@ -489,20 +489,19 @@ MANIFEST_CHECK_ENV = "L9_MANIFEST_CHECK"
 def manifest_check_enabled() -> bool:
     """Is tracked-file checksum verification switched on?
 
-    Operator decision (2026-08-16): OFF by default. Regenerating
-    `MANIFEST.sha256` on every tracked change was blocking routine work, so
-    the check is opt-in until that workflow is revisited. Set
-    ``L9_MANIFEST_CHECK=1`` to restore it.
+    Enabled unless ``L9_MANIFEST_CHECK`` explicitly disables it. The escape
+    hatch exists for bisects and salvage work on a knowingly drifted tree; it
+    is not a way to land a change without regenerating the manifest.
 
-    Consequence while off: `MANIFEST.sha256` still ships, but nothing verifies
-    it, so tracked-file tampering is not detected by `make validate`. The
-    checker itself is unchanged and stays covered by the test suite.
+    While disabled nothing verifies `MANIFEST.sha256`, so tracked-file
+    tampering goes undetected. Keep the window as short as the one command
+    that needs it.
     """
-    return os.environ.get(MANIFEST_CHECK_ENV, "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
+    return os.environ.get(MANIFEST_CHECK_ENV, "").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
     }
 
 

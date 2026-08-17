@@ -13,9 +13,10 @@ regenerating their entries, leaving ``main`` unable to pass ``make validate``.
 This test runs the same checker the facade runs, so the drift is caught on the
 pull request that introduces it.
 
-Switched OFF by operator decision (2026-08-16) — regenerating the manifest on
-every tracked change was blocking routine work. This test follows the same
-``L9_MANIFEST_CHECK`` switch as the facade, so one variable restores both.
+This test follows the same ``L9_MANIFEST_CHECK`` switch as the facade, so one
+variable governs both. The switch defaults to enabled: disabling it is for
+bisects and salvage work on a knowingly drifted tree, not for landing a change
+without regenerating the manifest.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ from l9_repo.__main__ import (  # noqa: E402
 
 @unittest.skipUnless(
     manifest_check_enabled(),
-    f"manifest verification is opt-in; set {MANIFEST_CHECK_ENV}=1 to enable",
+    f"manifest verification disabled via {MANIFEST_CHECK_ENV}",
 )
 class ManifestIntegrityTests(unittest.TestCase):
     def test_tracked_manifest_matches_the_worktree(self) -> None:
