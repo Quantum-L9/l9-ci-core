@@ -15,8 +15,8 @@ import importlib.util
 import io
 import os
 import unittest
+import unittest.mock
 from pathlib import Path
-from unittest import mock
 
 import yaml
 
@@ -123,7 +123,7 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
             "GITHUB_WORKSPACE": str(ROOT),
         }
         captured = io.StringIO()
-        with mock.patch.dict(os.environ, env, clear=False):
+        with unittest.mock.patch.dict(os.environ, env, clear=False):
             os.environ.pop("GITHUB_OUTPUT", None)
             with contextlib.redirect_stdout(captured):
                 exit_code = module.main()
