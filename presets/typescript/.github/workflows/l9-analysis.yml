@@ -18,11 +18,6 @@ env:
   # `uses:` cannot interpolate env — duplicate the SHA literally on the uses
   # line (same as CORE_ACTIONS_PIN). Keep L9_CORE_REF here for humans/agents.
   L9_CORE_REF: "373bb6d26084e67ef76aaab95021364182a34ee7"
-  L9_PROFILE: "pr_fast"
-  L9_MATRIX_ID: "pr-semgrep"
-  # SDK-owned Semgrep execution language: python or typescript. The SDK
-  # selects the packaged ruleset; this caller authors no --config list.
-  L9_LANGUAGE: "typescript"
 permissions:
   contents: read
 concurrency:
@@ -38,6 +33,13 @@ jobs:
       contents: read
       security-events: write
     with:
-      profile: ${{ env.L9_PROFILE }}
-      matrix-id: ${{ env.L9_MATRIX_ID }}
-      language: ${{ env.L9_LANGUAGE }}
+      # `env` context is not available in reusable-workflow `with:` values,
+      # so select the profile here from the github context instead. pr_fast
+      # only allows pull_request/workflow_dispatch; pushes to main must use
+      # the merge profile or resolve-governance fails closed with
+      # "event 'push' is not allowed".
+      profile: ${{ github.event_name == 'pull_request' && 'pr_fast' || 'merge' }}
+      matrix-id: pr-semgrep
+      # SDK-owned Semgrep execution language: python or typescript. The SDK
+      # selects the packaged ruleset; this caller authors no --config list.
+      language: typescript
