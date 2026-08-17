@@ -146,13 +146,15 @@ Quantum-L9/.github/l9-ci-pack/   (org distribution mirror + README)
 consumer repo .github/           (what actually runs)
 ```
 
-- **SSOT lives here**, in [`docs/templates/`](docs/templates/): the six
-  governance files, `l9-analysis.yml`, `l9-lint-test.yml`,
-  `l9-lint-test-node.yml`.
+- **SSOT lives here**: [`docs/templates/`](docs/templates/) (governance,
+  analysis, Python lint) and [`presets/typescript/`](presets/typescript/)
+  (locked Biome contract + Node lint caller). `docs/templates/l9-lint-test-node.yml`
+  is the org-sync fallback and must stay Biome-owned.
 - **`Quantum-L9/.github/l9-ci-pack/`** is the org-wide distribution copy of
-  that same surface (mirrored via a sync script), plus an agent-first
-  `README.md` so a consumer/agent never has to browse this repo to
-  instantiate Core.
+  that same surface (mirrored via `ops/sync-v2-starters.sh`), plus an
+  agent-first `README.md` so a consumer/agent never has to browse this repo
+  to instantiate Core. The org seeder copies the pack into consumers
+  (missing-only), including `biome.json`.
 - **Consumers copy from the pack** (or directly from `docs/templates/` if
   working against this repo). Do not invent parallel/ad-hoc workflows in Core
   to serve a single consumer — extend the templates instead.
@@ -189,8 +191,10 @@ no `--config` list.
    [`docs/templates/l9-lint-test.yml`](docs/templates/l9-lint-test.yml)
    (Python: ruff/mypy/pytest) or
    [`docs/templates/l9-lint-test-node.yml`](docs/templates/l9-lint-test-node.yml)
-   (Node: eslint/`tsc --noEmit`/vitest). These are generic dev-tool templates
-   you own outright — Core does not call or gate on them.
+   (Node: SDK Biome + `tsc --noEmit` + package test script). Stamp
+   `presets/typescript/stamp.sh` for `biome.json` — do not invent it. These
+   are generic dev-tool templates you own outright — Core does not call or
+   gate on them.
 4. **Set profile / rollout** — pick `pr_fast` / `merge` / `nightly` /
    `release` / `supply_chain` in `execution-profiles.yaml`; roll a new
    provider or stricter policy out `shadow → advisory → blocking` via
