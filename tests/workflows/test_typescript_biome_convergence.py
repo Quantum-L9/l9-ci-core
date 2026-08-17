@@ -200,7 +200,9 @@ class TypeScriptBiomeConvergenceTests(unittest.TestCase):
                 text=True,
             )
             self.assertIn("keep existing biome.json", second.stdout)
-            self.assertEqual((target / "biome.json").read_text(encoding="utf-8"), '{"root": false}\n')
+            self.assertEqual(
+                (target / "biome.json").read_text(encoding="utf-8"), '{"root": false}\n'
+            )
 
 
 if __name__ == "__main__":
