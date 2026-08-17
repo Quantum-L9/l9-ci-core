@@ -54,6 +54,8 @@ def initialize_target_fixture(root: pathlib.Path) -> None:
                 "[architecture](.l9/architecture.yaml)",
                 "[ownership](.l9/ownership.yaml)",
                 "[compatibility](.l9/sdk-compatibility.yaml)",
+                "[org-runtime-contract](.l9/org-runtime-contract.yaml)",
+                "[org-runtime-interface](.l9/org-runtime-interface.yaml)",
             ]
         )
         + "\n",

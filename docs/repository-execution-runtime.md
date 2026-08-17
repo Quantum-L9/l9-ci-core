@@ -14,11 +14,18 @@ or learning.
 
 Authority resolves in this order:
 
-1. `AGENTS.md` and the target `.l9` architecture, ownership, and SDK contracts.
+1. `AGENTS.md` and the target `.l9` contracts: `architecture.yaml`,
+   `ownership.yaml`, `sdk-compatibility.yaml`, `org-runtime-contract.yaml`,
+   and `org-runtime-interface.yaml`.
 2. `.l9/repo-workflow.json`.
 3. `.l9/repo-workflow.schema.json`.
 4. `tools/l9_repo/` runtime behavior.
 5. `Makefile`, generated from `tools/l9_repo/Makefile.template`.
+
+`.l9/repo-workflow.json` registers the target authorities under
+`authority.target_authorities` and requires `AGENTS.md` to reference each
+(`agent_contracts.reference_requirements`); structural validation fails
+closed when any registered authority is missing or unreferenced.
 
 ## Commands
 

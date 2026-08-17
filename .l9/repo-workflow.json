@@ -13,7 +13,9 @@
       "AGENTS.md",
       ".l9/architecture.yaml",
       ".l9/ownership.yaml",
-      ".l9/sdk-compatibility.yaml"
+      ".l9/sdk-compatibility.yaml",
+      ".l9/org-runtime-contract.yaml",
+      ".l9/org-runtime-interface.yaml"
     ],
     "component_authority": ".l9/repo-workflow.json",
     "component_schema": ".l9/repo-workflow.schema.json",
@@ -301,6 +303,8 @@
       ".l9/architecture.yaml",
       ".l9/ownership.yaml",
       ".l9/sdk-compatibility.yaml",
+      ".l9/org-runtime-contract.yaml",
+      ".l9/org-runtime-interface.yaml",
       "tools/check_workflow_integrity.py"
     ],
     "reference_requirements": [
@@ -318,6 +322,18 @@
       },
       {
         "target": ".l9/sdk-compatibility.yaml",
+        "instruction_files": [
+          "AGENTS.md"
+        ]
+      },
+      {
+        "target": ".l9/org-runtime-contract.yaml",
+        "instruction_files": [
+          "AGENTS.md"
+        ]
+      },
+      {
+        "target": ".l9/org-runtime-interface.yaml",
         "instruction_files": [
           "AGENTS.md"
         ]

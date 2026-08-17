@@ -9,6 +9,7 @@ to the six known filenames.
 
 from __future__ import annotations
 
+import importlib.util
 import pathlib
 import re
 import unittest
@@ -20,14 +21,16 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT_PATH = ROOT / ".l9" / "org-runtime-contract.yaml"
 ENTRYPOINT_PATH = ROOT / ".github" / "workflows" / "org-ci.yml"
 
-KNOWN_GOVERNANCE_FILES = {
-    "execution-profiles.yaml",
-    "rule-modes.yaml",
-    "provider-requiredness.yaml",
-    "quality-thresholds.yaml",
-    "waivers.yaml",
-    "promotion-policy.yaml",
-}
+# The known governance filenames are owned by the resolve-governance action
+# (EXPECTED_SCHEMAS) — this test derives from that single source of truth
+# instead of maintaining a second copy.
+RESOLVE_PATH = ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
+spec = importlib.util.spec_from_file_location("resolve_governance", RESOLVE_PATH)
+assert spec and spec.loader
+resolve_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(resolve_module)
+
+KNOWN_GOVERNANCE_FILES = set(resolve_module.EXPECTED_SCHEMAS)
 
 CONTRACT_INPUTS = {
     "event",

@@ -10,6 +10,7 @@ UNKNOWN — asserting that is part of the contract.
 
 from __future__ import annotations
 
+import importlib.util
 import re
 import unittest
 from pathlib import Path
@@ -24,14 +25,16 @@ ENTRYPOINT_PATH = ROOT / ".github" / "workflows" / "org-ci.yml"
 DEFAULTS_ROOT = ROOT / ".github" / "org-governance-defaults"
 SDK_COMPAT_PATH = ROOT / ".l9" / "sdk-compatibility.yaml"
 
-KNOWN_GOVERNANCE_FILES = {
-    "execution-profiles.yaml",
-    "rule-modes.yaml",
-    "provider-requiredness.yaml",
-    "quality-thresholds.yaml",
-    "waivers.yaml",
-    "promotion-policy.yaml",
-}
+# The known governance filenames are owned by the resolve-governance action
+# (EXPECTED_SCHEMAS) — this validator derives from that single source of
+# truth instead of maintaining a second copy.
+RESOLVE_PATH = ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
+spec = importlib.util.spec_from_file_location("resolve_governance", RESOLVE_PATH)
+assert spec and spec.loader
+resolve_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(resolve_module)
+
+KNOWN_GOVERNANCE_FILES = set(resolve_module.EXPECTED_SCHEMAS)
 COMPOSED_ACTIONS = (
     "resolve-governance",
     "provision-sdk",

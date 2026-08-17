@@ -145,7 +145,11 @@ l9-ci-control-plane  ── selects ──►  Quantum-L9/l9-ci-core
 The single live organization integration is
 [`.github/workflows/org-ci.yml`](.github/workflows/org-ci.yml), declared by
 [`.l9/org-runtime-contract.yaml`](.l9/org-runtime-contract.yaml)
-(`l9.org-runtime-contract/v1`). The control plane owns targeting,
+(`l9.org-runtime-contract/v1`) and described machine-readably by
+[`.l9/org-runtime-interface.yaml`](.l9/org-runtime-interface.yaml)
+(`l9.org-runtime-interface/v1`; every VALIDATED claim is re-derived by
+`tests/workflows/test_org_runtime_interface.py`). The control plane owns
+targeting,
 Core-version selection, rulesets, reconciliation, rollout, rollback, and
 fleet visibility. Core owns orchestration, security-sensitive execution
 composition, immutable SDK provisioning, validation/routing, and stable
