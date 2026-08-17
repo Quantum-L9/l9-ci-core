@@ -18,7 +18,7 @@ assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
-SDK_V1 = "f546f122d33601ea5a4b2592e3482c5c39eddd82"
+SDK_V1 = "b1a491414ed04bb18d665f8a8755de80947c8200"
 
 
 class ManifestEntrySelectionTests(unittest.TestCase):
@@ -31,6 +31,7 @@ class ManifestEntrySelectionTests(unittest.TestCase):
             "gate evaluate",
             "bundle validate",
             "bundle project-agent-payload",
+            "bundle project-sarif",
             "compatibility check",
             "baseline compare-tests",
             "baseline scan-packet-envelope",

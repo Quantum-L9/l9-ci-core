@@ -1,8 +1,7 @@
 # CI / local-gate dependencies for l9-ci-core's own Python control-plane code.
 #
-# Installed by the lint-test workflow before ruff/mypy/pytest run
-# (`if [ -f requirements-ci.txt ]; then pip install -r requirements-ci.txt; fi`)
-# and by `pip install -r requirements-ci.txt` locally before the gate.
+# Installed by Core `self-ci.yml` lint job (and local `make check`) before
+# ruff/mypy run — not a phantom lint-test workflow.
 #
 # The only third-party import across .github/actions/ and tools/ is `yaml`
 # (PyYAML). types-PyYAML supplies the mypy stubs so the type gate resolves

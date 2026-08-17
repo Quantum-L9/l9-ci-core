@@ -23,6 +23,10 @@ class PhaseScopeTests(unittest.TestCase):
             "publish-analysis.yml",
             "release-validation.yml",
             "baseline-ratchet.yml",
+            # Self-only dogfood callers — exercise analyze-semgrep / security
+            # kernels on this repo's PRs. Not a reusable consumer surface.
+            "self-analysis.yml",
+            "self-security.yml",
             # v1 compatibility kernels — reusable workflows restoring the
             # @v1 contracts consumed by the Quantum-L9/.github org starters.
             "pr-pipeline.yml",
