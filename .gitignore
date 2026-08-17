@@ -5,5 +5,6 @@ __pycache__/
 .ruff_cache/
 .venv/
 .l9/runtime/
+.l9/autonomy/
 artifacts/
 .DS_Store

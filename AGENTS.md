@@ -282,7 +282,12 @@ Therefore:
 - A `run:`-based step that copies a file must tolerate source == destination
   (a consumer may already have written the artifact at its routed location).
 - `MANIFEST.sha256` records the sha256 of tracked files; regenerate the
-  entries for any file you change so it stays honest.
+  entries for any file you change so it stays honest. Both `make validate` and
+  `tests/tools/test_manifest_integrity.py` verify it, so drift fails on the
+  pull request that introduces it rather than surfacing later in release
+  validation. `L9_MANIFEST_CHECK=0` disables verification for bisects and
+  salvage work on a knowingly drifted tree — it is not a way to land a change
+  without regenerating the manifest.
 
 ## Edit-time constraints (unchanged)
 
