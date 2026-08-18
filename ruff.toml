@@ -6,7 +6,7 @@
 # avoid two divergent configs. These values are kept coherent with the rest
 # of the toolchain: line-length 88 and the py311 target match
 # `requires-python = ">=3.11"` in pyproject.toml, and the pinned
-# `ruff==0.14.5` in .pre-commit-config.yaml / the CI lint job.
+# `ruff==` pin in .github/actions/install-consumer-ci/requirements-consumer-ci.txt.
 line-length = 88
 target-version = "py311"
 

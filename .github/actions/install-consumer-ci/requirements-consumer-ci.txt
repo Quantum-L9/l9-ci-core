@@ -1,0 +1,6 @@
+# Consumer CI toolchain pins. Core-owned. Dependabot does not bump this file.
+# Move the floating tag v2 after a human pin-file change. Do not invent versions
+# in consumer repos.
+ruff==0.16.1
+mypy==2.3.0
+pytest==9.1.1

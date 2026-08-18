@@ -1,26 +1,24 @@
 # Consumer lint + test workflow
 
-The v1 `pr-pipeline.yml@v1` reusable workflow bundled two unrelated things:
+Generic ruff / mypy / pytest versions are **Core-owned**. Callers install them
+with the composite action; they do not copy pin files and Dependabot does not
+bump those packages.
 
-1. **The L9 analysis pipeline** — semgrep normalization, canonical bundles,
-   gate publication.
-2. **Generic Python CI hygiene** — `ruff`, `ruff format`, `mypy`, `pytest` +
-   coverage.
+```yaml
+- uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@v2
+```
 
-l9-ci-core **v2** keeps (1) — as governed, phase-scoped reusable workflows and
-composite actions (`profile-normalize-semgrep.yml`, `publish-analysis.yml`, the
-`.github/actions/*` set). It intentionally **drops (2) from Core**.
+`@v2` is a floating major tag moved only after a human Core pin-file PR.
+Analysis / SDK invoke stays SHA-pinned. Never `@main`.
 
-## Why this lives in your repo, not Core
+Authority files in Core:
 
-v2 is a *thin control plane*. Its workflow set is frozen by
-`tests/workflows/test_phase_scope.py`, which asserts the exact seven Phase 1–4
-workflows and nothing else. Generic lint/test is not part of Core's phase
-model and is not SDK-owned behavior — it is ordinary repository CI that each
-consumer owns. Hosting it inside Core would weaken the boundary that defines
-the rewrite.
+- `.github/actions/install-consumer-ci/requirements-consumer-ci.txt` (ruff, mypy, pytest)
+- `presets/typescript/biome.json` `$schema` (Biome)
+- `.github/actions/install-consumer-ci/toolchain-lock.json` (derived lock)
 
-So the replacement ships as a **template you copy**, not a workflow you call.
+Repository-owned **config** (`ruff.toml`, `[tool.mypy]`, `biome.json` extras)
+stays in the consumer. Versions do not.
 
 ## Formatter/linter ownership
 
@@ -29,85 +27,25 @@ language produces a diff that churns on every save.
 
 | Languages | Owner | How |
 |---|---|---|
-| `javascript`, `typescript`, `json`, `jsonc` | **Biome** | The SDK-owned reusable workflow `Quantum-L9/l9-ci-sdk/.github/workflows/l9-biome-scan.yml` (format + lint + import organization), invoked as the `biome` job and pinned to a full commit SHA. |
-| `python` | **ruff** | `ruff check` + `ruff format --check` in the `lint` job. |
-
-Biome — not ESLint — owns JS/TS/JSON formatting and linting. ESLint is **not**
-a second formatter owner. A repository may retain ESLint only for
-**supplemental** rules Biome does not implement (e.g. a framework-specific
-plugin), never for formatting and never as a competing format authority; run it
-as an extra step in the consumer's own workflow, and never add a Prettier config
-alongside Biome.
-
-Type checking (`tsc --noEmit` for JS/TS, `mypy` for Python) and the test suite
-are separate concerns and remain in the consumer repository. The SDK Biome
-workflow does not type-check and does not run tests.
+| `javascript`, `typescript`, `json`, `jsonc` | **Biome** | SDK reusable workflow `l9-biome-scan.yml` at a full SHA |
+| `python` | **ruff** | `ruff check` + `ruff format --check` after `install-consumer-ci@v2` |
 
 ## Consumer type-check contract (Python / mypy)
 
-- **Required, blocking by default.** The `mypy` step fails the job on any type
-  error. The reusable `pr-pipeline.yml` exposes a `mypy-required` input that
-  defaults to `true`; requiredness is explicit — there is no silent state, and
-  findings are never converted to a passing notice unless the caller opts in
-  with `mypy-required: false` (advisory).
-- **Repository-owned configuration.** Strictness and per-module import handling
-  come from the consumer's `pyproject.toml` (`[tool.mypy]`) / `mypy.ini` /
-  `setup.cfg`. The workflows pass **no** global `--ignore-missing-imports`; a
-  repo ignores a specific untyped import in its own config with a
-  `[[tool.mypy.overrides]]` `ignore_missing_imports = true` block.
-- **Pydantic is opt-in, not global.** A repo using Pydantic enables the plugin
-  in its own config (`plugins = ["pydantic.mypy"]`). The plugin is never forced
-  on globally.
-- **Pinned tools are bot-visible.** The mypy/ruff/pytest versions the CI
-  surfaces install are pinned in `requirements-consumer-ci.txt` (not inline in
-  `run:` blocks) so Dependabot can propose bumps as reviewable PRs.
+- **Required, blocking by default.** `pr-pipeline.yml` `mypy-required` defaults to `true`.
+- **Repository-owned configuration.** No global `--ignore-missing-imports`.
+- **Pydantic is opt-in** in the consumer's own mypy config.
+- **Versions** come from the installer action, not Dependabot, not a copied pin file.
 
 ## Adopt it
 
-1. Copy [`templates/l9-lint-test.yml`](./templates/l9-lint-test.yml) into your
-   repository at `.github/workflows/l9-lint-test.yml`.
-2. Edit the `env:` block at the top:
-
-   | Variable | Meaning | Default |
-   |---|---|---|
-   | `PYTHON_VERSION` | Interpreter version | `3.12` |
-   | `SOURCE_DIR` | Path passed to `mypy` / `--cov` | `.` |
-   | `TEST_DIR` | pytest target directory | `tests/` |
-   | `COVERAGE_THRESHOLD` | `--cov-fail-under` percentage; `0` = advisory | `0` |
-
-3. Commit. It runs on `pull_request`, `push` to `main`, and manual dispatch.
-
-## What it preserves from v2 style
-
-- **Immutable event-revision checkout** — raw `git fetch`/`checkout FETCH_HEAD`
-  of `github.sha`, matching `self-ci.yml`; no floating action ref for source.
-- **SHA-pinned external actions** — `actions/setup-python` is pinned to a full
-  40-char commit SHA (the same pin the platform already vets).
-- **Least privilege** — `contents: read` only; no `write` scopes, no PR
-  comments, no token-bearing uploads.
+1. Copy [`templates/l9-lint-test.yml`](./templates/l9-lint-test.yml) or call the
+   installer from your existing lint job.
+2. Keep the `env:` knobs (`PYTHON_VERSION`, `SOURCE_DIR`, `TEST_DIR`,
+   `COVERAGE_THRESHOLD`).
+3. Do not add `requirements-consumer-ci.txt` to the consumer.
 
 ## Pairing with the analysis pipeline
 
-Run this alongside the governed semgrep pipeline. Pin Core by the immutable
-release commit (or the `v2.0.0` tag once published — never `@main`):
-
-```yaml
-jobs:
-  semgrep:
-    uses: Quantum-L9/l9-ci-core/.github/workflows/profile-normalize-semgrep.yml@f88116503430aa18992b70d8d31063e34ff97ef1
-    with:
-      profile: pr_fast
-      report-path: artifacts/raw/semgrep/pr/report.json
-      snapshot-id: ${{ github.sha }}
-      matrix-id: pr-semgrep
-    permissions:
-      contents: read
-      checks: write
-```
-
-## Not covered here
-
-`mypy`/`ruff`/`pytest` are generic dev tools, not the L9 finding pipeline. This
-template performs no canonical-finding construction, no gate computation, and
-no SDK invocation — those remain owned by the SDK and the Core analysis
-workflows.
+Pin Core analysis workflows by immutable SHA (never `@main`). The installer
+tag `@v2` is independent of that SHA.
