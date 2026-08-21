@@ -76,7 +76,7 @@ outputs:
   technical_gate_status: [pass, fail, incomplete]
   mode: [blocking, advisory, shadow, disabled]
   sdk_revision: string
-  language: [python, typescript]
+  enforcement_signal: github_required_workflow_job_conclusion
 
 ownership:
   github_org_rulesets_own:
@@ -96,7 +96,7 @@ ownership:
     - consumer metadata validation
     - artifact routing and retention
     - technical gate enforcement
-    - stable publication
+    - read-only workflow summaries and artifact publication
   sdk_owns:
     - repository capability detection
     - provider execution
@@ -116,6 +116,7 @@ ownership:
     - consumer-owned Core or SDK pins for organization enforcement
     - consumer weakening of centrally selected policy
     - a second organization CI control-plane repository
+    - write-scoped publication from the pull_request required-workflow path
 
 central_defaults:
   source: .github/actions/resolve-governance/defaults/
