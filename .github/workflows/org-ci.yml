@@ -6,12 +6,12 @@
 # SDK pins, or enforcement modes.
 #
 # Authority split:
-#   GitHub org rulesets own — repository targeting and required-workflow enforcement.
-#   Core owns — orchestration, organization governance defaults, permissions,
+#   GitHub org rulesets own repository targeting and required-workflow enforcement.
+#   Core owns orchestration, organization governance defaults, permissions,
 #     immutable SDK provisioning, artifact routing, enforcement, and publication.
-#   SDK owns — repository capability detection, provider execution, canonical
+#   SDK owns repository capability detection, provider execution, canonical
 #     evidence/findings, technical gate evaluation, and deterministic projections.
-#   Consumer repositories may own — optional .l9/ci.json metadata containing only
+#   Consumer repositories may own optional .l9/ci.json metadata containing only
 #     owner, repo_class, and waiver_refs pointers. Metadata cannot weaken policy.
 #
 # Ruleset workflow events intentionally include pull_request and merge_group.
@@ -122,6 +122,7 @@ jobs:
       enabled: ${{ steps.gov.outputs.enabled }}
       governance-digest: ${{ steps.gov.outputs['governance-digest'] }}
       artifact-name: ${{ steps.names.outputs['artifact-name'] }}
+      artifact-ready: ${{ steps.artifacts.outputs.ready }}
       sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
       gate-status: ${{ steps.gate.outputs['gate-status'] }}
       language: ${{ steps.language.outputs.language }}
@@ -432,6 +433,11 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
 
+      - id: artifacts
+        name: Mark canonical artifact set ready
+        if: steps.gov.outputs.enabled == 'true'
+        run: echo "ready=true" >> "$GITHUB_OUTPUT"
+
       - name: Enforce central mode on SDK technical gate
         if: steps.gov.outputs.enabled == 'true'
         env:
@@ -449,7 +455,7 @@ jobs:
   publish:
     name: Publish analysis (Core)
     needs: analyze
-    if: always() && needs.analyze.outputs.enabled == 'true'
+    if: always() && needs.analyze.outputs.enabled == 'true' && needs.analyze.outputs.artifact-ready == 'true'
     # PINNED_PUBLICATION_WORKFLOW
     uses: Quantum-L9/l9-ci-core/.github/workflows/publish-analysis.yml@246dba4e84c0c62f8ee1e6b7e4482806af026b94
     permissions:
