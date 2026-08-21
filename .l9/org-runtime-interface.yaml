@@ -1,83 +1,105 @@
 schema: l9.org-runtime-interface/v1
 metadata:
   repository: Quantum-L9/l9-ci-core
-  version: 1.0.0
+  version: 2.0.0
   status: candidate
-  campaign: l9-ci-core-org-runtime-v1
-  updated: '2026-08-16'
+  campaign: l9-ci-central-orchestrator-v2
+  updated: '2026-08-21'
   companion_contract: .l9/org-runtime-contract.yaml
-# The machine-readable candidate interface the control plane
-# (l9-ci-control-plane) can validate at an immutable Core commit SHA. Every
-# VALIDATED claim below is re-derived against executable Core behavior by
-# tests/workflows/test_org_runtime_interface.py — a claim that cannot be
-# re-derived must stay UNKNOWN. UNKNOWN is honest; it is never fabrication.
+
 entrypoint:
   workflow: .github/workflows/org-ci.yml
-  selected_by: l9-ci-control-plane
-  pin_policy: full-40-char-immutable-sha
-  composition:
-    - resolve-governance
-    - provision-sdk
-    - invoke-sdk
-    - validate-bundle
-    - route-artifacts
-    - build-artifact-manifest
+  enforcement_surface: github_organization_required_workflow_ruleset
+  supported_ruleset_events: [pull_request, merge_group]
+  canary_event: workflow_dispatch
+  compatibility_event: workflow_call
+  consumer_copy_required: false
+
 claims:
-  - id: entrypoint-reusable
+  - id: ruleset-trigger-compatible
     statement: >-
-      The organization entrypoint is a reusable workflow_call composing the
-      authoritative Core actions at a pinned full SHA, and never triggers on
-      repository events.
+      The organization entrypoint declares pull_request and merge_group, the
+      GitHub-supported events required for organization ruleset workflows,
+      while retaining workflow_dispatch and workflow_call for canary and
+      compatibility execution.
     evidence:
       - .github/workflows/org-ci.yml
       - tests/workflows/test_org_runtime_contract.py
     status: VALIDATED
-  - id: governance-input-bounded
+
+  - id: central-governance-bundled
     statement: >-
-      The control-plane governance input accepts at most the six known
-      governance filenames and fail-closes on unknown keys, invalid JSON, or
-      unsafe filenames.
+      The standard governance bundle is shipped inside the pinned
+      resolve-governance action and does not depend on copied files in the
+      consumer workspace.
     evidence:
-      - .github/workflows/org-ci.yml
-      - tests/workflows/test_org_runtime_contract.py
-    status: VALIDATED
-  - id: core-defaults-bounded
-    statement: >-
-      When the governance input is empty, Core applies its own bounded
-      standard defaults — exactly the six known governance files under
-      .github/org-governance-defaults/ — and fail-closes when they are
-      missing.
-    evidence:
-      - .github/org-governance-defaults/
+      - .github/actions/resolve-governance/action.yml
+      - .github/actions/resolve-governance/resolve.py
+      - .github/actions/resolve-governance/defaults
       - tests/governance/test_org_governance_defaults.py
     status: VALIDATED
+
+  - id: consumer-metadata-bounded
+    statement: >-
+      Optional .l9/ci.json accepts only schema, owner, repo_class, and
+      waiver_refs. Unknown fields fail closed; consumers cannot set policy,
+      versions, providers, workflow refs, permissions, or enforcement mode.
+    evidence:
+      - .l9/ci-consumer.schema.json
+      - .github/actions/resolve-consumer-metadata/resolve.py
+      - tests/governance/test_consumer_metadata.py
+    status: VALIDATED
+
+  - id: sdk-capability-authority
+    statement: >-
+      Core asks the pinned SDK to detect repository capabilities and treats
+      repo_class metadata only as a consistency assertion. Ambiguous or
+      conflicting language classification fails closed.
+    evidence:
+      - .github/workflows/org-ci.yml
+      - .l9/sdk-compatibility.yaml
+      - tests/workflows/test_org_runtime_contract.py
+    status: VALIDATED
+
   - id: sdk-revision-allowlisted
     statement: >-
-      The SDK revision is pinned to a full 40-character immutable commit SHA
-      that is allowlisted in .l9/sdk-compatibility.yaml; floating refs,
-      branches, and tags are refused.
+      SDK provisioning accepts only full immutable revisions listed in
+      .l9/sdk-compatibility.yaml; floating refs, branches, tags, short SHAs,
+      and unlisted revisions are refused.
     evidence:
       - .l9/sdk-compatibility.yaml
-      - tests/provisioning/
+      - tests/provisioning
     status: VALIDATED
-  - id: publication-outputs
+
+  - id: failure-publication-survives-blocking-gate
     statement: >-
-      The entrypoint publishes the resolved gate verdict and the uploaded
-      analysis artifact set through the declared workflow outputs.
+      Publication uses an always() dependency guard so a blocking SDK
+      technical-gate failure still reaches the Core publication workflow.
     evidence:
       - .github/workflows/org-ci.yml
       - .github/workflows/publish-analysis.yml
       - tests/workflows/test_org_runtime_contract.py
     status: VALIDATED
-  - id: control-plane-live-consumption
+
+  - id: no-consumer-ci-distribution
     statement: >-
-      l9-ci-control-plane consumes this entrypoint in production at this
-      commit SHA today.
+      Organization enforcement requires no copied L9 workflow, governance
+      pack, or consumer-selected Core revision.
+    evidence:
+      - .l9/org-runtime-contract.yaml
+      - tests/workflows/test_org_runtime_contract.py
+    status: VALIDATED
+
+  - id: organization-ruleset-live-enforcement
+    statement: >-
+      A Quantum-L9 organization ruleset currently requires this workflow for
+      targeted repositories in production.
     evidence: []
     status: UNKNOWN
+
   - id: remote-end-to-end-run
     statement: >-
-      The entrypoint completes end-to-end in GitHub Actions against a real
-      consumer repository at this commit SHA.
+      This exact candidate completes end-to-end in GitHub Actions against a
+      real consumer repository and publishes its artifact set.
     evidence: []
     status: UNKNOWN
