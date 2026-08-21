@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -319,7 +320,7 @@ def main() -> int:
         _write_output("deployment-request-id", results["deployment_request_id"])
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as exc:
-        print(f"container-release evidence error: {exc}", file=os.sys.stderr)
+        print(f"container-release evidence error: {exc}", file=sys.stderr)
         return 2
 
 
