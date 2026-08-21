@@ -71,13 +71,24 @@ claims:
       - tests/provisioning
     status: VALIDATED
 
-  - id: failure-publication-survives-blocking-gate
+  - id: required-workflow-read-only
     statement: >-
-      Publication uses an always() dependency guard so a blocking SDK
-      technical-gate failure still reaches the Core publication workflow.
+      The pull_request required-workflow path holds contents:read only. Its
+      GitHub job conclusion is the enforcement signal; it does not request
+      checks:write or security-events:write from untrusted PR execution.
     evidence:
       - .github/workflows/org-ci.yml
-      - .github/workflows/publish-analysis.yml
+      - tests/workflows/test_workflow_permissions.py
+      - tests/workflows/test_org_runtime_contract.py
+    status: VALIDATED
+
+  - id: blocking-result-remains-visible
+    statement: >-
+      Core writes the central workflow summary before the final technical-gate
+      enforcement step, so a blocking failure remains visible while the job
+      conclusion correctly fails.
+    evidence:
+      - .github/workflows/org-ci.yml
       - tests/workflows/test_org_runtime_contract.py
     status: VALIDATED
 
