@@ -14,9 +14,15 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
-ACTION_PATH = ROOT / ".github" / "actions" / "resolve-governance" / "action.yml"
-DEFAULTS_ROOT = ROOT / ".github" / "actions" / "resolve-governance" / "defaults"
+MODULE_PATH = (
+    ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
+)
+ACTION_PATH = (
+    ROOT / ".github" / "actions" / "resolve-governance" / "action.yml"
+)
+DEFAULTS_ROOT = (
+    ROOT / ".github" / "actions" / "resolve-governance" / "defaults"
+)
 CONTRACT_PATH = ROOT / ".l9" / "org-runtime-contract.yaml"
 
 spec = importlib.util.spec_from_file_location("resolve_governance", MODULE_PATH)
@@ -55,10 +61,28 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
         for profile_name, profile in profiles.items():
             with self.subTest(profile=profile_name):
                 event_name = profile["allowed_events"][0]
-                validated = module.validate_profile(self.documents, profile_name, "semgrep", event_name)
-                mode = module.resolve_mode(self.documents, profile_name, "semgrep", validated["default_mode"])
-                required = module.resolve_requiredness(self.documents, profile_name, "semgrep")
-                policy = module.resolve_policy(self.documents, profile_name, DEFAULTS_ROOT)
+                validated = module.validate_profile(
+                    self.documents,
+                    profile_name,
+                    "semgrep",
+                    event_name,
+                )
+                mode = module.resolve_mode(
+                    self.documents,
+                    profile_name,
+                    "semgrep",
+                    validated["default_mode"],
+                )
+                required = module.resolve_requiredness(
+                    self.documents,
+                    profile_name,
+                    "semgrep",
+                )
+                policy = module.resolve_policy(
+                    self.documents,
+                    profile_name,
+                    DEFAULTS_ROOT,
+                )
                 waivers = module.applicable_waivers(
                     self.documents,
                     profile=profile_name,
@@ -67,7 +91,10 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
                     ref="refs/heads/main",
                     today=module.dt.date(2026, 8, 21),
                 )
-                self.assertIn(validated["sdk_profile"], module.ALLOWED_SDK_PROFILES)
+                self.assertIn(
+                    validated["sdk_profile"],
+                    module.ALLOWED_SDK_PROFILES,
+                )
                 self.assertIn(mode, module.ALLOWED_MODES)
                 self.assertEqual("", policy)
                 self.assertEqual([], waivers)
@@ -76,8 +103,15 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
 
     def test_core_defaults_token_ignores_consumer_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            with unittest.mock.patch.dict(os.environ, {"GITHUB_WORKSPACE": temp}, clear=False):
-                self.assertEqual(DEFAULTS_ROOT.resolve(), module.governance_path(module.CORE_DEFAULTS_TOKEN))
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"GITHUB_WORKSPACE": temp},
+                clear=False,
+            ):
+                self.assertEqual(
+                    DEFAULTS_ROOT.resolve(),
+                    module.governance_path(module.CORE_DEFAULTS_TOKEN),
+                )
 
     def test_action_defaults_to_core_bundle(self) -> None:
         text = ACTION_PATH.read_text(encoding="utf-8")
@@ -109,7 +143,11 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
 
     def test_workspace_override_cannot_escape_consumer_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            with unittest.mock.patch.dict(os.environ, {"GITHUB_WORKSPACE": temp}, clear=False):
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"GITHUB_WORKSPACE": temp},
+                clear=False,
+            ):
                 with self.assertRaises(module.GovernanceError):
                     module.governance_path("../outside")
 
