@@ -1,10 +1,12 @@
 schema: l9.core-governance-contract/v1
 metadata:
   repository: Quantum-L9/l9-ci-core
-  phase: 3
+  phase: central-orchestration
   status: authoritative
+
 boundary:
   core_owns:
+    - central governance defaults
     - execution-profile selection
     - provider enablement
     - provider requiredness
@@ -12,54 +14,77 @@ boundary:
     - waiver lifecycle validation
     - promotion authorization
     - publication-mode selection
-    # Organization rollout is control-plane authority
-    # (l9-ci-control-plane), not Core — see
-    # .l9/org-runtime-contract.yaml control_plane_owns.
+    - technical gate enforcement
+  github_org_rulesets_own:
+    - repository targeting
+    - required-workflow enforcement
+    - enforcement state
+    - bypass principals
   sdk_owns:
+    - repository capability detection
     - finding identity resolution
     - finding classification
     - policy interpretation
     - provider failure semantics
     - coverage semantics
-    - strict gate evaluation
+    - technical gate evaluation
     - canonical bundle construction
     - canonical bundle validation
-  prohibited:
-    - Core reading canonical findings to calculate a gate
-    - Core translating finding severity
-    - Core deriving rule identity
-    - Core suppressing canonical findings
-    - Core mutating a canonical bundle
-    - Core treating advisory mode as successful SDK validation
-    - Core converting an SDK contract failure into advisory success
+  consumer_metadata_may_supply:
+    - owner
+    - repo_class
+    - centrally issued waiver references
+  consumer_metadata_may_not_supply:
+    - governance mode
+    - provider enablement
+    - provider requiredness
+    - Core revision
+    - SDK revision
+    - tool versions
+    - workflow permissions
+    - organization policy
+
+prohibited:
+  - Core reading canonical findings to calculate a technical gate
+  - Core translating finding severity
+  - Core deriving rule identity
+  - Core suppressing canonical findings
+  - Core mutating a canonical bundle
+  - Core converting an SDK contract failure into advisory success
+  - Quantum-L9/.github distributing CI workflows or governance packs
+  - consumer repositories weakening central organization policy
+
 modes:
   blocking:
-    description: >
-      SDK or provider failure propagates as a failed workflow.
+    description: >-
+      A non-passing SDK technical gate fails the required Core workflow.
   advisory:
-    description: >
-      Findings may be published without becoming an organization-required
-      check, but SDK contract and artifact failures remain fatal.
+    description: >-
+      Findings are published without blocking, but SDK contract and artifact
+      failures remain fatal.
   shadow:
-    description: >
-      Results are retained for evaluation and promotion evidence but are not
-      published as required checks.
+    description: >-
+      Results are retained for evaluation and promotion evidence without
+      becoming a blocking organization decision.
   disabled:
-    description: >
+    description: >-
       The provider is not invoked.
+
 failure_invariants:
   always_fatal:
-    - invalid governance configuration
+    - invalid central governance configuration
     - unknown execution profile
     - unknown provider
-    - malformed waiver
-    - expired waiver
+    - malformed or expired waiver
     - unsupported SDK contract
     - invalid canonical bundle
     - artifact compatibility failure
     - SDK internal error
     - operational-limit failure
-phase_3_outputs:
+    - consumer metadata attempting unsupported authority
+    - consumer repo_class conflicting with SDK capability detection
+
+outputs:
   - resolved execution profile
   - resolved provider mode
   - resolved provider requiredness
