@@ -1,43 +1,34 @@
 schema: l9.org-runtime-contract/v1
 metadata:
   repository: Quantum-L9/l9-ci-core
-  version: 1.0.0
+  version: 2.0.0
   status: candidate
-  campaign: l9-ci-core-org-runtime-v1
-  updated: '2026-08-16'
-# The smallest stable public workflow and ownership contract the control
-# plane (l9-ci-control-plane) can safely bind. Core executes; the SDK owns
-# analysis semantics; the control plane owns targeting, Core-version
-# selection, rulesets, reconciliation, rollout, rollback, and fleet
-# visibility. Core never selects or mutates organization policy.
+  campaign: l9-ci-central-orchestrator-v2
+  updated: '2026-08-21'
+
+principle: >-
+  A Quantum-L9 repository may describe itself, but it may not define how
+  Quantum-L9 CI governs it.
+
 entrypoint:
   workflow: .github/workflows/org-ci.yml
-  callable_as: >-
-    Quantum-L9/l9-ci-core/.github/workflows/org-ci.yml@<full-40-char-sha>
-  trigger_events:
-    - pull_request
-    - workflow_dispatch
-  caller: control_plane
+  enforcement_mechanism: github_organization_required_workflow_ruleset
+  ruleset_events: [pull_request, merge_group]
+  canary_event: workflow_dispatch
+  compatibility_event: workflow_call
+  consumer_copy_required: false
+  consumer_core_pin_allowed: false
+
 inputs:
   event:
     type: string
     enum: [pull_request, push, merge, nightly, release, supply_chain]
-  language:
-    type: string
-    enum: [python, typescript]
+    source: Core trigger mapping or compatibility invocation
   profile:
     type: string
-    source: control_plane
+    source: Core central governance
     required: false
-  governance:
-    type: string
-    format: json
-    source: control_plane
-    required: false
-    note: >-
-      Control-plane-provided governance snapshot (profiles, rule modes,
-      requiredness, waivers). When absent, Core applies its own bounded
-      standard defaults (see defaults section).
+    note: pull_request and merge_group map to pr_fast and merge respectively
   matrix_id:
     type: string
     required: false
@@ -45,75 +36,120 @@ inputs:
     type: string
     required: false
     note: >-
-      Full 40-character immutable l9-ci-sdk commit SHA; empty means the Core
-      pin. Any explicit value must be listed in .l9/sdk-compatibility.yaml.
+      Compatibility/canary override only. It must be a full 40-character SHA
+      allowlisted by .l9/sdk-compatibility.yaml. Consumer repositories do not
+      own this value in the organization-required workflow path.
   semgrep_version:
     type: string
     required: false
-    note: Exact semgrep pin (not a range).
+    note: Exact centrally selected Semgrep version.
   artifact_retention_days:
     type: number
     required: false
+
+consumer_metadata:
+  path: .l9/ci.json
+  schema: .l9/ci-consumer.schema.json
+  required: false
+  allowed_fields:
+    - schema
+    - owner
+    - repo_class
+    - waiver_refs
+  authority: descriptive_only
+  may_not_control:
+    - workflow source or revision
+    - Core revision
+    - SDK revision
+    - provider enablement or requiredness
+    - governance mode
+    - tool versions
+    - permissions
+    - organization policy
+    - required checks
+  repo_class_behavior: >-
+    repo_class is a consistency assertion against SDK repository capability
+    detection. It cannot enable a capability that the SDK does not detect.
+
 outputs:
-  check:
-    name: string
-    conclusion: [success, failure, neutral]
-  artifact_manifest:
-    type: string
-    required: true
-  sarif_uploaded:
-    type: boolean
+  artifact_name: string
+  technical_gate_status: [pass, fail, incomplete]
+  mode: [blocking, advisory, shadow, disabled]
+  sdk_revision: string
+  language: [python, typescript]
+
 ownership:
+  github_org_rulesets_own:
+    - repository targeting
+    - required-workflow enforcement
+    - ruleset enforcement state
+    - bypass principals
   core_owns:
+    - the organization CI workflow source
     - runtime orchestration
     - security-sensitive execution composition
-    - immutable SDK provisioning
-    - validation
-    - routing
-    - stable verdict publication
-    - the public CI runtime interface
+    - central governance defaults
+    - execution-profile mapping
+    - provider enablement and requiredness
+    - immutable SDK provisioning and compatibility
+    - exact tool-version selection
+    - consumer metadata validation
+    - artifact routing and retention
+    - technical gate enforcement
+    - stable publication
   sdk_owns:
+    - repository capability detection
     - provider execution
-    - analysis semantics
-  control_plane_owns:
-    - targeting
-    - Core-version selection
-    - rulesets
-    - reconciliation
-    - rollout
-    - rollback
-    - fleet visibility
-  prohibited_in_core:
-    - organization repository inventories
-    - organization ruleset mutation
-    - CI fanout or seeding to organization repositories
-    - organization rollout execution
-    - consumer workflow generation
     - provider-native parsing
-    - canonical finding semantics owned by l9-ci-sdk
-defaults:
-  standard_profile: pr_fast
-  standard_language: python
-  governance_source: core_defaults
-  repository_validation_consumption: allowlisted
-  max_parallel_workers: 1
+    - canonical evidence and findings
+    - semantic validation
+    - technical gate evaluation
+    - deterministic projections
+  consumer_owns:
+    - source code
+    - native project configuration
+    - optional bounded ownership and repo-class pointers
+  prohibited:
+    - CI distribution from Quantum-L9/.github
+    - copied L9 workflows in consumer repositories as an enforcement mechanism
+    - copied L9 governance packs in consumer repositories
+    - consumer-owned Core or SDK pins for organization enforcement
+    - consumer weakening of centrally selected policy
+    - a second organization CI control-plane repository
+
+central_defaults:
+  source: .github/actions/resolve-governance/defaults/
+  transport: bundled_with_pinned_core_action
+  consumer_workspace_dependency: false
+  filenames:
+    - execution-profiles.yaml
+    - rule-modes.yaml
+    - provider-requiredness.yaml
+    - quality-thresholds.yaml
+    - waivers.yaml
+    - promotion-policy.yaml
+
 pinning:
-  core_revision:
-    policy: full-40-char-sha-or-immutable-semver-tag-only
-    selected_by: control_plane
-    never: floating-or-main
+  required_workflow:
+    selected_by: github_organization_ruleset
+    consumer_selected: false
+  core_internal_actions:
+    policy: full-40-char-sha
+    floating_references_allowed: false
   sdk_revision:
     policy: per .l9/sdk-compatibility.yaml
     floating_git_references_allowed: false
     branches_allowed: false
     tags_allowed: false
     short_git_revisions_allowed: false
+
 validation:
   contract_tests:
     - tests/workflows/test_org_runtime_contract.py
     - tests/workflows/test_org_runtime_interface.py
-    - tests/workflows/test_phase_scope.py
+    - tests/governance/test_org_governance_defaults.py
+    - tests/governance/test_consumer_metadata.py
   admission: >-
-    The contract is validated against executable Core behavior by the
-    interface manifest validator (.l9/org-runtime-interface.yaml); claims
-    that cannot be validated remain UNKNOWN.
+    Claims must be re-derived from executable Core behavior. Repository-local
+    tests cannot prove organization ruleset activation or a real remote run;
+    those states remain UNKNOWN until GitHub evidence exists.
