@@ -1,0 +1,158 @@
+name: Publish container release
+description: >
+  Consumes one SDK-gated Core analysis artifact, publishes one immutable OCI
+  image, emits canonical release evidence, and dispatches a bounded request to
+  Quantum-L9/l9-deploy. The caller owns all write permissions and secrets.
+inputs:
+  deployment-profile:
+    description: Consumer-local deployment profile used for the bound digest.
+    required: true
+  registered-profile-path:
+    description: Canonical profile path registered in l9-deploy fleet inventory.
+    required: true
+  image-repository:
+    description: GHCR image repository without tag or digest.
+    required: true
+  environment:
+    description: Deployment target environment.
+    required: true
+  analysis-artifact:
+    description: Artifact emitted by analyze-semgrep for this exact source run.
+    required: true
+  matrix-id:
+    description: Matrix id used inside the analysis artifact.
+    required: true
+  docker-context:
+    required: false
+    default: .
+  dockerfile:
+    required: false
+    default: Dockerfile
+  source-revision-build-arg-name:
+    description: >
+      Optional Docker build-arg name that receives github.sha. Empty disables
+      the build arg. Consumers that seal source identity can set this to their
+      repository-owned argument name.
+    required: false
+    default: ""
+  github-token:
+    description: Caller GITHUB_TOKEN with packages/attestations permissions.
+    required: true
+  deployment-broker-token:
+    description: Token authorized to dispatch l9.release.requested.v1 to l9-deploy.
+    required: true
+outputs:
+  image-digest:
+    value: ${{ steps.build.outputs.image-digest }}
+  image-ref:
+    value: ${{ steps.build.outputs.image-ref }}
+  deployment-request-id:
+    value: ${{ steps.evidence.outputs.deployment-request-id }}
+  release-evidence-artifact:
+    value: ${{ steps.evidence.outputs.artifact-name }}
+runs:
+  using: composite
+  steps:
+    - name: Download SDK-gated analysis artifact
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      with:
+        name: ${{ inputs.analysis-artifact }}
+        path: .l9/release/analysis
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+
+    - name: Authenticate to GHCR
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        test -n "$GH_TOKEN"
+        printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+    - id: build
+      name: Build and publish one immutable OCI image
+      shell: bash
+      env:
+        IMAGE_REPOSITORY: ${{ inputs.image-repository }}
+        DOCKER_CONTEXT: ${{ inputs.docker-context }}
+        DOCKERFILE: ${{ inputs.dockerfile }}
+        SOURCE_REVISION_ARG: ${{ inputs.source-revision-build-arg-name }}
+      run: |
+        set -euo pipefail
+        [[ "$IMAGE_REPOSITORY" == ghcr.io/* ]]
+        args=(
+          docker buildx build
+          --file "$DOCKERFILE"
+          --platform linux/amd64
+          --label "org.opencontainers.image.revision=${GITHUB_SHA}"
+          --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
+          --provenance=mode=max
+          --sbom=true
+          --metadata-file .l9/release/build-metadata.json
+          --tag "${IMAGE_REPOSITORY}:${GITHUB_SHA}"
+          --push
+        )
+        if [ -n "$SOURCE_REVISION_ARG" ]; then
+          [[ "$SOURCE_REVISION_ARG" =~ ^[A-Z][A-Z0-9_]*$ ]]
+          args+=(--build-arg "${SOURCE_REVISION_ARG}=${GITHUB_SHA}")
+        fi
+        args+=("$DOCKER_CONTEXT")
+        "${args[@]}"
+        digest=$(jq -er '."containerimage.digest"' .l9/release/build-metadata.json)
+        [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+        {
+          echo "image-digest=$digest"
+          echo "image-ref=${IMAGE_REPOSITORY}@${digest}"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Attest build provenance
+      uses: actions/attest-build-provenance@619dbb2e03e0189af0c55118e7d3c5e129e99726 # v2
+      with:
+        subject-name: ${{ inputs.image-repository }}
+        subject-digest: ${{ steps.build.outputs.image-digest }}
+        push-to-registry: true
+
+    - id: evidence
+      name: Bind SDK gate evidence to immutable image
+      shell: bash
+      env:
+        L9_ANALYSIS_ROOT: .l9/release/analysis
+        L9_ANALYSIS_ARTIFACT: ${{ inputs.analysis-artifact }}
+        L9_MATRIX_ID: ${{ inputs.matrix-id }}
+        L9_DEPLOYMENT_PROFILE: ${{ inputs.deployment-profile }}
+        L9_REGISTERED_PROFILE_PATH: ${{ inputs.registered-profile-path }}
+        L9_IMAGE_REPOSITORY: ${{ inputs.image-repository }}
+        L9_IMAGE_DIGEST: ${{ steps.build.outputs.image-digest }}
+        L9_IMAGE_REF: ${{ steps.build.outputs.image-ref }}
+        L9_ENVIRONMENT: ${{ inputs.environment }}
+      run: python3 "${{ github.action_path }}/release.py"
+
+    - name: Upload immutable release evidence
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: ${{ steps.evidence.outputs.artifact-name }}
+        path: .l9/release/evidence
+        if-no-files-found: error
+        retention-days: 90
+
+    - name: Dispatch bounded deployment request
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.deployment-broker-token }}
+      run: |
+        set -euo pipefail
+        test -n "$GH_TOKEN"
+        jq -n \
+          --arg event_type 'l9.release.requested.v1' \
+          --slurpfile payload .l9/release/deployment-request.json \
+          '{event_type:$event_type,client_payload:$payload[0]}' \
+          > .l9/release/dispatch.json
+        gh api --method POST repos/Quantum-L9/l9-deploy/dispatches \
+          --input .l9/release/dispatch.json
+
+    - if: always()
+      name: Logout from GHCR
+      shell: bash
+      run: docker logout ghcr.io || true
