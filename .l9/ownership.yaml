@@ -1,12 +1,19 @@
 schema: l9.ownership-spec/v1
 repository: Quantum-L9/l9-ci-core
+
 core_owns:
   orchestration:
-    - reusable GitHub workflows
-    - event handling
+    - organization required-workflow source
+    - reusable and canary execution surfaces
+    - event-to-profile mapping
     - job topology
-    - matrices
     - concurrency
+  governance:
+    - central governance defaults
+    - provider enablement and requiredness
+    - execution mode
+    - waiver validation
+    - promotion policy
   security:
     - workflow permissions
     - trust-boundary enforcement
@@ -17,11 +24,17 @@ core_owns:
     - SDK revision validation
     - SDK runtime preparation
     - SDK public-contract probing
+    - exact CI tool pins
+  consumer_contract:
+    - optional .l9/ci.json schema
+    - consumer metadata validation
+    - fail-closed consistency checks against SDK detection
   publication:
     - artifact retention
     - check publication
     - summaries
     - annotations
+
 sdk_owns:
   analysis:
     - provider SPI
@@ -38,13 +51,26 @@ sdk_owns:
   semantics:
     - identity resolution
     - policy classification library
-    - gate evaluation primitives
+    - technical gate evaluation primitives
   artifacts:
     - schemas
     - schema validation
     - semantic validation
     - deterministic serialization
     - agent-review payload projection
+    - SARIF projection
+
+organization_rulesets_own:
+  - repository targeting
+  - required-workflow enforcement
+  - enforcement state
+  - bypass principals
+
+consumer_repositories_own:
+  - source code
+  - native tool and project configuration
+  - optional ownership/repo-class/waiver pointers
+
 prohibited_in_core:
   - provider report parser
   - Semgrep JSON parser
@@ -57,3 +83,13 @@ prohibited_in_core:
   - AST parser
   - Tree-sitter grammar
   - repository graph engine
+  - CI distribution through Quantum-L9/.github
+  - consumer workflow seeding as organization enforcement
+
+prohibited_in_consumers:
+  - copied organization CI orchestration
+  - organization governance mode selection
+  - provider requiredness selection
+  - Core or SDK version selection for required CI
+  - central tool-version selection
+  - workflow permission escalation
