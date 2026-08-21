@@ -1,19 +1,24 @@
 # LEGACY — frozen copy-first distribution
 
-> **Superseded by the organization-facing Core entrypoint.**
+> **Superseded by centrally required Core CI.**
 
-The copy-first integration model documented here is **legacy and frozen**.
-Do not extend it, and do not teach it as the integration path.
+The copy-first integration model documented in this directory is legacy and
+frozen. Do not extend it, seed it from `Quantum-L9/.github`, or teach it as the
+integration path.
 
-- The single live organization entrypoint is
-  [`.github/workflows/org-ci.yml`](../../.github/workflows/org-ci.yml)
-  (`l9.org-runtime-contract/v1`, declared in
-  [`.l9/org-runtime-contract.yaml`](../../.l9/org-runtime-contract.yaml)).
-- l9-ci-control-plane selects that workflow at a full immutable Core commit
-  SHA and delivers the governance pack as the `governance` input. When the
-  input is empty, Core applies its own bounded standard defaults
-  (`.github/org-governance-defaults/`).
-- The governance files in this directory, `l9-analysis.yml`, and the hygiene
-  templates remain only for historical consumers still on the copy path.
-  They are no longer Core's distribution mechanism and receive no new
-  features.
+The active architecture is:
+
+- GitHub organization rulesets target repositories and require
+  [`.github/workflows/org-ci.yml`](../../.github/workflows/org-ci.yml).
+- `l9-ci-core` owns central orchestration, governance defaults, SDK/tool pins,
+  enforcement, routing, and publication.
+- `l9-ci-sdk` owns repository capability detection, provider execution,
+  canonical evidence/findings, technical gate evaluation, and projections.
+- Consumer repositories may optionally provide `.l9/ci.json` with only
+  ownership, repo-class, and centrally issued waiver pointers.
+- No copied L9 workflow, governance pack, Core pin, or SDK pin is required in a
+  consumer repository.
+
+Files in this directory remain only for historical consumers until the central
+required-workflow canary is proven. They receive no new features and must be
+removed rather than evolved after the replacement path is validated.
