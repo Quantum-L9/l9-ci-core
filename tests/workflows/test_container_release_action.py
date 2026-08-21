@@ -99,7 +99,9 @@ class ContainerReleaseTests(unittest.TestCase):
                 gate["workflow"]["analysis_artifact_name"],
             )
 
-    def test_request_uses_registered_profile_path_and_local_profile_digest(self) -> None:
+    def test_request_uses_registered_profile_path_and_local_profile_digest(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             self._build(workspace)
@@ -130,7 +132,9 @@ class ContainerReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "SDK gate result is not pass"):
                 self._build(Path(directory), gate_status="fail")
 
-    def test_action_targets_canonical_deployment_repo_and_supports_source_arg(self) -> None:
+    def test_action_targets_canonical_deployment_repo_and_supports_source_arg(
+        self,
+    ) -> None:
         text = (ROOT / ".github/actions/container-release/action.yml").read_text(
             encoding="utf-8"
         )

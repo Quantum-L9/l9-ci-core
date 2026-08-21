@@ -80,7 +80,7 @@ jobs:
           L9_CI_INSTALL_COMMAND: ${{ inputs.l9-ci-install-command }}
         run: |
           set -euo pipefail
-          python -m pip install --upgrade "pip==26.1.2"
+          python -m pip install --upgrade "pip==26.2.1"
           pip install "pip-audit==2.9.0"
           if [ -n "$L9_CI_INSTALL_COMMAND" ]; then
             bash -c "$L9_CI_INSTALL_COMMAND" || echo "::notice::l9-ci install command failed; continuing"
