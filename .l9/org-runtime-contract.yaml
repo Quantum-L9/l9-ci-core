@@ -1,0 +1,119 @@
+schema: l9.org-runtime-contract/v1
+metadata:
+  repository: Quantum-L9/l9-ci-core
+  version: 1.0.0
+  status: candidate
+  campaign: l9-ci-core-org-runtime-v1
+  updated: '2026-08-16'
+# The smallest stable public workflow and ownership contract the control
+# plane (l9-ci-control-plane) can safely bind. Core executes; the SDK owns
+# analysis semantics; the control plane owns targeting, Core-version
+# selection, rulesets, reconciliation, rollout, rollback, and fleet
+# visibility. Core never selects or mutates organization policy.
+entrypoint:
+  workflow: .github/workflows/org-ci.yml
+  callable_as: >-
+    Quantum-L9/l9-ci-core/.github/workflows/org-ci.yml@<full-40-char-sha>
+  trigger_events:
+    - pull_request
+    - workflow_dispatch
+  caller: control_plane
+inputs:
+  event:
+    type: string
+    enum: [pull_request, push, merge, nightly, release, supply_chain]
+  language:
+    type: string
+    enum: [python, typescript]
+  profile:
+    type: string
+    source: control_plane
+    required: false
+  governance:
+    type: string
+    format: json
+    source: control_plane
+    required: false
+    note: >-
+      Control-plane-provided governance snapshot (profiles, rule modes,
+      requiredness, waivers). When absent, Core applies its own bounded
+      standard defaults (see defaults section).
+  matrix_id:
+    type: string
+    required: false
+  sdk_revision:
+    type: string
+    required: false
+    note: >-
+      Full 40-character immutable l9-ci-sdk commit SHA; empty means the Core
+      pin. Any explicit value must be listed in .l9/sdk-compatibility.yaml.
+  semgrep_version:
+    type: string
+    required: false
+    note: Exact semgrep pin (not a range).
+  artifact_retention_days:
+    type: number
+    required: false
+outputs:
+  check:
+    name: string
+    conclusion: [success, failure, neutral]
+  artifact_manifest:
+    type: string
+    required: true
+  sarif_uploaded:
+    type: boolean
+ownership:
+  core_owns:
+    - runtime orchestration
+    - security-sensitive execution composition
+    - immutable SDK provisioning
+    - validation
+    - routing
+    - stable verdict publication
+    - the public CI runtime interface
+  sdk_owns:
+    - provider execution
+    - analysis semantics
+  control_plane_owns:
+    - targeting
+    - Core-version selection
+    - rulesets
+    - reconciliation
+    - rollout
+    - rollback
+    - fleet visibility
+  prohibited_in_core:
+    - organization repository inventories
+    - organization ruleset mutation
+    - CI fanout or seeding to organization repositories
+    - organization rollout execution
+    - consumer workflow generation
+    - provider-native parsing
+    - canonical finding semantics owned by l9-ci-sdk
+defaults:
+  standard_profile: pr_fast
+  standard_language: python
+  governance_source: core_defaults
+  repository_validation_consumption: allowlisted
+  max_parallel_workers: 1
+pinning:
+  core_revision:
+    policy: full-40-char-sha-or-immutable-semver-tag-only
+    selected_by: control_plane
+    never: floating-or-main
+  sdk_revision:
+    policy: per .l9/sdk-compatibility.yaml
+    floating_git_references_allowed: false
+    branches_allowed: false
+    tags_allowed: false
+    short_git_revisions_allowed: false
+validation:
+  contract_tests:
+    - tests/workflows/test_org_runtime_contract.py
+    - tests/workflows/test_org_runtime_interface.py
+    - tests/workflows/test_phase_scope.py
+  admission: >-
+    The contract is validated against executable Core behavior by the
+    interface manifest validator (.l9/org-runtime-interface.yaml); claims
+    that cannot be validated remain UNKNOWN.

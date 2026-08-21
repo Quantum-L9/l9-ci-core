@@ -1,0 +1,21 @@
+{
+  "schema": "l9.quality-threshold-selection/v1",
+  "profiles": {
+    "pr_fast": {
+      "sdk_policy": ""
+    },
+    "merge": {
+      "sdk_policy": ""
+    },
+    "nightly": {
+      "sdk_policy": ""
+    },
+    "release": {
+      "sdk_policy": ""
+    },
+    "supply_chain": {
+      "sdk_policy": ""
+    }
+  },
+  "note": "Bounded Core standard defaults select no additional SDK policy file; the pinned SDK applies its own default thresholds. The control plane may supply a governance pack whose sdk_policy points at a policy file the pinned SDK understands."
+}

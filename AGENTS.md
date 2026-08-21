@@ -76,8 +76,6 @@ security.yml
 scorecard.yml
 sbom.yml
 
-# Maintenance
-regenerate-identity-maps.yml
 ```
 
 Adding a new analysis kernel (or expanding the consumer-callable set) is a
@@ -129,78 +127,75 @@ order:
 | Workflow | Callable by consumers? |
 |---|---|
 | `analyze-semgrep.yml`, `profile-normalize-semgrep.yml`, `publish-analysis.yml`, `baseline-ratchet.yml`, v1 kernels (`pr-pipeline.yml`, `pre-commit-ci.yml`, `nightly.yml`, `release-publish.yml`, `trio-governance.yml`, `security.yml`, `scorecard.yml`, `sbom.yml`) | Yes — `workflow_call` |
-| `self-ci.yml`, `sdk-contract-check.yml`, `governance-ci.yml`, `release-validation.yml`, `self-analysis.yml`, `self-security.yml`, `regenerate-identity-maps.yml` | No — self-only (Core's own CI/dogfood/release/maintenance) |
+| `self-ci.yml`, `sdk-contract-check.yml`, `governance-ci.yml`, `release-validation.yml`, `self-analysis.yml`, `self-security.yml` | No — self-only (Core's own CI/dogfood/release) |
 | `normalize-semgrep-report.yml` | Nested helper — not a standalone consumer entry |
 
 ---
 
-## 3. Template flow (SSOT → org distribution → consumer)
+## 3. Organization-facing entrypoint (single live integration path)
 
 ```
-docs/templates/            (SSOT — this repo)
-      │  sync
-      ▼
-Quantum-L9/.github/l9-ci-pack/   (org distribution mirror + README)
-      │  copy
-      ▼
-consumer repo .github/           (what actually runs)
+l9-ci-control-plane  ── selects ──►  Quantum-L9/l9-ci-core
+                                    .github/workflows/org-ci.yml
+                                    at a full immutable Core commit SHA
+                    ── passes ──►   event / language / profile /
+                                    governance (JSON pack or empty)
 ```
 
-- **SSOT lives here**: [`docs/templates/`](docs/templates/) (governance,
-  analysis, Python lint) and [`presets/typescript/`](presets/typescript/)
-  (locked Biome contract + Node lint caller). `docs/templates/l9-lint-test-node.yml`
-  is the org-sync fallback and must stay Biome-owned.
-- **`Quantum-L9/.github/l9-ci-pack/`** is the org-wide distribution copy of
-  that same surface (mirrored via `ops/sync-v2-starters.sh`), plus an
-  agent-first `README.md` so a consumer/agent never has to browse this repo
-  to instantiate Core. The org seeder copies the pack into consumers
-  (missing-only), including `biome.json`.
-- **Consumers copy from the pack** (or directly from `docs/templates/` if
-  working against this repo). Do not invent parallel/ad-hoc workflows in Core
-  to serve a single consumer — extend the templates instead.
+The single live organization integration is
+[`.github/workflows/org-ci.yml`](.github/workflows/org-ci.yml), declared by
+[`.l9/org-runtime-contract.yaml`](.l9/org-runtime-contract.yaml)
+(`l9.org-runtime-contract/v1`) and described machine-readably by
+[`.l9/org-runtime-interface.yaml`](.l9/org-runtime-interface.yaml)
+(`l9.org-runtime-interface/v1`; every VALIDATED claim is re-derived by
+`tests/workflows/test_org_runtime_interface.py`). The control plane owns
+targeting,
+Core-version selection, rulesets, reconciliation, rollout, rollback, and
+fleet visibility. Core owns orchestration, security-sensitive execution
+composition, immutable SDK provisioning, validation/routing, and stable
+verdict publication. When the `governance` input is empty, Core applies its
+own bounded standard defaults (`.github/org-governance-defaults/` — exactly
+six files).
+
+**Copy-first distribution is legacy and frozen** — `docs/templates/`,
+`presets/`, and the `skills/l9-ci-activation*` seeding skills are superseded
+(see `docs/templates/LEGACY.md` and `presets/LEGACY.md`). They receive no new
+features. Organization-administration surfaces (ruleset mutation, registry
+sync, rollout ownership) were removed from Core as control-plane authority.
 
 **Not Core's job:** org issue/PR templates. Those are owned solely by
 `Quantum-L9/.github` community-health files (`.github/ISSUE_TEMPLATE/*`,
 root `PULL_REQUEST_TEMPLATE.md` in that repo). Core does not ship an
-`ISSUE_TEMPLATE.md` / `PULL_REQUEST_TEMPLATE.md` under `docs/templates/` —
-they were removed as legacy leftovers with no deliverable role; do not
-recreate them here or sync them into the org pack.
+`ISSUE_TEMPLATE.md` / `PULL_REQUEST_TEMPLATE.md`.
 
 ---
 
-## 4. What a consumer repo must do to integrate
+## 4. How a repository receives organization CI
 
-Works identically for **Python** and **Node.js** — `semgrep` is the single,
-language-agnostic provider. The preferred caller is a thin stub into
-`analyze-semgrep.yml`; the only per-language difference is `L9_LANGUAGE`
-(`python` or `typescript`). The SDK owns ruleset selection — consumers author
-no `--config` list.
+A normal Quantum-L9 repository receives organization CI through the single
+organization-facing entrypoint — no copied workflow, no copied governance
+pack, no consumer-owned Core revision.
 
-1. **Copy governance** — the six files in
-   [`docs/templates/governance/`](docs/templates/governance/) (or the org
-   pack's `l9-ci-pack/governance/`) → your repo's `.github/governance/`.
-   ⚠️ These are JSON-in-`.yaml`: double-quoted keys, no comments, no trailing
-   commas (the resolver parses them with `json.loads`).
-2. **Copy the analysis caller** —
-   [`docs/templates/l9-analysis.yml`](docs/templates/l9-analysis.yml) →
-   `.github/workflows/l9-analysis.yml` (or the matching preset under
-   `presets/`). Set `L9_LANGUAGE` to `python` or `typescript`, pin Core by
-   full SHA on the `uses:` line, and grant `checks: write` +
-   `security-events: write` on the job that calls `analyze-semgrep.yml`.
-3. **Optional hygiene** — copy
-   [`docs/templates/l9-lint-test.yml`](docs/templates/l9-lint-test.yml)
-   (Python: ruff/mypy/pytest) or
-   [`docs/templates/l9-lint-test-node.yml`](docs/templates/l9-lint-test-node.yml)
-   (Node: SDK Biome + `tsc --noEmit` + package test script). Stamp
-   `presets/typescript/stamp.sh` for `biome.json` — do not invent it. These
-   are generic dev-tool templates you own outright — Core does not call or
-   gate on them.
-4. **Set profile / rollout** — pick `pr_fast` / `merge` / `nightly` /
-   `release` / `supply_chain` in `execution-profiles.yaml`; roll a new
-   provider or stricter policy out `shadow → advisory → blocking` via
-   `rule-modes.yaml` + `promotion-policy.yaml`.
+1. **Select the entrypoint** — the control plane calls
+   `Quantum-L9/l9-ci-core/.github/workflows/org-ci.yml@<full-40-char-sha>`
+   with the governance event class (`pull_request`, `push`, `merge`,
+   `nightly`, `release`, `supply_chain`), the SDK language (`python` or
+   `typescript`), and optionally a profile.
+2. **Deliver the governance pack** — the control plane passes its ruleset
+   snapshot as the `governance` JSON input (at most the six known governance
+   filenames). When the input is empty, Core applies its bounded standard
+   defaults from `.github/org-governance-defaults/`.
+3. **Core executes** — resolve-governance → immutable SDK provisioning →
+   SDK-owned semgrep run → canonical bundle validation → `gate evaluate` →
+   agent-payload + SARIF projection → artifact routing/manifest/upload →
+   nested publication. Core never selects or mutates organization policy.
+4. **Rollout/rollback** — owned by the control plane, never Core.
 5. **Verify** — artifact uploaded, GitHub check published (or shadow evidence
-   retained), SARIF uploaded when enabled, lint/test green if adopted.
+   retained), SARIF uploaded when enabled.
+
+The legacy copy-first path (templates/presets/seeding skills) is frozen — see
+§3. Do not add new consumer integration surfaces; extend `org-ci.yml` +
+`.l9/org-runtime-contract.yaml` instead.
 
 ---
 
@@ -315,6 +310,7 @@ The local repository-execution contract is [`.l9/repo-workflow.json`](.l9/repo-w
 - Run `make change-policy` to inspect targeted gates and companion obligations for the current change set.
 - Run `make agent-check` before declaring work complete, committing, pushing, or opening a pull request. Targeted gates add evidence; they never replace the full configured check and test matrices.
 - Keep the root `Makefile` generated and delegation-only. Runtime behavior belongs in `tools/l9_repo/`; executable policy belongs in `.l9/repo-workflow.json`.
+- Configured command argv is consumed argv-only from an executable allowlist (`@python` or the pinned `ruff` / `mypy` / `uv` toolchain). Unknown executables are rejected fail-closed at configuration load; arguments are passed literally and never evaluated by a shell.
 - Do not bypass or weaken the completion proof, protected-branch refusal, clean-tree requirement, no-force policy, single-flight lock, or evidence emission.
 - Exit `1` means blocking repository findings. Exit `2` means invalid configuration, infrastructure, comparison context, authority wiring, or repository state.
 

@@ -14,11 +14,18 @@ or learning.
 
 Authority resolves in this order:
 
-1. `AGENTS.md` and the target `.l9` architecture, ownership, and SDK contracts.
+1. `AGENTS.md` and the target `.l9` contracts: `architecture.yaml`,
+   `ownership.yaml`, `sdk-compatibility.yaml`, `org-runtime-contract.yaml`,
+   and `org-runtime-interface.yaml`.
 2. `.l9/repo-workflow.json`.
 3. `.l9/repo-workflow.schema.json`.
 4. `tools/l9_repo/` runtime behavior.
 5. `Makefile`, generated from `tools/l9_repo/Makefile.template`.
+
+`.l9/repo-workflow.json` registers the target authorities under
+`authority.target_authorities` and requires `AGENTS.md` to reference each
+(`agent_contracts.reference_requirements`); structural validation fails
+closed when any registered authority is missing or unreferenced.
 
 ## Commands
 
@@ -36,6 +43,14 @@ Authority resolves in this order:
 
 Evidence is written under `artifacts/`, which remains untracked.
 
+Configured command argv (including `change_policy` gate commands and
+`push.lockfile_command`) is consumed **argv-only and allowlisted**: `argv[0]`
+must be `@python` (the workspace interpreter) or one of the pinned toolchain
+`ruff`, `mypy`, `uv`. Any other executable is rejected fail-closed at
+configuration load, so a repository contract can never smuggle arbitrary
+commands through the runner. Command arguments are passed literally and are
+never evaluated by a shell.
+
 ## Invariants
 
 - Targeted gates add evidence and never replace the full configured suite.
@@ -43,6 +58,8 @@ Evidence is written under `artifacts/`, which remains untracked.
   configuration, infrastructure, comparison context, or repository state.
 - Validation must preserve the initial subject, policy digest, index, tracked
   worktree, and untracked-file set.
+- Configured commands are allowlisted (`@python`, `ruff`, `mypy`, `uv`) and
+  executed argv-only.
 - Force push, protected-branch mutation, shell-string command execution, and
   hidden bypasses are prohibited.
 - `MANIFEST.sha256` must be regenerated for every tracked change.

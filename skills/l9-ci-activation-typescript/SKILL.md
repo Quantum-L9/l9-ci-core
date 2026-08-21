@@ -1,5 +1,11 @@
 # Skill: L9 CI Activation (TypeScript)
 
+> **LEGACY (frozen).** This copy-first seeding protocol is superseded by the
+> organization-facing Core entrypoint (`.github/workflows/org-ci.yml`,
+> `l9.org-runtime-contract/v1`), selected by l9-ci-control-plane at a full
+> immutable Core SHA. Do not use this skill for new consumers; see
+> [`presets/LEGACY.md`](../../presets/LEGACY.md).
+
 ## Purpose
 This skill provides the exact deterministic protocol for an AI agent to activate L9 CI in any TypeScript/JavaScript repository. It uses the locked `typescript` preset from `Quantum-L9/l9-ci-core` to ensure zero-friction, zero-ambiguity setup.
 

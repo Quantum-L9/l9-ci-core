@@ -1,5 +1,11 @@
 # L9 CI instantiation pack
 
+> **LEGACY (frozen).** Copy-first governance distribution is superseded by
+> the organization-facing Core entrypoint — see [`../LEGACY.md`](../LEGACY.md).
+> The control plane delivers governance as the `governance` input of
+> `org-ci.yml`; when it is empty, Core applies its bounded standard defaults
+> from `.github/org-governance-defaults/`.
+
 Drop-in governance for a repository adopting l9-ci-core **v2**. Copy the six
 `*.yaml` files in this directory into your repo at **`.github/governance/`** —
 that is the path `resolve-governance` and `validate-governance` read.
