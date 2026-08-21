@@ -62,11 +62,14 @@ def governance_path(value: str) -> Path:
 
 
 def load_documents(root: Path) -> dict[str, Any]:
-    file_entries = {path.name for path in root.iterdir() if path.is_file()}
-    expected = set(EXPECTED_SCHEMAS)
-    extra = sorted(file_entries - expected)
-    if extra:
-        raise GovernanceError(f"unexpected governance files: {extra}")
+    """Load the six Core control documents from a governance directory.
+
+    Supplemental files may coexist in repository-local dogfood directories
+    (for example an SDK policy document). They are not part of the Core
+    governance digest and cannot become control documents implicitly. The
+    bundled @core-defaults directory is separately tested to contain exactly
+    the six files declared by EXPECTED_SCHEMAS.
+    """
     documents: dict[str, Any] = {}
     for filename, expected_schema in EXPECTED_SCHEMAS.items():
         path = root / filename
