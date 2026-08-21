@@ -40,10 +40,15 @@ class OrgRuntimeInterfaceTests(unittest.TestCase):
                 self.assertIn(claim["status"], {"VALIDATED", "UNKNOWN"})
                 self.assertTrue(claim.get("statement"))
                 for evidence in claim.get("evidence", []):
-                    self.assertTrue((ROOT / evidence).exists(), f"missing evidence: {evidence}")
+                    self.assertTrue(
+                        (ROOT / evidence).exists(), f"missing evidence: {evidence}"
+                    )
 
     def test_external_runtime_claims_stay_unknown(self) -> None:
-        for claim_id in ("organization-ruleset-live-enforcement", "remote-end-to-end-run"):
+        for claim_id in (
+            "organization-ruleset-live-enforcement",
+            "remote-end-to-end-run",
+        ):
             self.assertEqual("UNKNOWN", self.claims[claim_id]["status"])
             self.assertEqual([], self.claims[claim_id]["evidence"])
 
@@ -71,7 +76,10 @@ class OrgRuntimeInterfaceTests(unittest.TestCase):
 
     def test_consumer_metadata_claim_matches_schema_and_workflow(self) -> None:
         schema = json.loads(CONSUMER_SCHEMA_PATH.read_text(encoding="utf-8"))
-        self.assertEqual({"schema", "owner", "repo_class", "waiver_refs"}, set(schema["properties"]))
+        self.assertEqual(
+            {"schema", "owner", "repo_class", "waiver_refs"},
+            set(schema["properties"]),
+        )
         self.assertFalse(schema["additionalProperties"])
         text = workflow_text()
         self.assertIn("resolve-consumer-metadata", text)
@@ -97,11 +105,22 @@ class OrgRuntimeInterfaceTests(unittest.TestCase):
         ):
             self.assertFalse(compatibility["policy"][key], key)
 
-    def test_failure_publication_claim_matches_execution(self) -> None:
+    def test_required_workflow_read_only_claim_matches_execution(self) -> None:
         text = workflow_text()
-        self.assertIn("if: always() && needs.analyze.outputs.enabled == 'true'", text)
-        self.assertRegex(text, r"publish-analysis\.yml@[0-9a-f]{40}")
-        self.assertIn("workflow-result: ${{ needs.analyze.result }}", text)
+        write_pattern = re.compile(
+            r"(?m)^\s+(actions|checks|contents|deployments|discussions|"
+            r"id-token|issues|packages|pages|pull-requests|"
+            r"repository-projects|security-events|statuses):\s+write"
+        )
+        self.assertEqual([], write_pattern.findall(text))
+        self.assertIn("contents: read", text)
+
+    def test_blocking_result_visibility_claim_matches_execution(self) -> None:
+        text = workflow_text()
+        summary = text.index("name: Write central CI summary")
+        enforce = text.index("name: Enforce central mode on SDK technical gate")
+        self.assertLess(summary, enforce)
+        self.assertIn("if: always()", text[summary:enforce])
 
     def test_no_distribution_claim_matches_contract(self) -> None:
         contract = yaml.safe_load(CONTRACT_PATH.read_text(encoding="utf-8"))
@@ -111,7 +130,10 @@ class OrgRuntimeInterfaceTests(unittest.TestCase):
 
     def test_contract_references_this_validator(self) -> None:
         contract = yaml.safe_load(CONTRACT_PATH.read_text(encoding="utf-8"))
-        self.assertIn("tests/workflows/test_org_runtime_interface.py", contract["validation"]["contract_tests"])
+        self.assertIn(
+            "tests/workflows/test_org_runtime_interface.py",
+            contract["validation"]["contract_tests"],
+        )
         self.assertIn("UNKNOWN", contract["validation"]["admission"])
 
 
