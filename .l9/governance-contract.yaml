@@ -45,7 +45,7 @@ boundary:
     - organization policy
 
 prohibited:
-  - Core reading canonical findings to calculate a technical gate
+  - Core reading canonical findings to calculate a gate
   - Core translating finding severity
   - Core deriving rule identity
   - Core suppressing canonical findings
