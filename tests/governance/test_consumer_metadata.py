@@ -11,7 +11,9 @@ import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = ROOT / ".github" / "actions" / "resolve-consumer-metadata" / "resolve.py"
+MODULE_PATH = (
+    ROOT / ".github" / "actions" / "resolve-consumer-metadata" / "resolve.py"
+)
 SCHEMA_PATH = ROOT / ".l9" / "ci-consumer.schema.json"
 
 spec = importlib.util.spec_from_file_location("resolve_consumer_metadata", MODULE_PATH)
@@ -70,7 +72,9 @@ class ConsumerMetadataTests(unittest.TestCase):
             with self.subTest(key=key), tempfile.TemporaryDirectory() as temp:
                 path = Path(temp) / "ci.json"
                 path.write_text(
-                    json.dumps({"schema": "l9.ci-consumer/v1", key: "forbidden"}),
+                    json.dumps(
+                        {"schema": "l9.ci-consumer/v1", key: "forbidden"}
+                    ),
                     encoding="utf-8",
                 )
                 with self.assertRaises(module.ConsumerMetadataError):
@@ -78,7 +82,11 @@ class ConsumerMetadataTests(unittest.TestCase):
 
     def test_path_cannot_escape_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            with unittest.mock.patch.dict(os.environ, {"GITHUB_WORKSPACE": temp}, clear=False):
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"GITHUB_WORKSPACE": temp},
+                clear=False,
+            ):
                 with self.assertRaises(module.ConsumerMetadataError):
                     module.workspace_path("../ci.json")
 
