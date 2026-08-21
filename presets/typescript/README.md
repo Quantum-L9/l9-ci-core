@@ -11,6 +11,11 @@ It provides a zero-friction, copy-paste deployment of the `l9-ci-core` governed 
 | `.github/workflows/l9-analysis.yml` | The governed analysis pipeline (Semgrep, SDK, Manifests) | **100% Locked** (TypeScript/JavaScript config only) |
 | `.github/workflows/l9-lint-test.yml` | Code hygiene: **Biome** (format + lint, SDK-owned reusable workflow), `tsc --noEmit`, test runner | **Structure Locked**, Env + biome `with:` configurable |
 | `.github/governance/*.yaml` | Governance rules (Profiles, Modes, Waivers) | **100% Locked** |
+| `biome.json` | Locked Biome 2.5.8 contract (format + lint + assist) | **Locked** — stamp, do not hand-author |
+| `.biomeignore` | Generated-tree exclusions (keep in sync with `files.includes`) | **Locked** |
+| `.editorconfig` | Editor-agnostic indent/newline contract Biome honors | **Locked** |
+| `.vscode/extensions.json` | Recommends `biomejs.biome` for real-time editor lint | **Locked** |
+| `stamp.sh` | Copies the files above into a consumer repo without inventing config | **Locked** |
 
 ## Formatter/linter ownership
 
@@ -38,11 +43,16 @@ If you are setting up a new TypeScript/JavaScript repository:
    read `env:`, so they are set on the job directly):
    - `scan-path`: path passed to `biome ci`, e.g. `"."` or `"src"`.
    - `enforce-biome`: rollout flag (see below).
-4. Copy `biome.json` into your repository root (same convention as `ruff.toml`)
-   and adjust `files.includes` for your JSON/JS/TS footprint.
+4. Stamp the locked Biome contract — **do not hand-author `biome.json`**:
+   ```bash
+   bash path/to/l9-ci-core/presets/typescript/stamp.sh "$(pwd)"
+   ```
+   Extra path excludes may be appended to `files.includes` after the stamp.
+   Do not rewrite the `formatter` / `linter` / `javascript` / `json` blocks.
 5. Ensure `package.json` defines a `test` script (skipped with a notice if
    absent). No `lint` script is required — Biome owns format + lint.
-6. Commit and push.
+6. Commit and push. Real-time editor lint is then `install_ide_profile.sh`
+   (Cursor-Governance) once `biome.json` is present.
 
 ## Advisory-to-blocking rollout
 
@@ -64,7 +74,9 @@ blocking` promotion discipline.
 Agents (Cursor, Manus, Claude Code) should be instructed to:
 > "Activate L9 CI using the typescript preset"
 
-They will automatically execute the `l9-ci-activation-typescript` skill, which handles directory discovery and variable injection deterministically.
+They will automatically execute the `l9-ci-activation-typescript` skill, which
+handles directory discovery, variable injection, and Biome stamping
+(`stamp.sh`) so agents never invent `biome.json`.
 
 ## GitHub Starter Workflow Integration
 

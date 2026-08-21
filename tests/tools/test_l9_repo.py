@@ -19,24 +19,49 @@ sys.path.insert(0, str(ROOT / "tools"))
 from l9_repo import locking, push_preflight  # noqa: E402
 from l9_repo.authority import AuthorityError, validate_authority  # noqa: E402
 from l9_repo.__main__ import (  # noqa: E402
+    MANIFEST_CHECK_ENV,
     AgentCheckFailure,
     RepositoryWorkflow,
     WorkflowError,
     main,
     validate_config_data,
+    verify_checksum_manifest,
 )
+
+
+def git_environment() -> dict[str, str]:
+    """Environment that keeps fixture git runs off the developer's config.
+
+    Without this, whatever is in ``~/.gitconfig`` reaches into the fixture:
+    ``core.excludesFile`` changes what ``ls-files --others --exclude-standard``
+    reports (which ``worktree_fingerprint`` hashes), and ``commit.gpgsign`` or
+    ``core.hooksPath`` can fail the fixture's own commit. CI has no global
+    config, so a leak here fails only on developer machines.
+    """
+    return {
+        **os.environ,
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+    }
 
 
 def run_git(
     root: pathlib.Path, *args: str, check: bool = True
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    result = subprocess.run(
         ["git", *args],
         cwd=root,
         text=True,
         capture_output=True,
-        check=check,
+        check=False,
+        env=git_environment(),
     )
+    if check and result.returncode != 0:
+        raise AssertionError(
+            f"git {' '.join(args)} failed with exit {result.returncode} in {root}\n"
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
+    return result
 
 
 def initialize_target_fixture(root: pathlib.Path) -> None:
@@ -113,18 +138,48 @@ def configure_simple_commands(root: pathlib.Path) -> dict[str, object]:
     return config
 
 
+def copy_tracked_tree(source: pathlib.Path, destination: pathlib.Path) -> None:
+    """Copy only ``source``'s tracked files into ``destination``.
+
+    Copying the live worktree instead leaks three things into every fixture,
+    none of which CI ever sees because its checkout is a bare depth-1 fetch:
+
+    * ``.git`` itself, which makes ``git init`` a no-op re-init. The fixture
+      then inherits the developer's refs, so ``checkout -b feature`` dies with
+      exit 128 against a local ``feature`` branch, inherited ``origin/*`` refs
+      change which ref ``_comparison_ref`` picks, and the base commit lands on
+      top of real history instead of an empty baseline.
+    * Symlinked trees, because ``shutil.copytree`` follows symlinks by default.
+      In this repo ``.cursor-commands`` points at a 214 MB governance clone.
+    * Untracked and ignored files, which ``regenerate_manifest`` then hashes
+      and ``verify_checksum_manifest`` re-hashes, once per fixture.
+
+    Tracked paths carry working-tree content, so uncommitted edits to tracked
+    files are still exercised.
+    """
+    listed = run_git(source, "ls-files", "-z", check=False)
+    if listed.returncode != 0:
+        raise AssertionError(
+            f"cannot enumerate tracked files in {source}; the fixture requires "
+            f"a git repository\n{listed.stderr.strip()}"
+        )
+    for relative in listed.stdout.split("\0"):
+        if not relative:
+            continue
+        origin = source / relative
+        # A tracked path deleted from the worktree but not yet staged has no
+        # content to copy; reproduce that absence rather than failing.
+        if not origin.is_file():
+            continue
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(origin, target)
+
+
 def make_git_fixture() -> tuple[tempfile.TemporaryDirectory[str], pathlib.Path]:
     temporary = tempfile.TemporaryDirectory()
     root = pathlib.Path(temporary.name)
-    shutil.copytree(
-        ROOT,
-        root,
-        dirs_exist_ok=True,
-        # .git must never be copied: inside a git worktree it is a gitfile
-        # pointing at the outer repository, so temp-fixture git ops would
-        # silently mutate the real worktree instead of the fixture repo.
-        ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", "artifacts"),
-    )
+    copy_tracked_tree(ROOT, root)
     initialize_target_fixture(root)
     configure_simple_commands(root)
     run_git(root, "init", "-b", "main")
@@ -274,6 +329,50 @@ class AuthorityIntegrationTests(unittest.TestCase):
         (root / ".l9/ownership.yaml").unlink()
         with self.assertRaisesRegex(AuthorityError, "missing target authority"):
             validate_authority(root, config)
+
+
+class GitFixtureIsolationTests(unittest.TestCase):
+    """The fixture must be a fresh repository, whatever this checkout contains.
+
+    Every assertion here is independent of the developer's branches, remotes,
+    and untracked files. That is the property the fixture lacked while it copied
+    the live worktree: a local ``feature`` branch broke it outright, and
+    inherited ``origin/*`` refs silently changed what the workflow compared
+    against.
+    """
+
+    def setUp(self) -> None:
+        temporary, self.root = make_git_fixture()
+        self.addCleanup(temporary.cleanup)
+
+    def refs(self, namespace: str) -> set[str]:
+        listed = run_git(
+            self.root, "for-each-ref", "--format=%(refname:short)", namespace
+        )
+        return {line for line in listed.stdout.split() if line}
+
+    def test_fixture_history_starts_at_a_single_base_commit(self) -> None:
+        count = run_git(self.root, "rev-list", "--count", "HEAD").stdout.strip()
+        self.assertEqual("1", count)
+
+    def test_fixture_inherits_no_local_branches(self) -> None:
+        self.assertEqual({"main", "feature"}, self.refs("refs/heads"))
+
+    def test_fixture_inherits_no_remote_tracking_refs(self) -> None:
+        self.assertEqual({"origin/main"}, self.refs("refs/remotes"))
+
+    def test_fixture_contains_no_untracked_or_symlinked_content(self) -> None:
+        tracked = {
+            relative
+            for relative in run_git(ROOT, "ls-files", "-z").stdout.split("\0")
+            if relative
+        }
+        present = {
+            path.relative_to(self.root).as_posix()
+            for path in self.root.rglob("*")
+            if path.is_file() and ".git" not in path.relative_to(self.root).parts
+        }
+        self.assertEqual(set(), present - tracked)
 
 
 class WorkflowTests(unittest.TestCase):
@@ -658,11 +757,24 @@ class WorkflowTests(unittest.TestCase):
             RepositoryWorkflow(root).structural_validate()
 
     def test_checksum_manifest_mismatch_is_rejected(self) -> None:
+        """Verification is on by default — no environment variable required."""
         temporary, root = make_git_fixture()
         self.addCleanup(temporary.cleanup)
         (root / "SECURITY.md").write_text("tampered\n", encoding="utf-8")
-        with self.assertRaisesRegex(WorkflowError, "checksum mismatch"):
+        with mock.patch.dict(os.environ):
+            os.environ.pop(MANIFEST_CHECK_ENV, None)
+            with self.assertRaisesRegex(WorkflowError, "checksum mismatch"):
+                RepositoryWorkflow(root).structural_validate()
+
+    def test_checksum_manifest_is_skipped_when_switched_off(self) -> None:
+        """The escape hatch must skip verification, not silently pass a bad tree."""
+        temporary, root = make_git_fixture()
+        self.addCleanup(temporary.cleanup)
+        (root / "SECURITY.md").write_text("tampered\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {MANIFEST_CHECK_ENV: "0"}):
             RepositoryWorkflow(root).structural_validate()
+        with self.assertRaisesRegex(WorkflowError, "checksum mismatch"):
+            verify_checksum_manifest(root)
 
     def test_status_without_any_remote_ref_reports_unavailable(self) -> None:
         config = self.workflow.config()
@@ -709,7 +821,7 @@ class WorkflowTests(unittest.TestCase):
         with (root / "MANIFEST.sha256").open("a", encoding="utf-8") as handle:
             handle.write(f"{digest}  linked.txt\n")
         with self.assertRaisesRegex(WorkflowError, "symlinked"):
-            RepositoryWorkflow(root).structural_validate()
+            verify_checksum_manifest(root)
 
     def test_clean_never_escapes_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

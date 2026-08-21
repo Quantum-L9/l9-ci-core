@@ -18,27 +18,6 @@ updates:
     commit-message:
       prefix: "deps(uv)"
 
-  # Consumer CI toolchain pins. `requirements-consumer-ci.txt` holds the
-  # ruff/mypy/pytest versions the reusable pr-pipeline and the python lint-test
-  # preset/template install. The `pip` ecosystem scans requirements*.txt and
-  # keeps these bumped as reviewable PRs; the `uv` entry above covers this
-  # repo's own pyproject-managed deps, not this plain requirements file.
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    # Wait for newly published versions to age before proposing them; a
-    # freshly published (possibly compromised) release is not adopted on day 0.
-    cooldown:
-      default-days: 7
-    groups:
-      consumer-ci-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-    labels: ["dependencies", "python"]
-    commit-message:
-      prefix: "deps(consumer-ci)"
-
   # GitHub Actions. Dependabot's github-actions ecosystem only scans
   # `<directory>/.github/workflows`, so the preset consumed by downstream repos
   # (presets/python/.github/workflows/l9-lint-test.yml) needs its own explicit

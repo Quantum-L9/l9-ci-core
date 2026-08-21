@@ -34,3 +34,7 @@ that capability.
 - **Advisory-to-blocking rollout** is controlled by the `enforce-biome` input,
   not by removing the gate. Adopt advisory, drive to clean, then flip to
   blocking. See `presets/typescript/README.md`.
+- **Never hand-author `biome.json`.** Stamp the locked TypeScript contract with
+  `presets/typescript/stamp.sh` (`l9-ci-activation-typescript` Step 2b). Extra
+  path excludes may be appended to `files.includes`; do not rewrite formatter
+  or linter blocks.

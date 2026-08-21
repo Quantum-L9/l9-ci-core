@@ -104,27 +104,27 @@ never reads or evaluates its contents.
 | This governance pack | identical | identical |
 | Provider | semgrep | semgrep |
 | semgrep rulesets (in the caller) | `--config p/python` | `--config p/javascript --config p/typescript` |
-| Generic lint/test (separate) | ruff / mypy / pytest — see [`../l9-lint-test.yml`](../l9-lint-test.yml) | eslint / `tsc --noEmit` / `vitest run` — see [`../l9-lint-test-node.yml`](../l9-lint-test-node.yml) |
+| Generic lint/test (separate) | ruff / mypy / pytest — see [`../l9-lint-test.yml`](../l9-lint-test.yml) | SDK Biome / `tsc --noEmit` / package test script — see [`../l9-lint-test-node.yml`](../l9-lint-test-node.yml) |
 
 The analysis pipeline (this pack + semgrep + the SDK) is identical across
 languages. Only the semgrep ruleset and your out-of-band lint/test suite differ.
 
 ### TypeScript / Node preset (strict TS repo)
 
-For a strict-TypeScript service (e.g. eslint + `tsc --noEmit` + `vitest run`):
+For a TypeScript/JavaScript service:
 
 1. Copy the governance pack unchanged into `.github/governance/`.
-2. Copy `l9-lint-test-node.yml`. It runs three independent required gates:
-   `eslint .`, `tsc --noEmit` (type soundness, honors `strict: true`, emits no
-   JS), and `vitest run` (one-shot — never bare `vitest`, which is watch mode).
-   Package manager is auto-detected from the lockfile.
+2. Stamp the locked Biome contract (`presets/typescript/stamp.sh`) — never
+   invent `biome.json`. Then copy `l9-lint-test-node.yml`. It runs SDK Biome
+   (`enforce-biome: false` until the tree is clean), `tsc --noEmit` when
+   `tsconfig.json` exists, and the package `test` script if present.
 3. Copy `l9-analysis.yml` and drop the Python ruleset — keep only:
    `semgrep scan --config p/javascript --config p/typescript`.
-4. Keep your existing `tsconfig.json`, `.eslintrc*`, and `vitest.config.ts` as
-   the source of truth — the templates invoke your tools, they do not replace
-   your configs.
-5. Mark `ESLint`, `tsc --noEmit`, and `Vitest` as required checks in branch
-   protection; roll semgrep out `shadow → advisory → blocking`.
+4. Biome owns JS/TS/JSON. Do not keep `.eslintrc*` / `eslint.config.*` as a
+   second format authority. `tsconfig.json` remains the type-check SSOT.
+5. Mark the Biome, typecheck, and test jobs as required checks in branch
+   protection once `enforce-biome` is true; roll semgrep out
+   `shadow → advisory → blocking`.
 
 ## Wiring
 

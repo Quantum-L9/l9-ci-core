@@ -3,7 +3,7 @@
 Type checking is a required, blocking gate with explicit requiredness and
 repository-owned configuration: no global ``--ignore-missing-imports``, no
 silent conversion of failures into a passing notice, and no global Pydantic
-plugin. Consumer tool pins are bot-visible in ``requirements-consumer-ci.txt``.
+plugin. Consumer tool pins live in the install-consumer-ci action.
 """
 
 from __future__ import annotations
@@ -17,8 +17,15 @@ PR_PIPELINE = ROOT / ".github" / "workflows" / "pr-pipeline.yml"
 PY_PRESET = ROOT / "presets" / "python" / ".github" / "workflows" / "l9-lint-test.yml"
 PY_STARTER = ROOT / "starter-workflows" / "python" / "l9-lint-test.yml"
 LINT_TEST_TEMPLATE = ROOT / "docs" / "templates" / "l9-lint-test.yml"
-CONSUMER_CI_PINS = ROOT / "requirements-consumer-ci.txt"
+CONSUMER_CI_PINS = (
+    ROOT
+    / ".github"
+    / "actions"
+    / "install-consumer-ci"
+    / "requirements-consumer-ci.txt"
+)
 DEPENDABOT = ROOT / ".github" / "dependabot.yml"
+INSTALLER = "install-consumer-ci@v2"
 
 PYTHON_MYPY_SURFACES = (PR_PIPELINE, PY_PRESET, PY_STARTER, LINT_TEST_TEMPLATE)
 
@@ -69,24 +76,22 @@ def test_pr_pipeline_mypy_is_blocking_not_silently_swallowed() -> None:
 
 
 def test_consumer_ci_pins_manifest_exists_and_pins_mypy() -> None:
-    assert CONSUMER_CI_PINS.is_file(), "requirements-consumer-ci.txt must exist"
+    assert CONSUMER_CI_PINS.is_file(), "action pin file must exist"
     text = CONSUMER_CI_PINS.read_text(encoding="utf-8")
     assert re.search(r"(?m)^mypy==", text), "consumer CI pins must pin mypy exactly"
     assert re.search(r"(?m)^ruff==", text)
     assert re.search(r"(?m)^pytest==", text)
 
 
-def test_surfaces_install_from_the_bot_visible_pins_manifest() -> None:
+def test_surfaces_call_the_installer_action() -> None:
     for path in PYTHON_MYPY_SURFACES:
-        assert "requirements-consumer-ci.txt" in path.read_text(encoding="utf-8"), (
-            f"{path.relative_to(ROOT)} must install the pinned consumer CI "
-            "toolchain from requirements-consumer-ci.txt"
+        assert INSTALLER in path.read_text(encoding="utf-8"), (
+            f"{path.relative_to(ROOT)} must call {INSTALLER}"
         )
 
 
-def test_dependabot_tracks_the_consumer_ci_pins() -> None:
+def test_dependabot_does_not_own_consumer_ci_pins() -> None:
     text = DEPENDABOT.read_text(encoding="utf-8")
-    assert re.search(r'package-ecosystem:\s*"pip"', text), (
-        "dependabot must add a pip ecosystem entry so requirements-consumer-ci.txt "
-        "tool pins are bumped as reviewable PRs"
+    assert not re.search(r'package-ecosystem:\s*"pip"', text), (
+        "dependabot must not have a pip ecosystem on consumer CI pins"
     )

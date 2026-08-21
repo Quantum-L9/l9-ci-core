@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -33,8 +34,20 @@ def run_git(root: pathlib.Path, *args: str) -> str:
         cwd=root,
         text=True,
         capture_output=True,
-        check=True,
+        check=False,
+        # Keep the developer's ~/.gitconfig out of the fixture; see the
+        # matching helper in test_l9_repo.py.
+        env={
+            **os.environ,
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+        },
     )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"git {' '.join(args)} failed with exit {result.returncode} in {root}\n"
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
     return result.stdout.strip()
 
 

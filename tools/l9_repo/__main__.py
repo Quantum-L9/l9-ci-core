@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -508,6 +509,28 @@ def validate_config_data(data: object) -> dict[str, Any]:
     return root
 
 
+MANIFEST_CHECK_ENV = "L9_MANIFEST_CHECK"
+
+
+def manifest_check_enabled() -> bool:
+    """Is tracked-file checksum verification switched on?
+
+    Enabled unless ``L9_MANIFEST_CHECK`` explicitly disables it. The escape
+    hatch exists for bisects and salvage work on a knowingly drifted tree; it
+    is not a way to land a change without regenerating the manifest.
+
+    While disabled nothing verifies `MANIFEST.sha256`, so tracked-file
+    tampering goes undetected. Keep the window as short as the one command
+    that needs it.
+    """
+    return os.environ.get(MANIFEST_CHECK_ENV, "").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
 def verify_checksum_manifest(
     root: pathlib.Path, relative: str = "MANIFEST.sha256"
 ) -> None:
@@ -986,7 +1009,8 @@ class RepositoryWorkflow:
             _fail("jsonschema is required for structural validation; run make setup")
         except Exception as error:
             _fail(f"repo-workflow schema validation failed: {error}")
-        verify_checksum_manifest(self.root)
+        if manifest_check_enabled():
+            verify_checksum_manifest(self.root)
         template = self.root / TEMPLATE_PATH
         makefile = self.root / "Makefile"
         if not template.is_file():
