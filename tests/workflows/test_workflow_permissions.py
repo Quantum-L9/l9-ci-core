@@ -18,25 +18,19 @@ class WorkflowPermissionTests(unittest.TestCase):
     # Write permissions are read-only everywhere except these audited
     # exceptions. Any change to this table is a trust-boundary change.
     #
-    #   publish-analysis.yml    checks:write — publishes the GitHub check run;
-    #                           security-events:write — uploads the SDK-projected
-    #                           SARIF to code scanning. workflow_call-only, gated
-    #                           by the caller.
-    #   analyze-semgrep.yml     checks:write + security-events:write — its
-    #                           `publish` job grants the nested
-    #                           publish-analysis.yml call check-run and SARIF
-    #                           upload scope. workflow_call-only; the caller
-    #                           gates the trigger surface.
-    #   self-analysis.yml       checks:write + security-events:write — audited
-    #                           self-only dogfood caller of analyze-semgrep on
-    #                           pull_request/push; grants the reusable the
-    #                           same publish scopes.
+    #   publish-analysis.yml    checks:write; publishes the GitHub check run.
+    #                           security-events:write uploads SDK SARIF.
+    #                           workflow_call-only, gated by the caller.
+    #   analyze-semgrep.yml     checks:write + security-events:write for its
+    #                           nested publication workflow. workflow_call-only.
+    #   self-analysis.yml       audited self-only dogfood caller that grants
+    #                           the reusable publication scopes.
+    #
+    # `org-ci.yml` is intentionally absent. The organization required workflow
+    # runs on untrusted pull_request events and must remain contents:read only.
     WRITE_EXCEPTIONS = {
         "publish-analysis.yml": ["checks", "security-events"],
         "analyze-semgrep.yml": ["checks", "security-events"],
-        # Organization-facing entrypoint: the nested publish job needs the
-        # same checked scopes analyze-semgrep.yml's publish job uses.
-        "org-ci.yml": ["checks", "security-events"],
         "self-analysis.yml": ["checks", "security-events"],
     }
 
@@ -53,10 +47,6 @@ class WorkflowPermissionTests(unittest.TestCase):
                 expected = self.WRITE_EXCEPTIONS.get(workflow.name, [])
                 self.assertEqual(expected, matches)
 
-    # Preset/starter workflows that invoke the SDK-owned reusable Biome
-    # workflow. They live outside .github/workflows (so the globs above skip
-    # them) but must hold the same least-privilege line: contents: read only,
-    # no write scopes, and the reusable call pinned to a full SHA.
     BIOME_LINT_TEST_WORKFLOWS = (
         "presets/typescript/.github/workflows/l9-lint-test.yml",
         "starter-workflows/typescript/l9-lint-test.yml",
@@ -90,12 +80,6 @@ class WorkflowPermissionTests(unittest.TestCase):
                 )
 
     def test_write_scoped_workflows_are_not_pull_request_triggered(self) -> None:
-        # A workflow that can obtain write permissions must never run on
-        # untrusted `pull_request` events, or a fork PR could reach that scope.
-        # publish-analysis.yml and analyze-semgrep.yml are reusable
-        # (workflow_call) and gated by the caller. self-analysis.yml is an
-        # audited self-only dogfood caller that deliberately triggers on
-        # pull_request to exercise the kernel in this repo.
         trigger_pattern = re.compile(r"(?m)^\s*(pull_request|pull_request_target):")
         reusable = {"publish-analysis.yml", "analyze-semgrep.yml"}
         audited_pr_callers = {"self-analysis.yml"}
@@ -110,6 +94,17 @@ class WorkflowPermissionTests(unittest.TestCase):
                     f"{name} requests write permissions and must not be "
                     "triggered by pull_request events",
                 )
+
+    def test_org_ci_required_workflow_is_pull_request_safe(self) -> None:
+        text = (WORKFLOWS / "org-ci.yml").read_text(encoding="utf-8")
+        self.assertRegex(text, re.compile(r"(?m)^\s*pull_request:\s*$"))
+        self.assertRegex(text, re.compile(r"(?m)^\s*contents:\s+read\s*$"))
+        write_pattern = re.compile(
+            r"(?m)^\s+(actions|checks|contents|deployments|discussions|"
+            r"id-token|issues|packages|pages|pull-requests|"
+            r"repository-projects|security-events|statuses):\s+write"
+        )
+        self.assertEqual([], write_pattern.findall(text))
 
 
 if __name__ == "__main__":
