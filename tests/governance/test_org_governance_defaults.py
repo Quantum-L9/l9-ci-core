@@ -14,15 +14,9 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = (
-    ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
-)
-ACTION_PATH = (
-    ROOT / ".github" / "actions" / "resolve-governance" / "action.yml"
-)
-DEFAULTS_ROOT = (
-    ROOT / ".github" / "actions" / "resolve-governance" / "defaults"
-)
+MODULE_PATH = ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
+ACTION_PATH = ROOT / ".github" / "actions" / "resolve-governance" / "action.yml"
+DEFAULTS_ROOT = ROOT / ".github" / "actions" / "resolve-governance" / "defaults"
 CONTRACT_PATH = ROOT / ".l9" / "org-runtime-contract.yaml"
 
 spec = importlib.util.spec_from_file_location("resolve_governance", MODULE_PATH)

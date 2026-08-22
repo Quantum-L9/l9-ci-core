@@ -11,9 +11,7 @@ import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = (
-    ROOT / ".github" / "actions" / "resolve-consumer-metadata" / "resolve.py"
-)
+MODULE_PATH = ROOT / ".github" / "actions" / "resolve-consumer-metadata" / "metadata.py"
 SCHEMA_PATH = ROOT / ".l9" / "ci-consumer.schema.json"
 
 spec = importlib.util.spec_from_file_location("resolve_consumer_metadata", MODULE_PATH)
@@ -72,9 +70,7 @@ class ConsumerMetadataTests(unittest.TestCase):
             with self.subTest(key=key), tempfile.TemporaryDirectory() as temp:
                 path = Path(temp) / "ci.json"
                 path.write_text(
-                    json.dumps(
-                        {"schema": "l9.ci-consumer/v1", key: "forbidden"}
-                    ),
+                    json.dumps({"schema": "l9.ci-consumer/v1", key: "forbidden"}),
                     encoding="utf-8",
                 )
                 with self.assertRaises(module.ConsumerMetadataError):

@@ -169,7 +169,7 @@ jobs:
               if not requested_event:
                   raise SystemExit("workflow_call requires event")
               event_class = requested_event
-              fixed = {"pull_request": "pr_fast", "merge": "merge"}
+              fixed = {"pull_request": "pr_fast", "push": "merge", "merge": "merge"}
               profile = fixed.get(event_class, requested_profile or event_class)
           else:
               raise SystemExit(f"unsupported trigger: {gh_event}")

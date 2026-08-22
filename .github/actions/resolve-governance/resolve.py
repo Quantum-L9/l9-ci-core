@@ -126,9 +126,7 @@ def validate_profile(
         raise GovernanceError(f"profile {profile_name!r} must be an object")
     sdk_profile = profile.get("sdk_profile")
     if sdk_profile not in ALLOWED_SDK_PROFILES:
-        raise GovernanceError(
-            f"profile {profile_name!r} has unsupported SDK profile"
-        )
+        raise GovernanceError(f"profile {profile_name!r} has unsupported SDK profile")
     strict = profile.get("strict")
     if not isinstance(strict, bool):
         raise GovernanceError(f"profile {profile_name!r} strict must be boolean")
@@ -136,9 +134,7 @@ def validate_profile(
     if not isinstance(providers, list) or not all(
         isinstance(item, str) for item in providers
     ):
-        raise GovernanceError(
-            f"profile {profile_name!r} providers must be strings"
-        )
+        raise GovernanceError(f"profile {profile_name!r} providers must be strings")
     if provider not in providers:
         raise GovernanceError(
             f"provider {provider!r} is not declared by profile {profile_name!r}"
@@ -173,9 +169,7 @@ def resolve_mode(
         raise GovernanceError("rule-modes provider_overrides must be an object")
     provider_overrides = overrides.get(provider, {})
     if not isinstance(provider_overrides, dict):
-        raise GovernanceError(
-            f"provider override for {provider!r} must be an object"
-        )
+        raise GovernanceError(f"provider override for {provider!r} must be an object")
     mode = provider_overrides.get(profile_name, mode)
     if mode not in ALLOWED_MODES:
         raise GovernanceError(f"resolved mode {mode!r} is unsupported")
@@ -258,9 +252,7 @@ def applicable_waivers(
         created_date = parse_date(created, f"waiver {waiver_id} created")
         expiry_date = parse_date(expires, f"waiver {waiver_id} expires")
         if expiry_date < created_date:
-            raise GovernanceError(
-                f"waiver {waiver_id} expires before it was created"
-            )
+            raise GovernanceError(f"waiver {waiver_id} expires before it was created")
         if expiry_date < today:
             raise GovernanceError(f"waiver {waiver_id} is expired")
         scope = waiver.get("scope")
@@ -289,12 +281,7 @@ def applicable_waivers(
         matches_ref = not refs or any(fnmatch.fnmatch(ref, value) for value in refs)
         matches_profile = not profiles or profile in profiles
         matches_provider = not providers or provider in providers
-        if (
-            matches_repository
-            and matches_ref
-            and matches_profile
-            and matches_provider
-        ):
+        if matches_repository and matches_ref and matches_profile and matches_provider:
             active.append(waiver_id)
     return sorted(active)
 
@@ -326,14 +313,10 @@ def main() -> int:
         event_name = required_environment("L9_EVENT_NAME")
         repository = required_environment("L9_REPOSITORY")
         ref = required_environment("L9_REF")
-        governance_root = governance_path(
-            required_environment("L9_GOVERNANCE_ROOT")
-        )
+        governance_root = governance_path(required_environment("L9_GOVERNANCE_ROOT"))
         documents = load_documents(governance_root)
         profile = validate_profile(documents, profile_name, provider, event_name)
-        mode = resolve_mode(
-            documents, profile_name, provider, profile["default_mode"]
-        )
+        mode = resolve_mode(documents, profile_name, provider, profile["default_mode"])
         required = resolve_requiredness(documents, profile_name, provider)
         policy = resolve_policy(documents, profile_name, governance_root)
         waivers = applicable_waivers(

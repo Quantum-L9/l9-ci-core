@@ -46,7 +46,7 @@ claims:
       versions, providers, workflow refs, permissions, or enforcement mode.
     evidence:
       - .l9/ci-consumer.schema.json
-      - .github/actions/resolve-consumer-metadata/resolve.py
+      - .github/actions/resolve-consumer-metadata/metadata.py
       - tests/governance/test_consumer_metadata.py
     status: VALIDATED
 

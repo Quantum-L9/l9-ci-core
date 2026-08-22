@@ -46,6 +46,7 @@ class CompatibilityManifestTests(unittest.TestCase):
             item for item in data["supported"] if item["revision"] == EXPECTED_SHA
         )
         for path in (
+            "providers detect",
             "semgrep run",
             "gate evaluate",
             "bundle validate",

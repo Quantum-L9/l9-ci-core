@@ -64,9 +64,7 @@ def load_metadata(path: Path) -> dict[str, Any] | None:
     if payload.get("schema") != SCHEMA:
         raise ConsumerMetadataError(f"consumer metadata schema must be {SCHEMA}")
     owner = payload.get("owner", "")
-    if owner and (
-        not isinstance(owner, str) or not OWNER_RE.fullmatch(owner)
-    ):
+    if owner and (not isinstance(owner, str) or not OWNER_RE.fullmatch(owner)):
         raise ConsumerMetadataError(
             "owner must be an org/team-style pointer such as Quantum-L9/platform"
         )
@@ -79,9 +77,7 @@ def load_metadata(path: Path) -> dict[str, Any] | None:
     if not isinstance(waiver_refs, list) or not all(
         isinstance(item, str) and item for item in waiver_refs
     ):
-        raise ConsumerMetadataError(
-            "waiver_refs must be an array of non-empty strings"
-        )
+        raise ConsumerMetadataError("waiver_refs must be an array of non-empty strings")
     if len(waiver_refs) > 32 or len(set(waiver_refs)) != len(waiver_refs):
         raise ConsumerMetadataError(
             "waiver_refs must contain at most 32 unique identifiers"
@@ -94,9 +90,7 @@ def load_metadata(path: Path) -> dict[str, Any] | None:
 
 def main() -> int:
     try:
-        path = workspace_path(
-            os.environ.get("L9_CONSUMER_METADATA", ".l9/ci.json")
-        )
+        path = workspace_path(os.environ.get("L9_CONSUMER_METADATA", ".l9/ci.json"))
         payload = load_metadata(path)
         if payload is None:
             emit("present", "false")

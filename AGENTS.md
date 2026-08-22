@@ -7,7 +7,8 @@ Read before changing Core:
 1. `.l9/architecture.yaml`
 2. `.l9/ownership.yaml`
 3. `.l9/org-runtime-contract.yaml`
-4. `.l9/sdk-compatibility.yaml`
+4. `.l9/org-runtime-interface.yaml`
+5. `.l9/sdk-compatibility.yaml`
 
 ## 1. Cardinal architecture
 

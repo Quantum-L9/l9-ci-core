@@ -23,4 +23,4 @@ runs:
       shell: bash
       env:
         L9_CONSUMER_METADATA: ${{ inputs.path }}
-      run: python3 "${{ github.action_path }}/resolve.py"
+      run: python3 "${{ github.action_path }}/metadata.py"

@@ -12,6 +12,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT_PATH = ROOT / ".l9" / "org-runtime-contract.yaml"
 ENTRYPOINT_PATH = ROOT / ".github" / "workflows" / "org-ci.yml"
 CONSUMER_SCHEMA_PATH = ROOT / ".l9" / "ci-consumer.schema.json"
+PROFILES_PATH = (
+    ROOT
+    / ".github"
+    / "actions"
+    / "resolve-governance"
+    / "defaults"
+    / "execution-profiles.yaml"
+)
 
 
 def load_contract() -> dict:
@@ -44,6 +52,48 @@ class OrgRuntimeContractTests(unittest.TestCase):
             self.assertIn(trigger, header)
         self.assertNotIn("schedule:", header)
         self.assertNotRegex(header, r"(?m)^\s{2}push:\s*$")
+
+    def test_every_allowed_event_class_resolves_to_a_profile_that_permits_it(
+        self,
+    ) -> None:
+        """A `workflow_call` caller may omit `profile`; the fallback must resolve.
+
+        The dispatcher falls back to `fixed.get(event_class, ... or event_class)`,
+        so an event class with no entry in `fixed` becomes a profile name. That
+        is only correct when a profile of that name exists *and* declares the
+        event. `push` has no same-named profile — `merge` is the profile whose
+        `allowed_events` contains it — so omitting the mapping made
+        `resolve-governance` abort with `unknown execution profile`.
+        """
+        text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
+        allowed = set(
+            re.search(r"allowed = \{([^}]*)\}", text)
+            .group(1)
+            .replace('"', "")
+            .split(", ")
+        )
+        fixed = dict(
+            pair.split(": ")
+            for pair in re.search(r"fixed = \{([^}]*)\}", text)
+            .group(1)
+            .replace('"', "")
+            .split(", ")
+        )
+        profiles = yaml.safe_load(PROFILES_PATH.read_text(encoding="utf-8"))["profiles"]
+
+        for event_class in sorted(allowed):
+            profile_name = fixed.get(event_class, event_class)
+            self.assertIn(
+                profile_name,
+                profiles,
+                f"event class {event_class!r} resolves to unknown profile "
+                f"{profile_name!r}",
+            )
+            self.assertIn(
+                event_class,
+                profiles[profile_name]["allowed_events"],
+                f"profile {profile_name!r} does not allow event {event_class!r}",
+            )
 
     def test_entrypoint_does_not_accept_consumer_governance_or_language_authority(
         self,
@@ -96,7 +146,7 @@ class OrgRuntimeContractTests(unittest.TestCase):
         summary = text.index("name: Write central CI summary")
         enforce = text.index("name: Enforce central mode on SDK technical gate")
         self.assertLess(summary, enforce)
-        self.assertIn('if: always()', text[summary:enforce])
+        self.assertIn("if: always()", text[summary:enforce])
 
     def test_required_workflow_has_no_write_scopes(self) -> None:
         text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
@@ -125,9 +175,7 @@ class OrgRuntimeContractTests(unittest.TestCase):
             "copied L9 workflows in consumer repositories as an enforcement mechanism",
             prohibited,
         )
-        self.assertIn(
-            "copied L9 governance packs in consumer repositories", prohibited
-        )
+        self.assertIn("copied L9 governance packs in consumer repositories", prohibited)
         self.assertIn("a second organization CI control-plane repository", prohibited)
         self.assertIn(
             "write-scoped publication from the pull_request required-workflow path",
@@ -141,9 +189,7 @@ class OrgRuntimeContractTests(unittest.TestCase):
             contract["pinning"]["core_internal_actions"]["policy"],
         )
         self.assertFalse(
-            contract["pinning"]["core_internal_actions"][
-                "floating_references_allowed"
-            ]
+            contract["pinning"]["core_internal_actions"]["floating_references_allowed"]
         )
         sdk = contract["pinning"]["sdk_revision"]
         self.assertFalse(sdk["floating_git_references_allowed"])
