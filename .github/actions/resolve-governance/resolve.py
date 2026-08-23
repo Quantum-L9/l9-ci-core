@@ -22,7 +22,7 @@ EXPECTED_SCHEMAS = {
 }
 ALLOWED_MODES = {"blocking", "advisory", "shadow", "disabled"}
 ALLOWED_SDK_PROFILES = {"ci_fast", "ci_deep"}
-CORE_DEFAULTS_TOKEN = "@core-defaults"
+CORE_DEFAULTS_SENTINEL = "@core-defaults"
 
 
 class GovernanceError(RuntimeError):
@@ -63,7 +63,7 @@ def core_defaults_path() -> Path:
 
 
 def governance_path(value: str) -> Path:
-    if value == CORE_DEFAULTS_TOKEN:
+    if value == CORE_DEFAULTS_SENTINEL:
         return core_defaults_path()
     return workspace_path(value)
 

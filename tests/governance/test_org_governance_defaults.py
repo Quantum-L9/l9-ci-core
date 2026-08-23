@@ -104,7 +104,7 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
             ):
                 self.assertEqual(
                     DEFAULTS_ROOT.resolve(),
-                    module.governance_path(module.CORE_DEFAULTS_TOKEN),
+                    module.governance_path(module.CORE_DEFAULTS_SENTINEL),
                 )
 
     def test_action_defaults_to_core_bundle(self) -> None:
@@ -120,7 +120,7 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
                 "L9_EVENT_NAME": "pull_request",
                 "L9_REPOSITORY": "Quantum-L9/example",
                 "L9_REF": "refs/heads/main",
-                "L9_GOVERNANCE_ROOT": module.CORE_DEFAULTS_TOKEN,
+                "L9_GOVERNANCE_ROOT": module.CORE_DEFAULTS_SENTINEL,
                 "GITHUB_WORKSPACE": temp,
             }
             captured = io.StringIO()
