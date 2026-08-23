@@ -25,6 +25,15 @@ class WorkflowPermissionTests(unittest.TestCase):
     #                           nested publication workflow. workflow_call-only.
     #   self-analysis.yml       audited self-only dogfood caller that grants
     #                           the reusable publication scopes.
+    #   l9-analysis.yml         checks:write on its nested publication job only;
+    #                           the workflow default and the analyze job stay
+    #                           contents:read. Seeded from the org template
+    #                           pack (Quantum-L9/.github l9-ci-pack).
+    #   on-org-update.yml       contents:write + pull-requests:write; the seeded
+    #                           org-sync workflow commits template updates and
+    #                           opens the follow-up PR, so it cannot run
+    #                           read-only. Widest grant in this table and the
+    #                           only entry able to write the default branch.
     #
     # `org-ci.yml` is intentionally absent. The organization required workflow
     # runs on untrusted pull_request events and must remain contents:read only.
@@ -32,6 +41,8 @@ class WorkflowPermissionTests(unittest.TestCase):
         "publish-analysis.yml": ["checks", "security-events"],
         "analyze-semgrep.yml": ["checks", "security-events"],
         "self-analysis.yml": ["checks", "security-events"],
+        "l9-analysis.yml": ["checks"],
+        "on-org-update.yml": ["contents", "pull-requests"],
     }
 
     def test_only_authorized_workflows_request_write(self) -> None:
