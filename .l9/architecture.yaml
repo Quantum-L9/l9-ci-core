@@ -1,37 +1,57 @@
 schema: l9.architecture-spec/v1
 metadata:
   repository: Quantum-L9/l9-ci-core
-  generation: 2
-  phase: 4
+  generation: 3
+  phase: central-orchestration
   status: authoritative
+
 identity:
-  role: thin-control-plane
-  description: >
-    GitHub Actions orchestration and immutable SDK provisioning for the
-    Quantum-L9 CI platform.
+  role: central-ci-orchestrator
+  description: >-
+    The single organization CI workflow source and orchestration authority for
+    Quantum-L9 repositories. GitHub organization rulesets target repositories
+    and require Core directly; CI is not distributed through Quantum-L9/.github
+    or copied into consumers.
+
+principle: >-
+  A Quantum-L9 repository may describe itself, but it may not define how
+  Quantum-L9 CI governs it.
+
 dependency_direction:
   allowed:
     - l9-ci-core -> l9-ci-sdk
   prohibited:
     - l9-ci-sdk -> l9-ci-core
+
 sdk:
   repository: Quantum-L9/l9-ci-sdk
   revision: b1a491414ed04bb18d665f8a8755de80947c8200
   integration_contract: l9.integration-contract/v1
+
 owned_by_core:
+  - organization CI workflow source
   - GitHub Actions orchestration
   - workflow permissions
+  - central governance defaults
+  - execution-profile mapping
+  - provider enablement and requiredness
   - immutable SDK provisioning
-  - execution-profile selection
-  - provider enablement selection
-  - required-versus-optional provider selection
-  - policy-file selection
-  - artifact upload and retention
-  - gate publication
-  - pull-request summaries
-# Organization rollout policy is control-plane authority (l9-ci-control-plane),
-# not Core — see .l9/org-runtime-contract.yaml control_plane_owns.
-not_owned_by_core:
+  - exact CI tool-version selection
+  - consumer metadata validation
+  - artifact routing and retention
+  - technical gate enforcement
+  - GitHub check publication
+  - workflow summaries and annotations
+  - rollout-compatible public runtime interface
+
+owned_by_github_org_rulesets:
+  - repository targeting
+  - required-workflow enforcement
+  - enforcement state
+  - bypass principals
+
+owned_by_sdk:
+  - repository capability detection
   - provider execution implementation
   - provider-native report parsing
   - canonical evidence
@@ -44,48 +64,31 @@ not_owned_by_core:
   - schema validation
   - semantic validation
   - deterministic serialization
-  - agent payload projection
-  - AST analysis
-  - Tree-sitter integration
-  - repository graph construction
-phase_1:
-  status: implemented
-phase_2:
-  status: implemented
-phase_3:
-  status: implemented
-  owns:
-    - execution-profile selection
-    - provider mode selection
-    - provider requiredness selection
-    - SDK policy-path selection
-    - waiver lifecycle validation
-    - promotion transition validation
-    - governance configuration provenance
-  excludes:
-    - finding interpretation
-    - finding classification
-    - gate calculation
-    - canonical bundle mutation
-    - required-check publication
-    - pull-request annotations
-    - organization observability dashboards
+  - agent and SARIF projections
 
-phase_4:
-  status: implemented
-  owns:
-    - GitHub check publication
-    - workflow summaries
-    - SDK projection publication
-    - bounded pull-request annotations
-    - artifact links
-    - publication metadata
-    - release-readiness validation
-    - release authorization workflow
-  excludes:
-    - finding reconstruction
-    - gate recomputation
-    - canonical artifact mutation
-    - provider-native report parsing
-    - hosted analysis services
-    - repository graph services
+consumer_repository_may_own:
+  - source code
+  - native project configuration
+  - optional .l9/ci.json ownership pointer
+  - optional repo_class consistency pointer
+  - optional centrally issued waiver references
+
+consumer_repository_may_not_own:
+  - organization CI workflow implementation
+  - Core or SDK revision for required organization CI
+  - provider requiredness
+  - governance mode
+  - central tool versions
+  - organization policy
+  - workflow permissions
+  - required-check definition
+
+prohibited_architecture:
+  - Quantum-L9/.github distributing CI workflows or governance packs
+  - copied l9-analysis.yml as organization enforcement
+  - copied L9 governance packs as organization enforcement
+  - per-repository Core orchestration forks
+  - a second L9 CI control-plane repository
+  - Core parsing provider-native scanner reports
+  - Core reconstructing canonical findings
+  - SDK owning GitHub workflow permissions or organization rollout

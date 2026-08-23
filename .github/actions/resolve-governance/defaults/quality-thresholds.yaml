@@ -1,0 +1,11 @@
+{
+  "schema": "l9.quality-threshold-selection/v1",
+  "profiles": {
+    "pr_fast": {"sdk_policy": ""},
+    "merge": {"sdk_policy": ""},
+    "nightly": {"sdk_policy": ""},
+    "release": {"sdk_policy": ""},
+    "supply_chain": {"sdk_policy": ""}
+  },
+  "note": "Central Core defaults select no additional SDK policy file; the pinned SDK applies its own default thresholds. Consumer repositories cannot weaken or replace these organization defaults."
+}

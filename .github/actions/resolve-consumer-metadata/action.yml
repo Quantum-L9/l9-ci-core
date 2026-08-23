@@ -1,0 +1,26 @@
+name: Resolve L9 consumer metadata
+description: >
+  Reads optional repository-local ownership and repo-class pointers without
+  granting the consumer authority over organization policy, tool versions,
+  providers, workflow permissions, or enforcement mode.
+inputs:
+  path:
+    required: false
+    default: .l9/ci.json
+outputs:
+  present:
+    value: ${{ steps.resolve.outputs.present }}
+  owner:
+    value: ${{ steps.resolve.outputs.owner }}
+  repo-class:
+    value: ${{ steps.resolve.outputs.repo-class }}
+  waiver-refs:
+    value: ${{ steps.resolve.outputs.waiver-refs }}
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        L9_CONSUMER_METADATA: ${{ inputs.path }}
+      run: python3 "${{ github.action_path }}/metadata.py"

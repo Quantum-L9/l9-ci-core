@@ -1,7 +1,9 @@
 name: Resolve Core governance
 description: >
-  Resolves an execution profile, provider mode, requiredness, SDK policy
-  selection, and applicable waivers without reading canonical findings.
+  Resolves the centrally owned execution profile, provider mode, requiredness,
+  SDK policy selection, and applicable waivers without reading canonical findings.
+  The default governance bundle is shipped with this pinned Core action and never
+  depends on files copied into the consumer repository.
 inputs:
   profile:
     required: true
@@ -15,7 +17,11 @@ inputs:
     required: true
   governance-root:
     required: false
-    default: .github/governance
+    default: "@core-defaults"
+    description: >
+      @core-defaults selects the immutable governance bundle shipped with this
+      action. A workspace-relative path is accepted only for explicit test or
+      compatibility invocations; it cannot escape GITHUB_WORKSPACE.
   evaluation-date:
     required: false
     description: ISO-8601 UTC date used for deterministic waiver validation.

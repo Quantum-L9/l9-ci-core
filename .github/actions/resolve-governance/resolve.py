@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Resolve Core-owned governance without interpreting SDK artifacts."""
+"""Resolve centrally owned Core governance without interpreting SDK artifacts."""
 
 from __future__ import annotations
+
 import datetime as dt
 import fnmatch
 import hashlib
@@ -21,6 +22,7 @@ EXPECTED_SCHEMAS = {
 }
 ALLOWED_MODES = {"blocking", "advisory", "shadow", "disabled"}
 ALLOWED_SDK_PROFILES = {"ci_fast", "ci_deep"}
+CORE_DEFAULTS_SENTINEL = "@core-defaults"
 
 
 class GovernanceError(RuntimeError):
@@ -53,7 +55,28 @@ def workspace_path(value: str, *, must_exist: bool = True) -> Path:
     return path
 
 
+def core_defaults_path() -> Path:
+    path = Path(__file__).resolve().parent / "defaults"
+    if not path.is_dir():
+        raise GovernanceError("Core bundled governance defaults missing")
+    return path
+
+
+def governance_path(value: str) -> Path:
+    if value == CORE_DEFAULTS_SENTINEL:
+        return core_defaults_path()
+    return workspace_path(value)
+
+
 def load_documents(root: Path) -> dict[str, Any]:
+    """Load the six Core control documents from a governance directory.
+
+    Supplemental files may coexist in repository-local dogfood directories
+    (for example an SDK policy document). They are not part of the Core
+    governance digest and cannot become control documents implicitly. The
+    bundled @core-defaults directory is separately tested to contain exactly
+    the six files declared by EXPECTED_SCHEMAS.
+    """
     documents: dict[str, Any] = {}
     for filename, expected_schema in EXPECTED_SCHEMAS.items():
         path = root / filename
@@ -154,9 +177,7 @@ def resolve_mode(
 
 
 def resolve_requiredness(
-    documents: dict[str, Any],
-    profile_name: str,
-    provider: str,
+    documents: dict[str, Any], profile_name: str, provider: str
 ) -> bool:
     profiles = documents["provider-requiredness.yaml"].get("profiles")
     if not isinstance(profiles, dict):
@@ -171,9 +192,7 @@ def resolve_requiredness(
 
 
 def resolve_policy(
-    documents: dict[str, Any],
-    profile_name: str,
-    _governance_root: Path,
+    documents: dict[str, Any], profile_name: str, _governance_root: Path
 ) -> str:
     profiles = documents["quality-thresholds.yaml"].get("profiles")
     if not isinstance(profiles, dict):
@@ -191,10 +210,8 @@ def resolve_policy(
     policy_path = workspace_path(policy)
     if not policy_path.is_file():
         raise GovernanceError(f"SDK policy does not exist: {policy_path}")
-    # Core validates only path existence. The SDK owns policy semantics.
-    return policy_path.relative_to(
-        Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd())).resolve()
-    ).as_posix()
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd())).resolve()
+    return policy_path.relative_to(workspace).as_posix()
 
 
 def applicable_waivers(
@@ -296,30 +313,12 @@ def main() -> int:
         event_name = required_environment("L9_EVENT_NAME")
         repository = required_environment("L9_REPOSITORY")
         ref = required_environment("L9_REF")
-        governance_root = workspace_path(required_environment("L9_GOVERNANCE_ROOT"))
+        governance_root = governance_path(required_environment("L9_GOVERNANCE_ROOT"))
         documents = load_documents(governance_root)
-        profile = validate_profile(
-            documents,
-            profile_name,
-            provider,
-            event_name,
-        )
-        mode = resolve_mode(
-            documents,
-            profile_name,
-            provider,
-            profile["default_mode"],
-        )
-        required = resolve_requiredness(
-            documents,
-            profile_name,
-            provider,
-        )
-        policy = resolve_policy(
-            documents,
-            profile_name,
-            governance_root,
-        )
+        profile = validate_profile(documents, profile_name, provider, event_name)
+        mode = resolve_mode(documents, profile_name, provider, profile["default_mode"])
+        required = resolve_requiredness(documents, profile_name, provider)
+        policy = resolve_policy(documents, profile_name, governance_root)
         waivers = applicable_waivers(
             documents,
             profile=profile_name,

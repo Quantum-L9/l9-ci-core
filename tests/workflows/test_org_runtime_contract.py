@@ -1,15 +1,7 @@
-"""Organization runtime contract consistency (l9.org-runtime-contract/v1).
-
-Validates that the single organization-facing Core entrypoint declared by
-`.l9/org-runtime-contract.yaml` exists, is a reusable workflow_call, exposes
-the contract's declared inputs, composes the authoritative Core primitives
-rather than duplicating orchestration, and keeps the governance pack bounded
-to the six known filenames.
-"""
+"""Central organization runtime contract consistency."""
 
 from __future__ import annotations
 
-import importlib.util
 import pathlib
 import re
 import unittest
@@ -17,124 +9,189 @@ import unittest
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-
 CONTRACT_PATH = ROOT / ".l9" / "org-runtime-contract.yaml"
 ENTRYPOINT_PATH = ROOT / ".github" / "workflows" / "org-ci.yml"
-
-# The known governance filenames are owned by the resolve-governance action
-# (EXPECTED_SCHEMAS) — this test derives from that single source of truth
-# instead of maintaining a second copy.
-RESOLVE_PATH = ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
-spec = importlib.util.spec_from_file_location("resolve_governance", RESOLVE_PATH)
-assert spec and spec.loader
-resolve_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(resolve_module)
-
-KNOWN_GOVERNANCE_FILES = set(resolve_module.EXPECTED_SCHEMAS)
-
-CONTRACT_INPUTS = {
-    "event",
-    "language",
-    "profile",
-    "governance",
-    "matrix_id",
-    "sdk_revision",
-    "semgrep_version",
-    "artifact_retention_days",
-}
+CONSUMER_SCHEMA_PATH = ROOT / ".l9" / "ci-consumer.schema.json"
+PROFILES_PATH = (
+    ROOT
+    / ".github"
+    / "actions"
+    / "resolve-governance"
+    / "defaults"
+    / "execution-profiles.yaml"
+)
 
 
 def load_contract() -> dict:
-    if not CONTRACT_PATH.is_file():
-        raise FileNotFoundError(CONTRACT_PATH)
     return yaml.safe_load(CONTRACT_PATH.read_text(encoding="utf-8"))
 
 
-def workflow_inputs(text: str) -> set[str]:
-    """Workflow input names, mapping '-' to '_' as the contract declares them."""
-    names = set()
-    for match in re.finditer(r"^\s{6}([a-z0-9-]+):\n(?:\s{8}description:.*?\n)*", text):
-        names.add(match.group(1).replace("-", "_"))
-    for match in re.finditer(
-        r"^\s{6}([a-z0-9-]+):\n(?=(?:\s{8}\S+:\s.*\n)*?\s{8}type:)", text
-    ):
-        names.add(match.group(1).replace("-", "_"))
-    return names
-
-
 class OrgRuntimeContractTests(unittest.TestCase):
-    def test_contract_declares_entrypoint_and_inputs(self) -> None:
+    def test_contract_declares_central_ruleset_entrypoint(self) -> None:
         contract = load_contract()
-        self.assertEqual(contract["schema"], "l9.org-runtime-contract/v1")
-        entrypoint = contract["entrypoint"]["workflow"]
-        self.assertEqual(entrypoint, ".github/workflows/org-ci.yml")
-        self.assertIn("full-40-char-sha", contract["entrypoint"]["callable_as"])
-        declared = {key.replace("-", "_") for key in contract["inputs"]}
-        self.assertTrue(CONTRACT_INPUTS.issubset(declared), declared)
+        self.assertEqual("l9.org-runtime-contract/v1", contract["schema"])
+        self.assertEqual(
+            ".github/workflows/org-ci.yml", contract["entrypoint"]["workflow"]
+        )
+        self.assertEqual(
+            "github_organization_required_workflow_ruleset",
+            contract["entrypoint"]["enforcement_mechanism"],
+        )
+        self.assertFalse(contract["entrypoint"]["consumer_copy_required"])
+        self.assertFalse(contract["entrypoint"]["consumer_core_pin_allowed"])
 
-    def test_entrypoint_is_reusable_workflow_call_only(self) -> None:
-        self.assertTrue(ENTRYPOINT_PATH.is_file(), "org-ci.yml missing")
+    def test_entrypoint_supports_ruleset_and_canary_events(self) -> None:
         text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
-        self.assertIn("workflow_call:", text)
-        self.assertNotIn("push:", text.split("workflow_call:")[0])
-        self.assertNotIn("pull_request:", text.split("workflow_call:")[0])
-        self.assertNotIn("schedule:", text.split("workflow_call:")[0])
-        self.assertIn("uses: ./.github/workflows/publish-analysis.yml", text)
+        header = text.split("permissions:", 1)[0]
+        for trigger in (
+            "pull_request:",
+            "merge_group:",
+            "workflow_dispatch:",
+            "workflow_call:",
+        ):
+            self.assertIn(trigger, header)
+        self.assertNotIn("schedule:", header)
+        self.assertNotRegex(header, r"(?m)^\s{2}push:\s*$")
 
-    def test_entrypoint_composes_authoritative_primitives(self) -> None:
+    def test_every_allowed_event_class_resolves_to_a_profile_that_permits_it(
+        self,
+    ) -> None:
+        """A `workflow_call` caller may omit `profile`; the fallback must resolve.
+
+        The dispatcher falls back to `fixed.get(event_class, ... or event_class)`,
+        so an event class with no entry in `fixed` becomes a profile name. That
+        is only correct when a profile of that name exists *and* declares the
+        event. `push` has no same-named profile — `merge` is the profile whose
+        `allowed_events` contains it — so omitting the mapping made
+        `resolve-governance` abort with `unknown execution profile`.
+        """
         text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
-        for action in (
+        allowed = set(
+            re.search(r"allowed = \{([^}]*)\}", text)
+            .group(1)
+            .replace('"', "")
+            .split(", ")
+        )
+        fixed = dict(
+            pair.split(": ")
+            for pair in re.search(r"fixed = \{([^}]*)\}", text)
+            .group(1)
+            .replace('"', "")
+            .split(", ")
+        )
+        profiles = yaml.safe_load(PROFILES_PATH.read_text(encoding="utf-8"))["profiles"]
+
+        for event_class in sorted(allowed):
+            profile_name = fixed.get(event_class, event_class)
+            self.assertIn(
+                profile_name,
+                profiles,
+                f"event class {event_class!r} resolves to unknown profile "
+                f"{profile_name!r}",
+            )
+            self.assertIn(
+                event_class,
+                profiles[profile_name]["allowed_events"],
+                f"profile {profile_name!r} does not allow event {event_class!r}",
+            )
+
+    def test_entrypoint_does_not_accept_consumer_governance_or_language_authority(
+        self,
+    ) -> None:
+        text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
+        header = text.split("permissions:", 1)[0]
+        self.assertNotRegex(header, r"(?m)^\s{6}governance:\s*$")
+        self.assertNotRegex(header, r"(?m)^\s{6}language:\s*$")
+        self.assertNotIn(".github/governance", text)
+        self.assertNotIn(".github/org-governance-defaults", text)
+        self.assertIn('governance-root: "@core-defaults"', text)
+
+    def test_entrypoint_composes_only_full_sha_core_primitives(self) -> None:
+        text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
+        actions = (
+            "resolve-consumer-metadata",
             "resolve-governance",
             "provision-sdk",
             "invoke-sdk",
             "validate-bundle",
             "route-artifacts",
             "build-artifact-manifest",
-        ):
-            self.assertIn(
-                f"/.github/actions/{action}@a642641ad89b2f37022e8ce76e4bcf94791ff75a",
+        )
+        pins: set[str] = set()
+        for action in actions:
+            match = re.search(
+                rf"Quantum-L9/l9-ci-core/\.github/actions/{re.escape(action)}@([0-9a-f]{{40}})",
                 text,
-                action,
             )
-        # Core never re-decides the gate; it only enforces in blocking mode.
-        self.assertIn("gate evaluate", text)
-        self.assertIn("Blocking mode: failing job on SDK gate verdict", text)
+            self.assertIsNotNone(match, action)
+            assert match is not None
+            pins.add(match.group(1))
+        self.assertEqual(1, len(pins), pins)
+        self.assertNotIn("publish-analysis.yml@", text)
 
-    def test_governance_input_is_bounded_to_known_files(self) -> None:
+    def test_sdk_owns_capability_detection(self) -> None:
         text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
-        known = {repr(name) for name in KNOWN_GOVERNANCE_FILES}
-        for name in KNOWN_GOVERNANCE_FILES:
-            self.assertIn(f'"{name}"', text, name)
-        # The materializer rejects unknown keys; mirror that list here.
-        self.assertIn("unknown = sorted(set(pack) - KNOWN)", text)
+        self.assertIn("providers detect --root . --format json", text)
         self.assertIn(
-            'sys.exit(f"governance input contains unknown files: {unknown}")', text
+            "consumer repo_class=python conflicts with SDK capability detection", text
         )
-        self.assertTrue(known)
+        self.assertIn(
+            "consumer repo_class=typescript conflicts with SDK capability detection",
+            text,
+        )
+        self.assertIn("SDK capability detection is ambiguous", text)
 
-    def test_contract_prohibits_org_administration_in_core(self) -> None:
-        contract = load_contract()
-        prohibited = contract["ownership"]["prohibited_in_core"]
-        for item in (
-            "organization repository inventories",
-            "organization ruleset mutation",
-            "CI fanout or seeding to organization repositories",
-            "organization rollout execution",
-            "consumer workflow generation",
-        ):
-            self.assertIn(item, prohibited)
-        self.assertIn("rollout", contract["ownership"]["control_plane_owns"])
-        self.assertIn("rollback", contract["ownership"]["control_plane_owns"])
+    def test_blocking_gate_summary_precedes_enforcement(self) -> None:
+        text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
+        summary = text.index("name: Write central CI summary")
+        enforce = text.index("name: Enforce central mode on SDK technical gate")
+        self.assertLess(summary, enforce)
+        self.assertIn("if: always()", text[summary:enforce])
 
-    def test_contract_pinning_policy(self) -> None:
-        contract = load_contract()
-        pin = contract["pinning"]
+    def test_required_workflow_has_no_write_scopes(self) -> None:
+        text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
+        write_pattern = re.compile(
+            r"(?m)^\s+(actions|checks|contents|deployments|discussions|"
+            r"id-token|issues|packages|pages|pull-requests|"
+            r"repository-projects|security-events|statuses):\s+write"
+        )
+        self.assertEqual([], write_pattern.findall(text))
+
+    def test_consumer_schema_is_descriptive_only(self) -> None:
+        import json
+
+        schema = json.loads(CONSUMER_SCHEMA_PATH.read_text(encoding="utf-8"))
         self.assertEqual(
-            pin["core_revision"]["policy"],
-            "full-40-char-sha-or-immutable-semver-tag-only",
+            {"schema", "owner", "repo_class", "waiver_refs"},
+            set(schema["properties"]),
         )
-        self.assertEqual(pin["core_revision"]["selected_by"], "control_plane")
-        sdk = pin["sdk_revision"]
+        self.assertFalse(schema["additionalProperties"])
+
+    def test_contract_explicitly_prohibits_distribution_architecture(self) -> None:
+        contract = load_contract()
+        prohibited = set(contract["ownership"]["prohibited"])
+        self.assertIn("CI distribution from Quantum-L9/.github", prohibited)
+        self.assertIn(
+            "copied L9 workflows in consumer repositories as an enforcement mechanism",
+            prohibited,
+        )
+        self.assertIn("copied L9 governance packs in consumer repositories", prohibited)
+        self.assertIn("a second organization CI control-plane repository", prohibited)
+        self.assertIn(
+            "write-scoped publication from the pull_request required-workflow path",
+            prohibited,
+        )
+
+    def test_internal_and_sdk_pinning_fail_closed(self) -> None:
+        contract = load_contract()
+        self.assertEqual(
+            "full-40-char-sha",
+            contract["pinning"]["core_internal_actions"]["policy"],
+        )
+        self.assertFalse(
+            contract["pinning"]["core_internal_actions"]["floating_references_allowed"]
+        )
+        sdk = contract["pinning"]["sdk_revision"]
         self.assertFalse(sdk["floating_git_references_allowed"])
         self.assertFalse(sdk["branches_allowed"])
         self.assertFalse(sdk["tags_allowed"])
