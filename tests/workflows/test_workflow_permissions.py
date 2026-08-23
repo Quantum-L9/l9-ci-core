@@ -31,6 +31,16 @@ class WorkflowPermissionTests(unittest.TestCase):
     #                           self-only dogfood caller of analyze-semgrep on
     #                           pull_request/push; grants the reusable the
     #                           same publish scopes.
+    #   l9-analysis.yml         checks:write on its nested publication job
+    #                           only; the workflow default and its analyze job
+    #                           stay contents:read. Seeded from the org
+    #                           template pack (Quantum-L9/.github l9-ci-pack).
+    #   on-org-update.yml       contents:write + pull-requests:write — seeded
+    #                           org-sync workflow that commits template updates
+    #                           and opens the follow-up PR, so it cannot run
+    #                           read-only. This is the widest grant in the
+    #                           table and the only entry able to write to the
+    #                           default branch.
     WRITE_EXCEPTIONS = {
         "publish-analysis.yml": ["checks", "security-events"],
         "analyze-semgrep.yml": ["checks", "security-events"],
@@ -38,6 +48,8 @@ class WorkflowPermissionTests(unittest.TestCase):
         # same checked scopes analyze-semgrep.yml's publish job uses.
         "org-ci.yml": ["checks", "security-events"],
         "self-analysis.yml": ["checks", "security-events"],
+        "l9-analysis.yml": ["checks"],
+        "on-org-update.yml": ["contents", "pull-requests"],
     }
 
     def test_only_authorized_workflows_request_write(self) -> None:
