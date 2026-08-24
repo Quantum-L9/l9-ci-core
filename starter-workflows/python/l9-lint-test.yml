@@ -60,7 +60,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install consumer CI toolchain
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@v2
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@7148fc73dcbf41367f5c5401432dc997b1f4f869  # main@7148fc7
       - name: Install extra CI requirements
         run: |
           set -euo pipefail
@@ -112,7 +112,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install consumer CI toolchain
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@v2
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@7148fc73dcbf41367f5c5401432dc997b1f4f869  # main@7148fc7
       - name: Install test tools
         run: |
           set -euo pipefail
