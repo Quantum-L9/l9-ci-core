@@ -108,18 +108,36 @@ def kernel_event_class(trigger: str) -> str:
     raise AssertionError("analyze-semgrep.yml no longer has a `gov` step")
 
 
+# The copy-first trees are frozen (presets/LEGACY.md, docs/templates/LEGACY.md)
+# but still shipped, so their callers are checked exactly like the live ones.
+# `starter-workflows/` and `docs/templates/` drifted from `presets/` for weeks
+# precisely because nothing compared them.
+CALLER_GLOBS = (
+    ".github/workflows/*.yml",
+    "presets/*/.github/workflows/l9-analysis.yml",
+    "starter-workflows/*/l9-analysis.yml",
+    "docs/templates/l9-analysis.yml",
+)
+
+
 def analysis_callers() -> list[tuple[Path, dict, dict]]:
-    """Workflows that call the analysis kernel with a governance profile."""
+    """Workflows that call the analysis kernel with a governance profile.
+
+    Matches both the local `./.github/workflows/analyze-semgrep.yml` form used
+    by the in-repo dogfood caller and the fully-qualified `...@<sha>` form used
+    by the copy-first templates.
+    """
     found = []
-    for path in sorted(WORKFLOWS.glob("*.yml")):
-        document = load(path)
-        for job in (document.get("jobs") or {}).values():
-            if not isinstance(job, dict):
-                continue
-            uses = str(job.get("uses", ""))
-            given = job.get("with") or {}
-            if "analyze-semgrep.yml" in uses and "profile" in given:
-                found.append((path, document, given))
+    for pattern in CALLER_GLOBS:
+        for path in sorted(ROOT.glob(pattern)):
+            document = load(path)
+            for job in (document.get("jobs") or {}).values():
+                if not isinstance(job, dict):
+                    continue
+                uses = str(job.get("uses", ""))
+                given = job.get("with") or {}
+                if "analyze-semgrep.yml" in uses and "profile" in given:
+                    found.append((path, document, given))
     return found
 
 
@@ -133,28 +151,78 @@ class CallerProfileEventCompatibilityTests(unittest.TestCase):
         for path, document, given in analysis_callers():
             for trigger in sorted(triggering_events(document)):
                 event = kernel_event_class(trigger)
-                with self.subTest(workflow=path.name, trigger=trigger, event=event):
+                label = path.relative_to(ROOT).as_posix()
+                with self.subTest(workflow=label, trigger=trigger, event=event):
                     name = resolve_profile(given["profile"], trigger)
                     self.assertIsNotNone(
                         name,
-                        f"{path.name} passes a profile expression this test "
+                        f"{label} passes a profile expression this test "
                         "cannot resolve; keep it readable or extend the parser",
                     )
                     assert name is not None
                     self.assertIn(
                         name,
                         declared,
-                        f"{path.name} on {event} passes unknown profile {name!r}",
+                        f"{label} on {event} passes unknown profile {name!r}",
                     )
                     self.assertIn(
                         event,
                         declared[name]["allowed_events"],
-                        f"{path.name} triggers on {trigger!r} (event class "
+                        f"{label} triggers on {trigger!r} (event class "
                         f"{event!r}) but passes profile {name!r}, whose "
                         f"allowed_events are {declared[name]['allowed_events']}. "
                         f"resolve-governance will abort with 'event {event!r} is "
                         f"not allowed for profile {name!r}'.",
                     )
+
+    def test_no_caller_reads_the_env_context_in_a_reusable_with_block(self) -> None:
+        """`env` is not available at `jobs.<job_id>.with.<with_id>`.
+
+        GitHub allows only `github, needs, strategy, matrix, inputs, vars`
+        there. `profile` and `matrix-id` are declared `required: true` with no
+        default in the kernel, so an `${{ env.X }}` reference supplies an
+        unusable required input on *every* event — not a dispatch-only bug.
+        Three shipped templates carried exactly that until this test existed.
+        """
+        for path, _document, given in analysis_callers():
+            label = path.relative_to(ROOT).as_posix()
+            for key, value in given.items():
+                with self.subTest(workflow=label, input=key):
+                    self.assertNotIn(
+                        "env.",
+                        str(value),
+                        f"{label} passes {key} as {value!r}; the env context "
+                        "cannot be read from a reusable-workflow with: block, "
+                        "so this resolves empty. Use a literal or the github "
+                        "context.",
+                    )
+
+    def test_copy_first_callers_pin_one_consistent_core_revision(self) -> None:
+        """A caller's `uses:` SHA and its `L9_CORE_REF` note must agree.
+
+        `uses:` cannot interpolate, so the SHA is duplicated literally and the
+        env var exists only as the human-readable mirror. They drift silently
+        unless compared. All copy-first callers also pin the *same* revision —
+        a split pin means some consumers run a kernel that others do not.
+        """
+        pins: set[str] = set()
+        for pattern in CALLER_GLOBS[1:]:
+            for path in sorted(ROOT.glob(pattern)):
+                label = path.relative_to(ROOT).as_posix()
+                text = path.read_text(encoding="utf-8")
+                used = re.search(r"analyze-semgrep\.yml@([0-9a-f]{40})", text)
+                noted = re.search(r'L9_CORE_REF:\s*"([0-9a-f]{40})"', text)
+                with self.subTest(workflow=label):
+                    self.assertIsNotNone(used, f"{label} has no pinned kernel")
+                    self.assertIsNotNone(noted, f"{label} has no L9_CORE_REF")
+                    assert used is not None and noted is not None
+                    self.assertEqual(
+                        used.group(1),
+                        noted.group(1),
+                        f"{label}: uses: pin and L9_CORE_REF disagree",
+                    )
+                    pins.add(used.group(1))
+        self.assertEqual(1, len(pins), f"copy-first callers pin split pins: {pins}")
 
     def test_self_analysis_maps_events_the_way_org_ci_does(self) -> None:
         """The dogfood caller and the organization surface must agree.
