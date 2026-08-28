@@ -13,11 +13,30 @@ principle: >-
 entrypoint:
   workflow: .github/workflows/org-ci.yml
   enforcement_mechanism: github_organization_required_workflow_ruleset
+  native_events: [push, pull_request, merge_group]
   ruleset_events: [pull_request, merge_group]
+  default_branch_event: push
   canary_event: workflow_dispatch
   compatibility_event: workflow_call
   consumer_copy_required: false
   consumer_core_pin_allowed: false
+  push_branch_selector: none
+  push_branch_selector_rationale: >-
+    GitHub Actions cannot express "this repository's default branch"
+    symbolically inside on.push.branches, and Quantum-L9 repositories do not
+    all use main. Core therefore declares push unfiltered and leaves ref and
+    repository selection to the organization ruleset. Core decides how a
+    governed evaluation executes, never which repositories are governed.
+  push_authority: >-
+    A push trigger is an evaluation lane, not a trusted write lane. The push
+    path holds contents:read, targets github.repository at github.sha from the
+    GitHub event context only, and accepts no caller-supplied repository, ref,
+    or SHA.
+  lifecycle_logic_in_core: false
+  lifecycle_logic_note: >-
+    Core performs no genesis, lifecycle, or repository-age classification.
+    Whether an observed push run is a genesis attestation is decided by the
+    birth control plane from the run head SHA and the zero-parent root SHA.
 
 inputs:
   event:
@@ -28,7 +47,8 @@ inputs:
     type: string
     source: Core central governance
     required: false
-    note: pull_request and merge_group map to pr_fast and merge respectively
+    note: >-
+      pull_request maps to pr_fast; merge_group and push both map to merge
   matrix_id:
     type: string
     required: false
@@ -147,6 +167,7 @@ pinning:
 validation:
   contract_tests:
     - tests/workflows/test_org_runtime_contract.py
+    - tests/workflows/test_org_ci_event_resolution.py
     - tests/workflows/test_org_runtime_interface.py
     - tests/governance/test_org_governance_defaults.py
     - tests/governance/test_consumer_metadata.py

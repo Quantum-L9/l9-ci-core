@@ -10,6 +10,7 @@ metadata:
 entrypoint:
   workflow: .github/workflows/org-ci.yml
   enforcement_surface: github_organization_required_workflow_ruleset
+  native_events: [push, pull_request, merge_group]
   supported_ruleset_events: [pull_request, merge_group]
   canary_event: workflow_dispatch
   compatibility_event: workflow_call
@@ -20,11 +21,47 @@ claims:
     statement: >-
       The organization entrypoint declares pull_request and merge_group, the
       GitHub-supported events required for organization ruleset workflows,
-      while retaining workflow_dispatch and workflow_call for canary and
+      and push for governed default-branch and genesis evaluation, while
+      retaining workflow_dispatch and workflow_call for canary and
       compatibility execution.
     evidence:
       - .github/workflows/org-ci.yml
       - tests/workflows/test_org_runtime_contract.py
+    status: VALIDATED
+
+  - id: native-push-resolves-to-merge-analysis
+    statement: >-
+      A native push resolves to event class push and execution profile merge,
+      the same canonical analysis engine the merge queue uses. The mapping is
+      re-derived by executing the workflow's own runtime resolver, and merge
+      is the profile whose allowed_events contains push.
+    evidence:
+      - .github/workflows/org-ci.yml
+      - .github/actions/resolve-governance/defaults/execution-profiles.yaml
+      - tests/workflows/test_org_ci_event_resolution.py
+    status: VALIDATED
+
+  - id: push-target-comes-only-from-event-context
+    statement: >-
+      The push path evaluates github.repository at github.sha taken from the
+      GitHub event context. No workflow_call or workflow_dispatch input can
+      supply a repository, ref, or target SHA, the checkout stays pinned to
+      the immutable event revision, and the push path requests no write scope.
+    evidence:
+      - .github/workflows/org-ci.yml
+      - tests/workflows/test_org_ci_event_resolution.py
+      - tests/workflows/test_workflow_permissions.py
+    status: VALIDATED
+
+  - id: push-carries-no-lifecycle-authority
+    statement: >-
+      Core performs no genesis, lifecycle, or repository-age classification on
+      the push path. Whether an observed push run is a genesis attestation is
+      decided outside Core, by the birth control plane, from the run head SHA
+      and the zero-parent root SHA.
+    evidence:
+      - .l9/org-runtime-contract.yaml
+      - tests/workflows/test_org_ci_event_resolution.py
     status: VALIDATED
 
   - id: central-governance-bundled
@@ -105,6 +142,20 @@ claims:
     statement: >-
       A Quantum-L9 organization ruleset currently requires this workflow for
       targeted repositories in production.
+    evidence: []
+    status: UNKNOWN
+
+  - id: ruleset-instantiates-workflow-on-native-push
+    statement: >-
+      A GitHub organization required-workflow ruleset actually instantiates
+      this central workflow for a native push in a targeted repository. The
+      ruleset required-workflow mechanism and ordinary workflow triggers are
+      related but not proven identical execution surfaces, and no repository
+      local test can settle it. Until a real run shows event_name=push with
+      the target repository and its pushed SHA, this stays UNKNOWN. If it is
+      disproven, the gap is the genesis invocation path, not this workflow,
+      and the remedy is a centrally owned dispatcher in l9-ci-core, never a
+      copied workflow in a consumer repository.
     evidence: []
     status: UNKNOWN
 

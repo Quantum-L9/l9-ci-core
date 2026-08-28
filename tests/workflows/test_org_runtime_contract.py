@@ -40,10 +40,11 @@ class OrgRuntimeContractTests(unittest.TestCase):
         self.assertFalse(contract["entrypoint"]["consumer_copy_required"])
         self.assertFalse(contract["entrypoint"]["consumer_core_pin_allowed"])
 
-    def test_entrypoint_supports_ruleset_and_canary_events(self) -> None:
+    def test_entrypoint_supports_ruleset_canary_and_push_events(self) -> None:
         text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
         header = text.split("permissions:", 1)[0]
         for trigger in (
+            "push:",
             "pull_request:",
             "merge_group:",
             "workflow_dispatch:",
@@ -51,7 +52,47 @@ class OrgRuntimeContractTests(unittest.TestCase):
         ):
             self.assertIn(trigger, header)
         self.assertNotIn("schedule:", header)
-        self.assertNotRegex(header, r"(?m)^\s{2}push:\s*$")
+        self.assertRegex(header, r"(?m)^\s{2}push:\s*$")
+
+    def test_push_trigger_declares_no_branch_selector(self) -> None:
+        """`push` must stay unfiltered — no hardcoded default branch.
+
+        GitHub Actions cannot express "this repository's default branch"
+        symbolically in `on.push.branches`, and Quantum-L9 repositories do not
+        all use `main`. A literal branch list here would silently exclude every
+        repository whose default branch is named something else, which is the
+        opposite of a central enforcement surface. Ref and repository selection
+        belongs to the organization ruleset; Core only decides how a governed
+        evaluation executes.
+        """
+        document = yaml.safe_load(ENTRYPOINT_PATH.read_text(encoding="utf-8"))
+        # PyYAML resolves the bare `on:` key to the boolean True.
+        triggers = document[True] if True in document else document["on"]
+        self.assertIn("push", triggers)
+        self.assertIsNone(
+            triggers["push"],
+            "on.push must carry no filters; branch selection is the "
+            "organization ruleset's, not Core's",
+        )
+
+    def test_push_evaluation_is_serialized_but_never_cancelled(self) -> None:
+        """A canonical evaluation of an immutable SHA must complete.
+
+        Cancelling in-progress runs would let a later event revoke an
+        in-flight attestation of a revision that a birth or release record may
+        already cite. The group is keyed by repository, revision, and event
+        family so a push evaluation and a pull_request evaluation of the same
+        tree never collapse into one another.
+        """
+        document = yaml.safe_load(ENTRYPOINT_PATH.read_text(encoding="utf-8"))
+        concurrency = document["concurrency"]
+        self.assertFalse(concurrency["cancel-in-progress"])
+        for expression in (
+            "github.repository",
+            "github.sha",
+            "github.event_name",
+        ):
+            self.assertIn(expression, concurrency["group"])
 
     def test_every_allowed_event_class_resolves_to_a_profile_that_permits_it(
         self,
