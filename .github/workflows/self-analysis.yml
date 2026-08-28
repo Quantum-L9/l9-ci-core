@@ -24,6 +24,15 @@ jobs:
       contents: read
       security-events: write
     with:
-      profile: pr_fast
+      # The profile must admit the event, or `resolve-governance` aborts with
+      # "event <e> is not allowed for profile <p>". `pr_fast` declares only
+      # `pull_request`, so a hardcoded value failed every push to main and
+      # every manual dispatch. The mapping mirrors org-ci.yml's own resolver
+      # so the dogfood caller and the organization surface agree on which
+      # profile a given event runs under.
+      profile: >-
+        ${{ github.event_name == 'push' && 'merge'
+         || github.event_name == 'workflow_dispatch' && 'nightly'
+         || 'pr_fast' }}
       matrix-id: self-semgrep
       language: python
