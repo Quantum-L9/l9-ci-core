@@ -137,7 +137,16 @@ jobs:
         with:
           profile: ${{ inputs.profile }}
           provider: semgrep
-          event-name: ${{ github.event_name }}
+          # `resolve-governance` expects a governance event *class*, not a raw
+          # trigger name. Every class but this one shares its trigger's name,
+          # so the raw value passed unnoticed until a caller was dispatched
+          # manually: no profile declares `workflow_dispatch`, so resolution
+          # aborted. org-ci.yml's resolver maps the dispatch trigger to the
+          # `nightly` class; this mirrors that mapping for every caller of the
+          # kernel, repairing a path that previously always failed.
+          event-name: >-
+            ${{ github.event_name == 'workflow_dispatch'
+             && 'nightly' || github.event_name }}
           repository: ${{ github.repository }}
           ref: ${{ github.ref }}
           governance-root: ${{ inputs.governance-root }}
