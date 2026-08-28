@@ -10,6 +10,7 @@ metadata:
 entrypoint:
   workflow: .github/workflows/org-ci.yml
   enforcement_surface: github_organization_required_workflow_ruleset
+  native_events: [push, pull_request, merge_group]
   supported_ruleset_events: [pull_request, merge_group]
   canary_event: workflow_dispatch
   compatibility_event: workflow_call
@@ -20,11 +21,62 @@ claims:
     statement: >-
       The organization entrypoint declares pull_request and merge_group, the
       GitHub-supported events required for organization ruleset workflows,
-      while retaining workflow_dispatch and workflow_call for canary and
+      and push for governed default-branch and genesis evaluation, while
+      retaining workflow_dispatch and workflow_call for canary and
       compatibility execution.
     evidence:
       - .github/workflows/org-ci.yml
       - tests/workflows/test_org_runtime_contract.py
+    status: VALIDATED
+
+  - id: native-push-resolves-to-merge-analysis
+    statement: >-
+      A native push resolves to event class push and execution profile merge,
+      the same canonical analysis engine the merge queue uses. The mapping is
+      re-derived by executing the workflow's own runtime resolver, and merge
+      is the profile whose allowed_events contains push.
+    evidence:
+      - .github/workflows/org-ci.yml
+      - .github/actions/resolve-governance/defaults/execution-profiles.yaml
+      - tests/workflows/test_org_ci_event_resolution.py
+    status: VALIDATED
+
+  - id: push-target-comes-only-from-event-context
+    statement: >-
+      The push path evaluates github.repository at github.sha taken from the
+      GitHub event context. No workflow_call or workflow_dispatch input can
+      supply a repository, ref, or target SHA, the checkout stays pinned to
+      the immutable event revision, and the push path requests no write scope.
+    evidence:
+      - .github/workflows/org-ci.yml
+      - tests/workflows/test_org_ci_event_resolution.py
+      - tests/workflows/test_workflow_permissions.py
+    status: VALIDATED
+
+  - id: push-ref-gate-is-symbolic-not-a-branch-name
+    statement: >-
+      A native push is evaluated only on the branch the repository itself
+      declares default, compared at runtime against
+      github.event.repository.default_branch. No branch name appears in Core,
+      so a repository on trunk or master is governed identically to one on
+      main. The gate is job-level, so a non-default-branch push skips before a
+      runner is claimed; pull_request and merge_group evaluation is unchanged,
+      and a reusable invocation carrying the required event input is exempt.
+    evidence:
+      - .github/workflows/org-ci.yml
+      - .l9/org-runtime-contract.yaml
+      - tests/workflows/test_org_ci_event_resolution.py
+    status: VALIDATED
+
+  - id: push-carries-no-lifecycle-authority
+    statement: >-
+      Core performs no genesis, lifecycle, or repository-age classification on
+      the push path. Whether an observed push run is a genesis attestation is
+      decided outside Core, by the birth control plane, from the run head SHA
+      and the zero-parent root SHA.
+    evidence:
+      - .l9/org-runtime-contract.yaml
+      - tests/workflows/test_org_ci_event_resolution.py
     status: VALIDATED
 
   - id: central-governance-bundled
@@ -105,6 +157,35 @@ claims:
     statement: >-
       A Quantum-L9 organization ruleset currently requires this workflow for
       targeted repositories in production.
+    evidence: []
+    status: UNKNOWN
+
+  - id: ruleset-instantiates-workflow-on-native-push
+    statement: >-
+      A GitHub organization required-workflow ruleset actually instantiates
+      this central workflow for a native push in a targeted repository. The
+      ruleset required-workflow mechanism and ordinary workflow triggers are
+      related but not proven identical execution surfaces, and no repository
+      local test can settle it. Until a real run shows event_name=push with
+      the target repository and its pushed SHA, this stays UNKNOWN. If it is
+      disproven, the gap is the genesis invocation path, not this workflow,
+      and the remedy is a centrally owned dispatcher in l9-ci-core, never a
+      copied workflow in a consumer repository.
+    evidence: []
+    status: UNKNOWN
+
+  - id: genesis-push-payload-carries-the-new-default-branch
+    statement: >-
+      For the very first push into a freshly created repository, the push
+      event payload's repository.default_branch already names the branch being
+      created, so the genesis attestation passes the runtime ref gate. This is
+      the one case where the gate and the birth path interact: if GitHub
+      populates default_branch only after the push that establishes it, a
+      genesis push to a non-standard branch name would skip instead of being
+      evaluated. Repository-local tests cannot settle it; it stays UNKNOWN
+      until a real newborn repository shows the payload value. A repository
+      created with an initial commit, or whose default branch matches the
+      organization default, is not exposed to this case.
     evidence: []
     status: UNKNOWN
 

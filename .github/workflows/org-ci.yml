@@ -18,9 +18,34 @@
 # conclusion is the enforcement signal. Write-scoped custom check/SARIF publication
 # remains outside this untrusted PR trigger and can be reintroduced through a
 # trusted post-analysis lane when Assurance is the authoritative decision source.
+#
+# `push` is a first-class canonical event, declared without a `branches:` selector.
+# GitHub Actions cannot express "this repository's default branch" symbolically in
+# `on.push.branches`, and Quantum-L9 repositories do not all use `main`; hardcoding
+# a branch name here would silently exclude them.
+#
+# The trigger is therefore broad and the ref decision is made at runtime, where the
+# repository's own `default_branch` is readable from the event payload. A push is
+# evaluated only on the branch that repository itself declares default, so a repo
+# on `trunk` or `master` is governed exactly like one on `main` and no branch name
+# is written into Core. Feature-branch pushes skip before a runner is claimed;
+# their pull_request evaluation is unaffected. This gates a ref against a property
+# the repository states about itself — it does not decide which repositories are
+# governed, which remains the organization ruleset's.
+#
+# A push resolves to event class `push` and execution profile `merge`, the same
+# analysis engine the merge queue uses. It carries no new authority: the job stays
+# `contents: read`, the target is `github.repository` at `github.sha` from the
+# GitHub event context only, and no caller-supplied repository, ref, or SHA can
+# redirect it. A push trigger is an evaluation lane, not a trusted write lane.
+#
+# Core deliberately holds no lifecycle or genesis logic. Whether an observed push
+# run is a genesis attestation is decided by the birth control plane, by comparing
+# the run's head SHA against its expected zero-parent root SHA. Core stays generic.
 name: Organization CI (Core)
 
 on:
+  push:
   pull_request:
   merge_group:
   workflow_dispatch:
@@ -102,12 +127,29 @@ on:
         description: Provisioned immutable SDK revision.
         value: ${{ jobs.analyze.outputs.sdk-revision }}
 
+# Keyed by repository, revision, and event family so a pull_request evaluation and
+# a push evaluation of the same tree never collapse into one another. Queued, never
+# cancelled: a canonical evaluation of an immutable SHA must complete and stay
+# citable, so a later event cannot revoke an in-flight attestation of that revision.
+concurrency:
+  group: >-
+    l9-core-${{ github.repository }}-${{ github.sha }}-${{ github.event_name }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
 jobs:
   analyze:
     name: Analyze (central Core)
+    # Non-push triggers are unaffected. A reusable invocation always carries the
+    # required `event` input, so a caller that is itself on a push keeps its own
+    # governed evaluation instead of inheriting this ref gate. Only a native push
+    # is narrowed, and only to the repository's self-declared default branch.
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -162,6 +204,8 @@ jobs:
               event_class, profile = "pull_request", "pr_fast"
           elif gh_event == "merge_group":
               event_class, profile = "merge", "merge"
+          elif gh_event == "push":
+              event_class, profile = "push", "merge"
           elif gh_event == "workflow_dispatch":
               event_class = requested_event or "nightly"
               profile = requested_profile or event_class
@@ -202,6 +246,37 @@ jobs:
               for key, value in outputs.items():
                   stream.write(f"{key}={value}\n")
           PY
+
+      - name: Validate native push event context
+        if: github.event_name == 'push'
+        env:
+          EVENT_REPOSITORY: ${{ github.repository }}
+          EVENT_SHA: ${{ github.sha }}
+          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
+        run: |
+          set -euo pipefail
+          if [ "${EVENT_CLASS}" != "push" ]; then
+            echo "::error::push trigger resolved to event class '${EVENT_CLASS}'" >&2
+            exit 1
+          fi
+          if [ -z "${EVENT_REPOSITORY}" ]; then
+            echo "::error::push execution has no repository identity" >&2
+            exit 1
+          fi
+          if [ -z "${EVENT_SHA}" ]; then
+            echo "::error::push execution has no immutable SHA" >&2
+            exit 1
+          fi
+          case "${EVENT_SHA}" in
+            *[!0-9a-f]* | "") sha_ok=false ;;
+            ????????????????????????????????????????) sha_ok=true ;;
+            *) sha_ok=false ;;
+          esac
+          if [ "${sha_ok}" != "true" ]; then
+            echo "::error::push SHA is not a full 40-character revision" >&2
+            exit 1
+          fi
+          echo "Native push evaluation target: ${EVENT_REPOSITORY}@${EVENT_SHA}"
 
       - id: consumer
         name: Resolve optional consumer metadata
