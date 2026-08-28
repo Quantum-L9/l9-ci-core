@@ -53,6 +53,21 @@ claims:
       - tests/workflows/test_workflow_permissions.py
     status: VALIDATED
 
+  - id: push-ref-gate-is-symbolic-not-a-branch-name
+    statement: >-
+      A native push is evaluated only on the branch the repository itself
+      declares default, compared at runtime against
+      github.event.repository.default_branch. No branch name appears in Core,
+      so a repository on trunk or master is governed identically to one on
+      main. The gate is job-level, so a non-default-branch push skips before a
+      runner is claimed; pull_request and merge_group evaluation is unchanged,
+      and a reusable invocation carrying the required event input is exempt.
+    evidence:
+      - .github/workflows/org-ci.yml
+      - .l9/org-runtime-contract.yaml
+      - tests/workflows/test_org_ci_event_resolution.py
+    status: VALIDATED
+
   - id: push-carries-no-lifecycle-authority
     statement: >-
       Core performs no genesis, lifecycle, or repository-age classification on
@@ -156,6 +171,21 @@ claims:
       disproven, the gap is the genesis invocation path, not this workflow,
       and the remedy is a centrally owned dispatcher in l9-ci-core, never a
       copied workflow in a consumer repository.
+    evidence: []
+    status: UNKNOWN
+
+  - id: genesis-push-payload-carries-the-new-default-branch
+    statement: >-
+      For the very first push into a freshly created repository, the push
+      event payload's repository.default_branch already names the branch being
+      created, so the genesis attestation passes the runtime ref gate. This is
+      the one case where the gate and the birth path interact: if GitHub
+      populates default_branch only after the push that establishes it, a
+      genesis push to a non-standard branch name would skip instead of being
+      evaluated. Repository-local tests cannot settle it; it stays UNKNOWN
+      until a real newborn repository shows the payload value. A repository
+      created with an initial commit, or whose default branch matches the
+      organization default, is not exposed to this case.
     evidence: []
     status: UNKNOWN
 

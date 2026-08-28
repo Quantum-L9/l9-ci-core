@@ -22,9 +22,16 @@
 # `push` is a first-class canonical event, declared without a `branches:` selector.
 # GitHub Actions cannot express "this repository's default branch" symbolically in
 # `on.push.branches`, and Quantum-L9 repositories do not all use `main`; hardcoding
-# a branch name here would silently exclude them. Selection of which repositories
-# and which refs are governed stays with the organization ruleset. Core only
-# decides how a governed evaluation executes.
+# a branch name here would silently exclude them.
+#
+# The trigger is therefore broad and the ref decision is made at runtime, where the
+# repository's own `default_branch` is readable from the event payload. A push is
+# evaluated only on the branch that repository itself declares default, so a repo
+# on `trunk` or `master` is governed exactly like one on `main` and no branch name
+# is written into Core. Feature-branch pushes skip before a runner is claimed;
+# their pull_request evaluation is unaffected. This gates a ref against a property
+# the repository states about itself — it does not decide which repositories are
+# governed, which remains the organization ruleset's.
 #
 # A push resolves to event class `push` and execution profile `merge`, the same
 # analysis engine the merge queue uses. It carries no new authority: the job stays
@@ -135,6 +142,14 @@ permissions:
 jobs:
   analyze:
     name: Analyze (central Core)
+    # Non-push triggers are unaffected. A reusable invocation always carries the
+    # required `event` input, so a caller that is itself on a push keeps its own
+    # governed evaluation instead of inheriting this ref gate. Only a native push
+    # is narrowed, and only to the repository's self-declared default branch.
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

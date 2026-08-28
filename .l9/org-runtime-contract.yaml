@@ -21,12 +21,18 @@ entrypoint:
   consumer_copy_required: false
   consumer_core_pin_allowed: false
   push_branch_selector: none
+  push_ref_gate: runtime_default_branch
+  push_ref_gate_expression: github.ref_name == github.event.repository.default_branch
   push_branch_selector_rationale: >-
     GitHub Actions cannot express "this repository's default branch"
     symbolically inside on.push.branches, and Quantum-L9 repositories do not
-    all use main. Core therefore declares push unfiltered and leaves ref and
-    repository selection to the organization ruleset. Core decides how a
-    governed evaluation executes, never which repositories are governed.
+    all use main. Core therefore declares push unfiltered and makes the ref
+    decision at runtime against the repository's own declared default_branch,
+    so no branch name is written into Core and a repository on trunk or master
+    is governed identically to one on main. A reusable invocation carries the
+    required event input and is exempt, keeping its caller's governed
+    evaluation. Core still never decides which repositories are governed;
+    that remains the organization ruleset's.
   push_authority: >-
     A push trigger is an evaluation lane, not a trusted write lane. The push
     path holds contents:read, targets github.repository at github.sha from the

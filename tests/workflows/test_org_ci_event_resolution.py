@@ -74,6 +74,60 @@ def resolver_source() -> str:
     )
 
 
+GATE_TERM = re.compile(
+    r"^(?P<left>[A-Za-z0-9_.]+|'[^']*')\s*(?P<op>==|!=)\s*(?P<right>[A-Za-z0-9_.]+|'[^']*')$"
+)
+
+
+def evaluate_gate(
+    expression: str,
+    *,
+    event_name: str,
+    ref_name: str,
+    inputs_event: str,
+    default_branch: str,
+) -> bool:
+    """Evaluate the job gate against a modelled event context.
+
+    A deliberately small evaluator for the one expression shape this gate uses:
+    `||`-joined `==` / `!=` comparisons over context paths and string literals.
+    It is a model of GitHub's evaluation, not GitHub's evaluator, so it is kept
+    narrow enough to read: an expression it cannot parse raises rather than
+    quietly returning a passing result. Ground truth for the gate remains a
+    real run — a non-default-branch push must show the job skipped.
+
+    An absent `inputs.event` is modelled as GitHub does: a missing context
+    property is null, and null compares equal to the empty string.
+    """
+    context = {
+        "github.event_name": event_name,
+        "github.ref_name": ref_name,
+        "github.event.repository.default_branch": default_branch,
+        # A native push has no inputs context; the property resolves to null.
+        "inputs.event": inputs_event if inputs_event else None,
+    }
+
+    def operand(token: str) -> str | None:
+        if token.startswith("'") and token.endswith("'"):
+            return token[1:-1]
+        if token not in context:
+            raise AssertionError(f"gate references unmodelled context {token!r}")
+        return context[token]
+
+    for term in expression.split("||"):
+        match = GATE_TERM.match(term.strip())
+        if match is None:
+            raise AssertionError(f"unparsable gate term: {term.strip()!r}")
+        left = operand(match.group("left"))
+        right = operand(match.group("right"))
+        # GitHub coerces null and '' to the same value in a comparison.
+        left = "" if left is None else left
+        right = "" if right is None else right
+        if (left == right) if match.group("op") == "==" else (left != right):
+            return True
+    return False
+
+
 def resolve(
     *,
     event_name: str,
@@ -250,6 +304,94 @@ class PushTargetProvenanceTests(unittest.TestCase):
         self.assertEqual(
             {"contents": "read"}, document["jobs"]["analyze"]["permissions"]
         )
+
+
+class PushRefGateTests(unittest.TestCase):
+    """A native push is evaluated only on the repository's own default branch.
+
+    An unfiltered `on: push` fires for every branch and tag, which across every
+    governed repository means a full canonical evaluation on each feature-branch
+    push *in addition to* that branch's pull_request evaluation. The ref
+    decision therefore moves to runtime, where the repository's own
+    `default_branch` is readable from the event payload — the symbolic value
+    `on.push.branches` cannot express.
+    """
+
+    def gate(self) -> str:
+        return " ".join(load_workflow()["jobs"]["analyze"]["if"].split())
+
+    def test_the_gate_compares_against_the_repositorys_declared_default(self) -> None:
+        self.assertIn(
+            "github.ref_name == github.event.repository.default_branch", self.gate()
+        )
+
+    def test_the_gate_names_no_literal_branch(self) -> None:
+        """A branch name in Core would silently exclude repositories.
+
+        This is the whole reason the selector is not `branches: [main]`. A
+        literal here would reintroduce the same defect one layer down, where it
+        is harder to see.
+        """
+        gate = self.gate()
+        for branch in ("'main'", '"main"', "'master'", "'trunk'", "'develop'"):
+            self.assertNotIn(branch, gate)
+
+    def test_the_gate_only_narrows_push(self) -> None:
+        """pull_request and merge_group evaluation must be untouched."""
+        self.assertIn("github.event_name != 'push'", self.gate())
+
+    def test_a_reusable_invocation_is_exempt(self) -> None:
+        """`github.event_name` is the *caller's* event inside a called workflow.
+
+        A caller triggered by its own push would otherwise inherit this ref
+        gate and skip the analysis it explicitly asked for. `workflow_call`
+        declares `event` as required, so a non-empty `inputs.event` is exactly
+        the signal that this run was invoked rather than natively triggered.
+        """
+        self.assertIn("inputs.event != ''", self.gate())
+        triggers = load_workflow()["on"]
+        self.assertTrue(triggers["workflow_call"]["inputs"]["event"]["required"])
+
+    def test_the_gate_is_job_level_so_a_skip_claims_no_runner(self) -> None:
+        """Gating inside a step would still pay for a runner on every push."""
+        document = load_workflow()
+        self.assertIn("if", document["jobs"]["analyze"])
+        for step in document["jobs"]["analyze"]["steps"]:
+            self.assertNotIn(
+                "default_branch",
+                str(step.get("if", "")),
+                "the ref decision belongs on the job, not on a step",
+            )
+
+    def test_the_gate_admits_a_default_branch_push_and_rejects_a_feature_push(
+        self,
+    ) -> None:
+        """Evaluate the real expression against modelled event contexts."""
+        cases = (
+            # (event_name, ref_name, inputs.event, default_branch, expected)
+            ("push", "main", "", "main", True),
+            ("push", "trunk", "", "trunk", True),
+            ("push", "feature/x", "", "main", False),
+            ("push", "v1.2.3", "", "main", False),
+            ("push", "main", "", "trunk", False),
+            ("pull_request", "feature/x", "", "main", True),
+            ("merge_group", "gh-readonly-queue/main/x", "", "main", True),
+            ("workflow_dispatch", "feature/x", "nightly", "main", True),
+            # A reusable caller that is itself on a feature-branch push.
+            ("push", "feature/x", "push", "main", True),
+        )
+        for event_name, ref_name, called_event, default_branch, expected in cases:
+            with self.subTest(event=event_name, ref=ref_name, input=called_event):
+                self.assertEqual(
+                    expected,
+                    evaluate_gate(
+                        self.gate(),
+                        event_name=event_name,
+                        ref_name=ref_name,
+                        inputs_event=called_event,
+                        default_branch=default_branch,
+                    ),
+                )
 
 
 class PushCarriesNoLifecycleAuthorityTests(unittest.TestCase):
