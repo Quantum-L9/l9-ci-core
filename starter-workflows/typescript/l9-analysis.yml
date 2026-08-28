@@ -17,12 +17,7 @@ env:
   # pick up analyze-semgrep SARIF + gate wiring from that merge commit.
   # `uses:` cannot interpolate env — duplicate the SHA literally on the uses
   # line (same as CORE_ACTIONS_PIN). Keep L9_CORE_REF here for humans/agents.
-  L9_CORE_REF: "373bb6d26084e67ef76aaab95021364182a34ee7"
-  L9_PROFILE: "pr_fast"
-  L9_MATRIX_ID: "pr-semgrep"
-  # SDK-owned Semgrep execution language: python or typescript. The SDK
-  # selects the packaged ruleset; this caller authors no --config list.
-  L9_LANGUAGE: "typescript"
+  L9_CORE_REF: "1aa6c97b3a6f30b9e9d55e61575a172581ba8558"
 permissions:
   contents: read
 concurrency:
@@ -31,13 +26,25 @@ concurrency:
 jobs:
   analyze:
     name: Analyze (semgrep)
-    uses: Quantum-L9/l9-ci-core/.github/workflows/analyze-semgrep.yml@373bb6d26084e67ef76aaab95021364182a34ee7
+    uses: Quantum-L9/l9-ci-core/.github/workflows/analyze-semgrep.yml@1aa6c97b3a6f30b9e9d55e61575a172581ba8558
     permissions:
       actions: read
       checks: write
       contents: read
       security-events: write
     with:
-      profile: ${{ env.L9_PROFILE }}
-      matrix-id: ${{ env.L9_MATRIX_ID }}
-      language: ${{ env.L9_LANGUAGE }}
+      # `env` is not available in a reusable-workflow `with:` block (GitHub
+      # allows only github, needs, strategy, matrix, inputs, vars there), so
+      # the profile is selected from the github context. Each profile declares
+      # the event classes it admits — pr_fast only pull_request, merge push,
+      # nightly the class the kernel maps workflow_dispatch onto. A profile
+      # that does not admit the incoming class makes resolve-governance fail
+      # closed: "event '<class>' is not allowed for profile '<profile>'".
+      profile: >-
+        ${{ github.event_name == 'push' && 'merge'
+         || github.event_name == 'workflow_dispatch' && 'nightly'
+         || 'pr_fast' }}
+      matrix-id: pr-semgrep
+      # SDK-owned Semgrep execution language: python or typescript. Set it
+      # here, literally — `env` cannot reach a reusable-workflow `with:`.
+      language: typescript
