@@ -21,7 +21,7 @@ on:
       sdk-revision:
         type: string
         required: false
-        default: b1a491414ed04bb18d665f8a8755de80947c8200
+        default: 7d7762eae5e1a12fdc66276975e2949891762a20
       governance-digest:
         type: string
         required: true
@@ -115,13 +115,13 @@ jobs:
       # fully-qualified pinned form instead; keep the pin on a released commit.
       - id: sdk
         name: Provision immutable SDK
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@a642641ad89b2f37022e8ce76e4bcf94791ff75a
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2aa859c8018d67778e4efb256b888c7b18045445
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision }}
       - name: Revalidate downloaded canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@a642641ad89b2f37022e8ce76e4bcf94791ff75a
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2aa859c8018d67778e4efb256b888c7b18045445
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.locate.outputs.bundle }}
@@ -136,7 +136,7 @@ jobs:
           category: l9-${{ inputs.matrix-id }}
       - id: render
         name: Render publication payload
-        uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@a642641ad89b2f37022e8ce76e4bcf94791ff75a
+        uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@2aa859c8018d67778e4efb256b888c7b18045445
         with:
           agent-payload: ${{ steps.locate.outputs.payload }}
           profile: ${{ inputs.profile }}
@@ -164,7 +164,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
       - id: publish
         name: Publish GitHub check
-        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@a642641ad89b2f37022e8ce76e4bcf94791ff75a
+        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@2aa859c8018d67778e4efb256b888c7b18045445
         with:
           token: ${{ github.token }}
           repository: ${{ github.repository }}

@@ -191,8 +191,25 @@ def resolve_requiredness(
     return required
 
 
+def _bundled_policy_path(governance_root: Path, policy: str) -> Path:
+    """Resolve a Core-bundled policy name against the governance root.
+
+    ``defaults/`` holds the six control documents only. The Semgrep policy
+    lives next to ``defaults/`` so the exact-six test stays true.
+    """
+    if Path(policy).is_absolute():
+        raise GovernanceError("sdk_policy must be a relative filename")
+    name = Path(policy).name
+    if name != policy or name in {".", ".."}:
+        raise GovernanceError("sdk_policy must be a bare filename")
+    for candidate in (governance_root / name, governance_root.parent / name):
+        if candidate.is_file():
+            return candidate
+    raise GovernanceError(f"SDK policy does not exist: {name}")
+
+
 def resolve_policy(
-    documents: dict[str, Any], profile_name: str, _governance_root: Path
+    documents: dict[str, Any], profile_name: str, governance_root: Path
 ) -> str:
     profiles = documents["quality-thresholds.yaml"].get("profiles")
     if not isinstance(profiles, dict):
@@ -207,11 +224,15 @@ def resolve_policy(
         raise GovernanceError("sdk_policy must be a string")
     if not policy:
         return ""
-    policy_path = workspace_path(policy)
-    if not policy_path.is_file():
-        raise GovernanceError(f"SDK policy does not exist: {policy_path}")
-    workspace = Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd())).resolve()
-    return policy_path.relative_to(workspace).as_posix()
+    bundled = _bundled_policy_path(governance_root, policy)
+    workspace_raw = os.environ.get("GITHUB_WORKSPACE", "").strip()
+    if not workspace_raw:
+        return bundled.resolve().as_posix()
+    workspace = Path(workspace_raw).resolve()
+    dest = workspace / ".l9" / "runtime" / "org-governance" / bundled.name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(bundled.read_text(encoding="utf-8"), encoding="utf-8")
+    return dest.relative_to(workspace).as_posix()
 
 
 def applicable_waivers(
