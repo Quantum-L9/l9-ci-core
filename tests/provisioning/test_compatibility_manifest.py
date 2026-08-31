@@ -7,9 +7,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".l9" / "sdk-compatibility.yaml"
 # l9-ci-sdk v1.0.0 — the frozen analysis-contract surface Core adopts.
-EXPECTED_SHA = "b1a491414ed04bb18d665f8a8755de80947c8200"
+EXPECTED_SHA = "7d7762eae5e1a12fdc66276975e2949891762a20"
 # Retained as a tested rollback (the prior default).
-ROLLBACK_SHA = "f546f122d33601ea5a4b2592e3482c5c39eddd82"
+ROLLBACK_SHA = "b1a491414ed04bb18d665f8a8755de80947c8200"
 # Removed: two generations behind the released contract; lacks the
 # `semgrep run` + `gate evaluate` handoff, so no longer an active rollback.
 REMOVED_SHA = "0779fca8238011f8abea551895f96584676e9d17"

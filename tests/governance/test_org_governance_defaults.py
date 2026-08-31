@@ -72,11 +72,17 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
                     profile_name,
                     "semgrep",
                 )
-                policy = module.resolve_policy(
-                    self.documents,
-                    profile_name,
-                    DEFAULTS_ROOT,
-                )
+                with tempfile.TemporaryDirectory() as temp:
+                    with unittest.mock.patch.dict(
+                        os.environ,
+                        {"GITHUB_WORKSPACE": temp},
+                        clear=False,
+                    ):
+                        policy = module.resolve_policy(
+                            self.documents,
+                            profile_name,
+                            DEFAULTS_ROOT,
+                        )
                 waivers = module.applicable_waivers(
                     self.documents,
                     profile=profile_name,
@@ -90,7 +96,10 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
                     module.ALLOWED_SDK_PROFILES,
                 )
                 self.assertIn(mode, module.ALLOWED_MODES)
-                self.assertEqual("", policy)
+                self.assertEqual(
+                    ".l9/runtime/org-governance/semgrep-policy.yaml",
+                    policy,
+                )
                 self.assertEqual([], waivers)
                 if mode == "disabled":
                     self.assertFalse(required)
@@ -132,8 +141,35 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
         self.assertEqual(0, exit_code, output)
         self.assertIn("enabled=true", output)
         self.assertIn("mode=blocking", output)
+        self.assertIn(
+            "sdk-policy=.l9/runtime/org-governance/semgrep-policy.yaml",
+            output,
+        )
         self.assertIn("governance-digest=", output)
         self.assertEqual(64, len(module.canonical_digest(DEFAULTS_ROOT)))
+
+    def test_resolve_policy_stages_bundled_file_into_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp)
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"GITHUB_WORKSPACE": str(workspace)},
+                clear=False,
+            ):
+                staged = module.resolve_policy(
+                    self.documents,
+                    "pr_fast",
+                    DEFAULTS_ROOT,
+                )
+            dest = workspace / staged
+            self.assertEqual(
+                ".l9/runtime/org-governance/semgrep-policy.yaml",
+                staged,
+            )
+            self.assertTrue(dest.is_file())
+            payload = dest.read_text(encoding="utf-8")
+            self.assertIn("l9.finding-policy/v1", payload)
+            self.assertIn('"mode": "advisory"', payload)
 
     def test_workspace_override_cannot_escape_consumer_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

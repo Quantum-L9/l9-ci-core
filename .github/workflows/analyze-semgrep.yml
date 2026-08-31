@@ -170,7 +170,7 @@ jobs:
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: ${{ inputs.sdk-revision || 'b1a491414ed04bb18d665f8a8755de80947c8200' }}
+          sdk-revision: ${{ inputs.sdk-revision || '7d7762eae5e1a12fdc66276975e2949891762a20' }}
       - name: Install semgrep (exact pin)
         if: steps.gov.outputs.enabled == 'true'
         env:

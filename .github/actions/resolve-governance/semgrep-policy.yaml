@@ -1,0 +1,11 @@
+{
+  "schema": "l9.finding-policy/v1",
+  "metadata": {
+    "version": "1"
+  },
+  "defaults": {
+    "mode": "advisory"
+  },
+  "rules": {},
+  "note": "Org default for required Organization CI. Findings are visible and classified; they do not block merge until a provider_rule_id is promoted to blocking after org review. This file exists so strict Semgrep can evaluate a non-empty finding set instead of failing closed on an empty sdk_policy."
+}
