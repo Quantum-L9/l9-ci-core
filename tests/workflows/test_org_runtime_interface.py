@@ -101,8 +101,15 @@ class OrgRuntimeInterfaceTests(unittest.TestCase):
 
     def test_sdk_capability_claim_matches_execution(self) -> None:
         text = workflow_text()
-        self.assertIn("providers detect --root . --format json", text)
-        self.assertIn("SDK capability detection is ambiguous", text)
+        helper = (
+            ROOT / ".github" / "actions" / "detect-language" / "detect.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("detect-language@", text)
+        self.assertNotIn("SDK capability detection is ambiguous", text)
+        self.assertIn(
+            "consumer repo_class=python conflicts with SDK capability detection",
+            helper,
+        )
 
     def test_sdk_revision_claim_matches_execution(self) -> None:
         compatibility = yaml.safe_load(SDK_COMPAT_PATH.read_text(encoding="utf-8"))
