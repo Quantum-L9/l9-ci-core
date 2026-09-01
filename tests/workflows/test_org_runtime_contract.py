@@ -168,19 +168,34 @@ class OrgRuntimeContractTests(unittest.TestCase):
             assert match is not None
             pins.add(match.group(1))
         self.assertEqual(1, len(pins), pins)
+        detect = re.search(
+            r"Quantum-L9/l9-ci-core/\.github/actions/detect-language@([0-9a-f]{40})",
+            text,
+        )
+        self.assertIsNotNone(detect, "detect-language")
+        assert detect is not None
+        self.assertRegex(detect.group(1), r"^[0-9a-f]{40}$")
         self.assertNotIn("publish-analysis.yml@", text)
 
     def test_sdk_owns_capability_detection(self) -> None:
         text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
-        self.assertIn("providers detect --root . --format json", text)
+        helper = (
+            ROOT / ".github" / "actions" / "detect-language" / "detect.py"
+        ).read_text(encoding="utf-8")
+        action = (
+            ROOT / ".github" / "actions" / "detect-language" / "action.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("detect-language@", text)
+        self.assertNotIn("SDK capability detection is ambiguous", text)
+        self.assertIn("providers detect --root", action)
         self.assertIn(
-            "consumer repo_class=python conflicts with SDK capability detection", text
+            "consumer repo_class=python conflicts with SDK capability detection",
+            helper,
         )
         self.assertIn(
             "consumer repo_class=typescript conflicts with SDK capability detection",
-            text,
+            helper,
         )
-        self.assertIn("SDK capability detection is ambiguous", text)
 
     def test_blocking_gate_summary_precedes_enforcement(self) -> None:
         text = ENTRYPOINT_PATH.read_text(encoding="utf-8")

@@ -1,0 +1,32 @@
+name: Detect repository language
+description: >
+  Run SDK capability detection, then resolve python, typescript, or none
+  for Organization CI Semgrep. A required-workflow consumer checkout cannot
+  import a Core ops/ helper, so this lives as a pinned composite action.
+inputs:
+  executable:
+    required: true
+  repo-class:
+    required: false
+    default: auto
+  root:
+    required: false
+    default: .
+outputs:
+  language:
+    value: ${{ steps.detect.outputs.language }}
+runs:
+  using: composite
+  steps:
+    - id: detect
+      shell: bash
+      env:
+        L9_EXECUTABLE: ${{ inputs.executable }}
+        REPO_CLASS: ${{ inputs.repo-class }}
+        L9_DETECT_ROOT: ${{ inputs.root }}
+      run: |
+        set -euo pipefail
+        root="${L9_DETECT_ROOT}"
+        mkdir -p "${root}/.l9/runtime"
+        "${L9_EXECUTABLE}" providers detect --root "${root}" --format json > "${root}/.l9/runtime/capabilities.json"
+        python3 "${{ github.action_path }}/detect.py"
