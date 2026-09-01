@@ -121,9 +121,7 @@ def main() -> int:
     repo_class = os.environ.get("REPO_CLASS", "auto")
     try:
         languages = load_languages(root)
-        language = pick_language(
-            languages=languages, repo_class=repo_class, root=root
-        )
+        language = pick_language(languages=languages, repo_class=repo_class, root=root)
     except DetectLanguageError as error:
         print(str(error), file=sys.stderr)
         return 1

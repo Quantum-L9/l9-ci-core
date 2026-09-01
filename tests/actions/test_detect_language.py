@@ -26,7 +26,16 @@ def _git_tree(files: dict[str, str]) -> Path:
         path.write_text(body, encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=tmp, check=True, capture_output=True)
     subprocess.run(
-        ["git", "-c", "user.email=ci@example.com", "-c", "user.name=ci", "commit", "-m", "fixture"],
+        [
+            "git",
+            "-c",
+            "user.email=ci@example.com",
+            "-c",
+            "user.name=ci",
+            "commit",
+            "-m",
+            "fixture",
+        ],
         cwd=tmp,
         check=True,
         capture_output=True,
