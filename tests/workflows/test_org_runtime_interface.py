@@ -40,14 +40,28 @@ class OrgRuntimeInterfaceTests(unittest.TestCase):
                 self.assertIn(claim["status"], {"VALIDATED", "UNKNOWN"})
                 self.assertTrue(claim.get("statement"))
                 for evidence in claim.get("evidence", []):
+                    if str(evidence).startswith(("http://", "https://", "orgs/")):
+                        continue
                     self.assertTrue(
                         (ROOT / evidence).exists(), f"missing evidence: {evidence}"
                     )
 
-    def test_external_runtime_claims_stay_unknown(self) -> None:
+    def test_external_runtime_claims_validated_from_github_evidence(self) -> None:
+        enforcement = self.claims["organization-ruleset-live-enforcement"]
+        self.assertEqual("VALIDATED", enforcement["status"])
+        joined = " ".join(str(item) for item in enforcement["evidence"])
+        self.assertIn("21895545", joined)
+        self.assertIn("orgs/Quantum-L9/rulesets/21895545", joined)
+
+        remote = self.claims["remote-end-to-end-run"]
+        self.assertEqual("VALIDATED", remote["status"])
+        remote_joined = " ".join(str(item) for item in remote["evidence"])
+        self.assertIn("4e2d4e9d64a8a5ca89da91c5ef18314c0331d4b4", remote_joined)
+        self.assertIn("33353393558", remote_joined)
+
         for claim_id in (
-            "organization-ruleset-live-enforcement",
-            "remote-end-to-end-run",
+            "ruleset-instantiates-workflow-on-native-push",
+            "genesis-push-payload-carries-the-new-default-branch",
         ):
             self.assertEqual("UNKNOWN", self.claims[claim_id]["status"])
             self.assertEqual([], self.claims[claim_id]["evidence"])
