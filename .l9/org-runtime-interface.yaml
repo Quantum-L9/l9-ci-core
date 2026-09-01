@@ -157,8 +157,13 @@ claims:
     statement: >-
       A Quantum-L9 organization ruleset currently requires this workflow for
       targeted repositories in production.
-    evidence: []
-    status: UNKNOWN
+    evidence:
+      - >-
+        orgs/Quantum-L9/rulesets/21895545 — enforcement: active, requires
+        Quantum-L9/l9-ci-core/.github/workflows/org-ci.yml@refs/heads/main
+      - >-
+        https://github.com/Quantum-L9/Cursor-Governance/blob/agent/cursor/org-ci-closure-ev/WIP/org-ci-ruleset-activation/evidence/organization-ruleset-live-enforcement.json
+    status: VALIDATED
 
   - id: ruleset-instantiates-workflow-on-native-push
     statement: >-
@@ -193,5 +198,11 @@ claims:
     statement: >-
       This exact candidate completes end-to-end in GitHub Actions against a
       real consumer repository and publishes its artifact set.
-    evidence: []
-    status: UNKNOWN
+    evidence:
+      - >-
+        https://github.com/Quantum-L9/l9-observability-core/actions/runs/33353393558/job/99370863320
+        — Quantum-L9/l9-observability-core#4, head_sha
+        4e2d4e9d64a8a5ca89da91c5ef18314c0331d4b4, conclusion success
+      - >-
+        https://github.com/Quantum-L9/Cursor-Governance/blob/agent/cursor/org-ci-closure-ev/WIP/org-ci-ruleset-activation/evidence/remote-end-to-end-run.json
+    status: VALIDATED
