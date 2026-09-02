@@ -207,9 +207,42 @@ the flag:
 | without `--exclude` | 3222 | 3130 | **62** |
 | with `--exclude` | 92 | 0 | **0** |
 
-**This does not take effect in central CI until Core bumps its pinned SDK
-revision.** `org-ci.yml` pins `7d7762ea…`; the required check keeps failing on
-every repository until that pin moves to a revision carrying the fix.
+**Core's pin has been moved to a revision carrying the fix.** `0efd762…` is
+now the compatibility-manifest default and is pinned across all nine pin sites
+in Core (see §4.4). `7d7762ea…` is retained in the allowlist as the tested
+rollback.
+
+Central CI on `l9-ci-sdk` is green at `0efd762` — the first green
+`Analyze (central Core)` run in the organization. Note that on that repository
+the fix would have applied regardless of the pin: `provision-sdk` runs
+`python -m l9_ci` with `PYTHONPATH={checkout}`, and `python -m` places the
+current working directory ahead of `PYTHONPATH`, so a repository that itself
+contains `l9_ci/` shadows the pinned checkout. That affects `l9-ci-sdk` only;
+every other repository resolves the pin, which is why moving it was required.
+
+### 4.4 The SDK pin is nine sites, not one
+
+Moving Core's SDK revision is not a one-line edit. `.l9/sdk-compatibility.yaml`
+is an allowlist (`unlisted_revisions_allowed: false`, `branches_allowed: false`,
+`floating_git_references_allowed: false`), so a new revision must be *added* as
+a supported entry before it can be selected at all. The revision is pinned in:
+
+| File | Role |
+|---|---|
+| `.l9/sdk-compatibility.yaml` | allowlist default + supported entry |
+| `.github/actions/provision-sdk/provision.py` | `EXPECTED_REVISION` enforcement constant |
+| `.github/actions/provision-sdk/action.yml` | action input default |
+| `.github/workflows/org-ci.yml` | central entrypoint default |
+| `.github/workflows/analyze-semgrep.yml` | profile caller default |
+| `.github/workflows/publish-analysis.yml` | publication default |
+| `.github/workflows/sdk-contract-check.yml` | pinned revision + asserted equality |
+| `.l9/architecture.yaml`, `.l9/artifact-protocol.yaml` | declared runtime topology |
+| `tests/provisioning/test_compatibility_manifest.py`, `test_required_cli_probing.py` | assert the exact SHA |
+
+`MANIFEST.sha256` additionally records a digest for every changed tracked file
+and must be reconciled in the same change; `tests/tools/test_manifest_integrity.py`
+fails the pull request otherwise. It caught all twelve changed files here, which
+is the gate working as intended.
 
 #### A correction, recorded deliberately
 
@@ -285,10 +318,10 @@ Consumers ALSO still own, in parallel:
 
 ## 8. Next highest-leverage move
 
-1. **Bump Core's pinned SDK revision.** The scan-surface fix is implemented
-   (`l9-ci-sdk#85`, `da4d228`) but inert until `org-ci.yml` pins a revision
-   carrying it. This is the remaining blocker: until then the required check
-   fails closed on every Python repository.
+1. **Merge `l9-ci-sdk#85`, then confirm the pin still resolves.** The pin bump
+   is landed in Core, but it names an unmerged commit. A squash or rebase merge
+   of #85 will not place `0efd762…` on `main`; prefer a merge commit, or re-pin
+   to the resulting `main` commit afterwards.
 2. Decide identity-map ownership — the reviewed 151-rule map must move to Core
    `@core-defaults` (wired through the existing, unused `invoke-sdk`
    `identity-map:` input) or to the SDK packaged map. It must **not** stay in
