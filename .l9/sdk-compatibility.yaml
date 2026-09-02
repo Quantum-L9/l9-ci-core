@@ -31,6 +31,27 @@ supported:
       - baseline validate-ledger
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: 0efd762d1617a1c8635005d0611b1cf6f2303987
+    integration_contract: l9.integration-contract/v1
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+      - l9.sarif-log/v1
+    required_cli_paths:
+      - providers detect
+      - semgrep run
+      - semgrep normalize
+      - gate evaluate
+      - bundle validate
+      - bundle project-agent-payload
+      - bundle project-sarif
+      - compatibility check
+      - baseline compare-tests
+      - baseline scan-packet-envelope
+      - baseline compare-scan
+      - baseline validate-ledger
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: b1a491414ed04bb18d665f8a8755de80947c8200
     integration_contract: l9.integration-contract/v1
     artifact_protocols:
