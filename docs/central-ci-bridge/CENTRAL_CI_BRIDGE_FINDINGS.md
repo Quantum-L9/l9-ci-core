@@ -1,0 +1,243 @@
+# Central CI bridge — findings
+
+Evidence-backed state of the Quantum-L9 transition from copied consumer-owned
+L9 CI to centrally enforced organization CI.
+
+**Inspected:** 2026-09-02. Every claim below is either a recorded observation or
+is explicitly labelled `INFERENCE` / `UNKNOWN`.
+
+## 1. Headline: the bridge is already crossed, and it is red
+
+The primary gap hypothesis — "the organization required-workflow ruleset is not
+yet proven live and canonical" — is **falsified**. The ruleset is live, active,
+and correctly targets Core. The migration is blocked one step later: central CI
+**runs and fails** on every Python consumer, so no consumer may safely delete
+its legacy caller yet.
+
+## 2. Exact heads inspected
+
+| Repository | Default branch | HEAD inspected |
+|---|---|---|
+| `Quantum-L9/l9-ci-core` | `main` | `aaa01124d95b8fc51369636116e71aedf2f7389f` |
+| `Quantum-L9/l9-ci-sdk` | `main` | `7d7762eae5e1a12fdc66276975e2949891762a20` |
+| `Quantum-L9/l9-ci-debt-intelligence` | `main` | `249a46bf86ba90f56ae76b11d079e3ec3bfa1b57` |
+| `Quantum-L9/l9-ci-debt-lsp` | `main` | `86620601d17d27ebf91c67e8f0be67a81eecc3b6` |
+| `Quantum-L9/l9-ci-debt-resolver` | `main` | `ae40d6f76672abb4486aeac1fe12e96daddb48a3` |
+
+`Quantum-L9/.github` could **not** be inspected — see §7.
+
+## 3. Live organization enforcement (verified)
+
+Read back from GitHub, not from checked-in JSON.
+
+Organization ruleset **`L9 canonical CI required`** (id `21895545`,
+`source_type: Organization`, `enforcement: active`, updated
+`2026-09-01T18:59:36Z`):
+
+```jsonc
+conditions.ref_name.include = ["~DEFAULT_BRANCH"]
+rules = [
+  { "type": "workflows", "parameters": { "do_not_enforce_on_create": true,
+      "workflows": [ { "repository_id": 1285564308,
+                       "path": ".github/workflows/org-ci.yml",
+                       "ref": "refs/heads/main" } ] } },
+  { "type": "required_status_checks", "parameters": {
+      "required_status_checks": [ { "context": "Analyze (central Core)" } ] } }
+]
+```
+
+`repository_id 1285564308` is confirmed to be `Quantum-L9/l9-ci-core`
+(`gh api repos/Quantum-L9/l9-ci-core --jq .id`).
+
+**Projection probe.** The ruleset was confirmed applied to all 11 repositories
+reachable from this session, each reporting `enforcement=active`:
+`l9-ci-core`, `l9-ci-sdk`, `l9-ci-debt-intelligence`, `l9-ci-debt-lsp`,
+`l9-ci-debt-resolver`, `l9-repo-template`, `Enrichment.Inference.Engine`,
+`Gate_SDK`, `Constellation.Gate`, `l9-cognitive-runtime`, `Cursor-Governance`.
+
+Method (reusable — the org-level API is unavailable to scoped sessions, but the
+per-repository projection is not):
+
+```bash
+gh api repos/Quantum-L9/<repo>/rulesets \
+  --jq '.[] | select(.source_type=="Organization")'
+```
+
+### 3.1 Contract violation: the enforcement pin is a branch, not a SHA
+
+`ref: refs/heads/main` is a mutable branch pin. The contract requires an
+immutable verified Core commit SHA and explicitly forbids `@main` enforcement.
+Every consumer's required check therefore silently re-targets whatever Core
+`main` points at. Fixing this requires a change in `Quantum-L9/.github` — see §7.
+
+## 4. Central CI executes, and fails closed
+
+`Organization CI (Core)` is instantiated by GitHub on real consumer pull
+requests. It is **not** dormant. On every inspected run it fails:
+
+| Repository | Run | Conclusion | Failing step |
+|---|---|---|---|
+| `l9-ci-debt-intelligence` | `33561406648` | failure | `Run + normalize Semgrep (SDK)` |
+| `l9-ci-debt-lsp` | `33482603807` | failure | same |
+| `l9-ci-debt-resolver` | `33481850033` | failure | same |
+
+Run `33561406648` post-dates current Core `main` (`aaa0112`), so the failure is
+**not** stale.
+
+Job log, `l9-ci-debt-intelligence` job `100034515692`:
+
+```
+error[unresolved_strict_contract]: strict identity resolution failed for
+findings: fn_semgrep_069caf2e…, fn_semgrep_0c55f17c…, …   (50 finding ids)
+##[error]Process completed with exit code 6.
+```
+
+Resolved run context: `MODE: blocking`, `LANGUAGE: python`,
+`SDK_REVISION: 7d7762ea…`, `GATE_STATUS:` (empty — the run dies *before* the
+technical gate is evaluated).
+
+### 4.1 Why the legacy caller is green and central is red
+
+Both paths resolve `strict: true` (`resolve.py` emits the profile's own
+`strict`; mode does not modulate it), so strictness is not the difference. The
+governance delta that *is* real:
+
+| `pr_fast` default mode | Value |
+|---|---|
+| Core `@core-defaults/rule-modes.yaml` | **`blocking`** |
+| All three canary consumer packs | **`shadow`** |
+
+The legacy `L9 Analysis` workflow additionally publishes under
+`Publish analysis (Core) / shadow`, confirmed in run `33576014109`.
+
+**A green legacy `L9 Analysis` is therefore not evidence that a repository
+passes central CI.** It is a weaker gate on the same code.
+
+### 4.2 Root cause of the strict failure
+
+`--strict` requires every normalized finding to carry a `canonical_rule_id`
+(`l9_ci/pipeline/semgrep.py`). Identity comes from either trusted
+`metadata.l9.canonical_rule_id` on an L9-authored rule, or an identity-map
+entry for a third-party registry rule.
+
+Verified inputs:
+
+* The SDK default ruleset profile `l9-standard` composes **the community
+  registry ruleset (`p/python`) plus** the packaged L9 ruleset.
+* The SDK's packaged identity map holds **15** rules.
+* `@core-defaults` ships **six** control documents and **no** identity map;
+  `org-ci.yml` never passes `identity-map:` to `invoke-sdk`, although the
+  action does expose that input.
+* A reviewed **151-rule** identity map exists as *copied consumer governance* in
+  `l9-ci-debt-intelligence/.github/governance/semgrep-identity-map.yaml`.
+  `l9-ci-debt-lsp` and `l9-ci-debt-resolver` have **none**.
+
+The failure class is reproduced directly. Scanning the SDK's own source with
+`p/python` produces a registry finding with no identity-map entry, and the
+pipeline fails exactly as central CI does:
+
+```
+$ l9-ci semgrep normalize --input report.json --strict
+error[unresolved_strict_contract]: … 1 finding(s) across 1 provider rule(s)
+  - python.django.security.injection.command.subprocess-injection…:
+      1 finding(s) (e.g. l9_ci/providers/semgrep/provider.py:145)
+exit 6
+```
+
+**Conclusion (verified mechanism):** under `strict: true`, any third-party
+registry rule outside the 15-entry packaged map fails central CI closed. The
+identity map that would cover them is owned by *consumers*, not by Core or the
+SDK — the exact copy-first ownership inversion this migration exists to remove.
+
+### 4.3 What was NOT reproduced — stated plainly
+
+The specific set of **50** findings from run `33561406648` was **not**
+reproduced locally. Attempts, all at the exact CI revision
+`8d86c48f509eb27b40ccdacca9f0f46b40e37d06` with the exact pinned SDK revision
+and `--strict --required`:
+
+| Attempt | Result |
+|---|---|
+| Consumer repo alone | exit 0, 0 findings |
+| `p/python` only | 0 findings (registry confirmed reachable: HTTP 200, and it *does* find issues in other trees) |
+| Packaged L9 ruleset only | 1 finding |
+| SDK source vendored at `.l9/runtime/sdk` | exit 0 |
+| Full SDK checkout + venv vendored in scan root | exit 0 (semgrep's default ignores exclude `venv/`) |
+
+`UNKNOWN`: one runner-side input that materialises those 50 findings is still
+unidentified. The *mechanism* in §4.2 is verified; the *specific population* is
+not. This is recorded rather than papered over.
+
+The fix shipped alongside these findings is precisely what closes that gap: the
+strict failure now names `provider_rule_id` and an example location per rule
+instead of opaque hashes, so the next central run identifies its own 50
+findings from its own log.
+
+## 5. Dependabot swarm (measured)
+
+Open Dependabot pull requests whose head branch targets first-party
+`l9-ci-core` / `l9-ci-sdk` references:
+
+| Repository | Open PRs | Dependabot | First-party CI pins |
+|---|---|---|---|
+| `l9-ci-debt-intelligence` | 12 | 10 | **4** |
+| `l9-ci-debt-lsp` | 8 | 7 | **5** |
+| `l9-ci-debt-resolver` | 7 | 6 | **5** |
+| `Cursor-Governance` | 17 | 5 | **5** |
+| **Total** | | | **19** |
+
+Representative branch shape — one PR per Core action, per consumer, per bump:
+
+```
+dependabot/github_actions/Quantum-L9/l9-ci-core/dot-github/actions/resolve-governance-aaa0112…
+dependabot/github_actions/Quantum-L9/l9-ci-core/dot-github/actions/provision-sdk-aaa0112…
+dependabot/github_actions/Quantum-L9/l9-ci-core/dot-github/actions/validate-bundle-aaa0112…
+dependabot/github_actions/Quantum-L9/l9-ci-core/dot-github/workflows/publish-analysis.yml-aaa0112…
+```
+
+See `DEPENDABOT_SWARM_BEFORE_AFTER.md`.
+
+## 6. Ownership graph as found
+
+```
+GitHub org ruleset "L9 canonical CI required"  (active, all 11 probed repos)
+  └─ ref refs/heads/main            ← VIOLATION: mutable pin, must be a SHA
+     └─ l9-ci-core/.github/workflows/org-ci.yml
+        ├─ @core-defaults  (6 docs, pr_fast = blocking, NO identity map)
+        ├─ SDK pinned 7d7762ea…      (immutable — correct)
+        └─ consumer contents
+
+Consumers ALSO still own, in parallel:
+  .github/workflows/l9-analysis.yml   (pr_fast = shadow — a weaker gate)
+  .github/governance/**               (incl. the 151-rule identity map)
+  8–9 first-party l9-ci-core action SHA pins each  → the Dependabot swarm
+```
+
+## 7. Blockers
+
+1. **`Quantum-L9/.github` is unreachable from this session.** It cannot be
+   cloned (a leading-dot repository name would collide with configuration
+   directories) and is not attachable via `add_repo`. The ruleset SHA-pin repair
+   (§3.1), ruleset apply/read-back verifier, and custom-property semantics all
+   live there and are **not** delivered. `UNKNOWN`: the checked-in desired-state
+   JSON in that repository has not been compared to the live ruleset above.
+2. **Organization-level API paths are blocked** for this session
+   (`orgs/*` → HTTP 403). Live ruleset state was recovered only via the
+   per-repository projection in §3. Any future verifier must use that path or
+   run with org-scoped credentials.
+3. **Central CI is red on every Python consumer.** Deleting consumer
+   `l9-analysis.yml` now would leave those repositories with a *failing*
+   required check and no passing analysis. The Phase 6 canary gate is **not**
+   met, so no consumer deletion was performed.
+
+## 8. Next highest-leverage move
+
+1. Merge the SDK diagnostic change, bump the Core-pinned SDK revision, and let
+   one canary run. Its log will then name the unresolved rules directly,
+   resolving the `UNKNOWN` in §4.3 from real data.
+2. Decide identity-map ownership — the reviewed 151-rule map must move to Core
+   `@core-defaults` (wired through the existing, unused `invoke-sdk`
+   `identity-map:` input) or to the SDK packaged map. It must **not** stay in
+   consumers.
+3. Repair the `refs/heads/main` → immutable SHA pin in `Quantum-L9/.github`.
+4. Only then migrate consumers, per `CENTRAL_CI_MIGRATION_MATRIX.md`.
