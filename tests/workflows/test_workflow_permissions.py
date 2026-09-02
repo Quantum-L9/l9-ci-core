@@ -23,6 +23,9 @@ class WorkflowPermissionTests(unittest.TestCase):
     #                           workflow_call-only, gated by the caller.
     #   analyze-semgrep.yml     checks:write + security-events:write for its
     #                           nested publication workflow. workflow_call-only.
+    #   nightly.yml             checks:write on the job that calls
+    #                           analyze-semgrep.yml so publication inherits
+    #                           write. workflow_call-only; advisory profile.
     #   self-analysis.yml       audited self-only dogfood caller that grants
     #                           the reusable publication scopes.
     #
@@ -31,6 +34,7 @@ class WorkflowPermissionTests(unittest.TestCase):
     WRITE_EXCEPTIONS = {
         "publish-analysis.yml": ["checks", "security-events"],
         "analyze-semgrep.yml": ["checks", "security-events"],
+        "nightly.yml": ["checks"],
         "self-analysis.yml": ["checks", "security-events"],
     }
 
@@ -81,7 +85,7 @@ class WorkflowPermissionTests(unittest.TestCase):
 
     def test_write_scoped_workflows_are_not_pull_request_triggered(self) -> None:
         trigger_pattern = re.compile(r"(?m)^\s*(pull_request|pull_request_target):")
-        reusable = {"publish-analysis.yml", "analyze-semgrep.yml"}
+        reusable = {"publish-analysis.yml", "analyze-semgrep.yml", "nightly.yml"}
         audited_pr_callers = {"self-analysis.yml"}
         for name in self.WRITE_EXCEPTIONS:
             workflow = WORKFLOWS / name

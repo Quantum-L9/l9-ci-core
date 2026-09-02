@@ -16,17 +16,17 @@ The kernels are **contract-superset, language-aware shims**. Each one declares e
 | `security.yml` | Gitleaks secret scan (pinned CLI binary with checksum verification), then pip-audit + bandit for Python and `npm audit` for Node. |
 | `scorecard.yml` | OpenSSF Scorecard with results as a build artifact; self-skips on `pull_request` (unsupported by scorecard-action). |
 | `sbom.yml` | Syft SPDX-JSON SBOM uploaded as a build artifact. |
-| `nightly.yml` | Full test run plus informational dependency-freshness reports for the detected language(s). |
+| `nightly.yml` | **Superseded v1 shim.** Org nightly kernel: nests `analyze-semgrep.yml` at `profile: nightly` (`ci_deep`, advisory) plus language-aware full-tree tests and informational dependency-freshness reports. Filename unchanged so callers bump the pin. |
 | `pre-commit-ci.yml` | Runs `pre-commit run --all-files` when `.pre-commit-config.yaml` exists; notices and passes otherwise. |
 | `trio-governance.yml` | Structural three-tier separation check (model must not import service/interface; service must not import interface) across Python and TypeScript sources. |
 | `release-publish.yml` | Python: `python -m build` + `twine check` + dist artifact. Node: `npm publish --dry-run`. No unattended registry publication (see below). |
 
 Two deliberate deviations from the v0.1.0 behavior follow from Core's v2 invariants, which are enforced by self-CI on every push:
 
-1. **No write permissions.** Core forbids any `write` permission in these workflows (`tests/workflows/test_workflow_permissions.py`). Scorecard therefore does not publish to the code-scanning feed (`publish_results: false`, artifact output instead), and `release-publish.yml` validates and stages artifacts rather than publishing to PyPI/npm. Unattended publication belongs in a repo-owned workflow using trusted publishing.
-2. **Everything is SHA-pinned.** All external actions are pinned to full 40-character commit SHAs (`tests/architecture/test_external_action_pins.py`), and the gitleaks CLI is a version-pinned, checksum-verified binary rather than the gitleaks-action (which requires a license key on organization repositories).
+1. **Least-privilege write.** Core forbids workflow-level write on these kernels (`tests/workflows/test_workflow_permissions.py`). Scorecard therefore does not publish to the code-scanning feed (`publish_results: false`, artifact output instead), and `release-publish.yml` validates and stages artifacts rather than publishing to PyPI/npm. Unattended publication belongs in a repo-owned workflow using trusted publishing. `nightly.yml` is the audited exception: its analyze job grants `checks: write` so the nested `analyze-semgrep.yml` publication can emit a GitHub check. Findings stay advisory on the nightly profile and are not a required merge check.
+2. **Everything is SHA-pinned.** All external actions and nested Core workflows are pinned to full 40-character commit SHAs (`tests/architecture/test_external_action_pins.py`), and the gitleaks CLI is a version-pinned, checksum-verified binary rather than the gitleaks-action (which requires a license key on organization repositories).
 
-The kernels never fail because a language toolchain is absent: each gate runs only when it applies to the repository, and inapplicable gates emit a `::notice` and pass. The deep governed analysis pipeline (Semgrep + SDK verdict) remains the job of the v2 preset workflow (`presets/*/`.github/workflows/l9-analysis.yml`), not of this layer.
+The kernels never fail because a language toolchain is absent: each gate runs only when it applies to the repository, and inapplicable gates emit a `::notice` and pass. PR/push Semgrep stays on `analyze-semgrep.yml` via the v2 presets (`presets/*/.github/workflows/l9-analysis.yml`). Nightly deep analysis (`ci_deep`, advisory) is no longer a second product: it is the `nightly.yml` kernel at `profile: nightly`.
 
 ## Tag policy
 

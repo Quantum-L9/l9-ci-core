@@ -150,6 +150,12 @@ class CallerProfileEventCompatibilityTests(unittest.TestCase):
         declared = profiles()
         for path, document, given in analysis_callers():
             for trigger in sorted(triggering_events(document)):
+                # A reusable kernel (`on: workflow_call`) inherits the
+                # caller's github.event_name. GitHub does not rewrite that
+                # to `workflow_call` inside nested analyze-semgrep.yml —
+                # nightly.yml is the org nightly kernel, not a leaf caller.
+                if trigger == "workflow_call":
+                    continue
                 event = kernel_event_class(trigger)
                 label = path.relative_to(ROOT).as_posix()
                 with self.subTest(workflow=label, trigger=trigger, event=event):
