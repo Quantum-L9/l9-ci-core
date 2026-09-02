@@ -11,8 +11,13 @@ is explicitly labelled `INFERENCE` / `UNKNOWN`.
 The primary gap hypothesis — "the organization required-workflow ruleset is not
 yet proven live and canonical" — is **falsified**. The ruleset is live, active,
 and correctly targets Core. The migration is blocked one step later: central CI
-**runs and fails** on every Python consumer, so no consumer may safely delete
+**runs and fails** on every Python repository, so no consumer may safely delete
 its legacy caller yet.
+
+The cause is now confirmed from a real central run (§4.3): central CI scans the
+SDK runtime it provisions into `.l9/runtime/sdk`, so the CI toolchain's own
+third-party dependencies are analyzed as product code. 51 of 52 unresolved
+findings are in `site-packages`.
 
 ## 2. Exact heads inspected
 
@@ -149,29 +154,62 @@ registry rule outside the 15-entry packaged map fails central CI closed. The
 identity map that would cover them is owned by *consumers*, not by Core or the
 SDK — the exact copy-first ownership inversion this migration exists to remove.
 
-### 4.3 What was NOT reproduced — stated plainly
+### 4.3 Root cause, confirmed from a real central run
 
-The specific set of **50** findings from run `33561406648` was **not**
-reproduced locally. Attempts, all at the exact CI revision
-`8d86c48f509eb27b40ccdacca9f0f46b40e37d06` with the exact pinned SDK revision
-and `--strict --required`:
+The shipped diagnostic (§8) resolved this from CI's own output on its first
+failure. Central run `33583852808` on `Quantum-L9/l9-ci-sdk` reported:
 
-| Attempt | Result |
-|---|---|
-| Consumer repo alone | exit 0, 0 findings |
-| `p/python` only | 0 findings (registry confirmed reachable: HTTP 200, and it *does* find issues in other trees) |
-| Packaged L9 ruleset only | 1 finding |
-| SDK source vendored at `.l9/runtime/sdk` | exit 0 |
-| Full SDK checkout + venv vendored in scan root | exit 0 (semgrep's default ignores exclude `venv/`) |
+```
+strict identity resolution failed for 52 finding(s) across 15 provider rule(s)
+  - …logger-credential-leak…: 9 finding(s)
+      (e.g. .l9/runtime/sdk/venv/lib/python3.12/site-packages/pip/_internal/network/auth.py:85)
+  - …weak-ssl-version…: 9 finding(s)
+      (e.g. .l9/runtime/sdk/venv/lib/python3.12/site-packages/urllib3/contrib/pyopenssl.py:76)
+  - …insecure-hash-algorithm-sha1: 8 finding(s)
+      (e.g. .l9/runtime/sdk/venv/lib/python3.12/site-packages/pip/_vendor/requests/auth.py:205)
+  …
+```
 
-`UNKNOWN`: one runner-side input that materialises those 50 findings is still
-unidentified. The *mechanism* in §4.2 is verified; the *specific population* is
-not. This is recorded rather than papered over.
+**51 of the 52 findings are inside
+`.l9/runtime/sdk/venv/lib/python3.12/site-packages/`** — `pip`, `urllib3`,
+`cryptography`, `peewee`, `semgrep`, `httpcore`, `dotenv`, `playhouse`. Exactly
+one (`…subprocess-injection`, `l9_ci/providers/semgrep/provider.py:145`) is
+repository code.
 
-The fix shipped alongside these findings is precisely what closes that gap: the
-strict failure now names `provider_rule_id` and an example location per rule
-instead of opaque hashes, so the next central run identifies its own 50
-findings from its own log.
+**Central CI is analyzing its own toolchain.** `provision-sdk` materialises the
+immutable SDK — including a virtualenv full of third-party dependencies — at
+`.l9/runtime/sdk`, *inside* the repository, and `org-ci.yml` then scans that
+same tree with `root: .`. Every third-party package shipped with the CI runtime
+is analyzed as if it were product code. Those registry rules carry no
+`metadata.l9.canonical_rule_id` and are absent from the 15-entry packaged
+identity map, so `strict: true` fails the job closed.
+
+This is not consumer-specific and not caused by any one pull request. The same
+failure occurs on unrelated branches by other authors
+(`fix/l9-analysis-caller-permissions`, `claude/pack-integration-remediation-d3kh7x`).
+
+Relocating the runtime is deliberately unavailable: `provision.py` enforces
+`runtime-directory must remain inside GITHUB_WORKSPACE`. The fix therefore
+belongs on the analysis surface — the SDK should exclude its own
+`.l9/runtime/**` scaffolding from the scan. `.l9/` is L9 infrastructure, never
+product code, and analyzing it is never intended. **That decision changes what
+central CI sees for every repository in the organization, so it is left to
+maintainers rather than made here.**
+
+#### A correction, recorded deliberately
+
+An earlier revision of this document reported that the failure "was NOT
+reproduced locally" across five attempts. That statement was wrong, and the
+reason matters: the local attempts invoked `l9-ci semgrep run` with an absolute
+`--raw-output` outside `--root`, which silently produced **no raw report and an
+empty finding bundle** (~827 bytes). Every "exit 0" recorded there was a scan
+that never examined anything.
+
+A direct `semgrep scan --config p/python .` over the identical tree scans
+**3130 files under `.l9/runtime`** and returns **62 findings**, matching CI.
+The negative results were an artifact of the reproduction harness, not evidence
+about the system. They are documented here so the mistake is not repeated: an
+exit code is not proof a scan ran — verify the scanned-path count.
 
 ## 5. Dependabot swarm (measured)
 
@@ -232,9 +270,11 @@ Consumers ALSO still own, in parallel:
 
 ## 8. Next highest-leverage move
 
-1. Merge the SDK diagnostic change, bump the Core-pinned SDK revision, and let
-   one canary run. Its log will then name the unresolved rules directly,
-   resolving the `UNKNOWN` in §4.3 from real data.
+1. **Exclude `.l9/runtime/**` from the analysis surface.** This is the blocker:
+   until central CI stops scanning its own provisioned toolchain, it fails
+   closed everywhere. The runtime cannot move (`provision.py` requires it stay
+   inside `GITHUB_WORKSPACE`), so the exclusion belongs in the SDK's scan
+   arguments. It changes what central CI sees org-wide — a maintainer call.
 2. Decide identity-map ownership — the reviewed 151-rule map must move to Core
    `@core-defaults` (wired through the existing, unused `invoke-sdk`
    `identity-map:` input) or to the SDK packaged map. It must **not** stay in
