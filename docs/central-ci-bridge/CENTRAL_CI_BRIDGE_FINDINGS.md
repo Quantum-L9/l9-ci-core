@@ -240,7 +240,9 @@ pinned SHA (`uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2aa859c8â
 and `provision.py` resolves the allowlist *relative to its own file*:
 
 ```python
-COMPATIBILITY_MANIFEST = Path(__file__).resolve().parents[3] / ".l9" / "sdk-compatibility.yaml"
+COMPATIBILITY_MANIFEST = (
+    Path(__file__).resolve().parents[3] / ".l9" / "sdk-compatibility.yaml"
+)
 ```
 
 So the governing allowlist is the one committed at the pinned **action**
