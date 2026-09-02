@@ -281,12 +281,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2aa859c8018d67778e4efb256b888c7b18045445
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@01f5b16b3520ce75c168c5720864dfeddd5423a9
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2aa859c8018d67778e4efb256b888c7b18045445
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@01f5b16b3520ce75c168c5720864dfeddd5423a9
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -322,7 +322,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2aa859c8018d67778e4efb256b888c7b18045445
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@01f5b16b3520ce75c168c5720864dfeddd5423a9
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -349,7 +349,7 @@ jobs:
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2aa859c8018d67778e4efb256b888c7b18045445
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@01f5b16b3520ce75c168c5720864dfeddd5423a9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -366,7 +366,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2aa859c8018d67778e4efb256b888c7b18045445
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@01f5b16b3520ce75c168c5720864dfeddd5423a9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -407,7 +407,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2aa859c8018d67778e4efb256b888c7b18045445
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@01f5b16b3520ce75c168c5720864dfeddd5423a9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -418,7 +418,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2aa859c8018d67778e4efb256b888c7b18045445
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@01f5b16b3520ce75c168c5720864dfeddd5423a9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -430,7 +430,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2aa859c8018d67778e4efb256b888c7b18045445
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@01f5b16b3520ce75c168c5720864dfeddd5423a9
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -452,7 +452,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2aa859c8018d67778e4efb256b888c7b18045445
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@01f5b16b3520ce75c168c5720864dfeddd5423a9
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
