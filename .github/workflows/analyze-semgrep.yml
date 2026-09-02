@@ -43,10 +43,19 @@ on:
       profile:
         description: >
           Governance execution profile (pr_fast, merge, nightly, release,
-          supply_chain). Must allow the triggering event in the caller's
-          .github/governance/execution-profiles.yaml.
+          supply_chain). Must allow the resolved governance event class in the
+          caller's .github/governance/execution-profiles.yaml.
         type: string
         required: true
+      event:
+        description: >
+          Optional governance event class override for reusable callers. Empty
+          derives from the triggering event; workflow_dispatch defaults to the
+          nightly class. Release and supply-chain callers should pass their
+          explicit class so a manual dispatch is not misclassified as nightly.
+        type: string
+        required: false
+        default: ""
       matrix-id:
         description: Stable artifact matrix identifier (e.g. pr-semgrep).
         type: string
@@ -138,15 +147,15 @@ jobs:
           profile: ${{ inputs.profile }}
           provider: semgrep
           # `resolve-governance` expects a governance event *class*, not a raw
-          # trigger name. Every class but this one shares its trigger's name,
-          # so the raw value passed unnoticed until a caller was dispatched
-          # manually: no profile declares `workflow_dispatch`, so resolution
-          # aborted. org-ci.yml's resolver maps the dispatch trigger to the
-          # `nightly` class; this mirrors that mapping for every caller of the
-          # kernel, repairing a path that previously always failed.
+          # trigger name. Reusable release/supply-chain callers can state that
+          # class explicitly; a generic manual dispatch with no override remains
+          # the nightly canary, matching org-ci.yml. This prevents a release
+          # workflow dispatched by hand from being silently reclassified as
+          # nightly while preserving the existing default for ordinary canaries.
           event-name: >-
-            ${{ github.event_name == 'workflow_dispatch'
-             && 'nightly' || github.event_name }}
+            ${{ inputs.event != '' && inputs.event
+             || github.event_name == 'workflow_dispatch' && 'nightly'
+             || github.event_name }}
           repository: ${{ github.repository }}
           ref: ${{ github.ref }}
           governance-root: ${{ inputs.governance-root }}
