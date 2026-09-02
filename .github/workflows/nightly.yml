@@ -1,10 +1,18 @@
-# L9 v1 compatibility kernel — nightly validation and dependency freshness.
-# Restores the `nightly.yml@v1` reusable-workflow contract deleted in the v2
-# rewrite. Language-aware: runs the applicable test suite and reports outdated
-# dependencies for Python and/or Node projects. Freshness reporting is
-# informational and never fails the run. Contract: superset of the v0.1.0
-# inputs plus every input passed by the org-starter callers (python-version,
-# run-extended-tests).
+# L9 nightly kernel — ci_deep analysis plus language-aware full-tree tests.
+#
+# Filename stays nightly.yml so existing `uses: …/nightly.yml@<sha>` callers
+# bump the pin; they do not rename. The v1 tests-and-freshness-only body is
+# superseded: callers also get analyze-semgrep at profile: nightly (advisory).
+# Gate_SDK-only jobs (spec grep, coverage %, release-identity) stay out.
+#
+# Nested analyze-semgrep.yml must be fully qualified. This reusable executes
+# in the CALLER checkout, so `uses: ./…` would resolve against the consumer.
+# The pin is CORE_ACTIONS_PIN — the same Core commit already duplicated on
+# every action line inside analyze-semgrep.yml (grep: CORE_ACTIONS_PIN).
+# Bump them together.
+#
+# workflow_call inputs stay a superset of the v1 / org-starter contract
+# (python-version, run-extended-tests, …). language is additive and optional.
 name: L9 Nightly
 on:
   workflow_call:
@@ -61,10 +69,28 @@ on:
         type: boolean
         required: false
         default: false
+      language:
+        description: SDK semgrep language ruleset ("python" or "typescript").
+        type: string
+        required: false
+        default: python
 permissions:
   contents: read
   packages: read
 jobs:
+  analyze:
+    name: Analyze (semgrep nightly)
+    # CORE_ACTIONS_PIN
+    uses: Quantum-L9/l9-ci-core/.github/workflows/analyze-semgrep.yml@01f5b16b3520ce75c168c5720864dfeddd5423a9
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+    secrets: inherit
+    with:
+      profile: nightly
+      matrix-id: nightly-semgrep
+      language: ${{ inputs.language }}
   nightly:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -177,3 +203,25 @@ jobs:
       - name: Non-applicable pipeline
         if: steps.detect.outputs.python != 'true' && steps.detect.outputs.node != 'true'
         run: echo "::notice::No Python or Node project detected; nothing to validate"
+  summary:
+    name: Nightly summary
+    runs-on: ubuntu-latest
+    needs: [analyze, nightly]
+    if: always()
+    steps:
+      - name: Report analyze + tests + freshness
+        env:
+          ANALYZE_RESULT: ${{ needs.analyze.result }}
+          NIGHTLY_RESULT: ${{ needs.nightly.result }}
+        run: |
+          set -euo pipefail
+          printf 'analyze=%s nightly=%s\n' "${ANALYZE_RESULT}" "${NIGHTLY_RESULT}"
+          echo "::notice::Analyze is advisory on profile nightly; findings publish and do not fail this summary."
+          if [ "${NIGHTLY_RESULT}" != "success" ]; then
+            echo "Hard test/install failure in the nightly job." >&2
+            exit 1
+          fi
+          if [ "${ANALYZE_RESULT}" = "cancelled" ]; then
+            echo "Analyze job was cancelled." >&2
+            exit 1
+          fi
