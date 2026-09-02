@@ -6,11 +6,11 @@ metadata:
 default:
   source: git
   repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-  revision: 0efd762d1617a1c8635005d0611b1cf6f2303987
+  revision: 7d7762eae5e1a12fdc66276975e2949891762a20
 supported:
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-    revision: 0efd762d1617a1c8635005d0611b1cf6f2303987
+    revision: 7d7762eae5e1a12fdc66276975e2949891762a20
     integration_contract: l9.integration-contract/v1
     artifact_protocols:
       - l9.finding-bundle/v1
@@ -31,7 +31,7 @@ supported:
       - baseline validate-ledger
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-    revision: 7d7762eae5e1a12fdc66276975e2949891762a20
+    revision: 0efd762d1617a1c8635005d0611b1cf6f2303987
     integration_contract: l9.integration-contract/v1
     artifact_protocols:
       - l9.finding-bundle/v1

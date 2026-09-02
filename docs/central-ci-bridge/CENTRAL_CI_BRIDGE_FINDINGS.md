@@ -207,42 +207,70 @@ the flag:
 | without `--exclude` | 3222 | 3130 | **62** |
 | with `--exclude` | 92 | 0 | **0** |
 
-**Core's pin has been moved to a revision carrying the fix.** `0efd762…` is
-now the compatibility-manifest default and is pinned across all nine pin sites
-in Core (see §4.4). `7d7762ea…` is retained in the allowlist as the tested
-rollback.
+**The fix reaches the fleet in two merges, not one — and the reason is
+structural.** `0efd762…` is now *allowlisted* in `.l9/sdk-compatibility.yaml`,
+but it is not yet the default and no workflow selects it. See §4.4.
 
-Central CI on `l9-ci-sdk` is green at `0efd762` — the first green
-`Analyze (central Core)` run in the organization. Note that on that repository
-the fix would have applied regardless of the pin: `provision-sdk` runs
-`python -m l9_ci` with `PYTHONPATH={checkout}`, and `python -m` places the
-current working directory ahead of `PYTHONPATH`, so a repository that itself
-contains `l9_ci/` shadows the pinned checkout. That affects `l9-ci-sdk` only;
-every other repository resolves the pin, which is why moving it was required.
+Central CI on `l9-ci-sdk` is nevertheless green at `0efd762` — the first green
+`Analyze (central Core)` run in the organization. That result does **not**
+generalize: on that repository the fix applies regardless of the pin, because
+`provision-sdk` runs `python -m l9_ci` with `PYTHONPATH={checkout}` and
+`python -m` places the current working directory ahead of `PYTHONPATH`, so a
+repository containing its own `l9_ci/` shadows the pinned checkout. That is a
+hole in the immutable-provisioning guarantee, it affects `l9-ci-sdk` alone, and
+every other repository still resolves the pin.
 
-### 4.4 The SDK pin is nine sites, not one
+### 4.4 Why the pin bump takes two merges
 
-Moving Core's SDK revision is not a one-line edit. `.l9/sdk-compatibility.yaml`
-is an allowlist (`unlisted_revisions_allowed: false`, `branches_allowed: false`,
-`floating_git_references_allowed: false`), so a new revision must be *added* as
-a supported entry before it can be selected at all. The revision is pinned in:
+Moving Core's SDK revision is not a one-line edit, and it cannot be completed in
+a single pull request. Two mechanisms compound.
 
-| File | Role |
-|---|---|
-| `.l9/sdk-compatibility.yaml` | allowlist default + supported entry |
-| `.github/actions/provision-sdk/provision.py` | `EXPECTED_REVISION` enforcement constant |
-| `.github/actions/provision-sdk/action.yml` | action input default |
-| `.github/workflows/org-ci.yml` | central entrypoint default |
-| `.github/workflows/analyze-semgrep.yml` | profile caller default |
-| `.github/workflows/publish-analysis.yml` | publication default |
-| `.github/workflows/sdk-contract-check.yml` | pinned revision + asserted equality |
-| `.l9/architecture.yaml`, `.l9/artifact-protocol.yaml` | declared runtime topology |
-| `tests/provisioning/test_compatibility_manifest.py`, `test_required_cli_probing.py` | assert the exact SHA |
+**The allowlist.** `.l9/sdk-compatibility.yaml` sets
+`unlisted_revisions_allowed: false`, `branches_allowed: false` and
+`floating_git_references_allowed: false`, so a revision must be *added* as a
+supported entry before it can be selected at all. The revision is additionally
+pinned in `provision.py` (`EXPECTED_REVISION`), the `provision-sdk` action
+default, four workflow defaults, `sdk-contract-check`'s asserted equality, and
+the declared topology in `.l9/architecture.yaml` and `.l9/artifact-protocol.yaml`
+— nine sites that must move together, plus two tests that assert the exact SHA
+and a `MANIFEST.sha256` digest for every changed tracked file.
 
-`MANIFEST.sha256` additionally records a digest for every changed tracked file
-and must be reconciled in the same change; `tests/tools/test_manifest_integrity.py`
-fails the pull request otherwise. It caught all twelve changed files here, which
-is the gate working as intended.
+**The action pin is the blocker.** Core's workflows invoke Core's own actions by
+pinned SHA (`uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2aa859c8…`),
+and `provision.py` resolves the allowlist *relative to its own file*:
+
+```python
+COMPATIBILITY_MANIFEST = Path(__file__).resolve().parents[3] / ".l9" / "sdk-compatibility.yaml"
+```
+
+So the governing allowlist is the one committed at the pinned **action**
+revision — not the branch, and not `main` at merge time. Flipping the workflow
+defaults to `0efd762…` while the pinned action still resolves an allowlist
+without it fails provisioning outright:
+
+```
+provision-sdk: sdk-revision is not listed in .l9/sdk-compatibility.yaml
+```
+
+That is observed, not predicted: it is why `Analyze (semgrep -> SDK)` failed on
+this branch when all nine sites were moved at once. Merging that state would
+have broken provisioning on **every** repository in the organization — a harder
+failure than the strict-identity one it was meant to fix.
+
+`2aa859c8…` is also **not an ancestor of `main`** (it is a pull-request head;
+`1abce35` is its squash on `main`), so "just bump the action pin too" is not a
+mechanical step — it moves the organization from one action-code line to
+another.
+
+**The safe sequence:**
+
+1. **This PR** — allowlist `0efd762…` only. No default moves, no workflow
+   selects it, so behavior is unchanged and the merge is safe.
+2. **Follow-up** — once step 1 is on `main`, pin the Core actions to that `main`
+   commit and flip the nine `sdk-revision` sites together. The pinned action then
+   resolves an allowlist that contains the revision, and the fleet gets the fix.
+
+Doing it in this order avoids pinning the organization to any unmerged commit.
 
 #### A correction, recorded deliberately
 
@@ -318,10 +346,9 @@ Consumers ALSO still own, in parallel:
 
 ## 8. Next highest-leverage move
 
-1. **Merge `l9-ci-sdk#85`, then confirm the pin still resolves.** The pin bump
-   is landed in Core, but it names an unmerged commit. A squash or rebase merge
-   of #85 will not place `0efd762…` on `main`; prefer a merge commit, or re-pin
-   to the resulting `main` commit afterwards.
+1. **Merge `l9-ci-sdk#85`** (prefer a merge commit, so `0efd762…` lands on
+   `main`), **then this PR** to allowlist it, **then the follow-up** that bumps
+   the Core action pin and flips the nine `sdk-revision` sites (§4.4).
 2. Decide identity-map ownership — the reviewed 151-rule map must move to Core
    `@core-defaults` (wired through the existing, unused `invoke-sdk`
    `identity-map:` input) or to the SDK packaged map. It must **not** stay in
