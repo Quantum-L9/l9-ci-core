@@ -24,7 +24,7 @@ findings are in `site-packages`.
 | Repository | Default branch | HEAD inspected |
 |---|---|---|
 | `Quantum-L9/l9-ci-core` | `main` | `aaa01124d95b8fc51369636116e71aedf2f7389f` |
-| `Quantum-L9/l9-ci-sdk` | `main` | `7d7762eae5e1a12fdc66276975e2949891762a20` |
+| `Quantum-L9/l9-ci-sdk` | `main` | `4ceb240935b595ca719fc72dcaa83ea227e31957` |
 | `Quantum-L9/l9-ci-debt-intelligence` | `main` | `249a46bf86ba90f56ae76b11d079e3ec3bfa1b57` |
 | `Quantum-L9/l9-ci-debt-lsp` | `main` | `86620601d17d27ebf91c67e8f0be67a81eecc3b6` |
 | `Quantum-L9/l9-ci-debt-resolver` | `main` | `ae40d6f76672abb4486aeac1fe12e96daddb48a3` |
