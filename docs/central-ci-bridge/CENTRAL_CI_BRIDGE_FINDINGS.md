@@ -190,11 +190,26 @@ failure occurs on unrelated branches by other authors
 
 Relocating the runtime is deliberately unavailable: `provision.py` enforces
 `runtime-directory must remain inside GITHUB_WORKSPACE`. The fix therefore
-belongs on the analysis surface — the SDK should exclude its own
-`.l9/runtime/**` scaffolding from the scan. `.l9/` is L9 infrastructure, never
-product code, and analyzing it is never intended. **That decision changes what
-central CI sees for every repository in the organization, so it is left to
-maintainers rather than made here.**
+belongs on the analysis surface.
+
+**Fixed in `Quantum-L9/l9-ci-sdk#85`** (`da4d228`): `semgrep run` now passes
+`--exclude .l9/runtime`. The exclusion is narrower than `.l9/` on purpose —
+repository-authored `.l9/` contracts stay in scope, only the provisioned
+runtime subtree is skipped — and it applies to every execute request,
+including `--profile l9-baseline`. `normalize` is untouched, since it imports a
+report produced elsewhere and does not control the scan surface.
+
+Measured on a tree with the runtime provisioned in place, identical except for
+the flag:
+
+| | files scanned | under `.l9/runtime` | findings |
+|---|---|---|---|
+| without `--exclude` | 3222 | 3130 | **62** |
+| with `--exclude` | 92 | 0 | **0** |
+
+**This does not take effect in central CI until Core bumps its pinned SDK
+revision.** `org-ci.yml` pins `7d7762ea…`; the required check keeps failing on
+every repository until that pin moves to a revision carrying the fix.
 
 #### A correction, recorded deliberately
 
@@ -270,11 +285,10 @@ Consumers ALSO still own, in parallel:
 
 ## 8. Next highest-leverage move
 
-1. **Exclude `.l9/runtime/**` from the analysis surface.** This is the blocker:
-   until central CI stops scanning its own provisioned toolchain, it fails
-   closed everywhere. The runtime cannot move (`provision.py` requires it stay
-   inside `GITHUB_WORKSPACE`), so the exclusion belongs in the SDK's scan
-   arguments. It changes what central CI sees org-wide — a maintainer call.
+1. **Bump Core's pinned SDK revision.** The scan-surface fix is implemented
+   (`l9-ci-sdk#85`, `da4d228`) but inert until `org-ci.yml` pins a revision
+   carrying it. This is the remaining blocker: until then the required check
+   fails closed on every Python repository.
 2. Decide identity-map ownership — the reviewed 151-rule map must move to Core
    `@core-defaults` (wired through the existing, unused `invoke-sdk`
    `identity-map:` input) or to the SDK packaged map. It must **not** stay in
