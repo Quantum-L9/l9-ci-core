@@ -134,11 +134,16 @@ jobs:
         run: |
           set -euo pipefail
           git init .
-          git remote add origin \
-            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          # Basic auth with the token as password is what GitHub's
+          # git-over-HTTPS transport accepts (Bearer is API-only); the header is
+          # scoped to github.com so it is not replayed to another host on a
+          # redirect. Mirrors actions/checkout and presets/python/.github/workflows/l9-lint-test.yml.
+          auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          git -c protocol.version=2 \
+              -c "http.https://github.com/.extraheader=${auth_header}" \
+              fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
       - id: gov
         name: Resolve governance (Core)
         # CORE_ACTIONS_PIN
@@ -186,7 +191,7 @@ jobs:
           L9_SEMGREP_VERSION: ${{ inputs.semgrep-version }}
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip "semgrep==${L9_SEMGREP_VERSION}"
+          python -m pip install --upgrade pip --only-binary :all: "semgrep==${L9_SEMGREP_VERSION}"
       - name: Run + normalize semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
