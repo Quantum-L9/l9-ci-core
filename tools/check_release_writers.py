@@ -81,8 +81,9 @@ RELEASE_ACTIONS = re.compile(
     r"release-action|tag-action|github-tag-action|upload-release-asset)[^@\s]*)"
 )
 
+#: Mutating ``gh release`` subcommands. Everything else (``view``, ``list``,
+#: ``download``) only reads and is not a writer.
 GH_RELEASE_MUTATIONS = frozenset({"create", "edit", "delete", "upload", "update"})
-GH_RELEASE_READS = frozenset({"view", "list", "download"})
 
 #: ``git tag`` forms that only read.
 GIT_TAG_READ_FLAGS = frozenset({"-l", "--list", "--contains", "--points-at", "-n"})

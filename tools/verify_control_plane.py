@@ -211,6 +211,8 @@ def load_expected(root: Path) -> Expected:
     if not isinstance(immutable, bool):
         raise ContractError("core_release.immutable must be a boolean")
 
+    _require_agreeing_binding(root, repository, branch, workflow)
+
     return Expected(
         repository=repository,
         branch=branch,
@@ -221,6 +223,50 @@ def load_expected(root: Path) -> Expected:
         minimum_bound_contexts=minimum,
         immutable_releases=immutable,
     )
+
+
+def _require_agreeing_binding(
+    root: Path, repository: str, branch: str, workflow: str
+) -> None:
+    """Refuse to attest while the two binding contracts disagree.
+
+    ``.l9/release-plane.yaml`` and ``.l9/org-runtime-contract.yaml`` both
+    declare the ruleset binding. When they disagree there is no single
+    expectation to compare GitHub against, and picking one would decide a
+    contract question inside an attestation. That is ambiguity, and ambiguity
+    fails closed rather than producing a PASS against whichever file was read
+    first.
+    """
+    path = root / ORG_RUNTIME_CONTRACT
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise ContractError(f"cannot read {ORG_RUNTIME_CONTRACT}: {error}") from error
+    except yaml.YAMLError as error:
+        raise ContractError(
+            f"{ORG_RUNTIME_CONTRACT} is not valid YAML: {error}"
+        ) from error
+    if not isinstance(document, dict):
+        raise ContractError(f"{ORG_RUNTIME_CONTRACT} is not a mapping")
+    entrypoint = document.get("entrypoint")
+    binding = (
+        entrypoint.get("ruleset_binding") if isinstance(entrypoint, dict) else None
+    )
+    if not isinstance(binding, dict):
+        raise ContractError(
+            f"{ORG_RUNTIME_CONTRACT} declares no entrypoint.ruleset_binding"
+        )
+    for key, expected in (
+        ("repository", repository),
+        ("branch", branch),
+        ("workflow", workflow),
+    ):
+        declared = binding.get(key)
+        if declared != expected:
+            raise ContractError(
+                f"{CONTRACT} and {ORG_RUNTIME_CONTRACT} disagree on the ruleset "
+                f"binding {key}: {expected!r} vs {declared!r}"
+            )
 
 
 def _mapping(document: dict[str, Any], *keys: str) -> dict[str, Any]:

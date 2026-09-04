@@ -158,6 +158,84 @@ class ExpectedContractTests(unittest.TestCase):
         self.assertEqual(expected.branch, binding["branch"])
         self.assertEqual(expected.workflow, binding["workflow"])
 
+    def test_disagreeing_binding_contracts_fail_closed(self) -> None:
+        """Two contracts, one expectation — a split is ambiguity, not a PASS."""
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        (tmp / ".l9").mkdir()
+        shutil.copy(ROOT / MODULE.CONTRACT, tmp / MODULE.CONTRACT)
+        text = (ROOT / MODULE.ORG_RUNTIME_CONTRACT).read_text(encoding="utf-8")
+        (tmp / MODULE.ORG_RUNTIME_CONTRACT).write_text(
+            text.replace(f"    branch: {BRANCH}\n", "    branch: release\n", 1),
+            encoding="utf-8",
+        )
+        with self.assertRaises(MODULE.ContractError) as caught:
+            MODULE.load_expected(tmp)
+        self.assertIn("disagree", str(caught.exception))
+
+    def test_absent_org_runtime_contract_fails_closed(self) -> None:
+        tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        (tmp / ".l9").mkdir()
+        shutil.copy(ROOT / MODULE.CONTRACT, tmp / MODULE.CONTRACT)
+        with self.assertRaises(MODULE.ContractError):
+            MODULE.load_expected(tmp)
+
+
+class ContractDeclaredPathTests(unittest.TestCase):
+    """Every path the release plane names must exist.
+
+    A contract that points at a verifier, a workflow, or a test module which is
+    not in the tree documents an assurance that does not run. These assertions
+    are what stop the attestation block from decaying into a claim.
+    """
+
+    def setUp(self) -> None:
+        import yaml
+
+        self.plane = yaml.safe_load(
+            (ROOT / MODULE.CONTRACT).read_text(encoding="utf-8")
+        )
+
+    def test_attestation_declares_this_verifier_and_its_workflow(self) -> None:
+        attestation = self.plane["attestation"]["live_control_plane"]
+        self.assertEqual("tools/verify_control_plane.py", attestation["verifier"])
+        self.assertEqual(
+            ".github/workflows/control-plane-attestation.yml", attestation["workflow"]
+        )
+        for key in ("verifier", "workflow"):
+            self.assertTrue((ROOT / attestation[key]).is_file(), attestation[key])
+
+    def test_attestation_declares_read_only_and_unknown_is_not_pass(self) -> None:
+        attestation = self.plane["attestation"]["live_control_plane"]
+        self.assertFalse(attestation["mutating"])
+        self.assertFalse(attestation["unknown_is_pass"])
+        self.assertEqual(
+            [
+                "organization_required_workflow_binding",
+                "core_main_protection",
+                "immutable_releases",
+            ],
+            attestation["checks"],
+        )
+
+    def test_every_declared_contract_test_exists(self) -> None:
+        for relative in self.plane["validation"]["contract_tests"]:
+            with self.subTest(test=relative):
+                self.assertTrue((ROOT / relative).is_file(), relative)
+
+    def test_main_protection_points_at_real_operator_documentation(self) -> None:
+        protection = self.plane["core_main_protection"]
+        documented_in = ROOT / protection["documented_in"]
+        self.assertTrue(documented_in.is_file(), protection["documented_in"])
+        text = documented_in.read_text(encoding="utf-8")
+        self.assertIn("## Core `main` protection", text)
+        self.assertFalse(
+            protection["required_status_checks"]["contexts_declared_here"],
+            "L9-ORG-009 keeps required check contexts evidence-backed, so the "
+            "contract must not name them",
+        )
+
 
 class ContractLoadingFailureTests(unittest.TestCase):
     def setUp(self) -> None:
