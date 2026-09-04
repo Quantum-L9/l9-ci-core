@@ -350,23 +350,35 @@ def create_runtime(checkout: Path, runtime: Path) -> Path:
     # SDK-owned Semgrep execution (`semgrep run`) needs the semgrep binary in the
     # provisioned venv; the pin is sourced from the pinned SDK checkout.
     install_semgrep_runtime(checkout, venv_python)
+    # The shim must put the venv's script directory on PATH, not only PYTHONPATH.
+    # install_semgrep_runtime above places the semgrep binary in the venv, but the
+    # SDK resolves the provider with shutil.which("semgrep") -- a PATH lookup. A
+    # shim that exports PYTHONPATH alone leaves that binary unreachable, so every
+    # `l9-ci semgrep run` under Core provisioning recorded a fatal, required
+    # provider failure of type not_installed while the binary sat in the venv.
+    # Core's own sdk-contract-check.yml drives `semgrep normalize` on a committed
+    # fixture, so its CI never exercised the live provider path.
     if os.name == "nt":
-        python = venv / "Scripts" / "python.exe"
+        scripts = venv / "Scripts"
+        python = scripts / "python.exe"
         executable = runtime / "l9-ci.cmd"
         executable.write_text(
             "@echo off\r\n"
             f'set "PYTHONPATH={checkout};%PYTHONPATH%"\r\n'
+            f'set "PATH={scripts};%PATH%"\r\n'
             f'"{python}" -m l9_ci %*\r\n',
             encoding="utf-8",
         )
     else:
-        python = venv / "bin" / "python"
+        bin_directory = venv / "bin"
+        python = bin_directory / "python"
         executable = runtime / "bin" / "l9-ci"
         executable.parent.mkdir(parents=True, exist_ok=True)
         executable.write_text(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
             f'export PYTHONPATH="{checkout}${{PYTHONPATH:+:$PYTHONPATH}}"\n'
+            f'export PATH="{bin_directory}${{PATH:+:$PATH}}"\n'
             f'exec "{python}" -m l9_ci "$@"\n',
             encoding="utf-8",
         )
