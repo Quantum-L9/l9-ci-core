@@ -25,8 +25,14 @@ jobs:
           set -euo pipefail
           git init .
           git remote add origin "https://github.com/${REPOSITORY}.git"
-          git -c http.extraHeader="Authorization: Bearer ${TOKEN}" \
-              -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          # Basic auth with the token as password is what GitHub's
+          # git-over-HTTPS transport accepts (Bearer is API-only); the header is
+          # scoped to github.com so it is not replayed to another host on a
+          # redirect. Mirrors actions/checkout and presets/python/.github/workflows/l9-lint-test.yml.
+          auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          git -c protocol.version=2 \
+              -c "http.https://github.com/.extraheader=${auth_header}" \
+              fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -58,8 +64,14 @@ jobs:
           set -euo pipefail
           git init .
           git remote add origin "https://github.com/${REPOSITORY}.git"
-          git -c http.extraHeader="Authorization: Bearer ${TOKEN}" \
-              -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          # Basic auth with the token as password is what GitHub's
+          # git-over-HTTPS transport accepts (Bearer is API-only); the header is
+          # scoped to github.com so it is not replayed to another host on a
+          # redirect. Mirrors actions/checkout and presets/python/.github/workflows/l9-lint-test.yml.
+          auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          git -c protocol.version=2 \
+              -c "http.https://github.com/.extraheader=${auth_header}" \
+              fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
       - name: Emit checksum-manifest reconciliation hints
         run: |
