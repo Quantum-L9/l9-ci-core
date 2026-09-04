@@ -18,6 +18,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+# GitHub honours both spellings of a YAML executable surface: a workflow or
+# composite action is loaded from `*.yml` and `*.yaml` identically. A scan that
+# reads only one extension therefore leaves the other free to carry an unpinned
+# external action into a release.
+GITHUB_YAML_SUFFIXES = ("*.yml", "*.yaml")
 SEMVER = re.compile(
     r"^v?(0|[1-9][0-9]*)\."
     r"(0|[1-9][0-9]*)\."
@@ -101,9 +106,30 @@ def run_tests(root: Path) -> None:
         raise ReleaseError("repository validation suite failed")
 
 
+def github_yaml_surfaces(root: Path) -> list[Path]:
+    """Return every GitHub YAML surface beneath ``.github``.
+
+    One canonical discovery mechanism covers reusable workflows
+    (``.github/workflows/**``), composite actions
+    (``.github/actions/**/action.yml`` and ``action.yaml``), and any other
+    executable YAML GitHub may load from the directory. Separate
+    workflow/action scanners are how one of the two extensions ends up
+    unenforced, so there is deliberately only one.
+    """
+    base = root / ".github"
+    if not base.is_dir():
+        return []
+    return sorted(
+        path
+        for pattern in GITHUB_YAML_SUFFIXES
+        for path in base.rglob(pattern)
+        if path.is_file()
+    )
+
+
 def validate_external_action_pins(root: Path) -> None:
     invalid: list[str] = []
-    for workflow in (root / ".github").rglob("*.yml"):
+    for workflow in github_yaml_surfaces(root):
         text = workflow.read_text(encoding="utf-8")
         for line_number, line in enumerate(text.splitlines(), start=1):
             # A step may open with `- uses:` or carry `uses:` after `- name:`;
