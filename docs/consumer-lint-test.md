@@ -8,8 +8,12 @@ bump those packages.
 - uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@v2
 ```
 
-`@v2` is a floating major tag moved only after a human Core pin-file PR.
-Analysis / SDK invoke stays SHA-pinned. Never `@main`.
+`@v2` is a floating major tag moved only after a human Core pin-file PR, by
+`tools/publish_consumer_ci_tag.sh`. It is the consumer toolchain installer
+tag only: it is **not** a Core release alias (Core releases never move it,
+see `.l9/release-plane.yaml`) and it is **not** a governed
+organization-enforcement path (that is Core `main` via the organization
+ruleset). Analysis / SDK invoke stays SHA-pinned. Never `@main`.
 
 Authority files in Core:
 

@@ -1,5 +1,11 @@
 # Release runbook — l9-ci-core v2.0.0
 
+> **Historical.** This checklist records the v2.0.0 cut under the retired
+> moving-alias model (`v2` force-moved at release, consumer `@v2` pins).
+> `v2.0.0` has been cut. The current procedure is [`README.md`](README.md)
+> and `.l9/release-plane.yaml`: releases are immutable audit anchors, no
+> alias moves, and the organization CI runtime is Core `main` via the ruleset.
+
 Single-file checklist to cut the immutable **v2.0.0** release. Automated Claude
 sessions cannot push tags (the git gateway denies `refs/tags/*` with 403), so
 this must be run once by a human with push rights. Everything the release needs

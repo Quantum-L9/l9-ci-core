@@ -23,6 +23,23 @@ dependency_direction:
   prohibited:
     - l9-ci-sdk -> l9-ci-core
 
+production_channel:
+  contract: .l9/release-plane.yaml
+  runtime_source:
+    repository: Quantum-L9/l9-ci-core
+    branch: main
+    workflow: .github/workflows/org-ci.yml
+    bound_by: github_organization_required_workflow_ruleset
+  releases:
+    role: immutable_audit_anchor
+    runtime_authority: false
+    moving_major_alias: false
+  consumer_core_revision_selection: false
+  propagation: >-
+    main is the production CI channel. Releases (vMAJOR.MINOR.PATCH) are
+    immutable audit, provenance, and rollback anchors; they do not distribute
+    Core to consumers and consumers never select a Core revision.
+
 sdk:
   repository: Quantum-L9/l9-ci-sdk
   revision: 4ceb240935b595ca719fc72dcaa83ea227e31957
@@ -89,6 +106,8 @@ prohibited_architecture:
   - copied L9 governance packs as organization enforcement
   - per-repository Core orchestration forks
   - a second L9 CI control-plane repository
+  - a moving major release tag as the organization CI runtime channel
+  - consumer-owned Core revision selection for organization CI
   - Core parsing provider-native scanner reports
   - Core reconstructing canonical findings
   - SDK owning GitHub workflow permissions or organization rollout

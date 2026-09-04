@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Point the floating v2 tag at HEAD after a merged pin-file change.
 # Does not push. Prints the exact push command. Record PREV_SHA before moving.
+#
+# v2 is the consumer toolchain installer tag (install-consumer-ci@v2) only.
+# It is not a Core release alias and not the organization CI runtime channel;
+# docs/release/tag-and-release.sh never moves it (.l9/release-plane.yaml).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
