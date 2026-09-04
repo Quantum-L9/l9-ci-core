@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
-"""Fail-closed Phase 4 release validation."""
+"""Fail-closed release validation for immutable Core releases.
+
+A Core release is an immutable audit anchor (``.l9/release-plane.yaml``), not
+the organization CI runtime channel: the GitHub organization ruleset binds
+governed repositories to Core ``main`` directly, so nothing here moves a
+major alias or publishes a consumer-facing ref.
+
+The expected version is read from ``.l9/repo-spec.yaml`` unless the caller
+overrides it, so the workflow never hard-codes a release number.
+"""
 
 from __future__ import annotations
+
 import os
 import re
 import subprocess
@@ -15,10 +25,31 @@ SEMVER = re.compile(
     r"(?:-[0-9A-Za-z.-]+)?"
     r"(?:\+[0-9A-Za-z.-]+)?$"
 )
-FULL_ACTION_REF = re.compile(
-    r"^\s*uses:\s*[^./\s][^@\s]*@[0-9a-fA-F]{40}\s*$",
-    re.MULTILINE,
-)
+REPO_SPEC_VERSION = re.compile(r"(?m)^\s+version:\s*['\"]?([^'\"\s]+)['\"]?\s*$")
+CONTRACT_FRAGMENTS: dict[str, tuple[str, ...]] = {
+    ".l9/repo-spec.yaml": (
+        "schema: l9.repo-spec/v1",
+        "phase_4:",
+        "status: implemented",
+    ),
+    ".l9/architecture.yaml": (
+        "schema: l9.architecture-spec/v1",
+        "status: authoritative",
+        "role: central-ci-orchestrator",
+        "production_channel:",
+    ),
+    ".l9/publication-contract.yaml": (
+        "schema: l9.core-publication-contract/v1",
+        "status: authoritative",
+    ),
+    ".l9/release-plane.yaml": (
+        "schema: l9.release-plane/v1",
+        "status: authoritative",
+        "runtime_authority: false",
+        "moving_major_alias:",
+        "enabled: false",
+    ),
+}
 
 
 class ReleaseError(RuntimeError):
@@ -30,6 +61,24 @@ def required(name: str) -> str:
     if not value:
         raise ReleaseError(f"{name} is required")
     return value
+
+
+def optional(name: str) -> str:
+    return os.environ.get(name, "").strip()
+
+
+def declared_version(root: Path) -> str:
+    """Return ``metadata.version`` from ``.l9/repo-spec.yaml``.
+
+    The release checkout is bare (no PyYAML), so the value is read with a
+    line pattern. The first ``version:`` key in the document is the metadata
+    version; ``repo-spec`` declares no other ``version`` key.
+    """
+    text = (root / ".l9/repo-spec.yaml").read_text(encoding="utf-8")
+    match = REPO_SPEC_VERSION.search(text)
+    if match is None:
+        raise ReleaseError(".l9/repo-spec.yaml declares no metadata version")
+    return match.group(1)
 
 
 def run_tests(root: Path) -> None:
@@ -73,6 +122,22 @@ def validate_external_action_pins(root: Path) -> None:
         )
 
 
+def validate_contracts(root: Path, version: str) -> None:
+    for filename, fragments in CONTRACT_FRAGMENTS.items():
+        path = root / filename
+        if not path.is_file():
+            raise ReleaseError(f"{filename} is missing")
+        text = path.read_text(encoding="utf-8")
+        for fragment in fragments:
+            if fragment not in text:
+                raise ReleaseError(f"{filename} is missing {fragment!r}")
+    if declared_version(root) != version:
+        raise ReleaseError(
+            f".l9/repo-spec.yaml declares version {declared_version(root)!r}, "
+            f"not the release version {version!r}"
+        )
+
+
 def emit(name: str, value: str) -> None:
     target = os.environ.get("GITHUB_OUTPUT")
     if target:
@@ -84,9 +149,12 @@ def main() -> int:
     try:
         root = Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd())).resolve()
         tag = required("L9_RELEASE_TAG")
-        expected = required("L9_EXPECTED_VERSION")
         if not SEMVER.fullmatch(tag):
-            raise ReleaseError("release tag is not a valid semantic version")
+            raise ReleaseError(
+                "release tag is not a valid exact semantic version "
+                "(moving major aliases are not releases)"
+            )
+        expected = optional("L9_EXPECTED_VERSION") or declared_version(root)
         if not SEMVER.fullmatch(expected):
             raise ReleaseError("expected version is not a valid semantic version")
         normalized_tag = tag.removeprefix("v")
@@ -95,40 +163,11 @@ def main() -> int:
             raise ReleaseError(
                 f"release tag {tag!r} does not match expected version {expected!r}"
             )
-        repo_spec = (root / ".l9/repo-spec.yaml").read_text(encoding="utf-8")
-        architecture = (root / ".l9/architecture.yaml").read_text(encoding="utf-8")
-        publication = (root / ".l9/publication-contract.yaml").read_text(
-            encoding="utf-8"
-        )
-        required_fragments = {
-            ".l9/repo-spec.yaml": (
-                "version: 2.0.0",
-                "phase_4:",
-                "status: implemented",
-            ),
-            ".l9/architecture.yaml": (
-                "phase: 4",
-                "phase_4:",
-                "status: implemented",
-            ),
-            ".l9/publication-contract.yaml": (
-                "schema: l9.core-publication-contract/v1",
-                "status: authoritative",
-            ),
-        }
-        documents = {
-            ".l9/repo-spec.yaml": repo_spec,
-            ".l9/architecture.yaml": architecture,
-            ".l9/publication-contract.yaml": publication,
-        }
-        for filename, fragments in required_fragments.items():
-            for fragment in fragments:
-                if fragment not in documents[filename]:
-                    raise ReleaseError(f"{filename} is missing {fragment!r}")
+        validate_contracts(root, normalized_expected)
         validate_external_action_pins(root)
         run_tests(root)
         emit("release-version", normalized_expected)
-        print(f"Phase 4 release v{normalized_expected} is valid")
+        print(f"Core release v{normalized_expected} is valid")
         return 0
     except ReleaseError as error:
         print(f"validate-release: {error}", file=sys.stderr)

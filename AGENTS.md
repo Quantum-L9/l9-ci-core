@@ -9,6 +9,7 @@ Read before changing Core:
 3. `.l9/org-runtime-contract.yaml`
 4. `.l9/org-runtime-interface.yaml`
 5. `.l9/sdk-compatibility.yaml`
+6. `.l9/release-plane.yaml`
 
 ## 1. Cardinal architecture
 
@@ -255,6 +256,33 @@ Preserve:
 - the Core → SDK dependency boundary.
 
 A change duplicating SDK behavior is invalid even if functional tests pass.
+
+## 12. Release plane
+
+Contract: `.l9/release-plane.yaml` (`l9.release-plane/v1`), asserted by
+`tests/workflows/test_release_plane.py`. Runbook: `docs/release/README.md`.
+
+- **`main` is the production CI runtime.** The GitHub organization ruleset
+  binds governed repositories to `Quantum-L9/l9-ci-core` / `main` /
+  `.github/workflows/org-ci.yml` directly. A merge to `main` is production
+  for the next governed `pull_request` or `merge_group` evaluation. Nothing
+  is propagated to or pinned in a consumer.
+- **Releases are immutable audit anchors** (`vMAJOR.MINOR.PATCH`): audit,
+  provenance, rollback identity, release notes. They carry no runtime
+  authority and distribute nothing.
+- **No moving major release alias.** Core releases never create or move
+  `v2`. `refs/tags/v2` is only the transitional consumer installer tag
+  (`install-consumer-ci@v2`), moved by `tools/publish_consumer_ci_tag.sh`.
+- **The release gate reads the version from `.l9/repo-spec.yaml`.** Do not
+  hard-code a release number in `release-validation.yml`.
+- **Ruleset events are `pull_request` and `merge_group` only.** Core's
+  native `push` trigger is not organization-wide push fanout.
+- **SDK promotion is one governed Core PR** editing
+  `.l9/sdk-compatibility.yaml` at an exact 40-character SHA. Never a
+  downstream change.
+- The L9-ORG-008 clarification (ruleset source-branch binding is not a
+  reusable-workflow `@main` reference) is recorded in the contract as a
+  proposal. It is organization law only once Cursor-Governance records it.
 
 <!-- BEGIN L9 FORMATTER OWNERSHIP (generated — do not edit) -->
 
