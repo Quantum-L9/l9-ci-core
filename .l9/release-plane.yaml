@@ -1,0 +1,138 @@
+schema: l9.release-plane/v1
+metadata:
+  repository: Quantum-L9/l9-ci-core
+  status: authoritative
+  updated: '2026-09-04'
+
+principle: >-
+  Core is the organization's centrally selected CI runtime, not a library
+  every repository upgrades. The GitHub organization ruleset is the
+  dependency indirection layer: it binds governed repositories to Core's
+  production branch and workflow file directly. Releases therefore stop being
+  a fleet-distribution mechanism and regain their proper function: audit,
+  provenance, compatibility communication, and rollback identity.
+
+authority:
+  governance_repository: Quantum-L9/Cursor-Governance
+  governance_invariants:
+    - L9-ORG-007
+    - L9-ORG-008
+  execution_repository: Quantum-L9/l9-ci-core
+
+production:
+  mechanism: github_organization_required_workflow_ruleset
+  source:
+    repository: Quantum-L9/l9-ci-core
+    branch: main
+    workflow: .github/workflows/org-ci.yml
+  propagation: >-
+    A merge to Core main is production. The next governed pull_request or
+    merge_group evaluation in any targeted repository runs the current Core
+    main workflow. Nothing is propagated to, pinned in, or updated inside a
+    consumer repository.
+  consumer:
+    workflow_copy_allowed: false
+    core_revision_selection_allowed: false
+    sdk_revision_selection_allowed: false
+    moving_release_tag_required: false
+    update_pull_requests_required: false
+
+core_release:
+  purpose:
+    - audit
+    - provenance
+    - rollback_identity
+    - release_notes
+    - compatibility_communication
+  versioning: semver
+  tag_pattern: vMAJOR.MINOR.PATCH
+  immutable: true
+  runtime_authority: false
+  moving_major_alias:
+    enabled: false
+    note: >-
+      No Core release moves a major alias. The refs/tags/v2 ref is not a
+      release alias and is not a governed organization-enforcement consumption
+      path; it exists only as the transitional consumer toolchain installer
+      tag documented in docs/consumer-lint-test.md and moved only by
+      tools/publish_consumer_ci_tag.sh after a human pin-file PR.
+  validation:
+    workflow: .github/workflows/release-validation.yml
+    action: .github/actions/validate-release
+    expected_version_source: .l9/repo-spec.yaml
+    expected_version_hardcoded_in_workflow: false
+    preflight_before_tag: true
+    preflight_script: docs/release/tag-and-release.sh
+    note: >-
+      An immutable tag is an audit identity; an invalid one cannot be moved,
+      only superseded. The release script therefore runs the same validator
+      against the exact target commit (a temporary detached worktree, never
+      the operator's working tree) and creates the tag only after it passes.
+      The post-tag release-validation.yml run is the independent attestation
+      of the same revision, not the first time it is checked.
+  lifecycle:
+    - version bump and release notes PR
+    - merge Core main
+    - release preflight validates the exact main SHA
+    - create immutable vMAJOR.MINOR.PATCH tag
+    - push tag and create GitHub Release
+    - post-tag release-validation.yml attestation
+
+sdk:
+  repository: Quantum-L9/l9-ci-sdk
+  selection:
+    authority: Quantum-L9/l9-ci-core
+    manifest: .l9/sdk-compatibility.yaml
+    reference_type: git_commit_sha
+    full_length_required: true
+    floating_refs_allowed: false
+  promotion:
+    requires_core_compatibility_validation: true
+    requires_governed_core_change: true
+    note: >-
+      An SDK change reaches the fleet through exactly one governed Core
+      promotion PR that inserts the exact SDK SHA into
+      .l9/sdk-compatibility.yaml and passes the SDK contract suite. Core is
+      the compatibility firewall; SDK main never enters production because it
+      moved.
+
+events:
+  organization_ruleset:
+    - pull_request
+    - merge_group
+  cross_repository_push_fanout:
+    provided_by_ruleset: false
+    note: >-
+      GitHub required-workflow rulesets invoke the required workflow on
+      pull_request, pull_request_target, and merge_group only. Core's native
+      push trigger governs Core's own repository and any repository that calls
+      org-ci.yml natively; it is not organization-wide push fanout. A
+      post-merge independent attestation is a separate capability and must be
+      implemented explicitly, never inferred from the required-workflow model.
+
+governance_clarification:
+  id: ruleset-source-branch-binding-is-not-a-reusable-workflow-ref
+  statement: >-
+    A GitHub organization ruleset required-workflow source-branch binding is a
+    GitHub control-plane binding and is not a reusable-workflow consumer
+    reference. L9-ORG-008 continues to prohibit
+    uses: Quantum-L9/l9-ci-core/...@main in any workflow. It does not prohibit
+    the organization ruleset from selecting repository Quantum-L9/l9-ci-core,
+    branch main, workflow .github/workflows/org-ci.yml, provided that Core
+    main is independently protected as the production control-plane branch.
+  core_main_protection_required: true
+  recorded_in_cursor_governance: false
+  note: >-
+    This clarification is proposed from Core. It becomes organization law only
+    when recorded in Quantum-L9/Cursor-Governance ORG_INVARIANTS.yaml through
+    that repository's own governed change path (L9-ORG-007).
+
+validation:
+  contract_tests:
+    - tests/workflows/test_release_plane.py
+    - tests/release/test_release_contract.py
+  admission: >-
+    Repository-local tests prove Core's own contracts agree with each other.
+    They cannot prove that an organization ruleset is bound to Core main, that
+    Core main is protected, or that a release is immutable on GitHub; those
+    states remain UNKNOWN until GitHub evidence exists.

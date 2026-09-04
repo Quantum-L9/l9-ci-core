@@ -1,3 +1,7 @@
+# Validates an immutable Core release tag (vMAJOR.MINOR.PATCH). Releases are
+# audit/provenance/rollback anchors per .l9/release-plane.yaml; the organization
+# CI runtime is Core main, bound directly by the GitHub organization ruleset.
+# The expected version is read from .l9/repo-spec.yaml, never hard-coded here.
 name: Phase 4 release validation
 on:
   push:
@@ -48,8 +52,7 @@ jobs:
           fi
           test -n "${value}"
           echo "value=${value}" >> "${GITHUB_OUTPUT}"
-      - name: Validate Phase 4 release
+      - name: Validate immutable Core release
         uses: ./.github/actions/validate-release
         with:
           tag: ${{ steps.tag.outputs.value }}
-          expected-version: 2.0.0

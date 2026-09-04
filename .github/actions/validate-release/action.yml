@@ -1,12 +1,18 @@
 name: Validate l9-ci-core release
 description: >
-  Validates the Phase 4 release identity, immutable dependencies, and
-  repository contract before a release can be authorized.
+  Validates an immutable Core release: exact semver tag, the release version
+  declared in .l9/repo-spec.yaml, the release-plane and publication contracts,
+  immutable action pins, and the repository validation suite. Releases are
+  audit anchors; the organization CI runtime is Core main via the ruleset.
 inputs:
   tag:
     required: true
   expected-version:
-    required: true
+    required: false
+    default: ""
+    description: >
+      Optional override. When empty the expected version is read from
+      .l9/repo-spec.yaml metadata.version so no workflow hard-codes a release.
 outputs:
   release-version:
     value: ${{ steps.validate.outputs.release-version }}

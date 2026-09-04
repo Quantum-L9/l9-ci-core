@@ -13,8 +13,27 @@ principle: >-
 entrypoint:
   workflow: .github/workflows/org-ci.yml
   enforcement_mechanism: github_organization_required_workflow_ruleset
+  ruleset_binding:
+    repository: Quantum-L9/l9-ci-core
+    branch: main
+    workflow: .github/workflows/org-ci.yml
+    consumer_uses_reference: none
+    note: >-
+      The organization ruleset selects a source repository, source branch, and
+      workflow file directly. There is no downstream `uses:` reference, no
+      moving major tag, and no Core revision to propagate: a merge to Core
+      main is production for the next governed pull_request or merge_group
+      evaluation. Release contract: .l9/release-plane.yaml.
   native_events: [push, pull_request, merge_group]
   ruleset_events: [pull_request, merge_group]
+  cross_repository_push_fanout:
+    provided_by_ruleset: false
+    note: >-
+      GitHub required-workflow rulesets do not invoke the required workflow on
+      push. Core's native push trigger is not organization-wide push fanout;
+      a downstream push never reaches Core through the ruleset. The protected
+      default branch has already passed pull_request and merge_group gates
+      before it can be updated.
   default_branch_event: push
   canary_event: workflow_dispatch
   compatibility_event: workflow_call
@@ -160,6 +179,8 @@ pinning:
   required_workflow:
     selected_by: github_organization_ruleset
     consumer_selected: false
+    source_branch: main
+    moving_major_alias_used: false
   core_internal_actions:
     policy: full-40-char-sha
     floating_references_allowed: false
@@ -175,6 +196,7 @@ validation:
     - tests/workflows/test_org_runtime_contract.py
     - tests/workflows/test_org_ci_event_resolution.py
     - tests/workflows/test_org_runtime_interface.py
+    - tests/workflows/test_release_plane.py
     - tests/governance/test_org_governance_defaults.py
     - tests/governance/test_consumer_metadata.py
   admission: >-
