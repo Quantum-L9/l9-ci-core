@@ -24,12 +24,10 @@ jobs:
         run: |
           set -euo pipefail
           git init .
-          git remote add origin \
-            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          git -c http.extraHeader="Authorization: Bearer ${TOKEN}" \
+              -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
-          git remote set-url origin \
-            "https://github.com/${REPOSITORY}.git"
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -37,9 +35,9 @@ jobs:
       - name: Install lint tools
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
-          pip install -r requirements-ci.txt
-          pip install -r requirements-repo-runtime.txt
+          python -m pip install --upgrade --only-binary :all: pip
+          pip install --only-binary :all: -r requirements-ci.txt
+          pip install --only-binary :all: -r requirements-repo-runtime.txt
       - name: ruff check
         run: ruff check . --output-format=github
       - name: ruff format --check
@@ -59,12 +57,10 @@ jobs:
         run: |
           set -euo pipefail
           git init .
-          git remote add origin \
-            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          git -c http.extraHeader="Authorization: Bearer ${TOKEN}" \
+              -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
-          git remote set-url origin \
-            "https://github.com/${REPOSITORY}.git"
       - name: Emit checksum-manifest reconciliation hints
         run: |
           set -euo pipefail
