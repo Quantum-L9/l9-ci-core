@@ -15,7 +15,7 @@ import pathlib
 import shutil
 import tempfile
 import unittest
-from unittest import mock
+import unittest.mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 VALIDATOR = ROOT / ".github" / "actions" / "validate-release" / "validate_release.py"
@@ -53,9 +53,9 @@ class ValidateReleaseTests(unittest.TestCase):
             "L9_EXPECTED_VERSION": expected,
         }
         with (
-            mock.patch.dict(os.environ, env, clear=False),
-            mock.patch.object(self.module, "run_tests"),
-            mock.patch.object(self.module, "validate_external_action_pins"),
+            unittest.mock.patch.dict(os.environ, env, clear=False),
+            unittest.mock.patch.object(self.module, "run_tests"),
+            unittest.mock.patch.object(self.module, "validate_external_action_pins"),
         ):
             return self.module.main()
 
