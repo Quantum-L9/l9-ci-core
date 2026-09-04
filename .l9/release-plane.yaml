@@ -78,6 +78,74 @@ core_release:
     - push tag and create GitHub Release
     - post-tag release-validation.yml attestation
 
+release_writers:
+  principle: >-
+    Two deliberately distinct tag namespaces exist and must never be
+    conflated. Exactly one executable surface may create, move, or push each,
+    and neither authorized writer may mutate the other's namespace. The
+    invariant is namespace ownership, not the absence of tagging commands:
+    "only one git tag in the repository" is the wrong rule.
+  namespaces:
+    exact_core_release:
+      pattern: '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+      authorized_writer: docs/release/tag-and-release.sh
+      description: >-
+        Immutable Core release identity. Audit, provenance, and rollback only.
+    transitional_consumer_installer:
+      pattern: '^v2$'
+      authorized_writer: tools/publish_consumer_ci_tag.sh
+      description: >-
+        The install-consumer-ci@v2 toolchain installer tag documented in
+        docs/consumer-lint-test.md. A transitional compatibility lane, never a
+        Core production-runtime release mechanism.
+  validator: tools/check_release_writers.py
+
+core_main_protection:
+  branch: main
+  repository: Quantum-L9/l9-ci-core
+  mechanism: github_ruleset
+  documented_in: docs/release/README.md
+  required_rule_types:
+    - pull_request
+    - required_status_checks
+  pull_request:
+    require_code_owner_review: true
+  required_status_checks:
+    contexts_declared_here: false
+    minimum_bound_contexts: 1
+    note: >-
+      Cursor-Governance L9-ORG-009 requires blocking enforcement to be
+      evidence-backed, so the required check contexts are taken from real
+      successful Actions runs and are deliberately not written here. An
+      attestation therefore proves that at least one required status check is
+      bound to main, never a specific context string.
+  note: >-
+    This is the machine-readable form of the protection already documented in
+    docs/release/README.md under "Core main protection" (pull request
+    required; independent approval for governed paths through CODEOWNERS;
+    required checks taken from real successful self-CI runs). It declares no
+    new policy; it exists so an attestation reads the expectation from a
+    contract instead of hard-coding it.
+
+attestation:
+  live_control_plane:
+    verifier: tools/verify_control_plane.py
+    workflow: .github/workflows/control-plane-attestation.yml
+    mutating: false
+    checks:
+      - organization_required_workflow_binding
+      - core_main_protection
+      - immutable_releases
+    unknown_is_pass: false
+    note: >-
+      Read-only. It compares live GitHub state against this contract and never
+      creates or edits a ruleset, branch, repository setting, release, or tag.
+      Absent credentials, insufficient permissions, and an undeterminable
+      remote state are all reported as UNKNOWN, which is not PASS. It is Core
+      governance/release assurance and is never a downstream repository's
+      responsibility: no governed repository needs organization-admin
+      credentials.
+
 sdk:
   repository: Quantum-L9/l9-ci-sdk
   selection:
@@ -131,8 +199,14 @@ validation:
   contract_tests:
     - tests/workflows/test_release_plane.py
     - tests/release/test_release_contract.py
+    - tests/release/test_control_plane_attestation.py
+    - tests/release/test_release_writers.py
   admission: >-
     Repository-local tests prove Core's own contracts agree with each other.
     They cannot prove that an organization ruleset is bound to Core main, that
     Core main is protected, or that a release is immutable on GitHub; those
-    states remain UNKNOWN until GitHub evidence exists.
+    states remain UNKNOWN until GitHub evidence exists. The attestation
+    declared under `attestation.live_control_plane` is how that evidence is
+    obtained: it reads live GitHub state and reports PASS, FAIL, or UNKNOWN.
+    Its unit tests exercise the comparison logic against recorded API shapes
+    and never require live organization access.

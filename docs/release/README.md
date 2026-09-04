@@ -96,6 +96,77 @@ Required check context strings are deliberately not written here. Per
 Cursor-Governance L9-ORG-009, blocking enforcement must be evidence-backed;
 take the names from successful Actions runs before binding.
 
+`.l9/release-plane.yaml` carries the machine-readable form of this
+requirement under `core_main_protection`, so the attestation below compares
+live GitHub against a contract rather than against a hard-coded expectation.
+It declares no policy this section does not already state, and it still names
+no check context.
+
+## Attesting the live control plane
+
+Repository-local tests prove Core's contracts agree with each other. They
+cannot prove GitHub is configured the way those contracts describe. That
+evidence comes from a read-only verifier:
+
+```bash
+make attest-control-plane          # or: python3 tools/verify_control_plane.py
+python3 tools/verify_control_plane.py --json
+```
+
+It compares live GitHub state against `.l9/release-plane.yaml` on three
+points, and every request is a `GET` — it never creates or edits a ruleset,
+branch, repository setting, release, or tag:
+
+| Check | What must hold |
+|---|---|
+| organization required-workflow binding | the rule active on Core `main` resolves to this repository's own id, `refs/heads/main`, and `.github/workflows/org-ci.yml`, from an **organization** ruleset in `active` enforcement |
+| Core `main` protection | the rules declared under `core_main_protection` are active on `main`, with code-owner review required and at least one bound status check |
+| immutable releases | `GET /repos/{owner}/{repo}/immutable-releases` reports `enabled: true` |
+
+The source repository is matched by numeric id, not by name, so a workflow
+with the same filename in another repository or on another branch is a
+failure rather than a silent pass.
+
+Three outcomes exist and only one is success: **PASS**, **FAIL**, and
+**UNKNOWN**. Absent credentials, a 403, an unreachable API, and an
+unrecognised response body are all UNKNOWN, and UNKNOWN is never PASS — the
+process exits `2` on any FAIL, `3` on any UNKNOWN, `0` only when every check
+passes.
+
+Credentials are read from `L9_CONTROL_PLANE_TOKEN`, `GH_TOKEN`, or
+`GITHUB_TOKEN`. The workflow-scoped `GITHUB_TOKEN` can see the ruleset
+binding and branch rules but **not** the immutable-releases setting, which
+needs repository `administration: read`; with only that token the third check
+is correctly UNKNOWN. That is why the attestation is
+`.github/workflows/control-plane-attestation.yml`, run on demand, rather than
+a job inside `release-validation.yml`: wiring it into the release gate would
+make every release depend on an admin credential being present. It is Core
+governance assurance — no governed downstream repository runs it, and none
+needs organization-admin credentials to be governed.
+
+## Who may write a release tag
+
+Two tag namespaces exist and must never be conflated
+(`.l9/release-plane.yaml` → `release_writers`):
+
+| Namespace | Meaning | The only authorized writer |
+|---|---|---|
+| `vMAJOR.MINOR.PATCH` | immutable Core release identity | `docs/release/tag-and-release.sh` |
+| `v2` | transitional `install-consumer-ci@v2` installer tag | `tools/publish_consumer_ci_tag.sh` |
+
+`tools/check_release_writers.py` (`make check-release-writers`, and part of
+the `unittest` suite the release gate runs) proves that exactly one
+executable surface can create, move, or push each namespace, and that neither
+writer can reach into the other's. The invariant is namespace ownership, not
+the absence of tagging commands: "only one `git tag` in the repository" would
+either forbid the transitional lane or bless a second release writer.
+
+Scope is executable mutation only. Shell, YAML, and Python comments,
+docstrings, printed instructions (`echo "… git push origin v2"`), Markdown,
+and read-only inspection (`git rev-parse`, `git show-ref`, `gh release view`)
+are not writers. A mutation whose target ref cannot be resolved to a
+namespace is a failure, not a pass.
+
 ## What the release gate checks
 
 Pushing a `vX.Y.Z` tag (or dispatching `release-validation.yml` with a tag)
@@ -111,7 +182,12 @@ checks out that revision and runs `validate-release`. It fails closed unless
 - `.l9/release-plane.yaml` is authoritative with `runtime_authority: false`
   and the moving major alias disabled.
 - Every external action under `.github/**` is pinned to a full 40-char SHA.
-- The full `unittest` suite passes.
+  Discovery covers `*.yml` **and** `*.yaml`: GitHub loads a workflow or a
+  composite action from either spelling, so scanning one extension would leave
+  the other free to carry a mutable reference into an immutable release.
+- The full `unittest` suite passes — which includes the release-writer
+  uniqueness invariant above, so a release cannot be cut while a second
+  writer for either tag namespace exists.
 
 ## Cutting a release
 

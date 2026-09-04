@@ -135,5 +135,116 @@ class ValidateReleaseTests(unittest.TestCase):
         self.module.validate_external_action_pins(self.tmp)
 
 
+class GitHubYamlSurfaceDiscoveryTests(unittest.TestCase):
+    """``.yml`` and ``.yaml`` are the same executable surface to GitHub.
+
+    A workflow or composite action loads from either spelling, so a pin scan
+    that walks only one extension leaves the other free to carry a mutable
+    external reference into an immutable release. These tests drive the real
+    validator rather than re-implementing its parsing.
+    """
+
+    STEP = "jobs:\n  j:\n    steps:\n      - uses: {reference}\n"
+    ACTION = "runs:\n  using: composite\n  steps:\n    - uses: {reference}\n"
+    MUTABLE = "actions/checkout@v4"
+    BRANCH = "actions/checkout@main"
+    PINNED = f"actions/checkout@{'0123456789' * 4}"
+
+    def setUp(self) -> None:
+        self.module = load_validator()
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def write(self, relative: str, body: str) -> pathlib.Path:
+        path = self.tmp / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def assert_rejected(self, relative: str, body: str, reference: str) -> None:
+        self.write(relative, body)
+        with self.assertRaises(self.module.ReleaseError) as caught:
+            self.module.validate_external_action_pins(self.tmp)
+        message = str(caught.exception)
+        self.assertIn(reference, message)
+        self.assertIn(relative, message)
+
+    def test_discovery_returns_both_extensions_once_each(self) -> None:
+        expected = {
+            self.write(".github/workflows/a.yml", "on: push\n"),
+            self.write(".github/workflows/b.yaml", "on: push\n"),
+            self.write(".github/actions/c/action.yml", "runs:\n"),
+            self.write(".github/actions/d/action.yaml", "runs:\n"),
+            self.write(".github/governance/rule-modes.yaml", "modes: {}\n"),
+        }
+        self.write(".github/notes.md", "uses: actions/checkout@v4\n")
+        surfaces = self.module.github_yaml_surfaces(self.tmp)
+        self.assertEqual(expected, set(surfaces))
+        self.assertEqual(len(surfaces), len(set(surfaces)))
+        self.assertEqual(sorted(surfaces), surfaces)
+
+    def test_discovery_is_empty_without_a_github_directory(self) -> None:
+        self.assertEqual([], self.module.github_yaml_surfaces(self.tmp))
+
+    def test_mutable_reference_in_yml_workflow_fails_closed(self) -> None:
+        self.assert_rejected(
+            ".github/workflows/w.yml",
+            self.STEP.format(reference=self.MUTABLE),
+            self.MUTABLE,
+        )
+
+    def test_mutable_reference_in_yaml_workflow_fails_closed(self) -> None:
+        self.assert_rejected(
+            ".github/workflows/w.yaml",
+            self.STEP.format(reference=self.MUTABLE),
+            self.MUTABLE,
+        )
+
+    def test_branch_reference_in_yaml_workflow_fails_closed(self) -> None:
+        self.assert_rejected(
+            ".github/workflows/w.yaml",
+            self.STEP.format(reference=self.BRANCH),
+            self.BRANCH,
+        )
+
+    def test_mutable_reference_in_yml_action_fails_closed(self) -> None:
+        self.assert_rejected(
+            ".github/actions/a/action.yml",
+            self.ACTION.format(reference=self.MUTABLE),
+            self.MUTABLE,
+        )
+
+    def test_mutable_reference_in_yaml_action_fails_closed(self) -> None:
+        self.assert_rejected(
+            ".github/actions/a/action.yaml",
+            self.ACTION.format(reference=self.MUTABLE),
+            self.MUTABLE,
+        )
+
+    def test_mutable_reference_in_nested_yaml_surface_fails_closed(self) -> None:
+        self.assert_rejected(
+            ".github/workflows/nested/deep/w.yaml",
+            self.STEP.format(reference=self.MUTABLE),
+            self.MUTABLE,
+        )
+
+    def test_full_sha_in_yaml_workflow_passes(self) -> None:
+        self.write(".github/workflows/w.yaml", self.STEP.format(reference=self.PINNED))
+        self.module.validate_external_action_pins(self.tmp)
+
+    def test_full_sha_in_yaml_action_passes(self) -> None:
+        self.write(
+            ".github/actions/a/action.yaml", self.ACTION.format(reference=self.PINNED)
+        )
+        self.module.validate_external_action_pins(self.tmp)
+
+    def test_local_reference_in_yaml_surface_remains_allowed(self) -> None:
+        self.write(
+            ".github/workflows/w.yaml",
+            self.STEP.format(reference="./.github/actions/validate-release"),
+        )
+        self.module.validate_external_action_pins(self.tmp)
+
+
 if __name__ == "__main__":
     unittest.main()

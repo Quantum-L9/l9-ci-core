@@ -1,0 +1,85 @@
+# Read-only attestation of the live GitHub control plane against
+# .l9/release-plane.yaml: the organization required-workflow binding, Core main
+# protection, and immutable releases. Nothing here mutates a ruleset, branch,
+# repository setting, release, or tag.
+#
+# This is Core governance/release assurance and runs in this repository only.
+# No governed downstream repository runs it and none needs organization-admin
+# credentials to be governed.
+#
+# It is deliberately not a job inside release-validation.yml. The
+# immutable-releases endpoint needs repository administration:read, which the
+# workflow-scoped GITHUB_TOKEN cannot hold, so wiring it into the release gate
+# would make every release depend on an admin credential being present. Run it
+# here, on demand, with a credential that can see the whole control plane.
+#
+# Credentials, in the order the verifier reads them:
+#   L9_CONTROL_PLANE_TOKEN  repository or organization secret, if configured
+#   GITHUB_TOKEN            the run's own token; enough for the binding and
+#                           branch-protection checks, not for immutable releases
+#
+# The verifier fails closed: it exits non-zero unless every check is PASS, and
+# a state it cannot determine is reported UNKNOWN, never PASS.
+name: Control plane attestation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: control-plane-attestation-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  attest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin \
+            "https://github.com/${REPOSITORY}.git"
+      - name: Install contract reader
+        run: python3 -m pip install --quiet --disable-pip-version-check PyYAML
+      - name: Attest the live control plane
+        env:
+          L9_CONTROL_PLANE_TOKEN: ${{ secrets.L9_CONTROL_PLANE_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          evidence="${RUNNER_TEMP}/control-plane-attestation.json"
+          # One invocation, so the artifact and the summary describe the same
+          # observation. The exit code is preserved and re-raised below: a
+          # FAIL or an UNKNOWN must fail this job.
+          status=0
+          python3 tools/verify_control_plane.py --json > "${evidence}" || status=$?
+          python3 - "${evidence}" <<'PY'
+          import json
+          import sys
+
+          document = json.loads(open(sys.argv[1], encoding="utf-8").read())
+          for check in document["checks"]:
+              print(f"{check['status']} {check['name']}")
+              if check["status"] != "PASS":
+                  for field in ("expected", "actual", "reason"):
+                      if check[field]:
+                          print(f"  {field}: {check[field]}")
+          print(f"conclusion: {document['conclusion']}")
+          PY
+          exit "${status}"
+      - name: Publish attestation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: control-plane-attestation
+          path: ${{ runner.temp }}/control-plane-attestation.json
+          if-no-files-found: warn
+          retention-days: 30
