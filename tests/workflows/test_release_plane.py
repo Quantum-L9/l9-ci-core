@@ -265,6 +265,39 @@ class ReleaseDocumentationTests(unittest.TestCase):
         self.assertIn("repo-spec.yaml", code)
         self.assertIn("release-validation.yml", text)
 
+    def test_release_script_runs_the_validator_before_creating_the_tag(self) -> None:
+        """An invalid immutable tag cannot be moved, so validation comes first.
+
+        The preflight must run the same validator the post-tag workflow runs,
+        against an export of the exact target commit (never the operator's
+        working tree), and every tag-creating or pushing command must come
+        after it.
+        """
+        plane = load(RELEASE_PLANE)["core_release"]["validation"]
+        self.assertTrue(plane["preflight_before_tag"])
+        self.assertEqual("docs/release/tag-and-release.sh", plane["preflight_script"])
+
+        text = RELEASE_SCRIPT.read_text(encoding="utf-8")
+        code = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
+        validator = code.index("validate-release/validate_release.py")
+        # A real checkout, not an archive export: the validation suite
+        # enumerates tracked files with git and fails outside a repository.
+        self.assertIn("git worktree add --detach", code[:validator])
+        self.assertNotIn("git archive", code)
+        self.assertIn("GITHUB_WORKSPACE=", code[:validator])
+        self.assertIn('L9_RELEASE_TAG="${RELEASE_TAG}"', code[:validator])
+        for mutation in ("git tag -a", "git push origin", "gh release create"):
+            self.assertGreater(code.index(mutation), validator, mutation)
+        self.assertRegex(code, r"(?m)^\s*die .*preflight failed")
+
+    def test_release_lifecycle_orders_preflight_before_the_tag(self) -> None:
+        lifecycle = load(RELEASE_PLANE)["core_release"]["lifecycle"]
+        preflight = next(i for i, s in enumerate(lifecycle) if "preflight" in s)
+        tag = next(i for i, s in enumerate(lifecycle) if "immutable" in s)
+        attest = next(i for i, s in enumerate(lifecycle) if "post-tag" in s)
+        self.assertLess(preflight, tag)
+        self.assertLess(tag, attest)
+
     def test_release_readme_describes_main_as_the_runtime_channel(self) -> None:
         text = RELEASE_README.read_text(encoding="utf-8")
         self.assertIn(".l9/release-plane.yaml", text)

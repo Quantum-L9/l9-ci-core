@@ -61,6 +61,22 @@ core_release:
     action: .github/actions/validate-release
     expected_version_source: .l9/repo-spec.yaml
     expected_version_hardcoded_in_workflow: false
+    preflight_before_tag: true
+    preflight_script: docs/release/tag-and-release.sh
+    note: >-
+      An immutable tag is an audit identity; an invalid one cannot be moved,
+      only superseded. The release script therefore runs the same validator
+      against the exact target commit (a temporary detached worktree, never
+      the operator's working tree) and creates the tag only after it passes.
+      The post-tag release-validation.yml run is the independent attestation
+      of the same revision, not the first time it is checked.
+  lifecycle:
+    - version bump and release notes PR
+    - merge Core main
+    - release preflight validates the exact main SHA
+    - create immutable vMAJOR.MINOR.PATCH tag
+    - push tag and create GitHub Release
+    - post-tag release-validation.yml attestation
 
 sdk:
   repository: Quantum-L9/l9-ci-sdk

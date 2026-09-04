@@ -125,13 +125,39 @@ checks out that revision and runs `validate-release`. It fails closed unless
    bash docs/release/tag-and-release.sh X.Y.Z <commit>   # or a specific SHA
    ```
 
-   The script creates the annotated immutable tag `vX.Y.Z`, pushes it, and
-   creates the GitHub Release from the notes file. It refuses to move an
-   existing release tag and never touches `v2`.
-3. Confirm `release-validation.yml` is green for the tag.
+   The script first runs a **preflight**: it checks the exact target commit
+   out into a temporary detached worktree and runs `validate_release.py`
+   against it (the same validator the post-tag workflow runs, including the
+   full `unittest` suite; `python3` with PyYAML is required locally). Only after the
+   preflight passes does it create the annotated immutable tag `vX.Y.Z`,
+   push it, and create the GitHub Release from the notes file. It refuses to
+   move an existing release tag and never touches `v2`.
+3. Confirm `release-validation.yml` is green for the tag. This post-tag run
+   is the independent attestation of the same revision.
 4. Publish the GitHub Release as immutable where the organization has
    immutable releases enabled, so the tag and assets cannot change after
    publication.
+
+The lifecycle, in order:
+
+```text
+version bump + release notes PR
+          ↓
+     merge Core main
+          ↓
+   RELEASE PREFLIGHT  (validate the exact main SHA: contracts, pins, tests)
+          ↓
+         PASS
+          ↓
+ create immutable vX.Y.Z
+          ↓
+ push tag + GitHub Release
+          ↓
+ post-tag release-validation.yml attestation
+```
+
+An immutable tag is an audit identity. Validating before it exists means a
+failed check never leaves behind a tag that policy forbids moving.
 
 ### Manual equivalent
 
@@ -146,8 +172,11 @@ gh release create vX.Y.Z --repo Quantum-L9/l9-ci-core \
 
 ### If validation fails
 
-Do not move the tag. Fix `main`, then cut the next patch version. A release
-tag that consumers or audit records may already cite is never repointed.
+If the **preflight** fails, no tag exists: fix `main` and re-run the script
+for the same version. If the **post-tag** workflow fails on a tag the
+preflight passed, do not move the tag. Fix `main`, then cut the next patch
+version. A release tag that consumers or audit records may already cite is
+never repointed.
 
 ## Rollback
 

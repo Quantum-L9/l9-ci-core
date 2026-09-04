@@ -106,10 +106,14 @@ def validate_external_action_pins(root: Path) -> None:
     for workflow in (root / ".github").rglob("*.yml"):
         text = workflow.read_text(encoding="utf-8")
         for line_number, line in enumerate(text.splitlines(), start=1):
-            stripped = line.strip()
+            # A step may open with `- uses:` or carry `uses:` after `- name:`;
+            # both forms are references and both must be validated.
+            stripped = line.strip().removeprefix("- ").strip()
             if not stripped.startswith("uses:"):
                 continue
-            reference = stripped.removeprefix("uses:").strip()
+            # `uses: owner/action@<sha> # vX.Y.Z` is the pinning convention;
+            # the trailing version comment is not part of the reference.
+            reference = stripped.removeprefix("uses:").split("#", 1)[0].strip()
             if reference.startswith("./"):
                 continue
             if not re.fullmatch(r"[^@\s]+@[0-9a-fA-F]{40}", reference):

@@ -102,6 +102,38 @@ class ValidateReleaseTests(unittest.TestCase):
     def test_current_tree_contracts_satisfy_the_validator(self) -> None:
         self.module.validate_contracts(ROOT, self.declared)
 
+    def test_current_tree_action_pins_satisfy_the_validator(self) -> None:
+        """Real workflows pin as ``owner/action@<sha> # vX.Y.Z``.
+
+        The trailing version comment is convention, not part of the
+        reference; a validator that fails to strip it rejects every correctly
+        pinned action and therefore every release tag.
+        """
+        self.module.validate_external_action_pins(ROOT)
+
+    def test_mutable_action_reference_fails_closed(self) -> None:
+        workflows = self.tmp / ".github" / "workflows"
+        workflows.mkdir(parents=True)
+        (workflows / "bad.yml").write_text(
+            "jobs:\n  j:\n    steps:\n"
+            "      - uses: actions/checkout@v4 # floating\n"
+            "      - uses: ./.github/actions/local\n",
+            encoding="utf-8",
+        )
+        with self.assertRaises(self.module.ReleaseError) as caught:
+            self.module.validate_external_action_pins(self.tmp)
+        self.assertIn("actions/checkout@v4", str(caught.exception))
+
+    def test_commented_full_sha_reference_is_accepted(self) -> None:
+        workflows = self.tmp / ".github" / "workflows"
+        workflows.mkdir(parents=True)
+        (workflows / "good.yml").write_text(
+            "jobs:\n  j:\n    steps:\n"
+            f"      - uses: actions/checkout@{'a' * 40} # v4.2.0\n",
+            encoding="utf-8",
+        )
+        self.module.validate_external_action_pins(self.tmp)
+
 
 if __name__ == "__main__":
     unittest.main()
