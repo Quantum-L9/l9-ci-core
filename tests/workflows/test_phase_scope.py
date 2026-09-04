@@ -33,6 +33,11 @@ class PhaseScopeTests(unittest.TestCase):
             # rulesets target repositories and require this workflow directly;
             # consumers do not copy an L9 workflow or governance pack.
             "org-ci.yml",
+            # Read-only attestation of the live GitHub control plane against
+            # .l9/release-plane.yaml (organization required-workflow binding,
+            # Core main protection, immutable releases). Core-only governance
+            # assurance: no governed repository runs it.
+            "control-plane-attestation.yml",
         }
         self.assertEqual(expected, actual)
 

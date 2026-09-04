@@ -283,6 +283,23 @@ Contract: `.l9/release-plane.yaml` (`l9.release-plane/v1`), asserted by
 - The L9-ORG-008 clarification (ruleset source-branch binding is not a
   reusable-workflow `@main` reference) is recorded in the contract as a
   proposal. It is organization law only once Cursor-Governance records it.
+- **One writer per tag namespace.** `release_writers` in the contract names
+  the single authorized writer for exact `vX.Y.Z` releases
+  (`docs/release/tag-and-release.sh`) and for the transitional `v2` installer
+  tag (`tools/publish_consumer_ci_tag.sh`); neither may mutate the other's
+  namespace. `tools/check_release_writers.py` (`make check-release-writers`,
+  and part of the `unittest` suite) proves it. Do not add a second executable
+  surface that creates, moves, or pushes either namespace.
+- **Live GitHub state is attested, never assumed.**
+  `tools/verify_control_plane.py` (`make attest-control-plane`, workflow
+  `.github/workflows/control-plane-attestation.yml`) compares GitHub against
+  `core_main_protection`, `production.source`, and `core_release.immutable`
+  in the contract. It is read-only — only `GET` requests, and it mutates no
+  ruleset, branch, setting, release, or tag. `UNKNOWN` is not `PASS`: report
+  what it reported, and never restate an unverified state as confirmed.
+- **External action pin discovery covers `.yml` and `.yaml`.** GitHub loads a
+  workflow or composite action from either spelling; do not add a second
+  discovery mechanism that reads only one.
 
 <!-- BEGIN L9 FORMATTER OWNERSHIP (generated — do not edit) -->
 

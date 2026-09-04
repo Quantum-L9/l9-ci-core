@@ -41,6 +41,22 @@ closed when any registered authority is missing or unreferenced.
 - `make push` / `make pr`: execute single-flight guarded mutation only after a
   passing completion proof.
 
+Repository-specific targets live in `Repo.mk`. They are release-assurance
+helpers, not part of the common facade `tools/l9_repo` owns:
+
+- `make check-release-writers`: run `tools/check_release_writers.py`, which
+  proves exactly one authorized executable surface can mutate the exact
+  `vX.Y.Z` Core release namespace and one the transitional `v2` installer tag,
+  and that neither can write the other's. The same invariant runs inside the
+  `unittest` suite, so the release gate enforces it too.
+- `make attest-control-plane`: run `tools/verify_control_plane.py`, a
+  read-only comparison of live GitHub state against `.l9/release-plane.yaml`
+  (organization required-workflow binding, Core `main` protection, immutable
+  releases). It issues only `GET` requests, reads a credential from
+  `L9_CONTROL_PLANE_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`, and exits non-zero
+  unless every check is `PASS` — a state it cannot determine is `UNKNOWN`,
+  never `PASS`. See `docs/release/README.md`.
+
 Evidence is written under `artifacts/`, which remains untracked.
 
 Configured command argv (including `change_policy` gate commands and
