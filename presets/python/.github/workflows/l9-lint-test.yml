@@ -63,10 +63,16 @@ jobs:
 
       - name: Install consumer CI toolchain
         uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@7148fc73dcbf41367f5c5401432dc997b1f4f869  # main@7148fc7
+      # --only-binary :all: refuses source distributions: installing a
+      # dependency must not be able to execute it. This is also what SonarCloud
+      # githubactions:S8541 asks for by name, and this preset is copied into
+      # every consumer, so an unhardened line here re-seeds that finding fleet-wide.
       - name: Install extra CI requirements
         run: |
           set -euo pipefail
-          if [ -f requirements-ci.txt ]; then pip install -r requirements-ci.txt; fi
+          if [ -f requirements-ci.txt ]; then
+            pip install --only-binary :all: -r requirements-ci.txt
+          fi
 
       - name: ruff check
         run: ruff check "${SOURCE_DIR}" --output-format=github
@@ -130,15 +136,25 @@ jobs:
 
       - name: Install consumer CI toolchain
         uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@7148fc73dcbf41367f5c5401432dc997b1f4f869  # main@7148fc7
+      # Wheel-only for every dependency (see the lint job's note). The local
+      # project keeps its editable install: it is the repository under test, not
+      # a third-party artifact, and pytest needs it importable. Consumers whose
+      # pyproject puts src/ on the path via [tool.pytest.ini_options] can drop
+      # that line and avoid the source build entirely.
       - name: Install test tools
         run: |
           set -euo pipefail
-          if [ -f requirements-ci.txt ]; then pip install -r requirements-ci.txt; fi
+          if [ -f requirements-ci.txt ]; then
+            pip install --only-binary :all: -r requirements-ci.txt
+          fi
           pip install -e ".[dev]" || pip install -e . || \
             echo "::notice::no local editable package to install"
-          python -c "import pytest_cov" 2>/dev/null || pip install pytest-cov
-          python -c "import xdist" 2>/dev/null || pip install pytest-xdist
-          python -c "import pytest_timeout" 2>/dev/null || pip install pytest-timeout
+          python -c "import pytest_cov" 2>/dev/null || \
+            pip install --only-binary :all: "pytest-cov==7.1.0"
+          python -c "import xdist" 2>/dev/null || \
+            pip install --only-binary :all: "pytest-xdist==3.8.0"
+          python -c "import pytest_timeout" 2>/dev/null || \
+            pip install --only-binary :all: "pytest-timeout==2.4.0"
 
       - name: pytest with coverage
         env:

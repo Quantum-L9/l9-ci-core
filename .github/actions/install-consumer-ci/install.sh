@@ -35,4 +35,13 @@ for pkg in ruff mypy pytest; do
   fi
 done
 
-python -m pip install -r "${PIN}"
+# --only-binary :all: refuses source distributions. Installing a dependency must
+# not be able to execute it: an sdist runs its setup.py at install time, on
+# every consumer runner that calls this action. ruff, mypy and pytest all
+# publish wheels, so this costs nothing and fails loudly rather than silently
+# building if that stops being true.
+#
+# This is also what SonarCloud githubactions:S8541 asks for by name, and this
+# action is the fleet's shared install path -- leaving it unhardened re-seeds
+# that finding into every consumer that adopts the preset.
+python -m pip install --only-binary :all: -r "${PIN}"
