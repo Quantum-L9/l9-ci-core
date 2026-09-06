@@ -68,6 +68,53 @@ class InvokeSDKTests(unittest.TestCase):
         self.assertIn("--required", command)
         self.assertIn("--no-dirty", command)
 
+    def test_semgrep_normalize_always_passes_the_provider_version(self) -> None:
+        """The flag the SDK requires must actually be on the command line."""
+        with patch.dict(os.environ, self.environment(), clear=True):
+            command = module.build_command(self.executable)
+        self.assertIn("--provider-version", command)
+        self.assertEqual(
+            "1.0.0",
+            command[command.index("--provider-version") + 1],
+        )
+
+    def test_semgrep_normalize_without_a_provider_version_fails_here(self) -> None:
+        """Fail in Core, naming the input, not in the SDK naming a flag.
+
+        `l9-ci semgrep normalize` declares --provider-version required=True, so
+        omitting it never worked -- it produced `the following arguments are
+        required: --provider-version` from argparse one layer down, which names
+        neither the workflow input nor this action. This asserts the failure is
+        now raised where the missing input actually is.
+        """
+        with patch.dict(
+            os.environ,
+            self.environment(L9_PROVIDER_VERSION=""),
+            clear=True,
+        ):
+            with self.assertRaises(module.InvocationError) as caught:
+                module.build_command(self.executable)
+        self.assertIn("provider-version", str(caught.exception))
+
+    def test_semgrep_run_needs_no_provider_version(self) -> None:
+        """The asymmetry is deliberate, so pin it.
+
+        `run` has the SDK execute Semgrep, so the SDK knows the version and
+        the flag does not exist on that subcommand. Requiring it for `run`
+        too would be wrong.
+        """
+        with patch.dict(
+            os.environ,
+            self.environment(
+                L9_OPERATION="semgrep-run",
+                L9_LANGUAGE="python",
+                L9_PROVIDER_VERSION="",
+            ),
+            clear=True,
+        ):
+            command = module.build_command(self.executable)
+        self.assertNotIn("--provider-version", command)
+
     def test_semgrep_run_maps_to_sdk_execution(self) -> None:
         bundle = self.workspace / "bundle.json"
         raw = self.workspace / "raw" / "report.json"

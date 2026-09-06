@@ -204,9 +204,23 @@ def build_command(executable: Path) -> list[str]:
             "--snapshot-id",
             snapshot_id,
         ]
-        provider_version = env("L9_PROVIDER_VERSION")
-        if provider_version:
-            command.extend(["--provider-version", provider_version])
+        # Required, not optional. `l9-ci semgrep normalize` declares
+        # --provider-version required=True and always has: normalize *imports*
+        # a report produced by something else, so the SDK cannot know what
+        # produced it ("Version that produced the imported report"). Contrast
+        # `semgrep run`, which takes no such flag because the SDK runs Semgrep
+        # itself and therefore knows.
+        #
+        # This used to be `if provider_version:`, which silently dropped the
+        # flag when the input was empty and left the SDK to reject the call
+        # with `the following arguments are required: --provider-version` --
+        # an argparse error one layer down, naming a flag the caller never
+        # wrote and pointing at neither the workflow input nor this action.
+        # Nothing that works today breaks by requiring it here: a caller
+        # omitting it was already failing at the SDK. All that changes is
+        # where the failure is reported and whether it names the cause.
+        provider_version = require(env("L9_PROVIDER_VERSION"), "provider-version")
+        command.extend(["--provider-version", provider_version])
         add_optional_path(
             command,
             "--identity-map",
