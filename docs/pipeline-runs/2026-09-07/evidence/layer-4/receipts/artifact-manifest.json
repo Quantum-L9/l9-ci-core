@@ -52,8 +52,8 @@
     {
       "path": "artifacts/organism/layer-2/payloads/harness_to_assurance/invocations/ec6e1a51-b257-4f82-9556-141a0f87a39a/invocation-record.json",
       "exists": true,
-      "size_bytes": 686,
-      "sha256": "54a38a9ffdc1f4e50ef6a6de13bdc1492b241b4796a77cbe5bbb766605347504",
+      "size_bytes": 687,
+      "sha256": "eae309df821751c4fb7746a273b7379557ab1d33224b975a10e70691212777e8",
       "json_valid": true
     },
     {
@@ -311,36 +311,36 @@
     {
       "path": "artifacts/organism/layer-2/payloads/observability_contracts/observability-digest-1.txt",
       "exists": true,
-      "size_bytes": 71,
-      "sha256": "c1f0f599fcc83ee832a816da2d26765a2e533358668d98d91dc178dc4566e0ec",
+      "size_bytes": 72,
+      "sha256": "3eccbc18550fbbc44eb33657655cf68072ecc37c42228c94ae153942aac68559",
       "json_valid": null
     },
     {
       "path": "artifacts/organism/layer-2/payloads/observability_contracts/observability-digest-2.txt",
       "exists": true,
-      "size_bytes": 71,
-      "sha256": "c1f0f599fcc83ee832a816da2d26765a2e533358668d98d91dc178dc4566e0ec",
+      "size_bytes": 72,
+      "sha256": "3eccbc18550fbbc44eb33657655cf68072ecc37c42228c94ae153942aac68559",
       "json_valid": null
     },
     {
       "path": "artifacts/organism/layer-2/payloads/observability_contracts/observability-event.json",
       "exists": true,
-      "size_bytes": 596,
-      "sha256": "458777852450352a4752f70bc0e8c52dc2861044016d2f83a6a4e24dcb72cb60",
+      "size_bytes": 597,
+      "sha256": "dc6cb9cc7ada06beaa8e4326356c480c4fffd444c80497b44b7665d6161f1f96",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-2/payloads/observability_contracts/observability-negative-result.json",
       "exists": true,
-      "size_bytes": 280,
-      "sha256": "0f8ac7e0a5a2e39a2f020c4d895ca9368d1714472704884a7f37db8d1b8a6552",
+      "size_bytes": 281,
+      "sha256": "44590f0d15656f5f41a42c78cc58a8c1e4b918d5e6c4500453a64f7263234b9c",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-2/payloads/observability_contracts/observability-validation-result.json",
       "exists": true,
-      "size_bytes": 343,
-      "sha256": "e2e119eda64da59b1e998645a6a1121e2c6c4ba111ae983e2077b6998a9a489a",
+      "size_bytes": 344,
+      "sha256": "c13b9fada2662618bceb903551e215016ae78dfda5cd8a588d77f3ae40b4dcc7",
       "json_valid": true
     },
     {
@@ -360,15 +360,15 @@
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/github-event.json",
       "exists": true,
-      "size_bytes": 31790,
-      "sha256": "fe9755206bbdf50347fbd0b3f4c6b20fffbfc2284289aa5939969bb568fe205c",
+      "size_bytes": 31791,
+      "sha256": "9f60349b16cc579e73abc191f589cf8f7834871be91f39a21650b6b3ee6c3308",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/review-comments.json",
       "exists": true,
-      "size_bytes": 6790,
-      "sha256": "e736c10dc1e9469abfd28580578476819fd51ac2b7240e98d10270c72306eb26",
+      "size_bytes": 6791,
+      "sha256": "b2d8aad604c3bd4e3de711b6f5b48fe25b42f4ebd248f25496671c17089ecb8d",
       "json_valid": true
     },
     {
@@ -381,15 +381,15 @@
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/findings_merged.json",
       "exists": true,
-      "size_bytes": 2431,
-      "sha256": "0306aa2f7cb21b6a2c68f8a7863a9c2227d0e566bb1489a5840500b825076102",
+      "size_bytes": 2432,
+      "sha256": "2cd9c5bc7b45f1896a201e76000c87490f1b7c758b01ea5620c11e766f69d876",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/learning_packets.json",
       "exists": true,
-      "size_bytes": 2,
-      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "size_bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
       "json_valid": true
     },
     {
@@ -409,36 +409,36 @@
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/pr_inventory.json",
       "exists": true,
-      "size_bytes": 496,
-      "sha256": "0368cb4190540e88b0b1dc32f6731e8d278796d5ea95f73e7d282bee82ec4a03",
+      "size_bytes": 497,
+      "sha256": "0e317ea00d10b0d61b0b40bf30e65f7c0e4305ce638f6d66278a443b6a1f2ab5",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/prs/pr_123/autofix_telemetry.json",
       "exists": true,
-      "size_bytes": 428,
-      "sha256": "68cdf97aee9f6527a13d4d3d123916bd639ba43b164c07375a422d144adfac6e",
+      "size_bytes": 429,
+      "sha256": "82d91d2ad07d5dc08cc1c21b16af4b838d8a9a0626ae0bc4c727d527394be7a0",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/prs/pr_123/findings_classified.json",
       "exists": true,
-      "size_bytes": 2431,
-      "sha256": "0306aa2f7cb21b6a2c68f8a7863a9c2227d0e566bb1489a5840500b825076102",
+      "size_bytes": 2432,
+      "sha256": "2cd9c5bc7b45f1896a201e76000c87490f1b7c758b01ea5620c11e766f69d876",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/prs/pr_123/findings_deduped.json",
       "exists": true,
-      "size_bytes": 1996,
-      "sha256": "99a148217355b4daf78e8aa6234a8e715388c83bc790e0fb70b0fe6ab66ed20c",
+      "size_bytes": 1997,
+      "sha256": "b6bb79562fdb1b1c654fd6a3fb21d18823f5136bb55f18bf88a1ade9795d99b3",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/prs/pr_123/findings_normalized.json",
       "exists": true,
-      "size_bytes": 1996,
-      "sha256": "99a148217355b4daf78e8aa6234a8e715388c83bc790e0fb70b0fe6ab66ed20c",
+      "size_bytes": 1997,
+      "sha256": "b6bb79562fdb1b1c654fd6a3fb21d18823f5136bb55f18bf88a1ade9795d99b3",
       "json_valid": true
     },
     {
@@ -451,15 +451,15 @@
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/prs/pr_123/llm_proposals.json",
       "exists": true,
-      "size_bytes": 242,
-      "sha256": "e2156f718a3ef27af8a344878b1379bcc0442d7434a80826c585e3a7e6a705d2",
+      "size_bytes": 243,
+      "sha256": "aba66e4b9f57fc55ff4b85bd3cb5b5888b69a6c83e69fa29af0cfdade5c4b6d9",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/prs/pr_123/normalization_errors.json",
       "exists": true,
-      "size_bytes": 2,
-      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "size_bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
       "json_valid": true
     },
     {
@@ -472,8 +472,8 @@
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/prs/pr_123/repair_plan.json",
       "exists": true,
-      "size_bytes": 2297,
-      "sha256": "45efd7eb34d1fe5ea1f0b1767e8ce0ccfe48887c78cc25c351eb3f9819a602de",
+      "size_bytes": 2298,
+      "sha256": "5982f4df419c0225227eae0cf6979e7e9e7d17b726819a240a26bdfd9d19e128",
       "json_valid": true
     },
     {
@@ -486,15 +486,15 @@
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/run_trace.json",
       "exists": true,
-      "size_bytes": 1021,
-      "sha256": "99a4cd41aa2baac8b8dd7c59bb0ff7f8c8181fd200579951f6abe9bcd73dbd84",
+      "size_bytes": 1022,
+      "sha256": "04d45ad33759508761379fefb4c37748b316634af6b1792bbe89df80ade84546",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/runtime_state.json",
       "exists": true,
-      "size_bytes": 362,
-      "sha256": "fa5ff0c4d5efb4d55dfde69e93fd681011a8f2a5829f3dc43ae7afee7a5a2cef",
+      "size_bytes": 363,
+      "sha256": "aa6bb83e4a0626185d5c07587d155bde5a7ca43ed28c5b634c0a0b92372e9590",
       "json_valid": true
     },
     {
@@ -745,8 +745,8 @@
     {
       "path": "artifacts/organism/layer-2/payloads/sdk_to_assurance/negative/n1-unknown-artifact-field/obs.json",
       "exists": true,
-      "size_bytes": 1389,
-      "sha256": "e1d2de17d5213d638588996e777902bc9227494c04148d926d0e7b0600e3e0d6",
+      "size_bytes": 1390,
+      "sha256": "0d98932af1fe48573a95a21f1a4a3d7c5484c8dc2bf132a06a35a634d31a600a",
       "json_valid": true
     },
     {
@@ -759,8 +759,8 @@
     {
       "path": "artifacts/organism/layer-2/payloads/sdk_to_assurance/negative/n2-out-of-range-sdk-version/obs.json",
       "exists": true,
-      "size_bytes": 1350,
-      "sha256": "0037e9bbcf136b8a6dd11d9868fc3c99df6ac6cd11c8c5bb4c44c00deff3da28",
+      "size_bytes": 1351,
+      "sha256": "20f405d479cf033e0f0b4ed3a725b23975ae1bfdf5fd892eed73e68ab5466d2a",
       "json_valid": true
     },
     {
@@ -773,8 +773,8 @@
     {
       "path": "artifacts/organism/layer-2/payloads/sdk_to_assurance/negative/n3-tampered-digest/obs.json",
       "exists": true,
-      "size_bytes": 1344,
-      "sha256": "77727b7fe8a0a23136b536f49c99abf376863cd1481e11829a45d25b04c5759d",
+      "size_bytes": 1345,
+      "sha256": "d3305302e0e421ae44c98f03ddde700597f0a61421ecd3888d0ab5852a57c26d",
       "json_valid": true
     },
     {
@@ -801,8 +801,8 @@
     {
       "path": "artifacts/organism/layer-2/payloads/sdk_to_assurance/subject.json",
       "exists": true,
-      "size_bytes": 209,
-      "sha256": "22156b36cf125d5c81fd8e06f501e7c673adc8c9e866bec1c11c1aeb3230a74b",
+      "size_bytes": 210,
+      "sha256": "4a88a959c4180f5a801b54c839057ea99276c882a5ea6709ca53f92a13355f52",
       "json_valid": true
     },
     {
@@ -815,8 +815,8 @@
     {
       "path": "artifacts/organism/layer-3/payloads/assurance_harness/invocations/8a8368bc-61f8-4fa0-8dee-c8cad8093061/invocation-record.json",
       "exists": true,
-      "size_bytes": 686,
-      "sha256": "4c04775cf943543ac4c1feacd473d6a0ca05576b4d3744f0ebf2e0915d1e3562",
+      "size_bytes": 687,
+      "sha256": "215acfd3907ce57f2942d6998f1a5d69565a487655fb8cf45d0cc63e5e19d551",
       "json_valid": true
     },
     {
@@ -913,43 +913,43 @@
     {
       "path": "artifacts/organism/layer-3/payloads/ci_evidence/subject.json",
       "exists": true,
-      "size_bytes": 209,
-      "sha256": "22156b36cf125d5c81fd8e06f501e7c673adc8c9e866bec1c11c1aeb3230a74b",
+      "size_bytes": 210,
+      "sha256": "4a88a959c4180f5a801b54c839057ea99276c882a5ea6709ca53f92a13355f52",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-3/payloads/observability_contracts/observability-digest-1.txt",
       "exists": true,
-      "size_bytes": 71,
-      "sha256": "80459f1f535091229587137091f99d4c8f3e4475855997c0fbe457af72e1cc05",
+      "size_bytes": 72,
+      "sha256": "00f1ed03acf37db424368215626b8569972dcd0d36d650a66d16016b90938341",
       "json_valid": null
     },
     {
       "path": "artifacts/organism/layer-3/payloads/observability_contracts/observability-digest-2.txt",
       "exists": true,
-      "size_bytes": 71,
-      "sha256": "80459f1f535091229587137091f99d4c8f3e4475855997c0fbe457af72e1cc05",
+      "size_bytes": 72,
+      "sha256": "00f1ed03acf37db424368215626b8569972dcd0d36d650a66d16016b90938341",
       "json_valid": null
     },
     {
       "path": "artifacts/organism/layer-3/payloads/observability_contracts/observability-event.json",
       "exists": true,
-      "size_bytes": 600,
-      "sha256": "ebea11116bad532fc59b969a2ecfea45dbf6fea8fcc7d72ffe0d23a0098383f3",
+      "size_bytes": 601,
+      "sha256": "e2e1eeaf67b7410b82d2c43c24a23c1353bcff9015208c09d92fa535ad71e8fb",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-3/payloads/observability_contracts/observability-negative-result.json",
       "exists": true,
-      "size_bytes": 240,
-      "sha256": "d61149f8ccc507bf240449b4a98e38144734af77aac5306b3ab90a9c227ffa95",
+      "size_bytes": 241,
+      "sha256": "02b91f0d25f8eefcef92c351beaa93f5f37ae2f1de0af328d4540d3d1443518a",
       "json_valid": true
     },
     {
       "path": "artifacts/organism/layer-3/payloads/observability_contracts/observability-validation-result.json",
       "exists": true,
-      "size_bytes": 343,
-      "sha256": "15c6c425da2f4d2ec48318ea1cbfc03926019a71657fb33da3c0a57d9097f665",
+      "size_bytes": 344,
+      "sha256": "464a2ae3945af26f104648b894315abbceefb8f76b3d422a3147bb1ed77f3427",
       "json_valid": true
     }
   ],
