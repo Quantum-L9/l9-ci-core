@@ -2,7 +2,7 @@
   "organism": "l9-ci-debt-assurance-repair",
   "status": "fail",
   "deploy_decision": "do-not-deploy",
-  "tested_at": "2026-09-07T01:29:06Z",
+  "tested_at": "2026-09-07T02:43:30Z",
   "layers_executed": [
     "repo_health",
     "whole_organism_aggregation"
@@ -141,7 +141,7 @@
     {
       "code": "LAYER_1_NOT_PASSING",
       "input": "artifacts/organism/01-repo-health.json",
-      "summary": "Layer 1 status is 'fail'. Repo-defect count 1 (l9-ci-core mypy stub declarations); the other two non-zero results are attributed to the Layer 1 harness and to sandbox network/credentials respectively. See the Layer 1 receipt's failures[] for the per-repo diagnosis and attribution."
+      "summary": "Layer 1 status is 'fail': 9/9 install, 7/9 pass their own native health command. Repo-defect count is ZERO. Both non-zero results are environmental - one caused by the Layer 1 harness itself (l9-ci-debt-intelligence), one by a sandbox network restriction (l9-ci-sdk, health undetermined rather than failing). An earlier revision of this run wrongly recorded l9-ci-core as a repository defect; that finding is retracted and l9-ci-core passes. See the Layer 1 receipt's failures[] for the per-repo diagnosis and attribution."
     },
     {
       "code": "LAYER_2_NOT_EXECUTED",

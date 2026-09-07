@@ -1,7 +1,7 @@
 {
   "layer": "repo_health",
   "status": "fail",
-  "tested_at": "2026-09-07T01:24:43Z",
+  "tested_at": "2026-09-07T02:42:51Z",
   "python": "3.11.15",
   "environment_note": "One isolated uv venv per repo (.venv-<repo>). Editable install with the repo's own dev extras; where the repo declares requirements-ci.txt, that repo-declared toolchain was installed too. No tool was globally installed to make a check pass.",
   "integration_claim": "none - repo-local health only, no cross-repo seam is implied by this layer",
@@ -71,8 +71,8 @@
       "project_name": "l9-ci-core-validation",
       "install": "pass",
       "health_command": "make check",
-      "health": "fail",
-      "health_exit_code": 2,
+      "health": "pass",
+      "health_exit_code": 0,
       "logs": {
         "install": "artifacts/organism/logs/l9-ci-core-install.log",
         "health": "artifacts/organism/logs/l9-ci-core-health.log"
@@ -189,18 +189,6 @@
       "diagnosis": "258 of 259 tests pass. The single failure, tests/architecture/test_publication_boundary.py::test_private_keys_are_not_repository_files, asserts no private-key/PEM file exists among repository files. It names '.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem' - a file created by this Layer 1 harness running `ensurepip` into the repo-local gitignored .venv to repair a pip-less venv left by the session-deps hook. The repo's invariant is sound and the repo's own code is not implicated. Removal of the harness-added pip tree was attempted and denied by the operator permission gate, so the contamination persists in this workspace.",
       "summary": ">       self.assertEqual([], violations); E       AssertionError: Lists differ: [] != ['.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem']; E       Second list contains 1 additional elements.; E       First extra element 0:",
       "log": "artifacts/organism/logs/l9-ci-debt-intelligence-health.log"
-    },
-    {
-      "repo": "l9-ci-core",
-      "phase": "health",
-      "command": "make check",
-      "exit_code": 2,
-      "category": "missing_declared_tool",
-      "attributable_to": "repository",
-      "repo_defect": true,
-      "diagnosis": "`make check` runs ruff (pass), ruff format (pass), then mypy, which reports 4 errors, all 'Library stubs not installed': yaml in tools/check_release_writers.py, .github/actions/provision-sdk/provision.py and tools/verify_control_plane.py, and jsonschema in tools/l9_repo/__main__.py. types-PyYAML is declared in requirements-ci.txt but mypy runs under $PYTHON=python3 (tools.l9_repo), not the environment that declaration was installed into; types-jsonschema is not declared anywhere in the repo. This is a real repo-local dependency-declaration gap, not a harness artifact.",
-      "summary": "tools/check_release_writers.py:49: error: Library stubs not installed for \"yaml\"  [import-untyped]; tools/l9_repo/__main__.py:1004: error: Library stubs not installed for \"jsonschema\"  [import-untyped]; .github/actions/provision-sdk/provision.py:56: error: Library stubs not installed for \"yaml\"  [import-untyped]; tools/verify_control_plane.py:49: error: Library stubs not installed for \"yaml\"  [import-untyped]",
-      "log": "artifacts/organism/logs/l9-ci-core-health.log"
     },
     {
       "repo": "l9-ci-sdk",

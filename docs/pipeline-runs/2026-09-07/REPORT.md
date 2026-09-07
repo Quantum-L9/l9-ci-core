@@ -35,25 +35,34 @@ recorded the repository as `l9-pr-repair` directly, at canonical remote
 `https://github.com/Quantum-L9/l9-pr-repair`, and its head commit is itself the rename stamp (#63).
 Reconciliation status `pass`.
 
-## Layer 1 result: 9/9 install, 6/9 native health
+## Layer 1 result: 9/9 install, 7/9 native health, zero repository defects
 
-Three non-zero health results, which are **not** three repository defects:
+Two non-zero health results, and **neither is a repository defect**:
 
-1. **`l9-ci-core` — a real finding in this repository.** `make check` passes ruff and ruff-format,
-   then mypy reports 4 `Library stubs not installed` errors — `yaml` in
-   `tools/check_release_writers.py`, `.github/actions/provision-sdk/provision.py` and
-   `tools/verify_control_plane.py`, and `jsonschema` in `tools/l9_repo/__main__.py`. `types-PyYAML`
-   is declared in `requirements-ci.txt`, but mypy runs under `$PYTHON=python3` rather than the
-   environment that declaration was installed into; `types-jsonschema` is not declared anywhere in
-   the repo. This is a dependency-declaration gap, and it is this repository's to fix.
-2. **`l9-ci-sdk` — sandbox limitation, health undetermined.** `make ci` → `make hooks` runs zizmor,
+1. **`l9-ci-sdk` — sandbox limitation, health undetermined.** `make ci` → `make hooks` runs zizmor,
    which fetches `github.com/actions/checkout.git` and receives HTTP 401. The test suite was never
    reached, so this repo's health is undetermined rather than failing.
-3. **`l9-ci-debt-intelligence` — harness contamination, not a repo defect.** 258 of 259 tests pass.
+2. **`l9-ci-debt-intelligence` — harness contamination, not a repo defect.** 258 of 259 tests pass.
    The single failure is a publication-boundary invariant correctly flagging
    `.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem` — a file the Layer 1 harness
    itself created by running `ensurepip` into the repo's gitignored `.venv` to repair a pip-less
    venv left by the session-deps hook. The repo's invariant is sound.
+
+### Retracted finding: l9-ci-core is clean
+
+The first revision of this run, published as the initial commits of this PR, recorded `l9-ci-core`
+as the run's sole repository defect — 4 mypy `Library stubs not installed` errors, with the claim
+that `types-jsonschema` was undeclared. **That was wrong, and it was this harness's fault.**
+
+`.github/workflows/self-ci.yml` installs `requirements-ci.txt` **and**
+`requirements-repo-runtime.txt`; the latter declares `jsonschema`, `types-jsonschema`, `mypy` and
+`ruff`. The Layer 1 driver installed only the first file, so `mypy` resolved from outside the venv
+and could not see either stub package. With both installed, `make check` exits 0 — ruff clean, 105
+files formatted, `Success: no issues found in 23 source files`.
+
+This repository's own green **Lint and Type Check** on PR #150 is what exposed the contradiction; the
+driver now installs every requirements file a repo's own gate declares. `l9-ci-core`'s Layer 1 health
+is `pass`, and this run found **no defect in any of the nine repositories**.
 
 ### Known contamination in the producing workspace
 

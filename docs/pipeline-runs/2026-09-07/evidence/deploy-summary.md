@@ -1,6 +1,6 @@
 # L9 CI Debt Organism Deploy Summary
 
-Generated: 2026-09-07T01:29:06Z
+Generated: 2026-09-07T02:43:30Z
 Final receipt: `artifacts/organism/04-organism-receipt.json`
 
 ## Decision
@@ -51,28 +51,32 @@ Out of scope: l9-constellation-topology
 | l9-ci-debt-intelligence | 0.2.0 | `7b11061084e2` | pass | `pytest -q` | fail |
 | l9-ci-debt-lsp | 1.0.0 | `ebec362448ef` | pass | `pytest -q` | pass |
 | l9-ci-debt-resolver | 0.7.0 | `2c7406c02351` | pass | `pytest -q` | pass |
-| l9-ci-core | 2.0.0.dev1 | `4c842cb838b6` | pass | `make check` | fail |
+| l9-ci-core | 2.0.0.dev1 | `4c842cb838b6` | pass | `make check` | pass |
 | l9-ci-sdk | 2.0.0 | `cb765cbd4a9c` | pass | `make ci` | fail |
 | l9-assurance | 2.1.1 | `e9f012bf42af` | pass | `python scripts/ci.py` | pass |
 | l9-harness | 2.0.4 | `25bbb4046ed5` | pass | `pytest -q` | pass |
 | l9-pr-repair | 0.4.0 | `f5773d4ded37` | pass | `pytest -q` | pass |
 | l9-observability-core | 1.0.0 | `6a84c783f2fb` | pass | `make ci` | pass |
 
-Three non-zero health results, and they are **not** three repo defects:
+Two non-zero health results, and **neither is a repository defect**:
 
-1. **l9-ci-core — real repo finding.** `make check` passes ruff and ruff-format, then mypy reports 4
-   `Library stubs not installed` errors: `yaml` in three files and `jsonschema` in
-   `tools/l9_repo/__main__.py`. `types-PyYAML` is declared in `requirements-ci.txt` but mypy runs
-   under `$PYTHON=python3`, not that environment; `types-jsonschema` is not declared anywhere.
-2. **l9-ci-sdk — sandbox limitation.** `make ci` -> `make hooks` runs zizmor, which fetches
+1. **l9-ci-sdk — sandbox limitation.** `make ci` -> `make hooks` runs zizmor, which fetches
    `github.com/actions/checkout.git` and gets HTTP 401. The test suite was never reached, so this
    repo's health is *undetermined*, not failing.
-3. **l9-ci-debt-intelligence — harness contamination.** 258 of 259 tests pass. The one failure is a
+2. **l9-ci-debt-intelligence — harness contamination.** 258 of 259 tests pass. The one failure is a
    publication-boundary invariant correctly flagging
    `.venv/.../pip/_vendor/certifi/cacert.pem` — a file this Layer 1 harness created by running
    `ensurepip` into the repo's gitignored `.venv` to repair a pip-less venv left by the session-deps
    hook. Removing it was attempted and **denied by the operator permission gate**, so the
    contamination persists in the workspace.
+
+**Retracted finding.** An earlier revision of this run recorded `l9-ci-core` as the sole repository
+defect, citing 4 mypy `Library stubs not installed` errors and claiming `types-jsonschema` was
+undeclared. That was wrong. `.github/workflows/self-ci.yml` installs `requirements-ci.txt` **and**
+`requirements-repo-runtime.txt`, and the latter declares `jsonschema`, `types-jsonschema`, `mypy`
+and `ruff`. The harness installed only the first, so mypy resolved from outside the venv and saw
+neither stub package. With both installed, `make check` exits 0 — ruff clean, 105 files formatted,
+"Success: no issues found in 23 source files". l9-ci-core passes.
 
 ## Active seam results
 
@@ -105,7 +109,7 @@ behaviour was exercised. Not waivable at this breadth.
 
 | Code | Detail |
 |---|---|
-| `LAYER_1_NOT_PASSING` | 1 repo defect (l9-ci-core), 1 sandbox limitation (l9-ci-sdk), 1 harness artifact (l9-ci-debt-intelligence) |
+| `LAYER_1_NOT_PASSING` | 0 repo defects. 1 sandbox limitation (l9-ci-sdk), 1 harness artifact (l9-ci-debt-intelligence) |
 | `LAYER_2_NOT_EXECUTED` | All 7 active seams unproven |
 | `LAYER_3_NOT_EXECUTED` | All 6 live corridors unproven |
 | `NEGATIVE_COVERAGE_ABSENT` | All 15 fail-closed negative tests |
@@ -119,8 +123,9 @@ has been run.
 
 The organism is not deploy-ready, and the honest reason is that it is largely untested rather than
 proven broken. Layer 1 now shows nine repositories present at their `origin/main` tips, installing
-cleanly, with six passing their own native health command; of the three that did not, only
-`l9-ci-core`'s missing mypy stub declarations is a defect in a repository. But every question Layer 4
+cleanly, with seven passing their own native health command; **neither of the two that did not is a
+repository defect** — one is this harness's own contamination, the other a sandbox network
+restriction that stopped the suite before it ran. But every question Layer 4
 exists to answer — does real SDK output reach Assurance, does resolver feedback reach Intelligence
 without leaking, does an Intelligence pack load in the LSP, does Harness stay subordinate, does
 l9-pr-repair stay dry-run, does Observability stay out of the control path — belongs to Layers 2 and
