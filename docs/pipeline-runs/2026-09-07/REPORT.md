@@ -531,3 +531,21 @@ Restored, it returns `pass 45/45`.
 Both verified against the copies published here, not against the run workspace.
 
 Verdict unchanged: **`fail` / `do-not-deploy`**.
+
+## Receipt correction (2026-09-07, post-run)
+
+The published organism JSON and `deploy-summary.md` were corrected without rerunning Layers 2 or 3.
+Verdict stays `fail` / `do-not-deploy`. `ci_evidence` stays pass.
+
+1. **L3-F1 carried into Layer 4.** `ci_evidence_transport=pass` is split from
+   `assurance_policy_evidence_completeness=open/indeterminate`. Finding
+   `ASSURANCE_POLICY_EVIDENCE_INCOMPLETE` (`L3-F1`) is on `04-organism-receipt.json`. The
+   seven-control matrix is reconstructed from receipts already on disk; the seventh row is the
+   open gap. No determinate Assurance policy/profile is claimed.
+2. **VERSION-GOVERNED provenance.** `provenance_model=version-governed`,
+   `source_sha_gating=false`. New `layer-4/receipts/version-consistency.json` records producer
+   version → emitted contract → consumer version → accepted range → compatibility. SHA
+   consistency stays informational. Artifact SHA-256 remains integrity evidence.
+3. **Inactive-seam aggregation.** Six planned seams are `planned-or-not-live`.
+   `observability_control_plane` stays `prohibited`. The reconstructed-after-run seam-inventory
+   warning is preserved.

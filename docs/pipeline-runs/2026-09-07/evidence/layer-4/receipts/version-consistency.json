@@ -1,0 +1,155 @@
+{
+  "provenance_model": "version-governed",
+  "source_sha_gating": false,
+  "sha_consistency_role": "informational",
+  "sha_consistency_receipt": "artifacts/organism/layer-4/receipts/sha-consistency.json",
+  "note": "Each active seam is judged by producer version, emitted contract, consumer version, and the accepted contract/version range recorded in the Layer 2 receipt. Git SHA movement is not a compatibility gate. Artifact SHA-256 remains exact artifact-integrity evidence.",
+  "seams": [
+    {
+      "seam": "core_to_sdk",
+      "producer": {
+        "repo": "l9-ci-core",
+        "version": "2.0.0.dev1"
+      },
+      "emitted_contract": {
+        "id": "l9.finding-bundle/v1",
+        "version": "v1"
+      },
+      "consumer": {
+        "repo": "l9-ci-sdk",
+        "version": "2.0.0"
+      },
+      "accepted_contract_version_range": {
+        "sdk_identity": "2.0.0",
+        "schema_version": "1.0.0",
+        "compatible": true
+      },
+      "compatibility_result": "compatible",
+      "source_receipt": "artifacts/organism/layer-2/receipts/core_to_sdk.json"
+    },
+    {
+      "seam": "sdk_to_assurance",
+      "producer": {
+        "repo": "l9-ci-sdk",
+        "version": "2.0.0"
+      },
+      "emitted_contract": {
+        "id": "l9.observation/1.0.0",
+        "version": "1.0.0"
+      },
+      "consumer": {
+        "repo": "l9-assurance",
+        "version": "2.1.1"
+      },
+      "accepted_contract_version_range": {
+        "accepted_producer_version": "2.0.0",
+        "out_of_range_rejected_as": "EVIDENCE_PRODUCER_VERSION_REVOKED",
+        "note": "Receipts prove 2.0.0 admitted and a mutated out-of-range version rejected. They do not publish a full numeric range; do not invent one."
+      },
+      "compatibility_result": "compatible",
+      "source_receipt": "artifacts/organism/layer-2/receipts/sdk_to_assurance.json"
+    },
+    {
+      "seam": "resolver_to_intelligence",
+      "producer": {
+        "repo": "l9-ci-debt-resolver",
+        "version": "0.7.0"
+      },
+      "emitted_contract": {
+        "id": "l9.intelligence-feedback-event/v1",
+        "version": "v1"
+      },
+      "consumer": {
+        "repo": "l9-ci-debt-intelligence",
+        "version": "0.2.0"
+      },
+      "accepted_contract_version_range": {
+        "accepted_schema": "l9.intelligence-feedback-event/v1",
+        "ingestion": "accepted"
+      },
+      "compatibility_result": "compatible",
+      "source_receipt": "artifacts/organism/layer-2/receipts/resolver_to_intelligence.json"
+    },
+    {
+      "seam": "intelligence_to_lsp",
+      "producer": {
+        "repo": "l9-ci-debt-intelligence",
+        "version": "0.2.0"
+      },
+      "emitted_contract": {
+        "id": "l9.defense-pack/v1",
+        "version": "v1"
+      },
+      "consumer": {
+        "repo": "l9-ci-debt-lsp",
+        "version": "1.0.0"
+      },
+      "accepted_contract_version_range": {
+        "note": "No Intelligence-produced defense pack was emitted. Consumer compatibility was not exercised."
+      },
+      "compatibility_result": "indeterminate",
+      "source_receipt": "artifacts/organism/layer-2/receipts/intelligence_to_lsp.json"
+    },
+    {
+      "seam": "harness_to_assurance",
+      "producer": {
+        "repo": "l9-harness",
+        "version": "2.0.4"
+      },
+      "emitted_contract": {
+        "id": "l9.assurance-invocation-record",
+        "version": null
+      },
+      "consumer": {
+        "repo": "l9-assurance",
+        "version": "2.1.1"
+      },
+      "accepted_contract_version_range": {
+        "invocation_schema": "l9.assurance-invocation-record",
+        "authoritative": false
+      },
+      "compatibility_result": "compatible",
+      "source_receipt": "artifacts/organism/layer-2/receipts/harness_to_assurance.json"
+    },
+    {
+      "seam": "pr_repair_standalone",
+      "producer": {
+        "repo": "l9-pr-repair",
+        "version": "0.4.0"
+      },
+      "emitted_contract": {
+        "id": "l9.agent-review-payload/v1",
+        "version": "v1"
+      },
+      "consumer": {
+        "repo": "l9-pr-repair",
+        "version": "0.4.0"
+      },
+      "accepted_contract_version_range": {
+        "note": "Live review ingest is unproven (SURFACE_UNSUPPORTED_GRAPHQL). Dry-run used the repository example payload and is not offered as live-path proof."
+      },
+      "compatibility_result": "indeterminate",
+      "source_receipt": "artifacts/organism/layer-2/receipts/pr_repair_standalone.json"
+    },
+    {
+      "seam": "observability_contracts",
+      "producer": {
+        "repo": "l9-observability-core",
+        "version": "1.0.0"
+      },
+      "emitted_contract": {
+        "id": "l9.observation/1.0.0",
+        "version": "1.0.0"
+      },
+      "consumer": {
+        "repo": "l9-observability-core",
+        "version": "1.0.0"
+      },
+      "accepted_contract_version_range": {
+        "self_contract": "l9.observation/1.0.0"
+      },
+      "compatibility_result": "compatible",
+      "source_receipt": "artifacts/organism/layer-2/receipts/observability_contracts.json"
+    }
+  ]
+}

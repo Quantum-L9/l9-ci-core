@@ -138,15 +138,33 @@ artifact.
 
 ## Inactive by design
 
-No planned seam was claimed as active by Layer 2 or Layer 3. But the organism carries **no
-declaration** of which seams are planned versus live (both declaration files absent), so absence of
-a claim is not the same as a verified boundary: this is recorded `unverified`, not `acceptable`.
+The detailed Layer 2 inventory already classifies the six planned seams as planned/not-live and
+`observability_control_plane` as prohibited. The top-level organism receipt now matches that
+classification: planned seams are `planned-or-not-live`, not `unverified`. Absence of a claim is
+not treated as an unverified boundary when the inventory already names them planned.
 
 Noted for Layer 2: `l9-ci-debt-resolver/.l9/pr-repair-delegation-contract.yaml` exists on disk. A
 contract file is not proof of a live seam.
 
 The rename did not activate `pr_repair_to_intelligence_learning_packet` or
 `resolver_to_pr_repair_delegation`.
+
+Layer-2 `seam-inventory.json` was reconstructed AFTER the seam tests ran. That is a methodological
+warning, not a backdate.
+
+## Provenance model
+
+Provenance is **version-governed**. `source_sha_gating` is false. Cross-layer SHA alignment remains
+informational (`layer-4/receipts/sha-consistency.json`). Compatibility is recorded in
+`layer-4/receipts/version-consistency.json`. Artifact SHA-256 remains exact integrity evidence.
+
+## ci_evidence vs Assurance policy completeness
+
+`ci_evidence` / `ci_evidence_transport` stay **pass**: Core-driven SDK evidence was admitted by
+real Assurance code, digest-linked, same run. That is not a determinate Assurance policy/profile
+decision. Finding `ASSURANCE_POLICY_EVIDENCE_INCOMPLETE` (`L3-F1`) records
+`assurance_policy_evidence_completeness: open/indeterminate`. The seven-control matrix lives on
+`04-organism-receipt.json`; the seventh row is the open gap.
 
 ## Negative tests
 
@@ -178,6 +196,7 @@ deliberately re-run at the revision its own `SnapshotMismatchError` gate demands
 | `LAYER_2_NOT_PASSING` | Layer 2 status 'partial': 5 of 7 active seams PASS (core_to_sdk, harness_to_assurance, observability_contracts, resolver_to_intelligence, sdk_to_assurance); 2 partial (intelligence_to_lsp, pr_repair_standalone); 0 fail (none). No seam was forced with a hand-authored artifact. |
 | `LAYER_3_NOT_PASSING` | Layer 3 status 'partial': 4 of 6 corridors PASS (assurance_harness, ci_evidence, learning_feedback, observability_contracts); 2 SKIPPED because a required Layer 2 seam is not passing (editor_advisory, standalone_repair_safety); 0 fail (none). A skipped corridor is not a pass, and none was forced with a hand-authored artifact. |
 | `NEGATIVE_COVERAGE_INCOMPLETE` | 10 of 15 fail-closed negative tests ran and passed; 5 were not run because their producer is blocked (intelligence_quarantines_unknown_or_planned_producer, lsp_rejects_bad_defense_pack_protocol, lsp_rejects_bad_sdk_contract_version, pr_repair_rejects_missing_expected_block, pr_repair_rejects_stale_expected_block); 0 failed. |
+| `ASSURANCE_POLICY_EVIDENCE_INCOMPLETE` (`L3-F1`) | `ci_evidence_transport` is pass. `assurance_policy_evidence_completeness` is open/indeterminate: no determinate Assurance policy/profile decision exists. Do not read `ci_evidence=pass` as a completed Assurance profile. |
 
 ## Waivers
 

@@ -107,13 +107,66 @@
     "standalone_repair_safety": "skipped",
     "observability_contracts": "pass"
   },
+  "ci_evidence_transport": "pass",
+  "assurance_policy_evidence_completeness": "open/indeterminate",
+  "provenance_model": "version-governed",
+  "source_sha_gating": false,
+  "version_consistency": "artifacts/organism/layer-4/receipts/version-consistency.json",
+  "assurance_policy_seven_control_matrix": {
+    "source": "reconstructed from Layer 2/3 receipts already on disk; not a new Assurance contract",
+    "controls": [
+      {
+        "id": 1,
+        "control": "schema_admission",
+        "status": "proven",
+        "evidence": "no_evidence_schema_invalid; accepted 1, rejected 0"
+      },
+      {
+        "id": 2,
+        "control": "sdk_version_in_allowed_range",
+        "status": "proven",
+        "evidence": "artifact.sdkVersion 2.0.0 accepted"
+      },
+      {
+        "id": 3,
+        "control": "producer_trust_no_unexpected_quarantine",
+        "status": "proven",
+        "evidence": "quarantined 0; trusted SDK not pending"
+      },
+      {
+        "id": 4,
+        "control": "observation_bundle_digest_continuity",
+        "status": "proven",
+        "evidence": "observation.artifacts[0].digest equals FindingBundle.canonical_digest()"
+      },
+      {
+        "id": 5,
+        "control": "assurance_receipt_references_observation",
+        "status": "proven",
+        "evidence": "evidenceId derives from observationId"
+      },
+      {
+        "id": 6,
+        "control": "fail_closed_unknown_field_and_tampered_digest",
+        "status": "proven",
+        "evidence": "EVIDENCE_SCHEMA_INVALID and EVIDENCE_PAYLOAD_DIGEST_MISMATCH"
+      },
+      {
+        "id": 7,
+        "control": "determinate_assurance_policy_profile_decision",
+        "status": "open/indeterminate",
+        "alias": "L3-F1",
+        "evidence": "Admission/transport passed. No Assurance policy/profile decision artifact exists."
+      }
+    ]
+  },
   "inactive_by_design": {
-    "core_to_intelligence_gate_event": "unverified",
-    "pr_repair_to_intelligence_learning_packet": "unverified",
-    "lsp_to_intelligence_editor_outcome": "unverified",
-    "sdk_to_lsp_direct_finding": "unverified",
-    "sdk_to_harness_authority_manifest": "unverified",
-    "resolver_to_pr_repair_delegation": "unverified",
+    "core_to_intelligence_gate_event": "planned-or-not-live",
+    "pr_repair_to_intelligence_learning_packet": "planned-or-not-live",
+    "lsp_to_intelligence_editor_outcome": "planned-or-not-live",
+    "sdk_to_lsp_direct_finding": "planned-or-not-live",
+    "sdk_to_harness_authority_manifest": "planned-or-not-live",
+    "resolver_to_pr_repair_delegation": "planned-or-not-live",
     "observability_control_plane": "prohibited"
   },
   "negative_tests": {
@@ -155,12 +208,19 @@
     {
       "code": "NEGATIVE_COVERAGE_INCOMPLETE",
       "summary": "10 of 15 fail-closed negative tests ran and passed; 5 were not run because their producer is blocked (intelligence_quarantines_unknown_or_planned_producer, lsp_rejects_bad_defense_pack_protocol, lsp_rejects_bad_sdk_contract_version, pr_repair_rejects_missing_expected_block, pr_repair_rejects_stale_expected_block); 0 failed."
+    },
+    {
+      "code": "ASSURANCE_POLICY_EVIDENCE_INCOMPLETE",
+      "alias": "L3-F1",
+      "summary": "ci_evidence_transport is pass: Core-driven SDK evidence was admitted by real Assurance code, digest-linked, same run. assurance_policy_evidence_completeness is open/indeterminate: no determinate Assurance policy/profile decision exists. Do not read ci_evidence=pass as a completed Assurance profile."
     }
   ],
   "warnings": [
     "Layer 1 and Layer 4 made no repository mutation: no source edit, no commit, no push, no PR, no registry or schema change, no l9-pr-repair mutation enablement.",
     "All nine repositories are checked out at their origin/main tips with clean git trees. Eight sit on branch claude/layer-4-activation-wb6bgf whose SHA is identical to origin/main.",
-    "Layer 1 environment caveat: the harness ran ensurepip into four repo-local gitignored .venv directories to repair pip-less venvs left by the session-deps hook. Removal was attempted and denied by the operator permission gate, so l9-ci-debt-intelligence, l9-ci-debt-lsp, l9-ci-debt-resolver and l9-ci-core still carry a harness-added pip tree under .venv. This is why l9-ci-debt-intelligence reports one failing test."
+    "Layer 1 environment caveat: the harness ran ensurepip into four repo-local gitignored .venv directories to repair pip-less venvs left by the session-deps hook. Removal was attempted and denied by the operator permission gate, so l9-ci-debt-intelligence, l9-ci-debt-lsp, l9-ci-debt-resolver and l9-ci-core still carry a harness-added pip tree under .venv. This is why l9-ci-debt-intelligence reports one failing test.",
+    "Layer-2 seam-inventory.json was reconstructed AFTER the seam tests ran, not before them. That is a methodological warning, not a backdate: the file is an accurate index of what was tested, not independent evidence that the active set was predeclared.",
+    "Provenance is version-governed. source_sha_gating is false. Cross-layer SHA alignment remains informational only."
   ],
   "waivers": [],
   "final_statement": "DO NOT DEPLOY. All three input layers ran. Layer 1 is 'fail': 9/9 install and 8/9 pass their own health command, with 1 repository defect(s): l9-ci-sdk. Layer 2 is 'partial': 5/7 seams pass, 2 partial, 0 fail. Layer 3 is 'partial': 4/6 corridors pass, 2 skipped behind a non-passing seam, 0 fail. Nothing failed outright and nothing was forced with a hand-authored artifact, but a partial seam and a skipped corridor are not passes: editor_advisory, standalone_repair_safety remain unproven, 5 of 15 fail-closed negative tests never ran, and l9-ci-sdk's own gate fails on an unsuppressed workflow-security finding. Cross-layer SHA alignment is a documented non-goal (see layer-4/receipts/sha-consistency.json); it does not affect this verdict either way."
