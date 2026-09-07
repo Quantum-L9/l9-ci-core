@@ -1,13 +1,13 @@
 {
   "layer": "seam_tests",
-  "status": "partial",
-  "tested_at": "2026-09-07T03:01:35Z",
+  "status": "fail",
+  "tested_at": "2026-09-07T03:09:46Z",
   "repo_health_input": "artifacts/organism/01-repo-health.json",
   "summary": {
     "pass": 4,
-    "partial": 3,
-    "fail": 0,
-    "note": "No active seam FAILED. Every non-pass is a blocked producer - two by this surface's missing credentials/GraphQL access, one by insufficient real corpus data. No seam was forced with a hand-authored artifact."
+    "partial": 2,
+    "fail": 1,
+    "note": "One active seam FAILS on a real repository defect: l9-ci-debt-resolver forwards the Authorization header across GitHub's cross-host redirect to blob storage, so job-log acquisition 401s. An earlier revision of this receipt wrongly recorded that as a missing credential and scored the seam partial; the token works and the defect is the resolver's."
   },
   "seams": {
     "core_to_sdk": {
@@ -19,9 +19,9 @@
       "receipt": "artifacts/organism/layer-2/receipts/sdk_to_assurance.json"
     },
     "resolver_to_intelligence": {
-      "status": "partial",
+      "status": "fail",
       "receipt": "artifacts/organism/layer-2/receipts/resolver_to_intelligence.json",
-      "blocker_code": "AuthenticationError"
+      "blocker_code": "REDIRECT_AUTH_FORWARDING"
     },
     "intelligence_to_lsp": {
       "status": "partial",
@@ -76,8 +76,9 @@
       "producer": "l9-ci-debt-resolver",
       "consumer": "l9-ci-debt-intelligence",
       "phase": "emit",
-      "error_code": "AuthenticationError",
-      "summary": "acquire-github-run cannot authenticate to GitHub from this surface, and l9.evidence-bundle/v1 (required by build-feedback-event) has no other producer. Not a repo defect.",
+      "error_code": "REDIRECT_AUTH_FORWARDING",
+      "summary": "transport.py re-sends Authorization across the 302 to productionresultssa4.blob.core.windows.net; Azure returns 401 and the transport maps it to AuthenticationError. Proven by curl -L (200) vs curl -L --location-trusted (401) vs urlopen (401) on the same token and endpoint. With the header stripped at runtime the acquisition completes (93158-byte redacted log, evidence_ready), so this is the sole blocker. Environment-independent: it fails in CI too.",
+      "fix": "Strip Authorization on cross-host redirect in providers/github/transport.py.",
       "log": "artifacts/organism/layer-2/logs/resolver-acquire.log"
     },
     {
@@ -98,5 +99,10 @@
       "summary": "ingest-review of a REAL review event (l9-ci-core PR #148) got HTTP 403 from api.github.com/graphql. Safety properties were proven with the repo's own example payload; the live review->payload path is unproven.",
       "log": null
     }
-  ]
+  ],
+  "credential_finding": {
+    "claim_retracted": "This surface DOES hold a working GitHub credential. GH_TOKEN/GITHUB_TOKEN are a 14-character sentinel, yet REST calls carrying them return 200 because the agent proxy supplies real authentication out of band - exactly as CANONICAL_LAW's surface-transport section records.",
+    "consequence": "Two of the three Layer 2 non-pass results were originally attributed to missing credentials. Only one of those attributions survives (pr_repair_standalone, which is a GraphQL-path restriction, separately verified). The resolver's was a repo defect.",
+    "github_actions_secrets": "Repository/organization Actions secrets are NOT readable from any session: the API is write-only by GitHub's design, and this proxy additionally returns 403 for /actions/secrets. A secret 'wired into the repo' can only be consumed by a workflow run, never handed to a local tool."
+  }
 }

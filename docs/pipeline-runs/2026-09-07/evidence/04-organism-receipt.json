@@ -2,7 +2,7 @@
   "organism": "l9-ci-debt-assurance-repair",
   "status": "fail",
   "deploy_decision": "do-not-deploy",
-  "tested_at": "2026-09-07T03:02:21Z",
+  "tested_at": "2026-09-07T03:09:46Z",
   "layers_executed": [
     "repo_health",
     "whole_organism_aggregation"
@@ -83,7 +83,7 @@
       "receipt": "artifacts/organism/01-repo-health.json"
     },
     "seam_tests": {
-      "status": "partial",
+      "status": "fail",
       "receipt": "artifacts/organism/02-seam-tests.json"
     },
     "corridor_tests": {
@@ -94,7 +94,7 @@
   "active_seams": {
     "core_to_sdk": "pass",
     "sdk_to_assurance": "pass",
-    "resolver_to_intelligence": "partial",
+    "resolver_to_intelligence": "fail",
     "intelligence_to_lsp": "partial",
     "harness_to_assurance": "pass",
     "pr_repair_standalone": "partial",
@@ -146,7 +146,7 @@
     {
       "code": "LAYER_2_NOT_PASSING",
       "input": "artifacts/organism/02-seam-tests.json",
-      "summary": "Layer 2 status 'partial': 4 of 7 active seams PASS (core_to_sdk, sdk_to_assurance, harness_to_assurance, observability_contracts); 3 are partial with a blocked producer (resolver_to_intelligence - no GitHub credential; intelligence_to_lsp - publication gate fail-closed on a 0-finding corpus; pr_repair_standalone - GraphQL 403 on live review ingest). NO active seam failed, and no seam was forced with a hand-authored artifact."
+      "summary": "Layer 2 status 'fail': 4 of 7 active seams PASS (core_to_sdk, sdk_to_assurance, harness_to_assurance, observability_contracts); 3 are partial with a blocked producer (resolver_to_intelligence - no GitHub credential; intelligence_to_lsp - publication gate fail-closed on a 0-finding corpus; pr_repair_standalone - GraphQL 403 on live review ingest). NO active seam failed, and no seam was forced with a hand-authored artifact."
     },
     {
       "code": "LAYER_3_NOT_EXECUTED",

@@ -17,14 +17,14 @@ session.
 
 Layer 3 was not run and no `03-corridor-tests.json` is included; no placeholder stands in for it.
 
-**Layer 2 result: 4 of 7 active seams pass, 3 partial, 0 fail.** No seam was forced with a
+**Layer 2 result: 4 of 7 active seams pass, 2 partial, 1 fail.** No seam was forced with a
 hand-authored artifact, and every non-pass is a *blocked producer*, not a broken path:
 
 | Seam | Status | Evidence / blocker |
 |---|---|---|
 | `core_to_sdk` | **pass** | Core's own `invoke-sdk` action drove the SDK; contract identity 2.0.0 verified |
 | `sdk_to_assurance` | **pass** | Real SDK observation admitted — accepted 1, rejected 0 |
-| `resolver_to_intelligence` | partial | `AuthenticationError` — this surface holds no GitHub credential the resolver's transport can use |
+| `resolver_to_intelligence` | **fail** | `REDIRECT_AUTH_FORWARDING` — a real defect in l9-ci-debt-resolver (see below) |
 | `intelligence_to_lsp` | partial | `PublicationGateError` — no promotion-eligible candidates in a 0-finding corpus |
 | `harness_to_assurance` | **pass** | Real Assurance invoked; `authoritative: false` recorded |
 | `pr_repair_standalone` | partial | `SURFACE_UNSUPPORTED_GRAPHQL` — 403 on live review ingest |
@@ -37,6 +37,33 @@ the real field is accepted, and an out-of-range version is rejected as
 
 **9 of 15 fail-closed negative tests ran and passed; none failed.** The 6 not-run sit behind a
 blocked producer, not a skipped check.
+
+### Retracted: the resolver blocker is a defect, not a missing credential
+
+An earlier revision of this run recorded `resolver_to_intelligence` as *partial* because "this surface
+holds no GitHub credential". **That was wrong.** The credential works: a direct REST call and a plain
+`urllib.request.urlopen` carrying `$GH_TOKEN` both return 200 against the same Actions endpoints.
+
+The real cause is in `l9-ci-debt-resolver`: `providers/github/transport.py` re-sends the
+`Authorization` header across GitHub's 302 redirect from the job-logs endpoint to signed Azure Blob
+Storage, which rejects it with 401 — and the transport maps any 401 to `AuthenticationError`, so a
+redirect bug surfaces as a credential failure.
+
+Proof, same token and endpoint: `curl -L` → **200**; `curl -L --location-trusted` → **401**;
+`urllib.urlopen` → **401**. With the header stripped at runtime, acquisition completes (93,158-byte
+redacted log, `terminal_state: evidence_ready`), so this is the *sole* blocker of log acquisition.
+GitHub always redirects job logs to blob storage, so this fails in CI too — it is not a sandbox
+artifact. Fix: strip `Authorization` when a redirect crosses hosts, as curl and requests both do.
+
+The seam then stops at a second, *correct* gate: `SnapshotMismatchError`, because completing it needs
+a failed CI run and an SDK bundle at the same revision, and no failed run exists at any revision
+checked out here.
+
+### On GitHub Actions secrets
+
+A secret "wired into" a repository cannot be handed to a local tool: the Actions secrets API is
+write-only by GitHub's design, and this proxy additionally returns 403 for `/actions/secrets`. Such a
+secret is only ever materialised inside a workflow run.
 
 Everything descends from one real artifact: a semgrep 1.176.1 scan of `Quantum-L9/l9-pr-repair`
 @ `f5773d4` (94 files) with the SDK's packaged L9 ruleset, normalised by SDK code. That bundle
