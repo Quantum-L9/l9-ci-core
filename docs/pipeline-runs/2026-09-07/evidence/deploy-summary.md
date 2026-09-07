@@ -42,7 +42,7 @@ Out of scope: l9-constellation-topology
 
 | Layer | Status | Receipt |
 |---|---|---|
-| Repo health | fail | `artifacts/organism/01-repo-health.json` |
+| Repo health | pass | `artifacts/organism/01-repo-health.json` |
 | Seam tests | partial | `artifacts/organism/02-seam-tests.json` |
 | Corridor tests | partial | `artifacts/organism/03-corridor-tests.json` |
 
@@ -54,19 +54,20 @@ Out of scope: l9-constellation-topology
 | l9-ci-debt-lsp | 1.0.0 | `ebec362448ef` | pass | `pytest -q` | pass |
 | l9-ci-debt-resolver | 0.7.0 | `57cf94e1c8a7` | pass | `pytest -q` | pass |
 | l9-ci-core | 2.0.0.dev1 | `4c842cb838b6` | pass | `make check` | pass |
-| l9-ci-sdk | 2.0.0 | `cb765cbd4a9c` | pass | `make ci` | fail |
+| l9-ci-sdk | 2.0.0 | `5405fa5768b0` | pass | `make ci` | pass |
 | l9-assurance | 2.1.1 | `e9f012bf42af` | pass | `python scripts/ci.py` | pass |
 | l9-harness | 2.0.4 | `25bbb4046ed5` | pass | `pytest -q` | pass |
 | l9-pr-repair | 0.4.0 | `f5773d4ded37` | pass | `pytest -q` | pass |
 | l9-observability-core | 1.0.0 | `6a84c783f2fb` | pass | `make ci` | pass |
 
-8 of 9 repositories pass their own native health
-command. 1 repository defect(s) and 0 environmental result(s):
+9 of 9 repositories pass their own native health
+command. 0 repository defect(s) and 0 environmental result(s).
 
-**l9-ci-sdk — a real repository defect.** `make ci` -> `make hooks` runs zizmor, which reports
-`secrets-inherit` (medium, High confidence) at `.github/workflows/l9-nightly.yml:20`: `secrets:
-inherit` hands a reusable workflow every parent secret. It is pre-existing on `main`, it is **not**
-in the repo's own `.github/zizmor.yml` suppression list, and the repo's own gate fails on it.
+**l9-ci-sdk — resolved after #95.** The original run failed `make ci` on an unsuppressed
+`secrets-inherit` finding in `.github/workflows/l9-nightly.yml`. That file was removed when
+https://github.com/Quantum-L9/l9-ci-sdk/pull/95 merged (`5405fa5768b0`). A Layer 1 refresh of
+SDK only, with `GH_TOKEN`/`GITHUB_TOKEN` unset, now records `make ci` pass (zizmor clean, mypy
+clean, 505 pytest passed). Layers 2 and 3 were not replayed.
 
 This was first recorded as a sandbox limitation, and that diagnosis was wrong in an instructive way.
 The sandbox exports a 14-character sentinel `GH_TOKEN`, which flips zizmor from offline to online
@@ -192,7 +193,6 @@ deliberately re-run at the revision its own `SnapshotMismatchError` gate demands
 
 | Code | Detail |
 |---|---|
-| `LAYER_1_NOT_PASSING` | Layer 1 status is 'fail': 9/9 install, 8/9 pass their own native health command. Repository defects: 1 (l9-ci-sdk). Environmental or harness-caused non-zero results: 0. An earlier revision of this run wrongly recorded l9-ci-core as a repository defect; that finding is retracted and l9-ci-core passes. See the Layer 1 receipt's failures[] for the per-repo diagnosis and attribution. |
 | `LAYER_2_NOT_PASSING` | Layer 2 status 'partial': 5 of 7 active seams PASS (core_to_sdk, harness_to_assurance, observability_contracts, resolver_to_intelligence, sdk_to_assurance); 2 partial (intelligence_to_lsp, pr_repair_standalone); 0 fail (none). No seam was forced with a hand-authored artifact. |
 | `LAYER_3_NOT_PASSING` | Layer 3 status 'partial': 4 of 6 corridors PASS (assurance_harness, ci_evidence, learning_feedback, observability_contracts); 2 SKIPPED because a required Layer 2 seam is not passing (editor_advisory, standalone_repair_safety); 0 fail (none). A skipped corridor is not a pass, and none was forced with a hand-authored artifact. |
 | `NEGATIVE_COVERAGE_INCOMPLETE` | 10 of 15 fail-closed negative tests ran and passed; 5 were not run because their producer is blocked (intelligence_quarantines_unknown_or_planned_producer, lsp_rejects_bad_defense_pack_protocol, lsp_rejects_bad_sdk_contract_version, pr_repair_rejects_missing_expected_block, pr_repair_rejects_stale_expected_block); 0 failed. |
@@ -216,8 +216,8 @@ and 10 fail-closed negative tests reject what they are supposed to reject.
 What is not: `intelligence_to_lsp` cannot promote a defense pack because the corpus has one producer
 and one scope, so recurrence maturity is unmet — the gate is behaving correctly and the corridor
 behind it (`editor_advisory`) is therefore unproven, not working. `pr_repair_standalone` is blocked
-by this sandbox's GraphQL 403, taking `standalone_repair_safety` with it. And l9-ci-sdk's own gate
-fails on an unsuppressed `secrets-inherit` finding that a broken sandbox credential had been hiding.
+by this sandbox's GraphQL 403, taking `standalone_repair_safety` with it. The SDK `secrets-inherit`
+gate failure is resolved by #95; that does not make the partial seams or skipped corridors passes.
 
 Nothing failed outright and nothing was forced with a hand-authored artifact. But a partial seam is
 not a pass and a skipped corridor is not a pass, so `do-not-deploy` is the only defensible verdict.

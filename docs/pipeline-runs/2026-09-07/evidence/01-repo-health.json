@@ -1,6 +1,6 @@
 {
   "layer": "repo_health",
-  "status": "fail",
+  "status": "pass",
   "tested_at": "2026-09-07T14:47:57Z",
   "python": "3.11",
   "driver": "run_layer1_v3.sh",
@@ -80,21 +80,22 @@
       ]
     },
     "l9-ci-sdk": {
-      "sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+      "sha": "5405fa5768b084b4c29066e810c81664fba3c21b",
       "revision_source": "fetched origin/main, extracted with git archive",
       "version": "2.0.0",
       "project_name": "l9-ci",
       "install": "pass",
       "health_command": "make ci",
-      "health": "fail",
-      "health_exit_code": 2,
+      "health": "pass",
+      "health_exit_code": 0,
       "logs": {
         "install": "artifacts/organism/logs/l9-ci-sdk-install.log",
         "health": "artifacts/organism/logs/l9-ci-sdk-health.log"
       },
       "notes": [
         "install_mode=editable_with_dev_extras",
-        "Tested in a clean `git archive` extraction of origin/main, re-inited as a git repo at that exact content. No .venv, no untracked files, no branch \u2014 so a harness artifact cannot be mistaken for a repository defect, and the tested revision is unambiguous."
+        "Tested in a clean `git archive` extraction of origin/main, re-inited as a git repo at that exact content. No .venv, no untracked files, no branch \u2014 so a harness artifact cannot be mistaken for a repository defect, and the tested revision is unambiguous.",
+        "Refreshed after l9-ci-sdk#95 at 5405fa5768b084b4c29066e810c81664fba3c21b. make ci now passes (zizmor clean). Original Layer 1 used Python 3.11; this refresh used 3.12. Layers 2 and 3 were not replayed."
       ]
     },
     "l9-assurance": {
@@ -170,7 +171,23 @@
       ]
     }
   },
-  "failures": [
+  "failures": [],
+  "warnings": [],
+  "sdk_health_refresh": {
+    "cause": "l9-ci-sdk#95 merged; nightly Core callers (secrets-inherit) removed",
+    "tested_at": "2026-09-07T23:54:25Z",
+    "sha": "5405fa5768b084b4c29066e810c81664fba3c21b",
+    "previous_sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+    "health_command": "make ci",
+    "health": "pass",
+    "health_exit_code": 0,
+    "python": "3.12",
+    "tokens": "GH_TOKEN and GITHUB_TOKEN unset (zizmor offline)",
+    "evidence": "zizmor Passed; mypy 89 files clean; pytest 505 passed; compileall ok",
+    "merged_pr": "https://github.com/Quantum-L9/l9-ci-sdk/pull/95",
+    "layers_2_and_3_replayed": false
+  },
+  "resolved_failures": [
     {
       "repo": "l9-ci-sdk",
       "phase": "health",
@@ -184,6 +201,5 @@
       "summary": "health exited non-zero",
       "log": "artifacts/organism/logs/l9-ci-sdk-health.log"
     }
-  ],
-  "warnings": []
+  ]
 }

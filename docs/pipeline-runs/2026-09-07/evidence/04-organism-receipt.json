@@ -52,7 +52,7 @@
       "version": "2.0.0.dev1"
     },
     "l9-ci-sdk": {
-      "sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+      "sha": "5405fa5768b084b4c29066e810c81664fba3c21b",
       "version": "2.0.0"
     },
     "l9-assurance": {
@@ -78,7 +78,7 @@
   },
   "layers": {
     "repo_health": {
-      "status": "fail",
+      "status": "pass",
       "receipt": "artifacts/organism/01-repo-health.json"
     },
     "seam_tests": {
@@ -191,11 +191,6 @@
   "authority_boundaries": "artifacts/organism/layer-4/receipts/authority-boundaries.json",
   "failures": [
     {
-      "code": "LAYER_1_NOT_PASSING",
-      "input": "artifacts/organism/01-repo-health.json",
-      "summary": "Layer 1 status is 'fail': 9/9 install, 8/9 pass their own native health command. Repository defects: 1 (l9-ci-sdk). Environmental or harness-caused non-zero results: 0. An earlier revision of this run wrongly recorded l9-ci-core as a repository defect; that finding is retracted and l9-ci-core passes. See the Layer 1 receipt's failures[] for the per-repo diagnosis and attribution."
-    },
-    {
       "code": "LAYER_2_NOT_PASSING",
       "input": "artifacts/organism/02-seam-tests.json",
       "summary": "Layer 2 status 'partial': 5 of 7 active seams PASS (core_to_sdk, harness_to_assurance, observability_contracts, resolver_to_intelligence, sdk_to_assurance); 2 partial (intelligence_to_lsp, pr_repair_standalone); 0 fail (none). No seam was forced with a hand-authored artifact."
@@ -223,5 +218,19 @@
     "Provenance is version-governed. source_sha_gating is false. Cross-layer SHA alignment remains informational only."
   ],
   "waivers": [],
-  "final_statement": "DO NOT DEPLOY. All three input layers ran. Layer 1 is 'fail': 9/9 install and 8/9 pass their own health command, with 1 repository defect(s): l9-ci-sdk. Layer 2 is 'partial': 5/7 seams pass, 2 partial, 0 fail. Layer 3 is 'partial': 4/6 corridors pass, 2 skipped behind a non-passing seam, 0 fail. Nothing failed outright and nothing was forced with a hand-authored artifact, but a partial seam and a skipped corridor are not passes: editor_advisory, standalone_repair_safety remain unproven, 5 of 15 fail-closed negative tests never ran, and l9-ci-sdk's own gate fails on an unsuppressed workflow-security finding. Cross-layer SHA alignment is a documented non-goal (see layer-4/receipts/sha-consistency.json); it does not affect this verdict either way."
+  "final_statement": "DO NOT DEPLOY. Layer 1 is now 'pass' after l9-ci-sdk#95: 9/9 install and 9/9 native health. Layer 2 remains 'partial': 5/7 seams pass, 2 partial, 0 fail. Layer 3 remains 'partial': 4/6 corridors pass, 2 skipped behind a non-passing seam, 0 fail. L3-F1 (ASSURANCE_POLICY_EVIDENCE_INCOMPLETE) is still open. 5 of 15 fail-closed negative tests never ran. Layers 2 and 3 were not replayed because package/contracts and seam semantics did not change. Cross-layer SHA alignment is a documented non-goal.",
+  "sdk_health_refresh": {
+    "cause": "l9-ci-sdk#95 merged; nightly Core callers (secrets-inherit) removed",
+    "tested_at": "2026-09-07T23:54:25Z",
+    "sha": "5405fa5768b084b4c29066e810c81664fba3c21b",
+    "previous_sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+    "health_command": "make ci",
+    "health": "pass",
+    "health_exit_code": 0,
+    "python": "3.12",
+    "tokens": "GH_TOKEN and GITHUB_TOKEN unset (zizmor offline)",
+    "evidence": "zizmor Passed; mypy 89 files clean; pytest 505 passed; compileall ok",
+    "merged_pr": "https://github.com/Quantum-L9/l9-ci-sdk/pull/95",
+    "layers_2_and_3_replayed": false
+  }
 }

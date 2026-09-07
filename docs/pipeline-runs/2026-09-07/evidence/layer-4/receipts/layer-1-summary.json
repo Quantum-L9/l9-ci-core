@@ -1,12 +1,29 @@
 {
   "layer": "repo_health",
-  "status": "fail",
+  "status": "pass",
   "receipt": "artifacts/organism/01-repo-health.json",
   "repos_checked": 9,
   "repos_install_pass": 9,
-  "repos_health_pass": 8,
+  "repos_health_pass": 9,
   "repository_identity_normalized": {},
-  "failures": [
+  "failures": [],
+  "warnings": [],
+  "acceptable_for_deploy": false,
+  "sdk_health_refresh": {
+    "cause": "l9-ci-sdk#95 merged; nightly Core callers (secrets-inherit) removed",
+    "tested_at": "2026-09-07T23:54:25Z",
+    "sha": "5405fa5768b084b4c29066e810c81664fba3c21b",
+    "previous_sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+    "health_command": "make ci",
+    "health": "pass",
+    "health_exit_code": 0,
+    "python": "3.12",
+    "tokens": "GH_TOKEN and GITHUB_TOKEN unset (zizmor offline)",
+    "evidence": "zizmor Passed; mypy 89 files clean; pytest 505 passed; compileall ok",
+    "merged_pr": "https://github.com/Quantum-L9/l9-ci-sdk/pull/95",
+    "layers_2_and_3_replayed": false
+  },
+  "resolved_failures": [
     {
       "repo": "l9-ci-sdk",
       "phase": "health",
@@ -21,6 +38,5 @@
       "log": "artifacts/organism/logs/l9-ci-sdk-health.log"
     }
   ],
-  "warnings": [],
-  "acceptable_for_deploy": false
+  "acceptable_for_deploy_note": "Layer 1 pass does not waive Layer 2 partial, Layer 3 partial, L3-F1, or incomplete negative coverage."
 }

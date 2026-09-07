@@ -549,3 +549,15 @@ Verdict stays `fail` / `do-not-deploy`. `ci_evidence` stays pass.
 3. **Inactive-seam aggregation.** Six planned seams are `planned-or-not-live`.
    `observability_control_plane` stays `prohibited`. The reconstructed-after-run seam-inventory
    warning is preserved.
+
+## Layer 1 refresh after l9-ci-sdk#95 (2026-09-07)
+
+https://github.com/Quantum-L9/l9-ci-sdk/pull/95 merged at `5405fa5768b0` (squash). That commit
+removes the nightly Core callers that carried `secrets: inherit`.
+
+SDK native health was re-run only: `make ci` with `GH_TOKEN`/`GITHUB_TOKEN` unset → exit 0
+(zizmor Passed, mypy clean, 505 pytest passed). Layer 1 is now **9/9 pass**. `LAYER_1_NOT_PASSING`
+is resolved. Layers 2 and 3 were **not** replayed.
+
+Verdict still **`fail` / `do-not-deploy`**: two partial seams, two skipped corridors, L3-F1 open,
+five negative tests not run.
