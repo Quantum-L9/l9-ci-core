@@ -361,3 +361,92 @@ The decision itself does not move: `fail` / `do-not-deploy`, for better-stated r
 
 `evidence/layer-4/logs/layer-4-output-digests.json` self-verifies against the copies published here:
 15 of 15 outputs match on both `sha256` and `size_bytes`, 0 mismatched, 0 missing.
+
+## Full re-run of Layers 1–4 against current `origin/main`
+
+Re-run after `l9-ci-debt-resolver#52` merged, so the receipts describe the fleet as it is on
+`main` rather than as it was mid-session.
+
+### Layer 1 was rebuilt, not just re-executed
+
+The v2 driver ran **inside the working clones** (symlinked from `/home/user`). Two of this run's
+three worst receipt errors trace directly to that:
+
+- Its own `ensurepip` repair of pip-less venvs wrote a pip-vendored `cacert.pem` into
+  `l9-ci-debt-intelligence`'s gitignored `.venv`. A sound publication-boundary invariant flagged
+  it, and the repository was reported as failing. The failure was the harness's. Deleting the file
+  was denied twice by the operator permission gate, so it could not be cleared by cleanup.
+- It tested whatever `HEAD` the clone happened to be on. After #52 squash-merged, the clone's
+  feature branch and `origin/main` diverged, and the receipt named `2c7406c` — a revision that
+  predates the fix it was reporting as passing.
+
+`run_layer1_v3.sh` extracts each repository with `git archive` at its **fetched `origin/main`**
+into a fresh tree, re-inits it as a git repo at that exact content (l9-ci-sdk's `make ci` runs
+pre-commit over all files and then `git diff`, so it needs one), and installs and tests there. The
+working clones are read-only. An extracted tree has no `.venv`, so that class of false failure
+cannot recur — and "which revision was tested" has one answer per repository.
+
+`GH_TOKEN`/`GITHUB_TOKEN` are unset for the health step. This sandbox exports a 14-character
+sentinel; a non-empty token flips zizmor from offline to online mode, github.com rejects the
+sentinel at `git-upload-pack` with 401, and l9-ci-sdk's gate aborts before its audit runs.
+
+### Layer 1 result
+
+**9/9 install, 8/9 health, 1 repository defect.**
+
+| Repo | Revision (`origin/main`) | Version | Health | Result |
+|---|---|---|---|---|
+| l9-ci-debt-intelligence | `7b11061084e2` | 0.2.0 | `pytest -q` | pass |
+| l9-ci-debt-lsp | `ebec362448ef` | 1.0.0 | `pytest -q` | pass |
+| l9-ci-debt-resolver | `57cf94e1c8a7` | 0.7.0 | `pytest -q` | pass |
+| l9-ci-core | `4c842cb838b6` | 2.0.0.dev1 | `make check` | pass |
+| l9-ci-sdk | `cb765cbd4a9c` | 2.0.0 | `make ci` | **fail** |
+| l9-assurance | `e9f012bf42af` | 2.1.1 | `python scripts/ci.py` | pass |
+| l9-harness | `25bbb4046ed5` | 2.0.4 | `pytest -q` | pass |
+| l9-pr-repair | `f5773d4ded37` | 0.4.0 | `pytest -q` | pass |
+| l9-observability-core | `6a84c783f2fb` | 1.0.0 | `make ci` | pass |
+
+`l9-ci-debt-intelligence` passes on its own terms in a clean tree — not waived. The environmental
+category is now empty: the single failure is a real repository defect, filed as
+[Quantum-L9/l9-ci-sdk#96](https://github.com/Quantum-L9/l9-ci-sdk/issues/96) with the full
+callee-chain analysis. It is not patched here, because whether `secrets: inherit` is correct for
+that caller is a judgement about Core's secret contract.
+
+### Two receipt corrections
+
+**`resolver_to_intelligence` named a revision it did not test.** The receipt read `status: pass`
+with `producer_sha: 2c7406c` — a pre-fix commit that could not have produced a pass — while its own
+`resolved` block said the merged fix was used with an unmodified CLI. Corrected to `57cf94e`
+(`origin/main`), with the proof recorded: `git diff --stat 8a5718e 57cf94e` is empty over the whole
+tree, so the code that ran the seam is byte-identical to `main`. The now-fixed defect is retained
+as `historical_blocker` — this receipt is the record that found it — rather than presented as live.
+The distinct role of `2410fae` (the revision of the *acquired failed CI run*, paired with an SDK
+bundle at the same commit to satisfy the resolver's own `SnapshotMismatchError` gate) is now stated
+rather than left to be inferred.
+
+**`intelligence_to_lsp` cited a stale corpus size.** "1 record from a real 0-finding SDK bundle" was
+true before the resolver feedback event was ingested. The seam receipt records `record_count=2`,
+`candidate_count=2`, `promotion_eligible_count=0` — one producer and one scope, so the recurrence
+threshold cannot be met by construction. The gate is behaving correctly; the seam is unproven for
+lack of corpus maturity, not for lack of a working path.
+
+### Duplicate log tree removed
+
+`evidence/layer-1/logs/` was a byte-for-byte copy of `evidence/logs/`, and it had already drifted —
+the two copies of `l9-ci-sdk-health.log` disagreed, one predating the token fix. Duplicated evidence
+that can drift is a defect in an evidence bundle. `evidence/logs/` is the path every receipt names,
+so it is canonical; the 24-file duplicate is deleted (all were tracked and referenced by nothing).
+
+### Unchanged
+
+Layers 2 and 3 keep their statuses — `partial` and `partial`. Nothing merged that would move
+`intelligence_to_lsp` or `pr_repair_standalone`, and re-running passing seams at a new SHA would
+only restate them. Cross-layer SHA alignment remains a documented non-goal.
+
+### Verdict
+
+Unchanged: **`fail` / `do-not-deploy`**. The organism now has one honest blocker in Layer 1
+(l9-ci-sdk#96), two partial seams, and two corridors skipped behind them.
+
+Digest manifest re-verified against the published copies: **15/15** match on `sha256` and
+`size_bytes`, 0 mismatched, 0 missing.

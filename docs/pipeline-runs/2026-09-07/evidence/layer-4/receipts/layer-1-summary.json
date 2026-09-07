@@ -15,8 +15,9 @@
       "category": "workflow_security_finding",
       "attributable_to": "repository",
       "repo_defect": true,
-      "summary": "zizmor secrets-inherit (medium, High confidence) at .github/workflows/l9-nightly.yml:20 - `secrets: inherit` grants a reusable workflow all parent secrets. Pre-existing on main, unsuppressed, and the repo's own make ci gate fails on it.",
-      "diagnosis": "Previously masked: the sandbox's sentinel GH_TOKEN pushed zizmor into online mode where github.com 401'd it, so the gate never reached this audit.",
+      "diagnosis": "`make ci` -> `make check` -> `make hooks` runs the repo's own zizmor pre-commit hook, which reports secrets-inherit (medium, audit confidence High) at .github/workflows/l9-nightly.yml:20 \u2014 `secrets: inherit` grants the called Core reusable workflow ALL of this repository's secrets. Pre-existing on main (file last changed by #89), NOT in the repo's .github/zizmor.yml suppression list, so the repo's own gate fails on it legitimately. 13 findings (1 ignored, 11 suppressed): 1 medium. Filed as Quantum-L9/l9-ci-sdk#96 with the full callee-chain analysis; not patched here because the fix turns on Core's secret contract, not on anything local.",
+      "issue": "https://github.com/Quantum-L9/l9-ci-sdk/issues/96",
+      "summary": "health exited non-zero",
       "log": "artifacts/organism/logs/l9-ci-sdk-health.log"
     }
   ],

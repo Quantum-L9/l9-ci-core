@@ -3,7 +3,7 @@
   "status": "pass",
   "producer": "l9-ci-debt-resolver",
   "consumer": "l9-ci-debt-intelligence",
-  "producer_sha": "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1",
+  "producer_sha": "57cf94e1c8a744620346dca81cde88b3d6f64004",
   "consumer_sha": "7b11061084e254699d006feaeccd1c96d66445c9",
   "contract_ids": [
     "l9.finding-bundle/v1",
@@ -11,21 +11,6 @@
     "l9.intelligence-feedback-event/v1",
     "l9.ingestion-result/v1"
   ],
-  "blocker": {
-    "phase": "producer (acquire-github-run, job-log retrieval)",
-    "code": "REDIRECT_AUTH_FORWARDING",
-    "defect_owner": "l9-ci-debt-resolver",
-    "location": "src/l9_debt_resolver/providers/github/transport.py:_request (urllib.request.urlopen, default HTTPRedirectHandler)",
-    "mechanism": "GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs returns 302 to a SIGNED Azure Blob Storage URL (productionresultssa4.blob.core.windows.net). urllib's default redirect handler re-sends the Authorization: Bearer header to that host. Azure rejects a signed request that also carries an Authorization header, returning HTTP 401 'Server failed to authenticate the request. Please refer to the information in the www-authenticate header'. transport.py maps any 401 to AuthenticationError, so a redirect bug is reported as a GitHub credential failure.",
-    "proof": [
-      "curl -L (strips auth cross-host by default) -> 200",
-      "curl -L --location-trusted (re-sends auth cross-host) -> 401",
-      "python urllib.request.urlopen (re-sends auth cross-host) -> 401",
-      "Same token, same endpoint, same session: the only variable is whether Authorization survives the cross-host redirect."
-    ],
-    "environment_independent": "GitHub always redirects job logs to blob storage, so this fails wherever the resolver runs, including CI. It is not specific to this sandbox.",
-    "fix": "Strip the Authorization header when a redirect crosses to a different host (what requests and curl do by default). A ~6-line HTTPRedirectHandler subclass in transport.py."
-  },
   "what_was_proven": {
     "resolver_producer_stage_1": {
       "command": "l9-debt-resolver build-sdk-knowledge <real SDK bundle> --repository Quantum-L9/l9-pr-repair",
@@ -190,5 +175,29 @@
       "name": "intelligence-ingestion-receipt-2.json",
       "sha256": "072113d5a28d0785f68df8042109c66a15dd66002ab56918abb75c267fa4b493"
     }
-  ]
+  ],
+  "producer_sha_provenance": {
+    "revision": "57cf94e1c8a744620346dca81cde88b3d6f64004",
+    "ref": "origin/main (squash-merge of Quantum-L9/l9-ci-debt-resolver#52)",
+    "ran_from": "the working clone at branch head 8a5718e",
+    "identity_proof": "git diff --stat 8a5718e 57cf94e is EMPTY over the whole tree, so the code that ran this seam is byte-identical to main.",
+    "superseded": "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1 \u2014 the pre-fix revision this receipt previously named. It could not have produced a pass; naming it was a receipt error, not a different result.",
+    "scanned_revision": "2410fae622bb \u2014 the revision of the FAILED CI run whose logs were acquired, paired with an SDK bundle at the same revision to satisfy the resolver's own SnapshotMismatchError gate. Distinct from the revision of the resolver CODE above."
+  },
+  "historical_blocker": {
+    "phase": "producer (acquire-github-run, job-log retrieval)",
+    "code": "REDIRECT_AUTH_FORWARDING",
+    "defect_owner": "l9-ci-debt-resolver",
+    "location": "src/l9_debt_resolver/providers/github/transport.py:_request (urllib.request.urlopen, default HTTPRedirectHandler)",
+    "mechanism": "GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs returns 302 to a SIGNED Azure Blob Storage URL (productionresultssa4.blob.core.windows.net). urllib's default redirect handler re-sends the Authorization: Bearer header to that host. Azure rejects a signed request that also carries an Authorization header, returning HTTP 401 'Server failed to authenticate the request. Please refer to the information in the www-authenticate header'. transport.py maps any 401 to AuthenticationError, so a redirect bug is reported as a GitHub credential failure.",
+    "proof": [
+      "curl -L (strips auth cross-host by default) -> 200",
+      "curl -L --location-trusted (re-sends auth cross-host) -> 401",
+      "python urllib.request.urlopen (re-sends auth cross-host) -> 401",
+      "Same token, same endpoint, same session: the only variable is whether Authorization survives the cross-host redirect."
+    ],
+    "environment_independent": "GitHub always redirects job logs to blob storage, so this fails wherever the resolver runs, including CI. It is not specific to this sandbox.",
+    "fix": "Strip the Authorization header when a redirect crosses to a different host (what requests and curl do by default). A ~6-line HTTPRedirectHandler subclass in transport.py.",
+    "state": "RESOLVED \u2014 fixed on main at 57cf94e (#52). Retained because this receipt is the record that identified it."
+  }
 }

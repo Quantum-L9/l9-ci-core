@@ -56,8 +56,9 @@
       "consumer": "l9-ci-debt-lsp",
       "phase": "emit",
       "error_code": "PublicationGateError",
-      "summary": "The full producer chain ran, but the corpus (1 record from a real 0-finding SDK bundle) yielded no promotion-eligible candidate, so the publication gate fail-closed. Correct behaviour; the seam is unproven for lack of data.",
-      "log": null
+      "summary": "The full producer chain ran, but no candidate is promotion-eligible, so the publication gate fail-closed. Correct behaviour; the seam is unproven for lack of corpus maturity, not for lack of a working path. Per the seam receipt: record_count=2, candidate_count=2, promotion_eligible_count=0 \u2014 one producer and one scope, so the recurrence threshold cannot be met by construction.",
+      "log": null,
+      "superseded_summary": "Earlier text said '1 record from a real 0-finding SDK bundle'. That was true before the resolver feedback event was ingested; the corpus then held 2 records."
     },
     {
       "seam": "pr_repair_standalone",

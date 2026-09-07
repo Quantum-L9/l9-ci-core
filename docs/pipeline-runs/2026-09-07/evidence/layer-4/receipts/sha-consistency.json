@@ -31,21 +31,21 @@
       ]
     },
     "l9-ci-debt-resolver": {
-      "layer_1_sha": "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1",
+      "layer_1_sha": "57cf94e1c8a744620346dca81cde88b3d6f64004",
       "layer_2_shas": [
-        "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1"
+        "57cf94e1c8a744620346dca81cde88b3d6f64004"
       ],
       "layer_3_shas": [
         "2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6"
       ],
       "revisions_observed": [
         "2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6",
-        "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1"
+        "57cf94e1c8a744620346dca81cde88b3d6f64004"
       ],
       "alignment_asserted": false,
       "notes": [
-        "More than one revision recorded across layers: 2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6, 2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1. Recorded, not reconciled - see scope_decision.",
-        "Deliberate: Layer 1 recorded the checkout tip (2c7406c), while the resolver_to_intelligence seam was re-run at 2410fae to satisfy the resolver's own SnapshotMismatchError gate, which requires the SDK bundle and the failed CI run to share a revision. Both receipts name the revision they used."
+        "More than one revision recorded across layers: 2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6, 57cf94e1c8a744620346dca81cde88b3d6f64004. Recorded, not reconciled - see scope_decision.",
+        "Deliberate, and the two revisions mean different things. 57cf94e is origin/main (the squash-merge of #52) - the revision of the resolver CODE that Layer 1 tested and that ran the seam. 2410fae is the revision of the failed CI run whose logs were ACQUIRED, paired with an SDK bundle at that same commit to satisfy the resolver's own SnapshotMismatchError gate, which requires the bundle and the run to share a revision. Both receipts name the revision they used. An earlier revision of this receipt named 2c7406c here, a pre-fix commit that could not have produced the pass it was attached to; that was a receipt error and is corrected."
       ]
     },
     "l9-ci-core": {
@@ -165,7 +165,7 @@
     ],
     "l9-ci-debt-resolver": [
       "2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6",
-      "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1"
+      "57cf94e1c8a744620346dca81cde88b3d6f64004"
     ],
     "l9-ci-core": [
       "4c842cb838b6c49cf44681ecc683a432538fd348",
@@ -190,8 +190,8 @@
   },
   "multi_revision_repos": {
     "l9-ci-debt-resolver": [
-      "More than one revision recorded across layers: 2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6, 2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1. Recorded, not reconciled - see scope_decision.",
-      "Deliberate: Layer 1 recorded the checkout tip (2c7406c), while the resolver_to_intelligence seam was re-run at 2410fae to satisfy the resolver's own SnapshotMismatchError gate, which requires the SDK bundle and the failed CI run to share a revision. Both receipts name the revision they used."
+      "More than one revision recorded across layers: 2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6, 57cf94e1c8a744620346dca81cde88b3d6f64004. Recorded, not reconciled - see scope_decision.",
+      "Deliberate, and the two revisions mean different things. 57cf94e is origin/main (the squash-merge of #52) - the revision of the resolver CODE that Layer 1 tested and that ran the seam. 2410fae is the revision of the failed CI run whose logs were ACQUIRED, paired with an SDK bundle at that same commit to satisfy the resolver's own SnapshotMismatchError gate, which requires the bundle and the run to share a revision. Both receipts name the revision they used. An earlier revision of this receipt named 2c7406c here, a pre-fix commit that could not have produced the pass it was attached to; that was a receipt error and is corrected."
     ],
     "l9-ci-core": [
       "More than one revision recorded across layers: 4c842cb838b6c49cf44681ecc683a432538fd348, 659e2c07f8dd2f8b64ed8b696bc35790c728a4a1, 86acb5123fed378a18d3951cdd68d4b773fea0b7. Recorded, not reconciled - see scope_decision.",

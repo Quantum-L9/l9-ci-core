@@ -1,1 +1,1 @@
-make ci exit=2
+2

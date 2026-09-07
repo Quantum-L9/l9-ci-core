@@ -66,8 +66,8 @@
     "remote_mutation": "none - no push, branch, merge or PR against any organism repository."
   },
   "workspace_residue": [
-    "l9-pr-repair: runtime/pr_repair/ (88K, untracked) written by the pr-repair dry-run; removal DENIED by the operator permission gate.",
-    "Four repos retain a harness-added pip tree under their gitignored .venv from Layer 1; removal DENIED."
+    "l9-pr-repair: runtime/pr_repair/ (88K, untracked) written by the pr-repair dry-run; removal DENIED by the operator permission gate. Still present.",
+    "Four repos retain a harness-added pip tree under their gitignored .venv from the Layer 1 v2 in-place run; removal DENIED. This no longer affects any result: Layer 1 v3 tests `git archive` extractions that contain no .venv at all, which is what turned l9-ci-debt-intelligence from a reported failure into a clean pass."
   ],
   "failures": [
     {
@@ -76,8 +76,9 @@
       "consumer": "l9-ci-debt-lsp",
       "phase": "emit",
       "error_code": "PublicationGateError",
-      "summary": "The full producer chain ran, but the corpus (1 record from a real 0-finding SDK bundle) yielded no promotion-eligible candidate, so the publication gate fail-closed. Correct behaviour; the seam is unproven for lack of data.",
-      "log": null
+      "summary": "The full producer chain ran, but no candidate is promotion-eligible, so the publication gate fail-closed. Correct behaviour; the seam is unproven for lack of corpus maturity, not for lack of a working path. Per the seam receipt: record_count=2, candidate_count=2, promotion_eligible_count=0 \u2014 one producer and one scope, so the recurrence threshold cannot be met by construction.",
+      "log": null,
+      "superseded_summary": "Earlier text said '1 record from a real 0-finding SDK bundle'. That was true before the resolver feedback event was ingested; the corpus then held 2 records."
     },
     {
       "seam": "pr_repair_standalone",

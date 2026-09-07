@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-07T13:41:23Z",
+  "generated_at": "2026-09-07T14:49:33Z",
   "outputs": [
     {
       "path": "artifacts/organism/layer-4/receipts/artifact-manifest.json",
@@ -23,13 +23,13 @@
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-1-summary.json",
-      "size_bytes": 1005,
-      "sha256": "9cc3f0134ca09e2e606c36f4bf94d166790682a70b6800c9868cb6b3e55007e6"
+      "size_bytes": 1362,
+      "sha256": "77197b78d2f4ac0875e374fc84eaf5b3732c0c45ca809a2e73efddc860ae2996"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-2-summary.json",
-      "size_bytes": 2823,
-      "sha256": "46e8ae0ddafd69faacec3eba6d4d4136178ed2af8d6472859c92535f7c645452"
+      "size_bytes": 3173,
+      "sha256": "5c4525819f5d48ada6bbba59a449b5d2057abeeb9af38c968ac2803dc1f4b5ed"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-3-summary.json",
@@ -58,23 +58,23 @@
     },
     {
       "path": "artifacts/organism/layer-4/receipts/sha-consistency.json",
-      "size_bytes": 8795,
-      "sha256": "3f849c2d3f095d75008784499377a9e603f0d007426edb5064e6e7e0b9340f59"
+      "size_bytes": 9481,
+      "sha256": "7f4b5222ec1e531b387fff2f30abdad8b0d9fbe54329e9d93a23dda3ddccfc52"
     },
     {
       "path": "artifacts/organism/layer-4/summaries/deploy-summary.md",
-      "size_bytes": 12189,
-      "sha256": "c33e692333ab427ad74f4a60589e1ab16f2cbd39cf5384c39bbc76ad53c9b7d3"
+      "size_bytes": 12828,
+      "sha256": "f05a064aa9f27fe446eea5d33c4cfac09cc644069b377355c7046d286b1af5be"
     },
     {
       "path": "artifacts/organism/04-organism-receipt.json",
       "size_bytes": 7907,
-      "sha256": "72481940a72ed61dd70f20dabcfde3015ed05b146de425caf37ac9e044ccd116"
+      "sha256": "a28ac1edf3616b05cb628dad735c8828918a6c8fa99954a63a68faa4fa9ab297"
     },
     {
       "path": "artifacts/organism/01-repo-health.json",
-      "size_bytes": 10930,
-      "sha256": "b4b71d86a66024788ff758f2fa980b1c472b47189e19b93787019502f59dd3cd"
+      "size_bytes": 9780,
+      "sha256": "b0a41fe2b5f7661ef9839353806b122987560cf232b11fa983bc5be28c7cb5af"
     }
   ]
 }

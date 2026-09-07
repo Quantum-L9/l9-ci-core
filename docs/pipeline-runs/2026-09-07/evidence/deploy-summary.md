@@ -1,6 +1,6 @@
 # L9 CI Debt Organism Deploy Summary
 
-Generated: 2026-09-07T13:41:23Z
+Generated: 2026-09-07T14:49:33Z
 Final receipt: `artifacts/organism/04-organism-receipt.json`
 
 ## Decision
@@ -50,9 +50,9 @@ Out of scope: l9-constellation-topology
 
 | Repo | Version | SHA | Install | Health command | Health |
 |---|---|---|---|---|---|
-| l9-ci-debt-intelligence | 0.2.0 | `7b11061084e2` | pass | `pytest -q (clean git archive extraction of the same revision)` | pass |
+| l9-ci-debt-intelligence | 0.2.0 | `7b11061084e2` | pass | `pytest -q` | pass |
 | l9-ci-debt-lsp | 1.0.0 | `ebec362448ef` | pass | `pytest -q` | pass |
-| l9-ci-debt-resolver | 0.7.0 | `2c7406c02351` | pass | `pytest -q` | pass |
+| l9-ci-debt-resolver | 0.7.0 | `57cf94e1c8a7` | pass | `pytest -q` | pass |
 | l9-ci-core | 2.0.0.dev1 | `4c842cb838b6` | pass | `make check` | pass |
 | l9-ci-sdk | 2.0.0 | `cb765cbd4a9c` | pass | `make ci` | fail |
 | l9-assurance | 2.1.1 | `e9f012bf42af` | pass | `python scripts/ci.py` | pass |
@@ -77,12 +77,22 @@ was hiding a genuine finding, not creating a false one.**
 Not fixed here: whether `secrets: inherit` is correct for this caller is a judgement about Core's
 secret contract, and this run's mandate is verification, not repair. Recorded for its owner.
 
-**l9-ci-debt-intelligence — resolved, not waived.** The in-place run reported one failure: a sound
-publication-boundary invariant flagging `.venv/.../pip/_vendor/certifi/cacert.pem`, a file *this*
-Layer 1 harness created by running `ensurepip` into the repo's gitignored `.venv` to repair a
-pip-less venv left by the session-deps hook. Deleting it was denied twice by the operator permission
-gate, so the repository was re-tested at the **same** revision via a clean `git archive` extraction
-containing no `.venv` at all. It passes. The contamination still sits in the workspace checkout.
+**Method note — why there is no longer an "environmental" column.** Layer 1 v3 tests a clean
+`git archive` extraction of each repository's fetched `origin/main`, re-inited as a git repo at
+that exact content, in its own seeded venv. The working clones are read-only.
+
+That change retired the one non-defect this run had been carrying.
+`l9-ci-debt-intelligence` had reported a failure: a sound publication-boundary invariant flagging
+`.venv/.../pip/_vendor/certifi/cacert.pem` — a file the *earlier, in-place* Layer 1 harness created
+by running `ensurepip` into the repo's gitignored `.venv` to repair a pip-less venv left by the
+session-deps hook. Deleting it was denied twice by the operator permission gate, so the failure
+could not be cleared by cleanup. An extracted tree has no `.venv` at all, so the invariant passes
+on its own terms rather than being waived. The contamination still sits in the workspace checkouts
+and is recorded in the Layer 2 receipt's `workspace_residue`; it no longer touches any result.
+
+The same change makes "which revision was tested" unambiguous, which mattered here:
+`l9-ci-debt-resolver` is now tested at `57cf94e` — `origin/main`, carrying the merged redirect fix
+from #52 — where the previous run had tested a working-clone branch tip.
 
 **Retracted finding.** An earlier revision of this run recorded `l9-ci-core` as the sole repository
 defect, citing 4 mypy `Library stubs not installed` errors and claiming `types-jsonschema` was

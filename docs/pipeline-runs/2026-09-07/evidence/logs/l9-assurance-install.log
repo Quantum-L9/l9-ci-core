@@ -1,24 +1,24 @@
 Using CPython 3.11.15 interpreter at: /usr/local/bin/python3
-Creating virtual environment with seed packages at: .venv-l9-assurance
+Creating virtual environment with seed packages at: .venv3-l9-assurance
  + packaging==26.3
  + pip==26.2.1
  + setuptools==84.0.0
  + wheel==0.48.0
-Activate with: source .venv-l9-assurance/bin/activate
+Activate with: source .venv3-l9-assurance/bin/activate
 HAS_BUILD_SYSTEM=yes
-Using Python 3.11.15 environment at: /tmp/l9-organism/.venv-l9-assurance
-Resolved 18 packages in 20ms
-   Building l9-assurance @ file:///home/user/quantum-l9/l9-assurance
-      Built l9-assurance @ file:///home/user/quantum-l9/l9-assurance
-Prepared 1 package in 1.09s
-Installed 17 packages in 7ms
+Using Python 3.11.15 environment at: /tmp/l9-organism/.venv3-l9-assurance
+Resolved 18 packages in 125ms
+   Building l9-assurance @ file:///tmp/l9-organism/layer1-trees/l9-assurance
+      Built l9-assurance @ file:///tmp/l9-organism/layer1-trees/l9-assurance
+Prepared 1 package in 1.20s
+Installed 17 packages in 8ms
  + attrs==26.1.0
  + coverage==7.16.0
  + execnet==2.1.2
  + iniconfig==2.3.0
  + jsonschema==4.26.0
  + jsonschema-specifications==2025.9.1
- + l9-assurance==2.1.1 (from file:///home/user/quantum-l9/l9-assurance)
+ + l9-assurance==2.1.1 (from file:///tmp/l9-organism/layer1-trees/l9-assurance)
  + pluggy==1.6.0
  + pygments==2.21.0
  + pytest==9.1.1
