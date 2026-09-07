@@ -1,0 +1,1 @@
+{"blocking_finding_ids":[],"fatal_provider_ids":[],"incomplete_provider_ids":[],"reasons":[],"schema":"l9.gate-result/v1","schema_version":"1.0.0","status":"pass","summary":{"blocking_count":0,"fatal_provider_count":0,"incomplete_provider_count":0,"unresolved_count":0},"unresolved_finding_ids":[]}

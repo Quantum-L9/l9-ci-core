@@ -10,7 +10,7 @@
     },
     "corridor_tests": {
       "path": "artifacts/organism/03-corridor-tests.json",
-      "exists": false
+      "exists": true
     }
   },
   "also_inspected": {
@@ -20,7 +20,7 @@
     },
     "layer_3_receipts_dir": {
       "path": "artifacts/organism/layer-3/receipts",
-      "exists": false
+      "exists": true
     },
     "layer_2_inactive_by_design": {
       "path": "artifacts/organism/layer-2/inactive-by-design.json",
@@ -28,7 +28,7 @@
     },
     "layer_3_non_live_corridors": {
       "path": "artifacts/organism/layer-3/non-live-corridors.json",
-      "exists": false
+      "exists": true
     },
     "repo_state_dir": {
       "path": "artifacts/organism/repo-state",
@@ -39,5 +39,5 @@
     "Layer 1 has been executed and its receipt is present.",
     "Layer 2 and Layer 3 have NOT been executed. Layer 4 may not create, rerun, or infer them."
   ],
-  "status": "fail"
+  "status": "pass"
 }

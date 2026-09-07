@@ -1,0 +1,19 @@
+{
+  "corridor": "editor_advisory",
+  "status": "skipped",
+  "path": [
+    "l9-ci-debt-intelligence",
+    "l9-ci-debt-lsp"
+  ],
+  "required_seams": {
+    "intelligence_to_lsp": "partial"
+  },
+  "reason": "Required Layer 2 seam intelligence_to_lsp is partial: the Intelligence producer chain ran end to end but the publication gate fail-closed with 'no promotion-eligible candidates' on a corpus built from a real 0-finding SDK bundle. No Intelligence-produced defense pack exists to feed the LSP, and a hand-authored pack would not prove the seam.",
+  "required_failed_or_missing_seams": [
+    "intelligence_to_lsp"
+  ],
+  "tested_as_live": false,
+  "forced": false,
+  "artifacts": [],
+  "failure": null
+}

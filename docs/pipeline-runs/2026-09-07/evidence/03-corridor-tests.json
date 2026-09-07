@@ -1,0 +1,85 @@
+{
+  "layer": "corridor_tests",
+  "status": "partial",
+  "tested_at": "2026-09-07T03:29:52Z",
+  "input_layer": "artifacts/organism/02-seam-tests.json",
+  "summary": {
+    "pass": 3,
+    "skipped": 3,
+    "fail": 0,
+    "note": "No live corridor FAILED. Three ran and passed; three were skipped because a required Layer 2 seam is not passing. Per the Layer 3 contract a skipped corridor is not a pass, so the layer is partial, never pass."
+  },
+  "corridors": {
+    "ci_evidence": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-3/receipts/ci_evidence.json"
+    },
+    "learning_feedback": {
+      "status": "skipped",
+      "receipt": "artifacts/organism/layer-3/receipts/learning_feedback.json",
+      "reason": "skipped_due_to_failed_seam",
+      "blocking_seams": [
+        "resolver_to_intelligence"
+      ]
+    },
+    "editor_advisory": {
+      "status": "skipped",
+      "receipt": "artifacts/organism/layer-3/receipts/editor_advisory.json",
+      "reason": "skipped_due_to_failed_seam",
+      "blocking_seams": [
+        "intelligence_to_lsp"
+      ]
+    },
+    "assurance_harness": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-3/receipts/assurance_harness.json"
+    },
+    "standalone_repair_safety": {
+      "status": "skipped",
+      "receipt": "artifacts/organism/layer-3/receipts/standalone_repair_safety.json",
+      "reason": "skipped_due_to_failed_seam",
+      "blocking_seams": [
+        "pr_repair_standalone"
+      ]
+    },
+    "observability_contracts": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-3/receipts/observability_contracts.json"
+    }
+  },
+  "non_live_corridors": "artifacts/organism/layer-3/non-live-corridors.json",
+  "corridor_inventory": "artifacts/organism/layer-3/corridor-inventory.json",
+  "provenance": {
+    "fresh_run": "ci_evidence was produced by a NEW chain, not by reusing Layer 2 artifacts, so same-run identity is genuinely demonstrated rather than assumed.",
+    "shared_artifact": "assurance_harness consumed the same fresh observation, so the two passing corridors compose on one artifact.",
+    "zero_findings_caveat": "The FindingBundle again carries 0 findings - a real semgrep 1.176.1 scan of l9-pr-repair/src returned none. Continuity, admission and authority are proven; a non-zero finding has still never traversed the organism.",
+    "no_fixture_used_as_corridor_proof": true,
+    "remote_mutation": "none"
+  },
+  "corrections": [
+    "A first identity check compared the observation's artifact digest to sha256 of the bundle FILE and reported a mismatch. The SDK digests the bundle's CANONICAL form (bundle.canonical_digest()), so the check was wrong, not the SDK. Verified with the SDK's own function it matches exactly. ci_evidence was not failed on a defect in the checker."
+  ],
+  "failures": [
+    {
+      "corridor": "learning_feedback",
+      "phase": "precondition",
+      "artifact": null,
+      "summary": "Required Layer 2 seam resolver_to_intelligence FAILED on a real defect: l9-ci-debt-resolver forwards Authorization across GitHub's cross-host redirect to blob storage, so job-log acquisition 401s. A fix is open as Quantum-L9/l9-ci-debt-resolver#52 (green, unmerged). This corridor is SKIPPED, not forced: composing it would require a hand-authored feedback event, which the contract forbids as proof.",
+      "log": null
+    },
+    {
+      "corridor": "editor_advisory",
+      "phase": "precondition",
+      "artifact": null,
+      "summary": "Required Layer 2 seam intelligence_to_lsp is partial: the Intelligence producer chain ran end to end but the publication gate fail-closed with 'no promotion-eligible candidates' on a corpus built from a real 0-finding SDK bundle. No Intelligence-produced defense pack exists to feed the LSP, and a hand-authored pack would not prove the seam.",
+      "log": null
+    },
+    {
+      "corridor": "standalone_repair_safety",
+      "phase": "precondition",
+      "artifact": null,
+      "summary": "Required Layer 2 seam pr_repair_standalone is partial: ingest-review of a REAL review event (l9-ci-core PR #148) returned HTTP 403 from api.github.com/graphql on this surface. The dry-run safety properties were proven in Layer 2 using the repository's own example payload, but the live review->payload path is unproven, so the corridor is not composed.",
+      "log": null
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "organism": "l9-ci-debt-assurance-repair",
   "status": "fail",
   "deploy_decision": "do-not-deploy",
-  "tested_at": "2026-09-07T03:09:46Z",
+  "tested_at": "2026-09-07T03:30:18Z",
   "layers_executed": [
     "repo_health",
     "whole_organism_aggregation"
@@ -87,7 +87,7 @@
       "receipt": "artifacts/organism/02-seam-tests.json"
     },
     "corridor_tests": {
-      "status": "not_executed",
+      "status": "partial",
       "receipt": "artifacts/organism/03-corridor-tests.json"
     }
   },
@@ -101,12 +101,12 @@
     "observability_contracts": "pass"
   },
   "live_corridors": {
-    "ci_evidence": "missing",
-    "learning_feedback": "missing",
-    "editor_advisory": "missing",
-    "assurance_harness": "missing",
-    "standalone_repair_safety": "missing",
-    "observability_contracts": "missing"
+    "ci_evidence": "pass",
+    "learning_feedback": "skipped",
+    "editor_advisory": "skipped",
+    "assurance_harness": "pass",
+    "standalone_repair_safety": "skipped",
+    "observability_contracts": "pass"
   },
   "inactive_by_design": {
     "core_to_intelligence_gate_event": "unverified",
@@ -149,9 +149,9 @@
       "summary": "Layer 2 status 'fail': 4 of 7 active seams PASS (core_to_sdk, sdk_to_assurance, harness_to_assurance, observability_contracts); 3 are partial with a blocked producer (resolver_to_intelligence - no GitHub credential; intelligence_to_lsp - publication gate fail-closed on a 0-finding corpus; pr_repair_standalone - GraphQL 403 on live review ingest). NO active seam failed, and no seam was forced with a hand-authored artifact."
     },
     {
-      "code": "LAYER_3_NOT_EXECUTED",
+      "code": "LAYER_3_NOT_PASSING",
       "input": "artifacts/organism/03-corridor-tests.json",
-      "summary": "Layer 3 has not run. All six live corridors are unproven."
+      "summary": "Layer 3 status 'partial': 3 of 6 corridors PASS (ci_evidence, assurance_harness, observability_contracts); 3 are SKIPPED because a required Layer 2 seam is not passing (learning_feedback, editor_advisory, standalone_repair_safety). No live corridor failed, and none was forced with a hand-authored artifact. A skipped corridor is not a pass."
     },
     {
       "code": "NEGATIVE_COVERAGE_INCOMPLETE",

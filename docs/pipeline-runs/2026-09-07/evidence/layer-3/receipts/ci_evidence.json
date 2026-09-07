@@ -1,0 +1,86 @@
+{
+  "corridor": "ci_evidence",
+  "status": "pass",
+  "path": [
+    "l9-ci-core",
+    "l9-ci-sdk",
+    "l9-assurance"
+  ],
+  "required_seams": {
+    "core_to_sdk": "pass",
+    "sdk_to_assurance": "pass"
+  },
+  "repo_shas": {
+    "l9-ci-core": "86acb5123fed378a18d3951cdd68d4b773fea0b7",
+    "l9-ci-sdk": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+    "l9-assurance": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86"
+  },
+  "contract_ids": [
+    "l9.finding-bundle/v1",
+    "l9.observation/1.0.0"
+  ],
+  "artifacts": [
+    {
+      "name": "semgrep-raw.json",
+      "sha256": "85cc387ae74c209cfb7fbe31eef5140045edfb845d602658107351aa818a9d90"
+    },
+    {
+      "name": "finding-bundle.json",
+      "sha256": "b1ad41ba5ba3a67e6e9b12a9e36d7f58fd337d83aaab348c7cf6e67c65a2af4b"
+    },
+    {
+      "name": "gate-result.json",
+      "sha256": "49e96f579d6802b40f1187bf94dbe61305b287927e7cc2894e1693a1919212f3"
+    },
+    {
+      "name": "mandatory-findings-observation.json",
+      "sha256": "56a7719bc7c0bd13510830538823ab45738fc1850e675c0860504b863e806108"
+    },
+    {
+      "name": "subject.json",
+      "sha256": "22156b36cf125d5c81fd8e06f501e7c673adc8c9e866bec1c11c1aeb3230a74b"
+    },
+    {
+      "name": "assurance-admission-receipt.json",
+      "sha256": "d643f0e9e118a91b9730f5f9ea192c90c4157824f12c43c134a551e50ffadf6b"
+    }
+  ],
+  "same_run": "All artifacts were produced by ONE fresh chain under run id corridor-ci-evidence-20260907T032737Z. Layer 2 artifacts were deliberately NOT reused: reusing them would not prove same-run continuity.",
+  "identity_continuity": {
+    "run_id": "corridor-ci-evidence-20260907T032737Z",
+    "repository": "Quantum-L9/l9-pr-repair",
+    "revision": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
+    "sdk_version": "2.0.0",
+    "observation_id": "sha256:1b56c327360036e425c05992f9f3c1466732f34a9c2a9f2028a807991441f40c",
+    "artifact_digest": "d1487110fa8de7aaedc3812e07f2cf14ca6c3f480be468768f5d8a6030963925",
+    "assurance_receipt_id": "ev_1b56c327360036e425c05992f9f3c1466732f34a"
+  },
+  "continuity_checks": {
+    "observation_references_the_produced_bundle": {
+      "result": "pass",
+      "evidence": "observation.artifacts[0].digest equals FindingBundle.canonical_digest() (d1487110fa8de7aaedc3812e07f2cf14...).",
+      "correction": "A first version of this check compared the digest to sha256 of the bundle FILE and reported a mismatch. That check was wrong: the SDK digests the bundle's CANONICAL form (l9_ci/integration/observation.py:364, bundle.canonical_digest()). Verified with the SDK's own function, it matches exactly. The corridor was not failed on a defect in the checker."
+    },
+    "assurance_receipt_references_the_observation": {
+      "result": "pass",
+      "evidence": "evidenceId ev_1b56c327360036e425c05992f9f3c1466732f34a derives from observationId sha256:1b56c327360036e42..."
+    },
+    "same_run_id_throughout": {
+      "result": "pass",
+      "evidence": "execution.runId == corridor-ci-evidence-20260907T032737Z"
+    },
+    "sdk_version_within_assurance_allowed_range": {
+      "result": "pass",
+      "evidence": "artifact.sdkVersion 2.0.0 accepted; no producer-trust quarantine."
+    },
+    "no_evidence_schema_invalid": {
+      "result": "pass",
+      "evidence": "accepted 1, rejected 0, quarantined 0."
+    },
+    "no_fixture_substitution": {
+      "result": "pass",
+      "evidence": "FindingBundle normalised by SDK code from a real semgrep 1.176.1 scan of l9-pr-repair/src, driven through l9-ci-core's invoke-sdk action. Subject derived programmatically from the SDK observation."
+    }
+  },
+  "failure": null
+}

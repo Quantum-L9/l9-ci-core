@@ -1,0 +1,19 @@
+{
+  "corridor": "learning_feedback",
+  "status": "skipped",
+  "path": [
+    "l9-ci-debt-resolver",
+    "l9-ci-debt-intelligence"
+  ],
+  "required_seams": {
+    "resolver_to_intelligence": "fail"
+  },
+  "reason": "Required Layer 2 seam resolver_to_intelligence FAILED on a real defect: l9-ci-debt-resolver forwards Authorization across GitHub's cross-host redirect to blob storage, so job-log acquisition 401s. A fix is open as Quantum-L9/l9-ci-debt-resolver#52 (green, unmerged). This corridor is SKIPPED, not forced: composing it would require a hand-authored feedback event, which the contract forbids as proof.",
+  "required_failed_or_missing_seams": [
+    "resolver_to_intelligence"
+  ],
+  "tested_as_live": false,
+  "forced": false,
+  "artifacts": [],
+  "failure": null
+}

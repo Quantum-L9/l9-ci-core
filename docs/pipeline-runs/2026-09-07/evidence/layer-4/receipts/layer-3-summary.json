@@ -1,41 +1,77 @@
 {
   "layer": "corridor_tests",
-  "status": "missing",
+  "status": "partial",
   "receipt": "artifacts/organism/03-corridor-tests.json",
   "required_corridors": {
     "ci_evidence": {
-      "status": "missing",
-      "acceptable": false
+      "status": "pass",
+      "acceptable": true
     },
     "learning_feedback": {
-      "status": "missing",
-      "acceptable": false
+      "status": "skipped",
+      "acceptable": false,
+      "blocking_seams": [
+        "resolver_to_intelligence"
+      ]
     },
     "editor_advisory": {
-      "status": "missing",
-      "acceptable": false
+      "status": "skipped",
+      "acceptable": false,
+      "blocking_seams": [
+        "intelligence_to_lsp"
+      ]
     },
     "assurance_harness": {
-      "status": "missing",
-      "acceptable": false
+      "status": "pass",
+      "acceptable": true
     },
     "standalone_repair_safety": {
-      "status": "missing",
+      "status": "skipped",
       "repo": "l9-pr-repair",
-      "acceptable": false
+      "acceptable": false,
+      "blocking_seams": [
+        "pr_repair_standalone"
+      ]
     },
     "observability_contracts": {
-      "status": "missing",
-      "acceptable": false
+      "status": "pass",
+      "acceptable": true
     }
   },
   "repository_identity_normalization": {},
+  "summary": {
+    "pass": 3,
+    "skipped": 3,
+    "fail": 0,
+    "note": "No live corridor FAILED. Three ran and passed; three were skipped because a required Layer 2 seam is not passing. Per the Layer 3 contract a skipped corridor is not a pass, so the layer is partial, never pass."
+  },
   "failures": [
     {
-      "phase": "input",
-      "summary": "Layer 3 has not been executed. No corridor was composed, skipped, or recorded."
+      "corridor": "learning_feedback",
+      "phase": "precondition",
+      "artifact": null,
+      "summary": "Required Layer 2 seam resolver_to_intelligence FAILED on a real defect: l9-ci-debt-resolver forwards Authorization across GitHub's cross-host redirect to blob storage, so job-log acquisition 401s. A fix is open as Quantum-L9/l9-ci-debt-resolver#52 (green, unmerged). This corridor is SKIPPED, not forced: composing it would require a hand-authored feedback event, which the contract forbids as proof.",
+      "log": null
+    },
+    {
+      "corridor": "editor_advisory",
+      "phase": "precondition",
+      "artifact": null,
+      "summary": "Required Layer 2 seam intelligence_to_lsp is partial: the Intelligence producer chain ran end to end but the publication gate fail-closed with 'no promotion-eligible candidates' on a corpus built from a real 0-finding SDK bundle. No Intelligence-produced defense pack exists to feed the LSP, and a hand-authored pack would not prove the seam.",
+      "log": null
+    },
+    {
+      "corridor": "standalone_repair_safety",
+      "phase": "precondition",
+      "artifact": null,
+      "summary": "Required Layer 2 seam pr_repair_standalone is partial: ingest-review of a REAL review event (l9-ci-core PR #148) returned HTTP 403 from api.github.com/graphql on this surface. The dry-run safety properties were proven in Layer 2 using the repository's own example payload, but the live review->payload path is unproven, so the corridor is not composed.",
+      "log": null
     }
   ],
-  "skipped": [],
+  "skipped": [
+    "learning_feedback",
+    "editor_advisory",
+    "standalone_repair_safety"
+  ],
   "acceptable_for_deploy": false
 }

@@ -12,10 +12,28 @@ session.
 |---|---|---|
 | Layer 1 — repo health | **yes** | `evidence/01-repo-health.json` |
 | Layer 2 — seam tests | **yes** | `evidence/02-seam-tests.json` |
-| Layer 3 — corridor tests | **no** | — |
+| Layer 3 — corridor tests | **yes** | `evidence/03-corridor-tests.json` |
 | Layer 4 — whole-organism aggregation | **yes** | `evidence/04-organism-receipt.json` |
 
-Layer 3 was not run and no `03-corridor-tests.json` is included; no placeholder stands in for it.
+**Layer 3 result: 3 of 6 corridors pass, 3 skipped, 0 fail.**
+
+| Corridor | Status | Meaning |
+|---|---|---|
+| `ci_evidence` | **pass** | Core-driven SDK evidence reaches Assurance in one run, digest-linked |
+| `assurance_harness` | **pass** | Harness invokes Assurance without authority confusion |
+| `observability_contracts` | **pass** | Digest determinism holds; malformed input fails closed |
+| `learning_feedback` | skipped | required seam `resolver_to_intelligence` failed |
+| `editor_advisory` | skipped | required seam `intelligence_to_lsp` partial |
+| `standalone_repair_safety` | skipped | required seam `pr_repair_standalone` partial |
+
+`ci_evidence` was produced by a **fresh chain**, not by reusing Layer 2 artifacts — reusing them
+would not prove same-run continuity. `assurance_harness` then consumed that same observation, so the
+two passing corridors compose on one artifact. Continuity is digest-linked end to end: the
+observation's `artifacts[0].digest` equals `FindingBundle.canonical_digest()`, and Assurance's
+`evidenceId` derives from the `observationId`.
+
+A skipped corridor is **not** a pass, so Layer 3 is `partial`. None was forced with a hand-authored
+artifact.
 
 **Layer 2 result: 4 of 7 active seams pass, 2 partial, 1 fail.** No seam was forced with a
 hand-authored artifact, and every non-pass is a *blocked producer*, not a broken path:

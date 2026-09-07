@@ -1,0 +1,3 @@
+Executing SDK command: /tmp/l9-organism/.venv-l9-ci-sdk/bin/l9-ci semgrep normalize --input /home/user/l9-pr-repair/build/organism-layer3/semgrep-raw.json --output /home/user/l9-pr-repair/build/organism-layer3/finding-bundle.json --root /home/user/l9-pr-repair --snapshot-id snapshot_85cc387ae74c209cfb7fbe31eef5140045edfb845d602658107351aa818a9d90 --provider-version 1.176.1 --revision f5773d4ded37dbb611100166947aa2f78e5fbccc --strict --required --no-dirty
+output_path=/home/user/l9-pr-repair/build/organism-layer3/finding-bundle.json
+report_path=/home/user/l9-pr-repair/build/organism-layer3/semgrep-raw.json

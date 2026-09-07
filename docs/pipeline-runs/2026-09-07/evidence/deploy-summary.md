@@ -1,6 +1,6 @@
 # L9 CI Debt Organism Deploy Summary
 
-Generated: 2026-09-07T03:09:46Z
+Generated: 2026-09-07T03:30:18Z
 Final receipt: `artifacts/organism/04-organism-receipt.json`
 
 ## Decision
@@ -96,8 +96,19 @@ No active seam failed, and no seam was forced with a hand-authored artifact.
 
 ## Corridor results
 
-All six `missing` — Layer 3 not executed: ci_evidence, learning_feedback, editor_advisory,
-assurance_harness, standalone_repair_safety, observability_contracts.
+Layer 3 ran. **3 of 6 pass, 3 skipped, 0 fail.**
+
+| Corridor | Status | Meaning |
+|---|---|---|
+| ci_evidence | **pass** | Core-driven SDK evidence reaches Assurance, same run, digest-linked |
+| assurance_harness | **pass** | Harness invokes Assurance without authority confusion |
+| observability_contracts | **pass** | Digest/validation boundary holds |
+| learning_feedback | skipped | required seam `resolver_to_intelligence` failed |
+| editor_advisory | skipped | required seam `intelligence_to_lsp` partial |
+| standalone_repair_safety | skipped | required seam `pr_repair_standalone` partial |
+
+A skipped corridor is not a pass, so Layer 3 is `partial`. None was forced with a hand-authored
+artifact.
 
 ## Inactive by design
 

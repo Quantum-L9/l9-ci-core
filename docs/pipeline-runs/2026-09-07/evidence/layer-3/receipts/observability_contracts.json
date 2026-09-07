@@ -1,0 +1,56 @@
+{
+  "corridor": "observability_contracts",
+  "status": "pass",
+  "path": [
+    "l9-observability-core"
+  ],
+  "required_seams": {
+    "observability_contracts": "pass"
+  },
+  "repo_shas": {
+    "l9-observability-core": "6a84c783f2fbaefbd9c62784506607e0f487c621"
+  },
+  "artifacts": [
+    {
+      "name": "observability-event.json",
+      "sha256": "ebea11116bad532fc59b969a2ecfea45dbf6fea8fcc7d72ffe0d23a0098383f3"
+    },
+    {
+      "name": "observability-digest-1.txt",
+      "sha256": "80459f1f535091229587137091f99d4c8f3e4475855997c0fbe457af72e1cc05"
+    },
+    {
+      "name": "observability-digest-2.txt",
+      "sha256": "80459f1f535091229587137091f99d4c8f3e4475855997c0fbe457af72e1cc05"
+    },
+    {
+      "name": "observability-validation-result.json",
+      "sha256": "15c6c425da2f4d2ec48318ea1cbfc03926019a71657fb33da3c0a57d9097f665"
+    },
+    {
+      "name": "observability-negative-result.json",
+      "sha256": "d61149f8ccc507bf240449b4a98e38144734af77aac5306b3ab90a9c227ffa95"
+    }
+  ],
+  "digest_deterministic": true,
+  "control_authority_observed": false,
+  "checks": {
+    "same_canonical_payload_same_digest": {
+      "result": "pass",
+      "evidence": "sha256:ebea11116bad532fc59b9... twice"
+    },
+    "changed_payload_changed_digest": {
+      "result": "pass",
+      "evidence": "duration_ms 4242 -> 4243 changes the digest"
+    },
+    "malformed_fails_closed": {
+      "result": "pass",
+      "evidence": "ValidationError raised; event not accepted"
+    },
+    "no_control_plane_behaviour": {
+      "result": "pass",
+      "evidence": "Only canonicalisation, digest and model validation were exercised. No scheduler, gate, retry, admission, dispatch or remediation surface exists in the public API."
+    }
+  },
+  "failure": null
+}

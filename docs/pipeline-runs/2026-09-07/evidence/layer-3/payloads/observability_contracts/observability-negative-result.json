@@ -1,0 +1,5 @@
+{
+  "status": "rejected",
+  "error_type": "ValidationError",
+  "message": "7 validation errors for ToolCallEvent\noccurred_at\n  Value error, occurred_at must be an RFC 3339 timestamp with explicit timezone and at most 6 fractional digit"
+}

@@ -1,0 +1,79 @@
+{
+  "artifacts": [
+    {
+      "path": "/tmp/l9-organism/artifacts/organism/layer-3/payloads/assurance_harness/invocations/8a8368bc-61f8-4fa0-8dee-c8cad8093061"
+    }
+  ],
+  "authoritative": false,
+  "command": "assurance",
+  "details": {
+    "argvDigest": {
+      "algorithm": "sha256",
+      "value": "8d9bbfcc8fd5e75d72c8ab3b187d8330c5b0e788b123c3a73281a367f1abacdf"
+    },
+    "authoritative": false,
+    "completedAt": "2026-09-07T03:28:39.329456Z",
+    "exitCode": 0,
+    "ingress": {
+      "authority_rules": [
+        "user_request",
+        "harness_public_contracts",
+        "external_authority_artifacts",
+        "unknown"
+      ],
+      "constraints": [
+        "fail_closed",
+        "non_authoritative",
+        "no_direct_module_bypass",
+        "preserve_external_contracts"
+      ],
+      "context_refs": [
+        "authority",
+        "cwd",
+        "invocations"
+      ],
+      "inputs": {
+        "argument_names": [
+          "args",
+          "authority",
+          "cwd",
+          "executable",
+          "invocations",
+          "operation",
+          "production"
+        ],
+        "arguments_digest": {
+          "algorithm": "sha256",
+          "value": "9c0781249fbf0ef6dd44526ccd076b0838cbeeb65bd66d49e9d1e3e4bcfb2422"
+        }
+      },
+      "mode": "cli",
+      "objective": "execute:assurance",
+      "output_contract": "l9.harness-command-result@1.0.0",
+      "request_id": "l9.harness-request:sha256:9c0781249fbf0ef6dd44526ccd076b0838cbeeb65bd66d49e9d1e3e4bcfb2422",
+      "route": "assurance",
+      "schema": "l9.harness-single-ingress",
+      "schemaVersion": "1.0.0",
+      "trace_id": "l9.harness-trace:sha256:9c0781249fbf0ef6dd44526ccd076b0838cbeeb65bd66d49e9d1e3e4bcfb2422",
+      "validation_profile": "l9.harness.cli-ingress@1.0.0"
+    },
+    "invocationId": "assurance-invocation:8a8368bc-61f8-4fa0-8dee-c8cad8093061",
+    "schema": "l9.assurance-invocation-record",
+    "schemaVersion": "1.0.0",
+    "startedAt": "2026-09-07T03:28:39.156298Z",
+    "stderrDigest": {
+      "algorithm": "sha256",
+      "value": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stdoutDigest": {
+      "algorithm": "sha256",
+      "value": "3a7277fbf5c7e56abfd4e9d91747340effcb93950552be6eac65a683d7f0a6ad"
+    }
+  },
+  "exit_code": 0,
+  "limitations": [],
+  "reason_codes": [],
+  "schema": "l9.harness-command-result",
+  "schemaVersion": "1.0.0",
+  "status": "pass"
+}

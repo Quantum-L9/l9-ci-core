@@ -1,0 +1,18 @@
+{
+  "corridor": "standalone_repair_safety",
+  "status": "skipped",
+  "path": [
+    "l9-pr-repair"
+  ],
+  "required_seams": {
+    "pr_repair_standalone": "partial"
+  },
+  "reason": "Required Layer 2 seam pr_repair_standalone is partial: ingest-review of a REAL review event (l9-ci-core PR #148) returned HTTP 403 from api.github.com/graphql on this surface. The dry-run safety properties were proven in Layer 2 using the repository's own example payload, but the live review->payload path is unproven, so the corridor is not composed.",
+  "required_failed_or_missing_seams": [
+    "pr_repair_standalone"
+  ],
+  "tested_as_live": false,
+  "forced": false,
+  "artifacts": [],
+  "failure": null
+}
