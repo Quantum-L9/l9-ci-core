@@ -1,4 +1,12 @@
 {
+  "declared_artifact_verification": {
+    "declared": 45,
+    "resolved_and_digest_verified": 45,
+    "unresolved": [],
+    "digest_mismatch": [],
+    "method": "For EVERY artifact entry declared by a Layer 2 or Layer 3 receipt: resolve its path, then verify the file's sha256 against the digest the receipt recorded. A declaration that cannot be resolved, or whose digest does not match, fails this step. Enumerating files that happen to exist is not this check.",
+    "status": "pass"
+  },
   "artifacts": [
     {
       "path": "artifacts/organism/layer-2/payloads/core_to_sdk/agent-review-payload.json",
@@ -955,12 +963,13 @@
   ],
   "counts": {
     "total": 136,
-    "referenced_by_receipts": 10,
+    "referenced_by_receipts": 33,
+    "declared_entries": 45,
     "json": 111,
     "json_valid": 111
   },
   "missing_artifacts": [],
   "invalid_json_artifacts": [],
-  "method": "Union of every path referenced by a Layer 2 or Layer 3 receipt and every file under their payload trees. Each is hashed; each .json is parsed.",
+  "method": "Two independent passes. (1) Declaration verification, above: every receipt-declared artifact is resolved and digest-checked. (2) Inventory, below: the union of every referenced path and every file under the payload trees is hashed and JSON-parsed.",
   "status": "pass"
 }

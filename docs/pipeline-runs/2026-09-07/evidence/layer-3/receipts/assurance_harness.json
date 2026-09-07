@@ -15,15 +15,20 @@
   "artifacts": [
     {
       "name": "harness-run-record.json",
-      "sha256": "5941238e144766f36215d86e18e633efbe0d911dd74ecdb1a32a9143a5b054c8"
+      "sha256": "5941238e144766f36215d86e18e633efbe0d911dd74ecdb1a32a9143a5b054c8",
+      "path": "artifacts/organism/layer-3/payloads/assurance_harness/harness-run-record.json"
     },
     {
       "name": "invocation-record.json",
-      "sha256": "4c04775cf943543ac4c1feacd473d6a0ca05576b4d3744f0ebf2e0915d1e3562"
+      "path": "artifacts/organism/layer-2/payloads/harness_to_assurance/invocations/ec6e1a51-b257-4f82-9556-141a0f87a39a/invocation-record.json",
+      "sha256_as_emitted": "4c04775cf943543ac4c1feacd473d6a0ca05576b4d3744f0ebf2e0915d1e3562",
+      "sha256_as_published": "eae309df821751c4fb7746a273b7379557ab1d33224b975a10e70691212777e8",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
     },
     {
       "name": "assurance-admission-receipt.json",
-      "sha256": "54316cdb63166cf94855ef66a566c7f13bbb019d4b88c39979fa9005a6e96891"
+      "sha256": "54316cdb63166cf94855ef66a566c7f13bbb019d4b88c39979fa9005a6e96891",
+      "path": "artifacts/organism/layer-3/payloads/assurance_harness/out/admission-report.json"
     }
   ],
   "authoritative_component": "l9-assurance",

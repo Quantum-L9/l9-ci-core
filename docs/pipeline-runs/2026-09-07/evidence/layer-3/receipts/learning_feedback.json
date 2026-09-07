@@ -23,15 +23,18 @@
   "artifacts": [
     {
       "name": "resolver-feedback-event.json",
-      "sha256": "bf475810fdbe6fb713a42ebee121819c5548626321ca8529ed6df42c04b6c75e"
+      "sha256": "bf475810fdbe6fb713a42ebee121819c5548626321ca8529ed6df42c04b6c75e",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/resolver-feedback-event.json"
     },
     {
       "name": "resolver-delivery-receipt.json",
-      "sha256": "2681b5533d5ca188d1daa78dbcdd10ef089b5bed455178bcc6b10afc2ca8471b"
+      "sha256": "2681b5533d5ca188d1daa78dbcdd10ef089b5bed455178bcc6b10afc2ca8471b",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/resolver-delivery-receipt.json"
     },
     {
       "name": "intelligence-ingestion-receipt.json",
-      "sha256": "a68db0286fec244b4e39e2024381cac68bf28a83e0a27829debd778186fa36eb"
+      "sha256": "a68db0286fec244b4e39e2024381cac68bf28a83e0a27829debd778186fa36eb",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/intelligence-ingestion-receipt.json"
     }
   ],
   "flow": "real failed CI run (33481850033) -> acquire-github-run -> l9.evidence-bundle/v1 -> build-feedback-event (with SDK knowledge from a real semgrep scan at the SAME revision) -> publish-feedback (json-file transport) -> ingest-resolver-feedback -> accepted.",

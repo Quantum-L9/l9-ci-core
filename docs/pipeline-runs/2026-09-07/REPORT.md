@@ -450,3 +450,84 @@ Unchanged: **`fail` / `do-not-deploy`**. The organism now has one honest blocker
 
 Digest manifest re-verified against the published copies: **15/15** match on `sha256` and
 `size_bytes`, 0 mismatched, 0 missing.
+
+## Closing three gaps in the evidence bundle itself
+
+Audited on request. All three were defects in how this run *recorded* evidence, not in the
+organism's results — the verdict is unchanged — but each made a receipt claim more than it had
+established.
+
+### 1. The Layer 2 seam inventory was never written
+
+The Layer 2 contract requires `layer-2/seam-inventory.json` **before** the seam tests run, so the
+set of seams claimed active is fixed in advance and cannot be chosen to fit the results. That
+ordering was not followed.
+
+The file now exists, reconstructed from the seam receipts, `inactive-by-design.json` and the Layer 1
+receipt — and it says so in a `provenance` block: written *after* the tests, an accurate index of
+what was tested, **not** independent evidence that the active set was declared in advance. Recorded
+rather than backdated.
+
+### 2. Receipts declared artifacts by bare filename
+
+Of 45 artifact entries across the 13 seam and corridor receipts, only 10 carried a resolvable
+`path`. The rest were `{name, sha256}` — `"resolver-feedback-event.json"` with nothing saying where
+it is. The artifacts all existed; the records just could not be followed to them.
+
+Each entry now carries a `path`, resolved **by digest** rather than by name-matching, so the path
+points at the file whose content the receipt actually hashed. Where two artifacts are byte-identical
+by design — `observability-digest-1.txt` and `-2.txt`, whose equality *is* the determinism proof —
+the name disambiguates.
+
+### 3. Seventeen recorded digests no longer matched the published bytes
+
+This one was self-inflicted, and the audit is what surfaced it.
+
+The publishing gate runs `end-of-file-fixer` and `trailing-whitespace` over every committed file,
+including this evidence tree. Tracing one artifact through the PR's history shows the same file
+alternating between two digests across four publish cycles — `458777…` each time evidence was copied
+from the run workspace, `dc6cb9…` each time the gate normalised it. Earlier in this run the Layer 4
+output manifest was fixed by recomputing it after normalisation. **The Layer 2 and Layer 3 receipts'
+own recorded digests were never revisited**, so they still described pre-normalisation bytes.
+
+Rather than overwrite the record to match the files — which would be making a check pass by
+weakening it — every affected entry now carries both, with the delta proven rather than asserted:
+
+| Field | Meaning |
+|---|---|
+| `sha256_as_emitted` | what the producer wrote |
+| `sha256_as_published` | what verifies against the copy in this repository |
+| `normalisation` | why they differ, and how equality was established |
+
+Equality was proven per file type: JSON artifacts parsed and compared **as objects**, text artifacts
+compared with trailing whitespace stripped. All 17 are whitespace-only. **Zero content differences.**
+
+### The check that should have caught this
+
+Layer 4 Step 9 is supposed to verify "every artifact path referenced by Layer 2 and Layer 3
+receipts". It walked the receipts for a bare `path` key — invisible to 35 of 45 entries — then
+unioned the result with a glob of the payload tree, so `missing_artifacts` came back empty however
+many declarations were unresolvable. It reported `pass` by enumerating files that exist, which is
+the opposite of what the step is for. It also never compared a recorded digest against a file, so
+the drift above could not have been caught by it.
+
+Step 9 now resolves **every** declared entry and verifies its digest, reported separately from the
+tree inventory. And it is falsifiable — which the old check was not. Injecting one wrong digest and
+one non-existent path into a corridor receipt makes it fail, naming both:
+
+```
+status: fail | unresolved: 1 | mismatch: 1
+  caught mismatch:   semgrep-raw.json
+  caught unresolved: finding-bundle.json
+```
+
+Restored, it returns `pass 45/45`.
+
+### Result
+
+- Declared artifacts: **45 declared, 45 resolved and digest-verified, 0 unresolved, 0 mismatched**
+- Layer 4 output manifest: **15/15** match on `sha256` and `size_bytes`
+
+Both verified against the copies published here, not against the run workspace.
+
+Verdict unchanged: **`fail` / `do-not-deploy`**.

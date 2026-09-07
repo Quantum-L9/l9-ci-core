@@ -13,23 +13,38 @@
   "artifacts": [
     {
       "name": "observability-event.json",
-      "sha256": "ebea11116bad532fc59b969a2ecfea45dbf6fea8fcc7d72ffe0d23a0098383f3"
+      "path": "artifacts/organism/layer-2/payloads/observability_contracts/observability-event.json",
+      "sha256_as_emitted": "ebea11116bad532fc59b969a2ecfea45dbf6fea8fcc7d72ffe0d23a0098383f3",
+      "sha256_as_published": "dc6cb9cc7ada06beaa8e4326356c480c4fffd444c80497b44b7665d6161f1f96",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
     },
     {
       "name": "observability-digest-1.txt",
-      "sha256": "80459f1f535091229587137091f99d4c8f3e4475855997c0fbe457af72e1cc05"
+      "path": "artifacts/organism/layer-2/payloads/observability_contracts/observability-digest-1.txt",
+      "sha256_as_emitted": "80459f1f535091229587137091f99d4c8f3e4475855997c0fbe457af72e1cc05",
+      "sha256_as_published": "3eccbc18550fbbc44eb33657655cf68072ecc37c42228c94ae153942aac68559",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
     },
     {
       "name": "observability-digest-2.txt",
-      "sha256": "80459f1f535091229587137091f99d4c8f3e4475855997c0fbe457af72e1cc05"
+      "path": "artifacts/organism/layer-2/payloads/observability_contracts/observability-digest-2.txt",
+      "sha256_as_emitted": "80459f1f535091229587137091f99d4c8f3e4475855997c0fbe457af72e1cc05",
+      "sha256_as_published": "3eccbc18550fbbc44eb33657655cf68072ecc37c42228c94ae153942aac68559",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
     },
     {
       "name": "observability-validation-result.json",
-      "sha256": "15c6c425da2f4d2ec48318ea1cbfc03926019a71657fb33da3c0a57d9097f665"
+      "path": "artifacts/organism/layer-2/payloads/observability_contracts/observability-validation-result.json",
+      "sha256_as_emitted": "15c6c425da2f4d2ec48318ea1cbfc03926019a71657fb33da3c0a57d9097f665",
+      "sha256_as_published": "c13b9fada2662618bceb903551e215016ae78dfda5cd8a588d77f3ae40b4dcc7",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
     },
     {
       "name": "observability-negative-result.json",
-      "sha256": "d61149f8ccc507bf240449b4a98e38144734af77aac5306b3ab90a9c227ffa95"
+      "path": "artifacts/organism/layer-2/payloads/observability_contracts/observability-negative-result.json",
+      "sha256_as_emitted": "d61149f8ccc507bf240449b4a98e38144734af77aac5306b3ab90a9c227ffa95",
+      "sha256_as_published": "44590f0d15656f5f41a42c78cc58a8c1e4b918d5e6c4500453a64f7263234b9c",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
     }
   ],
   "digest_deterministic": true,

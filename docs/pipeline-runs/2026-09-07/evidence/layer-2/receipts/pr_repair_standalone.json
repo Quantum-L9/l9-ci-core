@@ -34,19 +34,29 @@
   "artifacts": [
     {
       "name": "github-event.json (real, assembled from live API)",
-      "sha256": "fe9755206bbdf50347fbd0b3f4c6b20fffbfc2284289aa5939969bb568fe205c"
+      "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/github-event.json",
+      "sha256_as_emitted": "fe9755206bbdf50347fbd0b3f4c6b20fffbfc2284289aa5939969bb568fe205c",
+      "sha256_as_published": "9f60349b16cc579e73abc191f589cf8f7834871be91f39a21650b6b3ee6c3308",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
     },
     {
       "name": "agent_review_payload.fixture.json (repo example)",
-      "sha256": "dbc3fbf212b8e6b3f16e53d4f93440384d99dd4996df9125afaa89c0b667d232"
+      "sha256": "dbc3fbf212b8e6b3f16e53d4f93440384d99dd4996df9125afaa89c0b667d232",
+      "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/agent_review_payload.fixture.json"
     },
     {
       "name": "runtime-output/prs/pr_123/repair_plan.json",
-      "sha256": "45efd7eb34d1fe5ea1f0b1767e8ce0ccfe48887c78cc25c351eb3f9819a602de"
+      "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/prs/pr_123/repair_plan.json",
+      "sha256_as_emitted": "45efd7eb34d1fe5ea1f0b1767e8ce0ccfe48887c78cc25c351eb3f9819a602de",
+      "sha256_as_published": "5982f4df419c0225227eae0cf6979e7e9e7d17b726819a240a26bdfd9d19e128",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
     },
     {
       "name": "runtime-output/run_trace.json",
-      "sha256": "99a4cd41aa2baac8b8dd7c59bb0ff7f8c8181fd200579951f6abe9bcd73dbd84"
+      "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/runtime-output/run_trace.json",
+      "sha256_as_emitted": "99a4cd41aa2baac8b8dd7c59bb0ff7f8c8181fd200579951f6abe9bcd73dbd84",
+      "sha256_as_published": "04d45ad33759508761379fefb4c37748b316634af6b1792bbe89df80ade84546",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
     }
   ],
   "workspace_residue": "The run wrote runtime/pr_repair/ (88K, untracked) into the l9-pr-repair checkout. Removal was attempted and DENIED by the operator permission gate, so it persists. No tracked file was modified.",

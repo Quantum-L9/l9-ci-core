@@ -149,31 +149,38 @@
   "final_artifacts": [
     {
       "name": "semgrep-raw.json",
-      "sha256": "8f570ed21f10cd5349e1eb6d4fb9a1ab895433f30d95b28960b71a838a7d12fc"
+      "sha256": "8f570ed21f10cd5349e1eb6d4fb9a1ab895433f30d95b28960b71a838a7d12fc",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/semgrep-raw.json"
     },
     {
       "name": "finding-bundle.json",
-      "sha256": "f5daafc075956fb1ac04d3158ae84cd301493211a5d82bda9b4df0a2bc03f47d"
+      "sha256": "f5daafc075956fb1ac04d3158ae84cd301493211a5d82bda9b4df0a2bc03f47d",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/finding-bundle.json"
     },
     {
       "name": "sdk-knowledge.json",
-      "sha256": "225398a1e943d1062ef6a6925cfde0e62d5cd611da9a09a93be91c62efb0bec7"
+      "sha256": "225398a1e943d1062ef6a6925cfde0e62d5cd611da9a09a93be91c62efb0bec7",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/sdk-knowledge.json"
     },
     {
       "name": "resolver-feedback-event.json",
-      "sha256": "bf475810fdbe6fb713a42ebee121819c5548626321ca8529ed6df42c04b6c75e"
+      "sha256": "bf475810fdbe6fb713a42ebee121819c5548626321ca8529ed6df42c04b6c75e",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/resolver-feedback-event.json"
     },
     {
       "name": "resolver-delivery-receipt.json",
-      "sha256": "2681b5533d5ca188d1daa78dbcdd10ef089b5bed455178bcc6b10afc2ca8471b"
+      "sha256": "2681b5533d5ca188d1daa78dbcdd10ef089b5bed455178bcc6b10afc2ca8471b",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/resolver-delivery-receipt.json"
     },
     {
       "name": "intelligence-ingestion-receipt.json",
-      "sha256": "a68db0286fec244b4e39e2024381cac68bf28a83e0a27829debd778186fa36eb"
+      "sha256": "a68db0286fec244b4e39e2024381cac68bf28a83e0a27829debd778186fa36eb",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/intelligence-ingestion-receipt.json"
     },
     {
       "name": "intelligence-ingestion-receipt-2.json",
-      "sha256": "072113d5a28d0785f68df8042109c66a15dd66002ab56918abb75c267fa4b493"
+      "sha256": "072113d5a28d0785f68df8042109c66a15dd66002ab56918abb75c267fa4b493",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/intelligence-ingestion-receipt-2.json"
     }
   ],
   "producer_sha_provenance": {

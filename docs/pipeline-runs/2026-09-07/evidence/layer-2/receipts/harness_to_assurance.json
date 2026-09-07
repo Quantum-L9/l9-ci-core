@@ -9,11 +9,15 @@
   "artifacts": [
     {
       "name": "invocation-record.json",
-      "sha256": "54a38a9ffdc1f4e50ef6a6de13bdc1492b241b4796a77cbe5bbb766605347504"
+      "path": "artifacts/organism/layer-2/payloads/harness_to_assurance/invocations/ec6e1a51-b257-4f82-9556-141a0f87a39a/invocation-record.json",
+      "sha256_as_emitted": "54a38a9ffdc1f4e50ef6a6de13bdc1492b241b4796a77cbe5bbb766605347504",
+      "sha256_as_published": "eae309df821751c4fb7746a273b7379557ab1d33224b975a10e70691212777e8",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
     },
     {
       "name": "admission-report.json (Assurance output, preserved)",
-      "sha256": "0d29b23e90af3b4a4bdb60bdb45af871044bfecc89a4d2962e21e1709306bb6a"
+      "sha256": "0d29b23e90af3b4a4bdb60bdb45af871044bfecc89a4d2962e21e1709306bb6a",
+      "path": "artifacts/organism/layer-2/payloads/harness_to_assurance/out/admission-report.json"
     }
   ],
   "authoritative_component": "l9-assurance",
