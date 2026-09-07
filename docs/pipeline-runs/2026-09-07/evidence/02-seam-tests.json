@@ -1,0 +1,102 @@
+{
+  "layer": "seam_tests",
+  "status": "partial",
+  "tested_at": "2026-09-07T03:01:35Z",
+  "repo_health_input": "artifacts/organism/01-repo-health.json",
+  "summary": {
+    "pass": 4,
+    "partial": 3,
+    "fail": 0,
+    "note": "No active seam FAILED. Every non-pass is a blocked producer - two by this surface's missing credentials/GraphQL access, one by insufficient real corpus data. No seam was forced with a hand-authored artifact."
+  },
+  "seams": {
+    "core_to_sdk": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/core_to_sdk.json"
+    },
+    "sdk_to_assurance": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/sdk_to_assurance.json"
+    },
+    "resolver_to_intelligence": {
+      "status": "partial",
+      "receipt": "artifacts/organism/layer-2/receipts/resolver_to_intelligence.json",
+      "blocker_code": "AuthenticationError"
+    },
+    "intelligence_to_lsp": {
+      "status": "partial",
+      "receipt": "artifacts/organism/layer-2/receipts/intelligence_to_lsp.json",
+      "blocker_code": "PublicationGateError"
+    },
+    "harness_to_assurance": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/harness_to_assurance.json"
+    },
+    "pr_repair_standalone": {
+      "status": "partial",
+      "receipt": "artifacts/organism/layer-2/receipts/pr_repair_standalone.json",
+      "blocker_code": "SURFACE_UNSUPPORTED_GRAPHQL"
+    },
+    "observability_contracts": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/observability_contracts.json"
+    }
+  },
+  "inactive_by_design": "artifacts/organism/layer-2/inactive-by-design.json",
+  "negative_tests_run": {
+    "assurance_rejects_unknown_artifact_field": "pass",
+    "assurance_rejects_untrusted_or_out_of_range_sdk_version": "pass",
+    "assurance_rejects_tampered_observation": "pass",
+    "intelligence_duplicate_idempotency_safe": "pass",
+    "harness_does_not_pass_when_assurance_missing": "pass",
+    "harness_non_authoritative": "pass",
+    "pr_repair_push_disabled_by_default": "pass",
+    "observability_rejects_malformed_event": "pass",
+    "observability_has_no_control_authority": "pass",
+    "intelligence_rejects_privacy_leak": "not-run",
+    "intelligence_quarantines_unknown_or_planned_producer": "not-run",
+    "lsp_rejects_bad_defense_pack_protocol": "not-run",
+    "lsp_rejects_bad_sdk_contract_version": "not-run",
+    "pr_repair_rejects_missing_expected_block": "not-run",
+    "pr_repair_rejects_stale_expected_block": "not-run"
+  },
+  "provenance": {
+    "real_producer_output": "The FindingBundle at the head of this run came from a real semgrep 1.176.1 scan of Quantum-L9/l9-pr-repair @ f5773d4 (94 files) using the SDK's packaged L9 ruleset, normalised by SDK code, invoked through l9-ci-core's own invoke-sdk action. Every downstream artifact descends from it.",
+    "zero_findings_caveat": "That bundle carries 0 findings: the packaged L9 ruleset AND semgrep's p/python registry ruleset both returned 0 results on real organism code (654 files scanned organism-wide). The finding-carrying path is proven structurally, not with non-zero findings - and that is what starved the Intelligence->LSP seam.",
+    "no_fixture_used_as_seam_proof": true,
+    "remote_mutation": "none - no push, branch, merge or PR against any organism repository."
+  },
+  "workspace_residue": [
+    "l9-pr-repair: runtime/pr_repair/ (88K, untracked) written by the pr-repair dry-run; removal DENIED by the operator permission gate.",
+    "Four repos retain a harness-added pip tree under their gitignored .venv from Layer 1; removal DENIED."
+  ],
+  "failures": [
+    {
+      "seam": "resolver_to_intelligence",
+      "producer": "l9-ci-debt-resolver",
+      "consumer": "l9-ci-debt-intelligence",
+      "phase": "emit",
+      "error_code": "AuthenticationError",
+      "summary": "acquire-github-run cannot authenticate to GitHub from this surface, and l9.evidence-bundle/v1 (required by build-feedback-event) has no other producer. Not a repo defect.",
+      "log": "artifacts/organism/layer-2/logs/resolver-acquire.log"
+    },
+    {
+      "seam": "intelligence_to_lsp",
+      "producer": "l9-ci-debt-intelligence",
+      "consumer": "l9-ci-debt-lsp",
+      "phase": "emit",
+      "error_code": "PublicationGateError",
+      "summary": "The full producer chain ran, but the corpus (1 record from a real 0-finding SDK bundle) yielded no promotion-eligible candidate, so the publication gate fail-closed. Correct behaviour; the seam is unproven for lack of data.",
+      "log": null
+    },
+    {
+      "seam": "pr_repair_standalone",
+      "producer": "l9-pr-repair",
+      "consumer": "l9-pr-repair",
+      "phase": "emit",
+      "error_code": "SURFACE_UNSUPPORTED_GRAPHQL",
+      "summary": "ingest-review of a REAL review event (l9-ci-core PR #148) got HTTP 403 from api.github.com/graphql. Safety properties were proven with the repo's own example payload; the live review->payload path is unproven.",
+      "log": null
+    }
+  ]
+}

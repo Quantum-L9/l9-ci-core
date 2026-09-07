@@ -6,7 +6,7 @@
     },
     "seam_tests": {
       "path": "artifacts/organism/02-seam-tests.json",
-      "exists": false
+      "exists": true
     },
     "corridor_tests": {
       "path": "artifacts/organism/03-corridor-tests.json",
@@ -16,7 +16,7 @@
   "also_inspected": {
     "layer_2_receipts_dir": {
       "path": "artifacts/organism/layer-2/receipts",
-      "exists": false
+      "exists": true
     },
     "layer_3_receipts_dir": {
       "path": "artifacts/organism/layer-3/receipts",
@@ -24,7 +24,7 @@
     },
     "layer_2_inactive_by_design": {
       "path": "artifacts/organism/layer-2/inactive-by-design.json",
-      "exists": false
+      "exists": true
     },
     "layer_3_non_live_corridors": {
       "path": "artifacts/organism/layer-3/non-live-corridors.json",

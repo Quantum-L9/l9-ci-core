@@ -2,7 +2,7 @@
   "organism": "l9-ci-debt-assurance-repair",
   "status": "fail",
   "deploy_decision": "do-not-deploy",
-  "tested_at": "2026-09-07T02:43:30Z",
+  "tested_at": "2026-09-07T03:02:21Z",
   "layers_executed": [
     "repo_health",
     "whole_organism_aggregation"
@@ -83,7 +83,7 @@
       "receipt": "artifacts/organism/01-repo-health.json"
     },
     "seam_tests": {
-      "status": "not_executed",
+      "status": "partial",
       "receipt": "artifacts/organism/02-seam-tests.json"
     },
     "corridor_tests": {
@@ -92,13 +92,13 @@
     }
   },
   "active_seams": {
-    "core_to_sdk": "missing",
-    "sdk_to_assurance": "missing",
-    "resolver_to_intelligence": "missing",
-    "intelligence_to_lsp": "missing",
-    "harness_to_assurance": "missing",
-    "pr_repair_standalone": "missing",
-    "observability_contracts": "missing"
+    "core_to_sdk": "pass",
+    "sdk_to_assurance": "pass",
+    "resolver_to_intelligence": "partial",
+    "intelligence_to_lsp": "partial",
+    "harness_to_assurance": "pass",
+    "pr_repair_standalone": "partial",
+    "observability_contracts": "pass"
   },
   "live_corridors": {
     "ci_evidence": "missing",
@@ -118,21 +118,21 @@
     "observability_control_plane": "prohibited"
   },
   "negative_tests": {
-    "assurance_rejects_unknown_artifact_field": "missing",
-    "assurance_rejects_untrusted_or_out_of_range_sdk_version": "missing",
-    "assurance_rejects_tampered_observation": "missing",
-    "intelligence_rejects_privacy_leak": "missing",
-    "intelligence_quarantines_unknown_or_planned_producer": "missing",
-    "intelligence_duplicate_idempotency_safe": "missing",
-    "lsp_rejects_bad_defense_pack_protocol": "missing",
-    "lsp_rejects_bad_sdk_contract_version": "missing",
-    "harness_does_not_pass_when_assurance_missing": "missing",
-    "harness_non_authoritative": "missing",
-    "pr_repair_rejects_missing_expected_block": "missing",
-    "pr_repair_rejects_stale_expected_block": "missing",
-    "pr_repair_push_disabled_by_default": "missing",
-    "observability_rejects_malformed_event": "missing",
-    "observability_has_no_control_authority": "missing"
+    "assurance_rejects_unknown_artifact_field": "pass",
+    "assurance_rejects_untrusted_or_out_of_range_sdk_version": "pass",
+    "assurance_rejects_tampered_observation": "pass",
+    "intelligence_rejects_privacy_leak": "not-run",
+    "intelligence_quarantines_unknown_or_planned_producer": "not-run",
+    "intelligence_duplicate_idempotency_safe": "pass",
+    "lsp_rejects_bad_defense_pack_protocol": "not-run",
+    "lsp_rejects_bad_sdk_contract_version": "not-run",
+    "harness_does_not_pass_when_assurance_missing": "pass",
+    "harness_non_authoritative": "pass",
+    "pr_repair_rejects_missing_expected_block": "not-run",
+    "pr_repair_rejects_stale_expected_block": "not-run",
+    "pr_repair_push_disabled_by_default": "pass",
+    "observability_rejects_malformed_event": "pass",
+    "observability_has_no_control_authority": "pass"
   },
   "repo_identity_reconciliation": "artifacts/organism/layer-4/receipts/repo-identity-reconciliation.json",
   "artifact_manifest": "artifacts/organism/layer-4/receipts/artifact-manifest.json",
@@ -144,9 +144,9 @@
       "summary": "Layer 1 status is 'fail': 9/9 install, 7/9 pass their own native health command. Repo-defect count is ZERO. Both non-zero results are environmental - one caused by the Layer 1 harness itself (l9-ci-debt-intelligence), one by a sandbox network restriction (l9-ci-sdk, health undetermined rather than failing). An earlier revision of this run wrongly recorded l9-ci-core as a repository defect; that finding is retracted and l9-ci-core passes. See the Layer 1 receipt's failures[] for the per-repo diagnosis and attribution."
     },
     {
-      "code": "LAYER_2_NOT_EXECUTED",
+      "code": "LAYER_2_NOT_PASSING",
       "input": "artifacts/organism/02-seam-tests.json",
-      "summary": "Layer 2 has not run. All seven active seams are unproven."
+      "summary": "Layer 2 status 'partial': 4 of 7 active seams PASS (core_to_sdk, sdk_to_assurance, harness_to_assurance, observability_contracts); 3 are partial with a blocked producer (resolver_to_intelligence - no GitHub credential; intelligence_to_lsp - publication gate fail-closed on a 0-finding corpus; pr_repair_standalone - GraphQL 403 on live review ingest). NO active seam failed, and no seam was forced with a hand-authored artifact."
     },
     {
       "code": "LAYER_3_NOT_EXECUTED",
@@ -154,8 +154,8 @@
       "summary": "Layer 3 has not run. All six live corridors are unproven."
     },
     {
-      "code": "NEGATIVE_COVERAGE_ABSENT",
-      "summary": "All 15 required fail-closed negative tests are missing."
+      "code": "NEGATIVE_COVERAGE_INCOMPLETE",
+      "summary": "9 of 15 fail-closed negative tests ran and passed; 6 were not run because their producer is blocked. None failed."
     }
   ],
   "warnings": [

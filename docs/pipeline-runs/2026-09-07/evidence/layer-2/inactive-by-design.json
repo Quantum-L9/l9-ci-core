@@ -1,0 +1,53 @@
+{
+  "core_to_intelligence_gate_event": {
+    "status": "inactive-or-planned",
+    "reason": "No Layer 2 evidence of a Core-emitted gate event consumed by Intelligence.",
+    "producer_exists": false,
+    "consumer_exists": false,
+    "tested_as_active": false
+  },
+  "pr_repair_to_intelligence_learning_packet": {
+    "repository": "l9-pr-repair",
+    "status": "inactive-or-planned",
+    "reason": "pr-repair writes runtime/pr_repair/learning_packets.json locally in dry-run, but nothing delivers it to Intelligence and Intelligence declares no pr-repair producer. Local emission is not a live seam.",
+    "producer_exists": true,
+    "consumer_exists": false,
+    "tested_as_active": false
+  },
+  "lsp_to_intelligence_editor_outcome": {
+    "status": "inactive-or-planned",
+    "reason": "No Layer 2 evidence.",
+    "producer_exists": false,
+    "consumer_exists": false,
+    "tested_as_active": false
+  },
+  "sdk_to_lsp_direct_finding": {
+    "status": "inactive-or-planned",
+    "reason": "The SDK emits l9.finding-bundle/v1; no evidence the LSP consumes SDK findings directly. Only the defense-pack path is declared.",
+    "producer_exists": true,
+    "consumer_exists": false,
+    "tested_as_active": false
+  },
+  "sdk_to_harness_authority_manifest": {
+    "status": "inactive-or-planned",
+    "reason": "The harness consumed no SDK capability manifest; it invoked Assurance directly.",
+    "producer_exists": false,
+    "consumer_exists": false,
+    "tested_as_active": false
+  },
+  "resolver_to_pr_repair_delegation": {
+    "repository": "l9-pr-repair",
+    "status": "inactive-or-planned",
+    "reason": "l9-ci-debt-resolver/.l9/pr-repair-delegation-contract.yaml EXISTS on disk, but a contract file is not proof of a live seam: no resolver command emits a delegation request and pr-repair exposes no delegation intake. Not tested as active.",
+    "producer_exists": false,
+    "consumer_exists": false,
+    "tested_as_active": false
+  },
+  "observability_control_plane": {
+    "status": "prohibited",
+    "reason": "Observability exposes canonicalisation, digest and schema validation only. No scheduler/gate/retry/admission/repair surface exists or was used.",
+    "producer_exists": false,
+    "consumer_exists": false,
+    "tested_as_active": false
+  }
+}

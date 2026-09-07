@@ -1,0 +1,43 @@
+{
+  "seam": "observability_contracts",
+  "status": "pass",
+  "repo": "l9-observability-core",
+  "sha": "6a84c783f2fbaefbd9c62784506607e0f487c621",
+  "method": "real public Python API (no CLI is published by this repo)",
+  "artifacts": [
+    {
+      "name": "observability-event.json",
+      "sha256": "458777852450352a4752f70bc0e8c52dc2861044016d2f83a6a4e24dcb72cb60"
+    },
+    {
+      "name": "observability-digest-1.txt",
+      "sha256": "c1f0f599fcc83ee832a816da2d26765a2e533358668d98d91dc178dc4566e0ec"
+    },
+    {
+      "name": "observability-digest-2.txt",
+      "sha256": "c1f0f599fcc83ee832a816da2d26765a2e533358668d98d91dc178dc4566e0ec"
+    },
+    {
+      "name": "observability-validation-result.json",
+      "sha256": "e2e119eda64da59b1e998645a6a1121e2c6c4ba111ae983e2077b6998a9a489a"
+    },
+    {
+      "name": "observability-negative-result.json",
+      "sha256": "0f8ac7e0a5a2e39a2f020c4d895ca9368d1714472704884a7f37db8d1b8a6552"
+    }
+  ],
+  "digest_deterministic": true,
+  "control_authority_observed": false,
+  "checks": {
+    "canonical_event_validates": "pass - ToolCallEvent constructed and canonicalised via canonical_json/sha256_digest",
+    "digest_deterministic": "pass - re-parsing the canonical JSON and re-digesting yields the identical sha256",
+    "changed_payload_changes_digest": "pass - duration_ms 1234 -> 1235 produced a different digest",
+    "malformed_fails_closed": "pass - a malformed event (bad timestamp, null trace/execution, invalid outcome enum) raised pydantic ValidationError; it was not accepted"
+  },
+  "negative_tests": {
+    "observability_rejects_malformed_event": "pass",
+    "observability_has_no_control_authority": "pass"
+  },
+  "authority_evidence": "Only canonicalisation, digest and model validation were exercised. No scheduler, gate, retry, admission, dispatch or remediation surface was used or exists in the public API (REGISTRY exposes event schemas only).",
+  "failure": null
+}

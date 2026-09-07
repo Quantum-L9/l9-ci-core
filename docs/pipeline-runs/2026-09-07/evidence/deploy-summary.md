@@ -1,6 +1,6 @@
 # L9 CI Debt Organism Deploy Summary
 
-Generated: 2026-09-07T02:43:30Z
+Generated: 2026-09-07T03:02:21Z
 Final receipt: `artifacts/organism/04-organism-receipt.json`
 
 ## Decision
@@ -80,8 +80,19 @@ neither stub package. With both installed, `make check` exits 0 — ruff clean, 
 
 ## Active seam results
 
-All seven `missing` — Layer 2 not executed: core_to_sdk, sdk_to_assurance, resolver_to_intelligence,
-intelligence_to_lsp, harness_to_assurance, pr_repair_standalone, observability_contracts.
+Layer 2 ran. **4 of 7 pass, 3 partial, 0 fail.**
+
+| Seam | Status | Evidence / blocker |
+|---|---|---|
+| core_to_sdk | pass | Core's own invoke-sdk action drove the SDK; contract identity 2.0.0 verified |
+| sdk_to_assurance | pass | Real SDK observation admitted: accepted 1, rejected 0 |
+| resolver_to_intelligence | partial | `AuthenticationError` — no GitHub credential for the resolver's transport |
+| intelligence_to_lsp | partial | `PublicationGateError` — no promotion-eligible candidates in a 0-finding corpus |
+| harness_to_assurance | pass | Real Assurance invoked; `authoritative: false` recorded |
+| pr_repair_standalone | partial | `SURFACE_UNSUPPORTED_GRAPHQL` — 403 on live review ingest |
+| observability_contracts | pass | Deterministic digest; malformed input rejected |
+
+No active seam failed, and no seam was forced with a hand-authored artifact.
 
 ## Corridor results
 
@@ -102,8 +113,12 @@ The rename did not activate `pr_repair_to_intelligence_learning_packet` or
 
 ## Negative tests
 
-All 15 **missing**, none failing. No fail-open behaviour was observed because no fail-closed
-behaviour was exercised. Not waivable at this breadth.
+**9 of 15 ran and passed; 6 not run; none failed.** Assurance rejects unknown artifact fields
+(`EVIDENCE_SCHEMA_INVALID`), out-of-range SDK versions (`EVIDENCE_PRODUCER_VERSION_REVOKED`) and
+tampered digests (`EVIDENCE_PAYLOAD_DIGEST_MISMATCH`). Intelligence is duplicate-safe. Harness refuses
+to pass when Assurance is missing and marks itself non-authoritative. pr-repair cannot push by default.
+Observability rejects malformed events and holds no control authority. The 6 not-run tests sit behind
+a blocked producer, not behind a skipped check.
 
 ## Failures
 

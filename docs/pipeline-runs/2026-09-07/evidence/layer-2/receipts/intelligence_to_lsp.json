@@ -1,0 +1,53 @@
+{
+  "seam": "intelligence_to_lsp",
+  "status": "partial",
+  "producer": "l9-ci-debt-intelligence",
+  "consumer": "l9-ci-debt-lsp",
+  "producer_sha": "7b11061084e254699d006feaeccd1c96d66445c9",
+  "consumer_sha": "ebec362448efb539115a7d3c3587c753943d8648",
+  "blocker": {
+    "phase": "producer (defense pack assembly)",
+    "code": "PublicationGateError",
+    "command": "l9-intelligence assemble-defense-pack <compilation> --version 1.0.0 --taxonomy-version 1.0.0 --output-root <dir>",
+    "error": "l9_debt_intelligence.publication.errors.PublicationGateError: no promotion-eligible candidates are available",
+    "why": "The producer chain ran correctly and fully - ingest -> build-snapshot -> build-analytics -> compile-candidates all succeeded on a real corpus - but the corpus holds ONE record derived from a real SDK FindingBundle that contains ZERO findings, so the compiler produced no promotion-eligible candidate and the publication gate refused to assemble a pack.",
+    "assessment": "This is correct fail-closed behaviour by Intelligence, NOT a defect. The seam is unproven for lack of corpus data, not because the path is broken. Feeding the LSP a hand-authored pack would violate the Layer 2 producer rule, so it was not done.",
+    "classification": "insufficient real producer data"
+  },
+  "producer_chain_proven": [
+    {
+      "stage": "ingest-sdk-finding-bundle",
+      "result": "accepted",
+      "note": "real SDK bundle into the corpus"
+    },
+    {
+      "stage": "build-snapshot",
+      "result": "pass",
+      "snapshot_id": "cs_9bc98b574b86b33e4987086baf28118cd0747e926d1f9ec292352f831abb3dc7",
+      "record_count": 1,
+      "partition_count": 1,
+      "deterministic_output_hash": "2be2dab7abd8cfcaad69af99e5ffabe841684fdf99123e1122c24b78e0b88e7f"
+    },
+    {
+      "stage": "build-analytics",
+      "result": "pass",
+      "analysis_run_id": "ar_20a27390eeaf6d665d4bba19b623fe41a53c33f5ce2915ea1273d438b9b2cbf3"
+    },
+    {
+      "stage": "compile-candidates",
+      "result": "pass",
+      "compilation": "compile_8ea7c92cebb9200f67535a19041e0f5c452ae42ec893e2b8829e3a210b14d396"
+    },
+    {
+      "stage": "assemble-defense-pack",
+      "result": "blocked (fail-closed, no eligible candidates)"
+    }
+  ],
+  "consumer_not_exercised": "l9-debt-lsp-contracts exposes evaluate-compatibility / install-pack / activate-pack / verify-installed-pack, but none was run: there is no real Intelligence-produced pack to feed them.",
+  "negative_tests": {
+    "lsp_rejects_bad_defense_pack_protocol": "not-run",
+    "lsp_rejects_bad_sdk_contract_version": "not-run"
+  },
+  "source_mutation_observed": false,
+  "failure": null
+}

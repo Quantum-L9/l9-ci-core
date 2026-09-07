@@ -1,0 +1,23 @@
+{
+  "false_positive_rules": [],
+  "promotion_candidates": [],
+  "rules": [
+    {
+      "applied": 0,
+      "attempted": 1,
+      "false_positive": 0,
+      "promotable": false,
+      "rolled_back": 0,
+      "rule_id": "l9.transport-packet-rename",
+      "success_rate": 0.0,
+      "verified": 0
+    }
+  ],
+  "totals": {
+    "applied": 0,
+    "attempted": 1,
+    "false_positive": 0,
+    "rolled_back": 0,
+    "verified": 0
+  }
+}

@@ -1,0 +1,75 @@
+[
+  {
+    "category": "lint_failure",
+    "classification_reason": "category=lint_failure; protected_path=False; skip_review_path=False; tier_impact=T1",
+    "comment_id": null,
+    "confidence": 1.0,
+    "contract_ids": [
+      "C-04",
+      "C-05",
+      "C-17"
+    ],
+    "evidence_url": "https://example.com/semgrep/transport-packet-0001",
+    "file_path": "engine/transport.py",
+    "finding_id": "semgrep-transport-packet-0001",
+    "fingerprint": "85f36fb5a246c6e129321960ad05090f8a9881a5474a5ad258b6a62f7e4cf02d",
+    "line_end": 42,
+    "line_start": 42,
+    "message": "TransportPacket has been renamed to Packet; update the reference.",
+    "pr_number": 123,
+    "protected_path": false,
+    "repairable": true,
+    "replacement_text": "Packet",
+    "repo_rule_sources": [
+      "/home/user/l9-pr-repair/AGENT.md"
+    ],
+    "review_disposition": "autofix",
+    "root_cause_key": "lint_failure:engine/transport.py",
+    "rule_id": "l9.transport-packet-rename",
+    "severity": "medium",
+    "skip_review_path": false,
+    "source_name": "agent_review",
+    "source_priority": 110,
+    "suggested_fix": null,
+    "tags": [],
+    "thread_id": null,
+    "tier_impact": "T1",
+    "tool": null
+  },
+  {
+    "category": "architecture_boundary_violation",
+    "classification_reason": "category=architecture_boundary_violation; protected_path=False; skip_review_path=False; tier_impact=T1",
+    "comment_id": null,
+    "confidence": 0.72,
+    "contract_ids": [
+      "C-01",
+      "ARCH-001"
+    ],
+    "evidence_url": "https://example.com/audit/arch-boundary-0007",
+    "file_path": "engine/server.py",
+    "finding_id": "arch-boundary-0007",
+    "fingerprint": "4a1e9bfcae7ce0535fa2b8e656ba7842e91ae46b1576c7ceae783c3b6430458c",
+    "line_end": 3,
+    "line_start": 3,
+    "message": "FastAPI is imported inside the engine layer, violating the transport boundary contract.",
+    "pr_number": 123,
+    "protected_path": false,
+    "repairable": false,
+    "replacement_text": null,
+    "repo_rule_sources": [
+      "/home/user/l9-pr-repair/AGENT.md"
+    ],
+    "review_disposition": "manual_review",
+    "root_cause_key": "architecture_boundary_violation:engine/server.py",
+    "rule_id": null,
+    "severity": "high",
+    "skip_review_path": false,
+    "source_name": "agent_review",
+    "source_priority": 110,
+    "suggested_fix": null,
+    "tags": [],
+    "thread_id": null,
+    "tier_impact": "T1",
+    "tool": null
+  }
+]

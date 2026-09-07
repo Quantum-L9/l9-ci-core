@@ -1,0 +1,21 @@
+{
+  "argvDigest": {
+    "algorithm": "sha256",
+    "value": "a1a41af2a9e66306c4ff5dbf97ceac005271e1becddf1d0d482b02690d49cfb8"
+  },
+  "authoritative": false,
+  "completedAt": "2026-09-07T02:59:13.168529Z",
+  "exitCode": 0,
+  "invocationId": "assurance-invocation:ec6e1a51-b257-4f82-9556-141a0f87a39a",
+  "schema": "l9.assurance-invocation-record",
+  "schemaVersion": "1.0.0",
+  "startedAt": "2026-09-07T02:59:12.861935Z",
+  "stderrDigest": {
+    "algorithm": "sha256",
+    "value": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "stdoutDigest": {
+    "algorithm": "sha256",
+    "value": "3a7277fbf5c7e56abfd4e9d91747340effcb93950552be6eac65a683d7f0a6ad"
+  }
+}

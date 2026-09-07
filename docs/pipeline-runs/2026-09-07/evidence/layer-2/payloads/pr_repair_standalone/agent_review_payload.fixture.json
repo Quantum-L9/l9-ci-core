@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-06-30T00:00:00Z",
+  "pr": {
+    "repo_owner": "quantum-l9",
+    "repo_name": "pr_repair",
+    "pr_number": 123,
+    "title": "Rename TransportPacket to Packet across engine",
+    "head_branch": "feature/transport-packet-rename",
+    "base_branch": "main",
+    "head_sha": "0123456789abcdef0123456789abcdef01234567",
+    "is_draft": false,
+    "author": "l9-audit-bot",
+    "labels": ["l9", "needs-implementer"],
+    "changed_files": ["engine/transport.py", "engine/server.py"]
+  },
+  "autofix_candidates": [
+    {
+      "finding_id": "semgrep-transport-packet-0001",
+      "category": "lint_failure",
+      "severity": "medium",
+      "message": "TransportPacket has been renamed to Packet; update the reference.",
+      "file_path": "engine/transport.py",
+      "line_start": 42,
+      "line_end": 42,
+      "replacement_text": "Packet",
+      "rule_id": "l9.transport-packet-rename",
+      "evidence_url": "https://example.com/semgrep/transport-packet-0001",
+      "confidence": 1.0
+    }
+  ],
+  "manual_review_required": [
+    {
+      "finding_id": "arch-boundary-0007",
+      "category": "architecture_boundary_violation",
+      "severity": "high",
+      "message": "FastAPI is imported inside the engine layer, violating the transport boundary contract.",
+      "file_path": "engine/server.py",
+      "line_start": 3,
+      "line_end": 3,
+      "suggested_fix": null,
+      "evidence_url": "https://example.com/audit/arch-boundary-0007",
+      "confidence": 0.72
+    }
+  ]
+}

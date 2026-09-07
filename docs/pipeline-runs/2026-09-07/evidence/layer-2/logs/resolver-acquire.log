@@ -1,0 +1,82 @@
+Traceback (most recent call last):
+  File "/home/user/l9-ci-debt-resolver/src/l9_debt_resolver/providers/github/transport.py", line 103, in _request
+    with urlopen(
+         ^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 525, in open
+    response = meth(req, response)
+               ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 634, in http_response
+    response = self.parent.error(
+               ^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 557, in error
+    result = self._call_chain(*args)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 749, in http_error_302
+    return self.parent.open(new, timeout=req.timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 525, in open
+    response = meth(req, response)
+               ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 634, in http_response
+    response = self.parent.error(
+               ^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 563, in error
+    return self._call_chain(*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 643, in http_error_default
+    raise HTTPError(req.full_url, code, msg, hdrs, fp)
+urllib.error.HTTPError: HTTP Error 401: Server failed to authenticate the request. Please refer to the information in the www-authenticate header.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/tmp/l9-organism/.venv-l9-ci-debt-resolver/bin/l9-debt-resolver", line 10, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/user/l9-ci-debt-resolver/src/l9_debt_resolver/cli.py", line 520, in main
+    report = asyncio.run(
+             ^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/user/l9-ci-debt-resolver/src/l9_debt_resolver/cli.py", line 274, in acquire_github_run
+    outcome = await service.acquire_with_bundles(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/l9-ci-debt-resolver/src/l9_debt_resolver/acquisition/service.py", line 165, in acquire_with_bundles
+    await self._provider.retrieve_failed_log(
+  File "/home/user/l9-ci-debt-resolver/src/l9_debt_resolver/providers/github/provider.py", line 151, in retrieve_failed_log
+    response = await self._transport.get_bytes(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/l9-ci-debt-resolver/src/l9_debt_resolver/providers/github/transport.py", line 78, in get_bytes
+    return await with_retry(
+           ^^^^^^^^^^^^^^^^^
+  File "/home/user/l9-ci-debt-resolver/src/l9_debt_resolver/acquisition/retry.py", line 56, in with_retry
+    return await operation(attempt)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/l9-ci-debt-resolver/src/l9_debt_resolver/providers/github/transport.py", line 71, in operation
+    return await asyncio.to_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/l9-ci-debt-resolver/src/l9_debt_resolver/providers/github/transport.py", line 117, in _request
+    raise AuthenticationError("GitHub authentication failed") from error
+l9_debt_resolver.acquisition.errors.AuthenticationError: GitHub authentication failed

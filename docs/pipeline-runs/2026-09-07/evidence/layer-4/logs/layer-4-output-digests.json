@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-07T02:43:30Z",
+  "generated_at": "2026-09-07T03:02:21Z",
   "outputs": [
     {
       "path": "artifacts/organism/layer-4/receipts/artifact-manifest.json",
@@ -18,8 +18,8 @@
     },
     {
       "path": "artifacts/organism/layer-4/receipts/input-presence.json",
-      "size_bytes": 1152,
-      "sha256": "a05deb7ddb3a8d3e3480e330cec25bbdc8f3caad0c79dba533850a123356f4e9"
+      "size_bytes": 1149,
+      "sha256": "955785122bb78c689dde7a2a6590c6c325e0928a10a2da196cd0f211cb494437"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-1-summary.json",
@@ -28,8 +28,8 @@
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-2-summary.json",
-      "size_bytes": 1218,
-      "sha256": "8559dab33313d5605926d382900c9335579c647b74e810c74a1828a239704112"
+      "size_bytes": 3233,
+      "sha256": "979d964cfa2267089887151b6b2657bca01bc2b434622725eccedaa71ef7c410"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-3-summary.json",
@@ -43,8 +43,8 @@
     },
     {
       "path": "artifacts/organism/layer-4/receipts/negative-test-summary.json",
-      "size_bytes": 1893,
-      "sha256": "62482a530a1ff6b2f7b93cdcec81db500d4f70650e4f95308c01be73bbbb1862"
+      "size_bytes": 1467,
+      "sha256": "e7ce8a519a30cbddee3de66d38d30b6d5bfe3f55aee80ffdc72e4ef98867cf20"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/repo-identity-reconciliation.json",
@@ -63,13 +63,13 @@
     },
     {
       "path": "artifacts/organism/layer-4/summaries/deploy-summary.md",
-      "size_bytes": 6325,
-      "sha256": "cfe5417b3f92dfce89c9761a5704527ef4cc22ae588a3983220c6b2c924c624b"
+      "size_bytes": 7405,
+      "sha256": "85b4138ada39a9984009afa817c203d624f30793db928bf9c4a66dabcdb08b06"
     },
     {
       "path": "artifacts/organism/04-organism-receipt.json",
-      "size_bytes": 6947,
-      "sha256": "5a3ec9916c4618fa9dc0ad8c730ae1b785cfc31ae91171dfd8b3e9910ad1867b"
+      "size_bytes": 7335,
+      "sha256": "ba1aecbc55fc2e41054e78073bd2bc009b0f07e37a4839769bccee203b50ab8f"
     },
     {
       "path": "artifacts/organism/01-repo-health.json",

@@ -11,13 +11,39 @@ session.
 | Layer | Executed | Receipt |
 |---|---|---|
 | Layer 1 — repo health | **yes** | `evidence/01-repo-health.json` |
-| Layer 2 — seam tests | **no** | — |
+| Layer 2 — seam tests | **yes** | `evidence/02-seam-tests.json` |
 | Layer 3 — corridor tests | **no** | — |
 | Layer 4 — whole-organism aggregation | **yes** | `evidence/04-organism-receipt.json` |
 
-Layers 2 and 3 were not run. No `02-seam-tests.json` or `03-corridor-tests.json` is included, and no
-placeholder stands in for them: Layer 4 aggregates evidence and may not create it. Every seam,
-corridor, and fail-closed negative test is therefore recorded as `missing`, not as passing.
+Layer 3 was not run and no `03-corridor-tests.json` is included; no placeholder stands in for it.
+
+**Layer 2 result: 4 of 7 active seams pass, 3 partial, 0 fail.** No seam was forced with a
+hand-authored artifact, and every non-pass is a *blocked producer*, not a broken path:
+
+| Seam | Status | Evidence / blocker |
+|---|---|---|
+| `core_to_sdk` | **pass** | Core's own `invoke-sdk` action drove the SDK; contract identity 2.0.0 verified |
+| `sdk_to_assurance` | **pass** | Real SDK observation admitted — accepted 1, rejected 0 |
+| `resolver_to_intelligence` | partial | `AuthenticationError` — this surface holds no GitHub credential the resolver's transport can use |
+| `intelligence_to_lsp` | partial | `PublicationGateError` — no promotion-eligible candidates in a 0-finding corpus |
+| `harness_to_assurance` | **pass** | Real Assurance invoked; `authoritative: false` recorded |
+| `pr_repair_standalone` | partial | `SURFACE_UNSUPPORTED_GRAPHQL` — 403 on live review ingest |
+| `observability_contracts` | **pass** | Deterministic digest; malformed input rejected |
+
+**The primary bloodstream seam is closed.** The original audit found SDK→Assurance broken — Assurance
+rejected the SDK's `artifact.sdkVersion` and producer trust was inactive. Both now behave correctly:
+the real field is accepted, and an out-of-range version is rejected as
+`EVIDENCE_PRODUCER_VERSION_REVOKED`.
+
+**9 of 15 fail-closed negative tests ran and passed; none failed.** The 6 not-run sit behind a
+blocked producer, not a skipped check.
+
+Everything descends from one real artifact: a semgrep 1.176.1 scan of `Quantum-L9/l9-pr-repair`
+@ `f5773d4` (94 files) with the SDK's packaged L9 ruleset, normalised by SDK code. That bundle
+carries **zero findings** — the packaged ruleset and semgrep's `p/python` registry ruleset both
+returned 0 on real organism code (654 files scanned organism-wide). The finding-carrying path is
+therefore proven structurally, not with non-zero findings — and that is precisely what starved the
+Intelligence→LSP seam.
 
 The organism is **unproven**, not proven-broken. That distinction is the point of the run.
 
