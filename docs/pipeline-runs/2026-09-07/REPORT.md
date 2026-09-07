@@ -170,19 +170,64 @@ itself.
 
 ## Layout
 
+The complete evidence tree, mirrored without filtering: every receipt, payload, log and digest the
+run produced. An earlier revision of this PR carried only a JSON/size-filtered subset, which silently
+dropped real artifacts (`results.sarif`, the observability digests, the harness stdout/stderr, the
+acquired CI evidence bundle and the Intelligence append-only ledger). That is fixed here.
+
 ```
-REPORT.md                                  this file
-evidence/01-repo-health.json               Layer 1 receipt
-evidence/04-organism-receipt.json          Layer 4 whole-organism receipt
-evidence/deploy-summary.md                 Layer 4 human-readable summary
-evidence/layer-4/receipts/*.json           12 Layer 4 sub-receipts
-evidence/layer-4/logs/*.json               SHA-256 digests of Layer 4 outputs
-evidence/layer-1/package-versions.json     per-repo package name/version
-evidence/repo-state/*.txt                  per-repo remote, branch, SHA, commit date, dirty status
-evidence/logs/*.log                        raw install and health logs for all nine repos
+REPORT.md                            this file
+evidence/
+  01-repo-health.json                Layer 1 receipt
+  02-seam-tests.json                 Layer 2 receipt
+  03-corridor-tests.json             Layer 3 receipt
+  04-organism-receipt.json           Layer 4 whole-organism receipt
+  deploy-summary.md                  Layer 4 human-readable summary
+  layer-1/
+    package-versions.json            per-repo package name and version
+    logs/*.log                       install and native-health logs for all nine repos
+  layer-2/
+    inactive-by-design.json          planned / not-live seam declarations
+    receipts/*.json                  7 seam receipts
+    payloads/                        every artifact each seam produced or consumed: the SDK
+                                     FindingBundle, results.sarif, the mandatory-findings
+                                     observation, Assurance admission receipts and their negative
+                                     mutations, the Intelligence append-only ledger and snapshot
+                                     partition, the acquired CI evidence bundle, pr-repair's
+                                     dry-run outputs
+    logs/*.log                       per-seam execution logs
+  layer-3/
+    corridor-inventory.json          which corridors were ready vs skipped, and why
+    non-live-corridors.json          corridors deliberately not tested as live
+    receipts/*.json                  6 corridor receipts (3 pass, 3 skipped)
+    payloads/                        the fresh ci_evidence chain, harness invocation records with
+                                     stdout/stderr, observability digests
+    logs/*.log                       per-corridor execution logs
+  layer-4/
+    receipts/*.json                  12 Layer 4 sub-receipts
+    logs/*.json                      SHA-256 digests of Layer 4 outputs
+    summaries/deploy-summary.md      canonical copy of the summary
+  repo-state/*.txt                   per-repo remote, branch, SHA, commit date, dirty status
 ```
+
+### On the included CI log
+
+`layer-2/payloads/resolver_to_intelligence/evidence-bundles/` holds a real 92KB GitHub Actions job
+log, acquired from `Quantum-L9/l9-ci-core` run `33993215464` — the same repository this PR targets.
+It is the resolver's own redacted output (`UNIX_PATH` redaction applied) and was scanned before
+inclusion: no token, key, bearer, private key or credential assignment appears in it, and every long
+string in it is a hex hash. It is here because it is the artifact proving log acquisition works once
+the redirect defect is fixed.
 
 ## Next step
 
-Run Layer 2 (seam tests), then Layer 3 (corridor tests), then re-run Layer 4 against all three. Until
-those exist, `do-not-deploy` is the only verdict the evidence supports.
+Layers 1 through 4 have all run. Two things stand between this and a deployable verdict:
+
+1. **Merge `Quantum-L9/l9-ci-debt-resolver#52`**, then re-run Layer 2. That fixes the one real defect
+   this run found and should move `resolver_to_intelligence` from fail to pass, which in turn
+   unblocks the `learning_feedback` corridor.
+2. **Get a non-zero finding through the organism.** Every real scan here returned zero findings, so
+   the finding-carrying path is proven structurally but never exercised with actual findings — and
+   that emptiness is what starved `intelligence_to_lsp` and, through it, `editor_advisory`.
+
+Until then `do-not-deploy` is the only verdict the evidence supports.

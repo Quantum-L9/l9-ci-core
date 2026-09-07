@@ -1,0 +1,7 @@
+HEALTH_COMMAND=make check
++ ruff check .
+All checks passed!
++ ruff format --check .
+105 files already formatted
++ mypy
+Success: no issues found in 23 source files

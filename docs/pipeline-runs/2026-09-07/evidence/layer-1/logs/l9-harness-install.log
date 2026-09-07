@@ -1,0 +1,38 @@
+Using CPython 3.11.15 interpreter at: /usr/local/bin/python3
+Creating virtual environment with seed packages at: .venv-l9-harness
+ + packaging==26.3
+ + pip==26.2.1
+ + setuptools==84.0.0
+ + wheel==0.48.0
+Activate with: source .venv-l9-harness/bin/activate
+HAS_BUILD_SYSTEM=yes
+Using Python 3.11.15 environment at: /tmp/l9-organism/.venv-l9-harness
+Resolved 1 package in 11ms
+   Building l9-harness @ file:///home/user/l9-harness
+      Built l9-harness @ file:///home/user/l9-harness
+Prepared 1 package in 120ms
+Installed 1 package in 2ms
+ + l9-harness==2.0.4 (from file:///home/user/l9-harness)
+warning: The package `l9-harness @ file:///home/user/l9-harness` does not have an extra named `dev`
+INSTALL_MODE=editable_with_dev_extras
+-- repo-declared dependency-group dev: ruff==0.16.5 mypy==1.17.1 pytest==9.1.1 jsonschema==4.26.0 --
+Using Python 3.11.15 environment at: /tmp/l9-organism/.venv-l9-harness
+Resolved 15 packages in 53ms
+Downloading mypy (12.0MiB)
+ Downloading mypy
+Prepared 1 package in 619ms
+Installed 14 packages in 22ms
+ + attrs==26.1.0
+ + iniconfig==2.3.0
+ + jsonschema==4.26.0
+ + jsonschema-specifications==2025.9.1
+ + mypy==1.17.1
+ + mypy-extensions==1.1.0
+ + pathspec==1.1.1
+ + pluggy==1.6.0
+ + pygments==2.21.0
+ + pytest==9.1.1
+ + referencing==0.37.0
+ + rpds-py==2026.6.3
+ + ruff==0.16.5
+ + typing-extensions==4.16.0

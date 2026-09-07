@@ -1,0 +1,6 @@
+HAS_BUILD_SYSTEM=no
+INSTALL_MODE=not_applicable_no_build_system
+-- repo-declared toolchain: requirements-ci.txt + requirements-repo-runtime.txt --
+   (matches .github/workflows/self-ci.yml 'Install lint tools')
+Using Python 3.11.15 environment at: /tmp/l9-organism/.venv-cicore-verify
+Audited 6 packages in 2ms

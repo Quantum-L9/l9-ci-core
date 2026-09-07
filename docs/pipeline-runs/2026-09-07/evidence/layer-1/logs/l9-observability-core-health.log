@@ -1,0 +1,26 @@
+HEALTH_COMMAND=make ci
++ /tmp/l9-organism/.venv-l9-observability-core/bin/python3 scripts/inventory_check.py
+inventory-check OK
++ /tmp/l9-organism/.venv-l9-observability-core/bin/python3 scripts/repo_hygiene_audit.py
+hygiene OK
++ /tmp/l9-organism/.venv-l9-observability-core/bin/python3 tools/check_workflow_integrity.py
+integrity OK
+validate: PASS
++ /tmp/l9-organism/.venv-l9-observability-core/bin/python3 -m ruff check .
+All checks passed!
++ /tmp/l9-organism/.venv-l9-observability-core/bin/python3 -m ruff format --check .
+90 files already formatted
++ /tmp/l9-organism/.venv-l9-observability-core/bin/python3 -m mypy src
+Success: no issues found in 23 source files
++ /tmp/l9-organism/.venv-l9-observability-core/bin/python3 -m pytest -q
+........................................................................ [ 92%]
+......                                                                   [100%]
+78 passed in 0.86s
+python3 -m pytest -q tests/test_json_schemas.py
+................                                                         [100%]
+16 passed in 0.61s
+PYTHONDONTWRITEBYTECODE=1 python3 -m compileall -q src tests tools scripts
+python3 scripts/reconcile_plugin_config.py --check
+OK: plugin-config.yaml describes this repository
+python3 scripts/render_cursor_rules.py --check
+OK: 4 rendered Cursor rules are current (1 skipped)

@@ -1,0 +1,38 @@
+HEALTH_COMMAND=pytest -q
+.........................F.............................................. [ 27%]
+........................................................................ [ 55%]
+........................................................................ [ 83%]
+...........................................                              [100%]
+=================================== FAILURES ===================================
+_____ PublicationBoundaryTests.test_private_keys_are_not_repository_files ______
+
+self = <tests.architecture.test_publication_boundary.PublicationBoundaryTests testMethod=test_private_keys_are_not_repository_files>
+
+    def test_private_keys_are_not_repository_files(self) -> None:
+        prohibited_suffixes = {
+            ".pem",
+            ".key",
+            ".p12",
+            ".pfx",
+        }
+        violations = [
+            path.relative_to(ROOT).as_posix()
+            for path in ROOT.rglob("*")
+            if path.is_file()
+            and path.suffix.lower() in prohibited_suffixes
+            and ".git" not in path.parts
+        ]
+>       self.assertEqual([], violations)
+E       AssertionError: Lists differ: [] != ['.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem']
+E       
+E       Second list contains 1 additional elements.
+E       First extra element 0:
+E       '.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem'
+E       
+E       - []
+E       + ['.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem']
+
+tests/architecture/test_publication_boundary.py:44: AssertionError
+=========================== short test summary info ============================
+FAILED tests/architecture/test_publication_boundary.py::PublicationBoundaryTests::test_private_keys_are_not_repository_files
+1 failed, 258 passed in 1.59s
