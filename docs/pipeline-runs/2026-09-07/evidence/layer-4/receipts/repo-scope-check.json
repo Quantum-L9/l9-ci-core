@@ -29,7 +29,7 @@
   "unexpected_repos": [],
   "identity_reconciliation": "artifacts/organism/layer-4/receipts/repo-identity-reconciliation.json",
   "notes": [
-    "Scope is computed from Layer 1 evidence. Layer 2/3 contribute nothing (not run).",
+    "Scope is computed from Layer 1 evidence and cross-checked against the repositories named in the Layer 2 seam and Layer 3 corridor receipts.",
     "l9-constellation-topology was not treated as in scope."
   ],
   "status": "pass"

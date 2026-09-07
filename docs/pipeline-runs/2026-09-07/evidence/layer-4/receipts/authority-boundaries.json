@@ -8,7 +8,8 @@
         "sdk_projections"
       ],
       "violations": [],
-      "verified": false
+      "verified": false,
+      "evidence": "Not exercised by a passing seam or corridor in this run."
     },
     "l9-ci-core": {
       "allowed_authority": [
@@ -17,7 +18,8 @@
         "artifact_routing"
       ],
       "violations": [],
-      "verified": false
+      "verified": false,
+      "evidence": "Not exercised by a passing seam or corridor in this run."
     },
     "l9-assurance": {
       "allowed_authority": [
@@ -26,7 +28,8 @@
         "verdict"
       ],
       "violations": [],
-      "verified": false
+      "verified": true,
+      "evidence": "Assurance produced every admission decision in this run, directly and when invoked by the harness, and the two agreed."
     },
     "l9-harness": {
       "allowed_authority": [
@@ -34,7 +37,8 @@
         "assurance_adapter"
       ],
       "violations": [],
-      "verified": false
+      "verified": true,
+      "evidence": "invocation-record.json carries authoritative=false in both the Layer 2 seam and the Layer 3 corridor; the harness recorded argv/stdout/stderr digests and the child exit code, and computed no admission decision of its own."
     },
     "l9-ci-debt-resolver": {
       "allowed_authority": [
@@ -43,7 +47,8 @@
         "feedback_event_production"
       ],
       "violations": [],
-      "verified": false
+      "verified": false,
+      "evidence": "Not exercised by a passing seam or corridor in this run."
     },
     "l9-ci-debt-intelligence": {
       "allowed_authority": [
@@ -52,7 +57,8 @@
         "defense_pack_production"
       ],
       "violations": [],
-      "verified": false
+      "verified": false,
+      "evidence": "Not exercised by a passing seam or corridor in this run."
     },
     "l9-ci-debt-lsp": {
       "allowed_authority": [
@@ -60,7 +66,8 @@
         "defense_pack_consumption"
       ],
       "violations": [],
-      "verified": false
+      "verified": true,
+      "evidence": "No source mutation observed. The seam is partial for lack of a promotable pack, so the advisory boundary was not exercised further."
     },
     "l9-pr-repair": {
       "canonical_remote": "https://github.com/Quantum-L9/l9-pr-repair",
@@ -72,7 +79,8 @@
         "manual_review_assistance"
       ],
       "violations": [],
-      "verified": false
+      "verified": true,
+      "evidence": "execution_mode=dry_run, execution_status=not_executed, no branch created, and push requires BOTH PR_FIX_ALLOW_PUSH=1 and mode=repair_verify_and_push."
     },
     "l9-observability-core": {
       "allowed_authority": [
@@ -81,12 +89,14 @@
         "correlation_validation"
       ],
       "violations": [],
-      "verified": false
+      "verified": true,
+      "evidence": "Only canonicalisation, digest and schema validation were exercised. No scheduler, gate, retry, admission, dispatch or remediation surface exists in the public API."
     }
   },
+  "verified_count": 5,
   "notes": [
-    "allowed_authority restates the contract, not an observation. Every violations list is empty because no boundary was exercised - Layer 2/3 have not run - not because a boundary was proven to hold.",
-    "Layers 1 and 4 performed no remote mutation, enabled no l9-pr-repair push path, and used l9-observability-core for nothing."
+    "A boundary counts as verified only where a passing seam or corridor recorded it. Repos with verified=false were not observed crossing a boundary either - they simply were not tested against one.",
+    "Layers 1-4 performed no remote mutation against any organism repository."
   ],
-  "status": "fail"
+  "status": "pass"
 }

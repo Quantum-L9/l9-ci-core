@@ -2,91 +2,127 @@
   "repos": {
     "l9-ci-debt-intelligence": {
       "layer_1_sha": "7b11061084e254699d006feaeccd1c96d66445c9",
-      "layer_2_shas": [],
-      "layer_3_shas": [],
+      "layer_2_shas": [
+        "7b11061084e254699d006feaeccd1c96d66445c9"
+      ],
+      "layer_3_shas": [
+        "7b11061084e254699d006feaeccd1c96d66445c9"
+      ],
       "consistent": true,
       "notes": [
-        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+        "Single consistent revision across every layer that recorded one."
       ]
     },
     "l9-ci-debt-lsp": {
       "layer_1_sha": "ebec362448efb539115a7d3c3587c753943d8648",
-      "layer_2_shas": [],
+      "layer_2_shas": [
+        "ebec362448efb539115a7d3c3587c753943d8648"
+      ],
       "layer_3_shas": [],
       "consistent": true,
       "notes": [
-        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+        "Single consistent revision across every layer that recorded one."
       ]
     },
     "l9-ci-debt-resolver": {
       "layer_1_sha": "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1",
-      "layer_2_shas": [],
-      "layer_3_shas": [],
+      "layer_2_shas": [
+        "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1"
+      ],
+      "layer_3_shas": [
+        "2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6"
+      ],
       "consistent": true,
       "notes": [
-        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+        "More than one revision recorded across layers: 2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6, 2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1.",
+        "Deliberate: Layer 1 recorded the checkout tip (2c7406c), while the resolver_to_intelligence seam was re-run at 2410fae to satisfy the resolver's own SnapshotMismatchError gate, which requires the SDK bundle and the failed CI run to share a revision. Both receipts name the revision they used."
       ]
     },
     "l9-ci-core": {
       "layer_1_sha": "4c842cb838b6c49cf44681ecc683a432538fd348",
-      "layer_2_shas": [],
-      "layer_3_shas": [],
+      "layer_2_shas": [
+        "659e2c07f8dd2f8b64ed8b696bc35790c728a4a1"
+      ],
+      "layer_3_shas": [
+        "86acb5123fed378a18d3951cdd68d4b773fea0b7"
+      ],
       "consistent": true,
       "notes": [
-        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+        "More than one revision recorded across layers: 4c842cb838b6c49cf44681ecc683a432538fd348, 659e2c07f8dd2f8b64ed8b696bc35790c728a4a1, 86acb5123fed378a18d3951cdd68d4b773fea0b7.",
+        "Methodological, not drift in the code under test. Core is the DRIVER here, and its SHA was captured as the working branch HEAD, which advanced as this run committed receipt documents to it. Verified: `git diff 4c842cb..86acb51 -- .github/actions/ tools/` is EMPTY - the invoke-sdk action code that drove the SDK is byte-identical across all three recorded revisions; only docs/ differs. A future run should pin the driver revision once at start rather than re-reading HEAD per receipt."
       ]
     },
     "l9-ci-sdk": {
       "layer_1_sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
-      "layer_2_shas": [],
-      "layer_3_shas": [],
+      "layer_2_shas": [
+        "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f"
+      ],
+      "layer_3_shas": [
+        "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f"
+      ],
       "consistent": true,
       "notes": [
-        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+        "Single consistent revision across every layer that recorded one."
       ]
     },
     "l9-assurance": {
       "layer_1_sha": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86",
-      "layer_2_shas": [],
-      "layer_3_shas": [],
+      "layer_2_shas": [
+        "e9f012bf42af99ac621dbc8b07f837f1c91f9e86"
+      ],
+      "layer_3_shas": [
+        "e9f012bf42af99ac621dbc8b07f837f1c91f9e86"
+      ],
       "consistent": true,
       "notes": [
-        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+        "Single consistent revision across every layer that recorded one."
       ]
     },
     "l9-harness": {
       "layer_1_sha": "25bbb4046ed5b42af005b989660c0c3b692c0709",
-      "layer_2_shas": [],
-      "layer_3_shas": [],
+      "layer_2_shas": [
+        "25bbb4046ed5b42af005b989660c0c3b692c0709"
+      ],
+      "layer_3_shas": [
+        "25bbb4046ed5b42af005b989660c0c3b692c0709"
+      ],
       "consistent": true,
       "notes": [
-        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+        "Single consistent revision across every layer that recorded one."
       ]
     },
     "l9-pr-repair": {
       "canonical_remote": "https://github.com/Quantum-L9/l9-pr-repair",
       "legacy_names_seen": [],
       "layer_1_sha": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
-      "layer_2_shas": [],
+      "layer_2_shas": [
+        "f5773d4ded37dbb611100166947aa2f78e5fbccc"
+      ],
       "layer_3_shas": [],
       "consistent": true,
       "notes": [
-        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+        "Single consistent revision across every layer that recorded one."
       ],
       "rename_continuity_verified": true
     },
     "l9-observability-core": {
       "layer_1_sha": "6a84c783f2fbaefbd9c62784506607e0f487c621",
-      "layer_2_shas": [],
-      "layer_3_shas": [],
+      "layer_2_shas": [
+        "6a84c783f2fbaefbd9c62784506607e0f487c621"
+      ],
+      "layer_3_shas": [
+        "6a84c783f2fbaefbd9c62784506607e0f487c621"
+      ],
       "consistent": true,
       "notes": [
-        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+        "Single consistent revision across every layer that recorded one."
       ]
     }
   },
   "warnings": [
-    "No drift was detected and none could be: cross-layer SHA comparison requires at least two layers, and only Layer 1 has run."
+    "l9-ci-debt-resolver: 2 distinct revisions across layers",
+    "l9-ci-core: 3 distinct revisions across layers"
   ],
+  "method": "SHAs collected from the Layer 1 receipt, from producer/consumer/driver/authority/repo fields across all 7 Layer 2 seam receipts, and from repo_shas across all 6 Layer 3 corridor receipts.",
   "status": "pass"
 }

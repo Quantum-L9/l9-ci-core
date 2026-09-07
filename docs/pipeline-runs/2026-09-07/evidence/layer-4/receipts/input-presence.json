@@ -36,8 +36,8 @@
     }
   },
   "notes": [
-    "Layer 1 has been executed and its receipt is present.",
-    "Layer 2 and Layer 3 have NOT been executed. Layer 4 may not create, rerun, or infer them."
+    "All three input layers have been executed and their receipts are present.",
+    "Layer 4 aggregates them and creates no evidence of its own."
   ],
   "status": "pass"
 }

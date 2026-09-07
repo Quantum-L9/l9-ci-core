@@ -1,57 +1,73 @@
 {
   "inactive_by_design": {
     "core_to_intelligence_gate_event": {
-      "status": "unverified",
+      "status": "inactive-or-planned",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
       "tested_as_live": false,
-      "acceptable": false,
-      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way."
+      "acceptable": true,
+      "reason": "No Layer 2 evidence of a Core-emitted gate event consumed by Intelligence."
     },
     "pr_repair_to_intelligence_learning_packet": {
       "repository": "l9-pr-repair",
-      "status": "unverified",
+      "status": "inactive-or-planned",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
       "tested_as_live": false,
-      "acceptable": false,
-      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way."
+      "acceptable": true,
+      "reason": "pr-repair writes runtime/pr_repair/learning_packets.json locally in dry-run, but nothing delivers it to Intelligence and Intelligence declares no pr-repair producer. Local emission is not a live seam."
     },
     "lsp_to_intelligence_editor_outcome": {
-      "status": "unverified",
+      "status": "inactive-or-planned",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
       "tested_as_live": false,
-      "acceptable": false,
-      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way."
+      "acceptable": true,
+      "reason": "No Layer 2 evidence."
     },
     "sdk_to_lsp_direct_finding": {
-      "status": "unverified",
+      "status": "inactive-or-planned",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
       "tested_as_live": false,
-      "acceptable": false,
-      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way."
+      "acceptable": true,
+      "reason": "The SDK emits l9.finding-bundle/v1; no evidence the LSP consumes SDK findings directly. Only the defense-pack path is declared."
     },
     "sdk_to_harness_authority_manifest": {
-      "status": "unverified",
+      "status": "inactive-or-planned",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
       "tested_as_live": false,
-      "acceptable": false,
-      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way."
+      "acceptable": true,
+      "reason": "The harness consumed no SDK capability manifest; it invoked Assurance directly."
     },
     "resolver_to_pr_repair_delegation": {
       "repository": "l9-pr-repair",
-      "status": "unverified",
+      "status": "inactive-or-planned",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
       "tested_as_live": false,
-      "acceptable": false,
-      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way."
+      "acceptable": true,
+      "reason": "l9-ci-debt-resolver/.l9/pr-repair-delegation-contract.yaml EXISTS on disk, but a contract file is not proof of a live seam: no resolver command emits a delegation request and pr-repair exposes no delegation intake. Not tested as active."
     },
     "observability_control_plane": {
-      "status": "unverified",
+      "status": "prohibited",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
       "tested_as_live": false,
-      "acceptable": false,
-      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way.",
-      "contract_status": "prohibited"
+      "acceptable": true,
+      "reason": "Observability exposes canonicalisation, digest and schema validation only. No scheduler/gate/retry/admission/repair surface exists or was used."
     }
   },
   "violations": [],
-  "notes": [
-    "tested_as_live is false for every planned seam, verifiably: Layer 2 and Layer 3 never ran, so nothing was represented as active.",
-    "This is not a pass. The organism carries no declaration of which seams are planned versus live: both layer-2/inactive-by-design.json and layer-3/non-live-corridors.json are absent.",
-    "Note for Layer 2: l9-ci-debt-resolver/.l9/pr-repair-delegation-contract.yaml exists on disk. A contract file is not proof of a live seam; resolver_to_pr_repair_delegation stays unverified until producer and consumer code are exercised.",
-    "The PR_Repair -> l9-pr-repair rename did not activate any repair seam."
+  "sources": [
+    "artifacts/organism/layer-2/inactive-by-design.json",
+    "artifacts/organism/layer-3/non-live-corridors.json"
   ],
-  "status": "fail"
+  "notes": [
+    "Every planned seam is declared and none was tested as live.",
+    "resolver_to_pr_repair_delegation stays inactive even though l9-ci-debt-resolver/.l9/pr-repair-delegation-contract.yaml exists: a contract file on disk is not a live seam, and no resolver command emits a delegation request.",
+    "The PR_Repair -> l9-pr-repair rename activated no repair seam."
+  ],
+  "status": "pass"
 }
