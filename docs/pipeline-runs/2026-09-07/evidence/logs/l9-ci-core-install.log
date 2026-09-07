@@ -20,7 +20,7 @@ Resolved 3 packages in 4ms
       deprecated
       !!
 
-      
+
       ********************************************************************************
               Please use a simple string containing a SPDX expression for
       `project.license`. You can also use `project.license-files`. (Both
@@ -33,7 +33,7 @@ Resolved 3 packages in 4ms
               See
       https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license
       for details.
-      
+
       ********************************************************************************
 
       !!
@@ -72,7 +72,7 @@ Resolved 1 package in 2ms
       deprecated
       !!
 
-      
+
       ********************************************************************************
               Please use a simple string containing a SPDX expression for
       `project.license`. You can also use `project.license-files`. (Both
@@ -85,7 +85,7 @@ Resolved 1 package in 2ms
               See
       https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license
       for details.
-      
+
       ********************************************************************************
 
       !!

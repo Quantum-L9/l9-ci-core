@@ -77,6 +77,13 @@ generated output and neither is hand-edited. This `REPORT.md` is a hand-written 
 `docs/pipeline-runs/` convention of this repository. Where they appear to disagree, the receipt wins
 and this file is stale.
 
+One caveat on the raw logs: committing them ran this repository's `end-of-file-fixer` and
+`trailing-whitespace` hooks, which normalised trailing whitespace and final newlines in
+`evidence/logs/l9-ci-core-install.log`, `evidence/logs/l9-ci-debt-intelligence-health.log` and
+`evidence/layer-1/package-versions.json`. The change is whitespace-only (`git diff
+--ignore-all-space` is empty) and none of those three files is covered by the digest manifest, so no
+recorded digest is invalidated.
+
 Digests for every generated artifact are in `evidence/layer-4/logs/layer-4-output-digests.json`
 (15 files, all verified against the copies stored here). That manifest deliberately does not list
 itself.
