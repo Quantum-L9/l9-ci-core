@@ -299,3 +299,65 @@ speculatively.
 So Layer 1 remains `fail` — but now for one repository, on one finding, for the first time in this
 run. The lesson worth keeping: an invalid credential in the environment did not merely block a check,
 it **hid a real one**.
+
+## Layer 4 re-run: two corrections and one documented non-goal
+
+Layer 4 was re-aggregated after Layers 2 and 3 completed. Three things changed.
+
+### 1. Cross-layer SHA alignment is now an explicit non-goal
+
+Operator decision, 2026-09-07: repository heads advance as PRs merge, so any single-revision
+alignment across layers is stale the moment the next PR lands, and chasing it would mean re-running
+earlier layers after every merge for no gain in truth.
+
+`evidence/layer-4/receipts/sha-consistency.json` is therefore `informational` rather than a pass/fail
+gate. It carries a `scope_decision` block stating the decision, why it is safe, and what is still
+asserted. What the receipt still records, per repository, is the revision each layer used — because
+traceability does not depend on alignment: every seam and corridor receipt names the revision it
+used, and each artifact is digest-linked to the run that produced it. A **missing** revision would
+still be a gap; a **differing** one is not.
+
+Two repositories show more than one revision, both explained in the receipt: `l9-ci-debt-resolver`
+(the `resolver_to_intelligence` seam was deliberately re-run at `2410fae` to satisfy the resolver's
+own `SnapshotMismatchError` gate, which requires the SDK bundle and the failed CI run to share a
+revision) and `l9-ci-core` (the driver, whose branch head advanced as this run committed receipts to
+it — `git diff 4c842cb..86acb51 -- .github/actions/ tools/` is empty, so the code that drove the SDK
+is byte-identical across all three).
+
+### 2. The published organism receipt was stale, and is corrected
+
+The previously published `04-organism-receipt.json` claimed:
+
+> "Layers 2 and 3 have not run at all, so every seam, every corridor and every fail-closed negative
+> test remains unproven ... only one of the three Layer 1 non-zero results is a repository defect
+> (l9-ci-core mypy stub declarations)."
+
+Both halves were wrong by the time it was published. Layers 2 and 3 *had* run — their real statuses
+(`partial`, `partial`) sat in the same file two keys below that sentence — and the l9-ci-core mypy
+claim had already been retracted elsewhere in this very report. `layers_not_executed` listed
+`seam_tests` and `corridor_tests` while `layers.seam_tests.status` read `partial`.
+
+The cause was hand-written prose in the generator: every count, name and verdict in the receipt and
+the deploy summary was typed in rather than read from the receipts. Those strings were correct when
+the first Layer 4 pass ran with only Layer 1 present, and drifted silently as evidence arrived.
+
+The generator now **derives** all of it — `layers_executed`, every failure summary, every table row,
+the negative-test tally and the final statement come from the receipts themselves. A comment at each
+site records why. Corrected figures:
+
+| | Published (stale) | Corrected |
+|---|---|---|
+| Layers executed | repo_health only | repo_health, seam_tests, corridor_tests |
+| Layer 1 | 7/9 health, 0 repo defects | 8/9 health, 1 repo defect (l9-ci-sdk) |
+| Layer 2 | 4/7 pass, 3 partial | 5/7 pass, 2 partial, 0 fail |
+| Layer 3 | 3/6 pass, 3 skipped | 4/6 pass, 2 skipped, 0 fail |
+| Negative tests | 9/15 passed, 6 not run | 10/15 passed, 5 not run, 0 failed |
+| resolver_to_intelligence | partial, "no GitHub credential" | pass, after #52 merged |
+| learning_feedback | skipped | pass |
+
+The decision itself does not move: `fail` / `do-not-deploy`, for better-stated reasons.
+
+### 3. Verification
+
+`evidence/layer-4/logs/layer-4-output-digests.json` self-verifies against the copies published here:
+15 of 15 outputs match on both `sha256` and `size_bytes`, 0 mismatched, 0 missing.

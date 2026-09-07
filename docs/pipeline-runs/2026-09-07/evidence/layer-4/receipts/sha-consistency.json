@@ -8,9 +8,12 @@
       "layer_3_shas": [
         "7b11061084e254699d006feaeccd1c96d66445c9"
       ],
-      "consistent": true,
+      "revisions_observed": [
+        "7b11061084e254699d006feaeccd1c96d66445c9"
+      ],
+      "alignment_asserted": false,
       "notes": [
-        "Single consistent revision across every layer that recorded one."
+        "One revision across every layer that recorded it."
       ]
     },
     "l9-ci-debt-lsp": {
@@ -19,9 +22,12 @@
         "ebec362448efb539115a7d3c3587c753943d8648"
       ],
       "layer_3_shas": [],
-      "consistent": true,
+      "revisions_observed": [
+        "ebec362448efb539115a7d3c3587c753943d8648"
+      ],
+      "alignment_asserted": false,
       "notes": [
-        "Single consistent revision across every layer that recorded one."
+        "One revision across every layer that recorded it."
       ]
     },
     "l9-ci-debt-resolver": {
@@ -32,9 +38,13 @@
       "layer_3_shas": [
         "2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6"
       ],
-      "consistent": true,
+      "revisions_observed": [
+        "2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6",
+        "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1"
+      ],
+      "alignment_asserted": false,
       "notes": [
-        "More than one revision recorded across layers: 2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6, 2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1.",
+        "More than one revision recorded across layers: 2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6, 2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1. Recorded, not reconciled - see scope_decision.",
         "Deliberate: Layer 1 recorded the checkout tip (2c7406c), while the resolver_to_intelligence seam was re-run at 2410fae to satisfy the resolver's own SnapshotMismatchError gate, which requires the SDK bundle and the failed CI run to share a revision. Both receipts name the revision they used."
       ]
     },
@@ -46,10 +56,15 @@
       "layer_3_shas": [
         "86acb5123fed378a18d3951cdd68d4b773fea0b7"
       ],
-      "consistent": true,
+      "revisions_observed": [
+        "4c842cb838b6c49cf44681ecc683a432538fd348",
+        "659e2c07f8dd2f8b64ed8b696bc35790c728a4a1",
+        "86acb5123fed378a18d3951cdd68d4b773fea0b7"
+      ],
+      "alignment_asserted": false,
       "notes": [
-        "More than one revision recorded across layers: 4c842cb838b6c49cf44681ecc683a432538fd348, 659e2c07f8dd2f8b64ed8b696bc35790c728a4a1, 86acb5123fed378a18d3951cdd68d4b773fea0b7.",
-        "Methodological, not drift in the code under test. Core is the DRIVER here, and its SHA was captured as the working branch HEAD, which advanced as this run committed receipt documents to it. Verified: `git diff 4c842cb..86acb51 -- .github/actions/ tools/` is EMPTY - the invoke-sdk action code that drove the SDK is byte-identical across all three recorded revisions; only docs/ differs. A future run should pin the driver revision once at start rather than re-reading HEAD per receipt."
+        "More than one revision recorded across layers: 4c842cb838b6c49cf44681ecc683a432538fd348, 659e2c07f8dd2f8b64ed8b696bc35790c728a4a1, 86acb5123fed378a18d3951cdd68d4b773fea0b7. Recorded, not reconciled - see scope_decision.",
+        "Methodological, not drift in the code under test. Core is the DRIVER here, and its SHA was captured as the working branch HEAD, which advanced as this run committed receipt documents to it. Verified: `git diff 4c842cb..86acb51 -- .github/actions/ tools/` is EMPTY - the invoke-sdk action code that drove the SDK is byte-identical across all three recorded revisions; only docs/ differs."
       ]
     },
     "l9-ci-sdk": {
@@ -60,9 +75,12 @@
       "layer_3_shas": [
         "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f"
       ],
-      "consistent": true,
+      "revisions_observed": [
+        "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f"
+      ],
+      "alignment_asserted": false,
       "notes": [
-        "Single consistent revision across every layer that recorded one."
+        "One revision across every layer that recorded it."
       ]
     },
     "l9-assurance": {
@@ -73,9 +91,12 @@
       "layer_3_shas": [
         "e9f012bf42af99ac621dbc8b07f837f1c91f9e86"
       ],
-      "consistent": true,
+      "revisions_observed": [
+        "e9f012bf42af99ac621dbc8b07f837f1c91f9e86"
+      ],
+      "alignment_asserted": false,
       "notes": [
-        "Single consistent revision across every layer that recorded one."
+        "One revision across every layer that recorded it."
       ]
     },
     "l9-harness": {
@@ -86,9 +107,12 @@
       "layer_3_shas": [
         "25bbb4046ed5b42af005b989660c0c3b692c0709"
       ],
-      "consistent": true,
+      "revisions_observed": [
+        "25bbb4046ed5b42af005b989660c0c3b692c0709"
+      ],
+      "alignment_asserted": false,
       "notes": [
-        "Single consistent revision across every layer that recorded one."
+        "One revision across every layer that recorded it."
       ]
     },
     "l9-pr-repair": {
@@ -99,9 +123,12 @@
         "f5773d4ded37dbb611100166947aa2f78e5fbccc"
       ],
       "layer_3_shas": [],
-      "consistent": true,
+      "revisions_observed": [
+        "f5773d4ded37dbb611100166947aa2f78e5fbccc"
+      ],
+      "alignment_asserted": false,
       "notes": [
-        "Single consistent revision across every layer that recorded one."
+        "One revision across every layer that recorded it."
       ],
       "rename_continuity_verified": true
     },
@@ -113,16 +140,64 @@
       "layer_3_shas": [
         "6a84c783f2fbaefbd9c62784506607e0f487c621"
       ],
-      "consistent": true,
+      "revisions_observed": [
+        "6a84c783f2fbaefbd9c62784506607e0f487c621"
+      ],
+      "alignment_asserted": false,
       "notes": [
-        "Single consistent revision across every layer that recorded one."
+        "One revision across every layer that recorded it."
       ]
     }
   },
-  "warnings": [
-    "l9-ci-debt-resolver: 2 distinct revisions across layers",
-    "l9-ci-core: 3 distinct revisions across layers"
-  ],
-  "method": "SHAs collected from the Layer 1 receipt, from producer/consumer/driver/authority/repo fields across all 7 Layer 2 seam receipts, and from repo_shas across all 6 Layer 3 corridor receipts.",
-  "status": "pass"
+  "scope_decision": {
+    "cross_layer_sha_alignment": "OUT OF SCOPE - operator decision, 2026-09-07",
+    "why": "Repository heads advance as PRs merge, so any single-revision alignment across layers is stale the moment the next PR lands. Chasing it would mean re-running earlier layers after every merge for no gain in truth.",
+    "why_this_is_safe": "Traceability does not depend on alignment. Every seam and corridor receipt names the exact revision it used, and each artifact is digest-linked to the run that produced it, so any result can still be tied to the code that produced it.",
+    "what_is_still_asserted": "That each layer RECORDED a revision for the repositories it exercised. A missing revision would still be a gap; a differing one is not.",
+    "contract_basis": "The Layer 4 contract permits differing SHAs across layers where the receipt explains them and artifacts remain traceable. This receipt is that explanation."
+  },
+  "revisions_observed": {
+    "l9-ci-debt-intelligence": [
+      "7b11061084e254699d006feaeccd1c96d66445c9"
+    ],
+    "l9-ci-debt-lsp": [
+      "ebec362448efb539115a7d3c3587c753943d8648"
+    ],
+    "l9-ci-debt-resolver": [
+      "2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6",
+      "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1"
+    ],
+    "l9-ci-core": [
+      "4c842cb838b6c49cf44681ecc683a432538fd348",
+      "659e2c07f8dd2f8b64ed8b696bc35790c728a4a1",
+      "86acb5123fed378a18d3951cdd68d4b773fea0b7"
+    ],
+    "l9-ci-sdk": [
+      "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f"
+    ],
+    "l9-assurance": [
+      "e9f012bf42af99ac621dbc8b07f837f1c91f9e86"
+    ],
+    "l9-harness": [
+      "25bbb4046ed5b42af005b989660c0c3b692c0709"
+    ],
+    "l9-pr-repair": [
+      "f5773d4ded37dbb611100166947aa2f78e5fbccc"
+    ],
+    "l9-observability-core": [
+      "6a84c783f2fbaefbd9c62784506607e0f487c621"
+    ]
+  },
+  "multi_revision_repos": {
+    "l9-ci-debt-resolver": [
+      "More than one revision recorded across layers: 2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6, 2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1. Recorded, not reconciled - see scope_decision.",
+      "Deliberate: Layer 1 recorded the checkout tip (2c7406c), while the resolver_to_intelligence seam was re-run at 2410fae to satisfy the resolver's own SnapshotMismatchError gate, which requires the SDK bundle and the failed CI run to share a revision. Both receipts name the revision they used."
+    ],
+    "l9-ci-core": [
+      "More than one revision recorded across layers: 4c842cb838b6c49cf44681ecc683a432538fd348, 659e2c07f8dd2f8b64ed8b696bc35790c728a4a1, 86acb5123fed378a18d3951cdd68d4b773fea0b7. Recorded, not reconciled - see scope_decision.",
+      "Methodological, not drift in the code under test. Core is the DRIVER here, and its SHA was captured as the working branch HEAD, which advanced as this run committed receipt documents to it. Verified: `git diff 4c842cb..86acb51 -- .github/actions/ tools/` is EMPTY - the invoke-sdk action code that drove the SDK is byte-identical across all three recorded revisions; only docs/ differs."
+    ]
+  },
+  "method": "Revisions collected from the Layer 1 receipt, from producer/consumer/driver/authority/repo fields across all 7 Layer 2 seam receipts, and from repo_shas across all 6 Layer 3 corridor receipts. Recorded, not reconciled.",
+  "status": "informational"
 }

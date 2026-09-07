@@ -2,15 +2,14 @@
   "organism": "l9-ci-debt-assurance-repair",
   "status": "fail",
   "deploy_decision": "do-not-deploy",
-  "tested_at": "2026-09-07T13:33:49Z",
+  "tested_at": "2026-09-07T13:41:23Z",
   "layers_executed": [
     "repo_health",
+    "seam_tests",
+    "corridor_tests",
     "whole_organism_aggregation"
   ],
-  "layers_not_executed": [
-    "seam_tests",
-    "corridor_tests"
-  ],
+  "layers_not_executed": [],
   "scope": {
     "repos_in_scope": [
       "l9-ci-debt-intelligence",
@@ -141,21 +140,21 @@
     {
       "code": "LAYER_1_NOT_PASSING",
       "input": "artifacts/organism/01-repo-health.json",
-      "summary": "Layer 1 status is 'fail': 9/9 install, 7/9 pass their own native health command. Repo-defect count is ZERO. Both non-zero results are environmental - one caused by the Layer 1 harness itself (l9-ci-debt-intelligence), one by a sandbox network restriction (l9-ci-sdk, health undetermined rather than failing). An earlier revision of this run wrongly recorded l9-ci-core as a repository defect; that finding is retracted and l9-ci-core passes. See the Layer 1 receipt's failures[] for the per-repo diagnosis and attribution."
+      "summary": "Layer 1 status is 'fail': 9/9 install, 8/9 pass their own native health command. Repository defects: 1 (l9-ci-sdk). Environmental or harness-caused non-zero results: 0. An earlier revision of this run wrongly recorded l9-ci-core as a repository defect; that finding is retracted and l9-ci-core passes. See the Layer 1 receipt's failures[] for the per-repo diagnosis and attribution."
     },
     {
       "code": "LAYER_2_NOT_PASSING",
       "input": "artifacts/organism/02-seam-tests.json",
-      "summary": "Layer 2 status 'partial': 4 of 7 active seams PASS (core_to_sdk, sdk_to_assurance, harness_to_assurance, observability_contracts); 3 are partial with a blocked producer (resolver_to_intelligence - no GitHub credential; intelligence_to_lsp - publication gate fail-closed on a 0-finding corpus; pr_repair_standalone - GraphQL 403 on live review ingest). NO active seam failed, and no seam was forced with a hand-authored artifact."
+      "summary": "Layer 2 status 'partial': 5 of 7 active seams PASS (core_to_sdk, harness_to_assurance, observability_contracts, resolver_to_intelligence, sdk_to_assurance); 2 partial (intelligence_to_lsp, pr_repair_standalone); 0 fail (none). No seam was forced with a hand-authored artifact."
     },
     {
       "code": "LAYER_3_NOT_PASSING",
       "input": "artifacts/organism/03-corridor-tests.json",
-      "summary": "Layer 3 status 'partial': 3 of 6 corridors PASS (ci_evidence, assurance_harness, observability_contracts); 3 are SKIPPED because a required Layer 2 seam is not passing (learning_feedback, editor_advisory, standalone_repair_safety). No live corridor failed, and none was forced with a hand-authored artifact. A skipped corridor is not a pass."
+      "summary": "Layer 3 status 'partial': 4 of 6 corridors PASS (assurance_harness, ci_evidence, learning_feedback, observability_contracts); 2 SKIPPED because a required Layer 2 seam is not passing (editor_advisory, standalone_repair_safety); 0 fail (none). A skipped corridor is not a pass, and none was forced with a hand-authored artifact."
     },
     {
       "code": "NEGATIVE_COVERAGE_INCOMPLETE",
-      "summary": "9 of 15 fail-closed negative tests ran and passed; 6 were not run because their producer is blocked. None failed."
+      "summary": "10 of 15 fail-closed negative tests ran and passed; 5 were not run because their producer is blocked (intelligence_quarantines_unknown_or_planned_producer, lsp_rejects_bad_defense_pack_protocol, lsp_rejects_bad_sdk_contract_version, pr_repair_rejects_missing_expected_block, pr_repair_rejects_stale_expected_block); 0 failed."
     }
   ],
   "warnings": [
@@ -164,5 +163,5 @@
     "Layer 1 environment caveat: the harness ran ensurepip into four repo-local gitignored .venv directories to repair pip-less venvs left by the session-deps hook. Removal was attempted and denied by the operator permission gate, so l9-ci-debt-intelligence, l9-ci-debt-lsp, l9-ci-debt-resolver and l9-ci-core still carry a harness-added pip tree under .venv. This is why l9-ci-debt-intelligence reports one failing test."
   ],
   "waivers": [],
-  "final_statement": "DO NOT DEPLOY. Layer 1 has run and is informative but not passing; Layers 2 and 3 have not run at all, so every seam, every corridor and every fail-closed negative test remains unproven. The organism is unproven rather than proven-broken - only one of the three Layer 1 non-zero results is a repository defect (l9-ci-core mypy stub declarations)."
+  "final_statement": "DO NOT DEPLOY. All three input layers ran. Layer 1 is 'fail': 9/9 install and 8/9 pass their own health command, with 1 repository defect(s): l9-ci-sdk. Layer 2 is 'partial': 5/7 seams pass, 2 partial, 0 fail. Layer 3 is 'partial': 4/6 corridors pass, 2 skipped behind a non-passing seam, 0 fail. Nothing failed outright and nothing was forced with a hand-authored artifact, but a partial seam and a skipped corridor are not passes: editor_advisory, standalone_repair_safety remain unproven, 5 of 15 fail-closed negative tests never ran, and l9-ci-sdk's own gate fails on an unsuppressed workflow-security finding. Cross-layer SHA alignment is a documented non-goal (see layer-4/receipts/sha-consistency.json); it does not affect this verdict either way."
 }
