@@ -69,6 +69,18 @@ Layers 1 and 4 edited no repository source, changed no schema or registry, enabl
 mutation path, and performed no remote mutation. This directory is the only repository change the
 run produced, and it is additive evidence.
 
+## Which document is authoritative
+
+`evidence/04-organism-receipt.json` is the machine-readable source of truth for this run, and
+`evidence/deploy-summary.md` is the Layer 4 contract's own human-readable rendering of it — both are
+generated output and neither is hand-edited. This `REPORT.md` is a hand-written index following the
+`docs/pipeline-runs/` convention of this repository. Where they appear to disagree, the receipt wins
+and this file is stale.
+
+Digests for every generated artifact are in `evidence/layer-4/logs/layer-4-output-digests.json`
+(15 files, all verified against the copies stored here). That manifest deliberately does not list
+itself.
+
 ## Layout
 
 ```
