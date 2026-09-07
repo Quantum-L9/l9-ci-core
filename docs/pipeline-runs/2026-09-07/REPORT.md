@@ -43,7 +43,7 @@ hand-authored artifact, and every non-pass is a *blocked producer*, not a broken
 | `core_to_sdk` | **pass** | Core's own `invoke-sdk` action drove the SDK; contract identity 2.0.0 verified |
 | `sdk_to_assurance` | **pass** | Real SDK observation admitted — accepted 1, rejected 0 |
 | `resolver_to_intelligence` | **pass** | was fail; fixed by l9-ci-debt-resolver#52, then completed at a matched revision |
-| `intelligence_to_lsp` | partial | `PublicationGateError` — no promotion-eligible candidates in a 0-finding corpus |
+| `intelligence_to_lsp` | partial | `PublicationGateError` — 2 candidates compile, 0 promotion-eligible (recurrence: 1 producer, 1 scope) |
 | `harness_to_assurance` | **pass** | Real Assurance invoked; `authoritative: false` recorded |
 | `pr_repair_standalone` | partial | `SURFACE_UNSUPPORTED_GRAPHQL` — 403 on live review ingest |
 | `observability_contracts` | **pass** | Deterministic digest; malformed input rejected |
@@ -85,10 +85,11 @@ secret is only ever materialised inside a workflow run.
 
 Everything descends from one real artifact: a semgrep 1.176.1 scan of `Quantum-L9/l9-pr-repair`
 @ `f5773d4` (94 files) with the SDK's packaged L9 ruleset, normalised by SDK code. That bundle
-carries **zero findings** — the packaged ruleset and semgrep's `p/python` registry ruleset both
-returned 0 on real organism code (654 files scanned organism-wide). The finding-carrying path is
-therefore proven structurally, not with non-zero findings — and that is precisely what starved the
-Intelligence→LSP seam.
+carried **zero findings** at that point — the packaged ruleset and semgrep's `p/python` registry
+ruleset both returned 0 on real organism code (654 files scanned organism-wide). That is what starved
+the Intelligence→LSP seam initially. It was later resolved: a scan at `l9-ci-debt-resolver@2410fae`
+yielded `finding_count=1`, the first non-zero finding to traverse the organism (see the post-merge
+update below).
 
 The organism is **unproven**, not proven-broken. That distinction is the point of the run.
 
@@ -110,14 +111,15 @@ Reconciliation status `pass`.
 
 Re-verified after the initial run. One repository finding, one harness artifact:
 
-1. **`l9-ci-sdk` — sandbox limitation, health undetermined.** `make ci` → `make hooks` runs zizmor,
-   which fetches `github.com/actions/checkout.git` and receives HTTP 401. The test suite was never
-   reached, so this repo's health is undetermined rather than failing.
-2. **`l9-ci-debt-intelligence` — harness contamination, not a repo defect.** 258 of 259 tests pass.
-   The single failure is a publication-boundary invariant correctly flagging
-   `.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem` — a file the Layer 1 harness
-   itself created by running `ensurepip` into the repo's gitignored `.venv` to repair a pip-less
-   venv left by the session-deps hook. The repo's invariant is sound.
+1. **`l9-ci-sdk` — FAIL, a real repository finding.** `make ci` → `make hooks` runs zizmor, which
+   flags `secrets: inherit` at `.github/workflows/l9-nightly.yml:20` (rule `secrets-inherit`, medium,
+   confidence High, unsuppressed). This was initially misrecorded as a sandbox limitation because the
+   sandbox's sentinel `GH_TOKEN` pushed zizmor into online mode, where `github.com` 401'd it before
+   the audit ran. See *Layer 1 re-verification* below.
+2. **`l9-ci-debt-intelligence` — PASS, no repo defect.** The in-place run showed 258 of 259 because
+   this harness's own `ensurepip` had placed a pip-vendored `cacert.pem` inside the repo's gitignored
+   `.venv`, tripping a sound publication-boundary invariant. Re-run at the same revision in a clean
+   `git archive` tree: **259 passed, 0 failed**. See *Layer 1 re-verification* below.
 
 ### Retracted finding: l9-ci-core is clean
 
