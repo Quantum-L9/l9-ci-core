@@ -3,7 +3,7 @@
     "assurance_rejects_unknown_artifact_field": "pass",
     "assurance_rejects_untrusted_or_out_of_range_sdk_version": "pass",
     "assurance_rejects_tampered_observation": "pass",
-    "intelligence_rejects_privacy_leak": "not-run",
+    "intelligence_rejects_privacy_leak": "pass",
     "intelligence_quarantines_unknown_or_planned_producer": "not-run",
     "intelligence_duplicate_idempotency_safe": "pass",
     "lsp_rejects_bad_defense_pack_protocol": "not-run",
@@ -21,7 +21,6 @@
   },
   "failures": [],
   "missing": [
-    "intelligence_rejects_privacy_leak",
     "intelligence_quarantines_unknown_or_planned_producer",
     "lsp_rejects_bad_defense_pack_protocol",
     "lsp_rejects_bad_sdk_contract_version",
@@ -29,7 +28,7 @@
     "pr_repair_rejects_stale_expected_block"
   ],
   "notes": [
-    "9 of 15 fail-closed tests ran and passed; 6 were not run. NONE failed.",
+    "10 of 15 fail-closed tests ran and passed; 5 were not run. NONE failed.",
     "Every not-run test sits behind a blocked producer, not behind a skipped check."
   ],
   "status": "partial"

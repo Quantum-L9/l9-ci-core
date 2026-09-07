@@ -1,6 +1,6 @@
 {
   "seam": "resolver_to_intelligence",
-  "status": "fail",
+  "status": "pass",
   "producer": "l9-ci-debt-resolver",
   "consumer": "l9-ci-debt-intelligence",
   "producer_sha": "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1",
@@ -67,9 +67,7 @@
     "L9_INTELLIGENCE_PATH_KEY": "layer2-organism-test-pathkey-not-a-secret-01",
     "note": "Non-secret test-scoped keys for a throwaway corpus under artifacts/. Not credentials."
   },
-  "failure": {
-    "summary": "Seam blocked by a reproducible cross-host redirect auth-forwarding defect in l9-ci-debt-resolver's GitHub transport, previously and incorrectly attributed to missing credentials."
-  },
+  "failure": null,
   "retraction": {
     "what_was_wrong": "An earlier revision of this receipt classified the blocker as 'credentials - this surface holds no GitHub credential the resolver's transport can use' and set status=partial. That was WRONG.",
     "how_it_was_disproved": "GH_TOKEN/GITHUB_TOKEN are present and WORK: a direct REST call and a plain urllib.request.urlopen with that token both return HTTP 200 against the same Actions endpoints the resolver uses.",
@@ -97,5 +95,100 @@
     "error": "SDK snapshot does not match repository revision",
     "assessment": "CORRECT fail-closed behaviour, not a defect. The evidence bundle is an l9-ci-core run while the available SDK knowledge was built from an l9-pr-repair scan. Completing the seam needs a failed CI run AND an SDK bundle at the SAME revision. No failed run exists at any revision checked out here (origin/main 4c842cb has none, and PR #150's runs are all green), and switching a shared clone to the failing run's branch is forbidden.",
     "classification": "test-data alignment, not a code defect"
-  }
+  },
+  "resolved": {
+    "when": "after Quantum-L9/l9-ci-debt-resolver#52 merged (57cf94e)",
+    "how": "The redirect defect this receipt identified is fixed on main, so acquire-github-run now completes with the UNMODIFIED CLI - no runtime patch. The second gate (SnapshotMismatchError) was satisfied by pairing a failed CI run with an SDK bundle at the SAME revision: run 33481850033 at 2410fae622bb, whose tree was extracted read-only with `git archive` (no branch switch in the shared clone) and scanned with real semgrep 1.176.1.",
+    "first_non_zero_finding": "That revision yields finding_count=1 - the FIRST non-zero finding to traverse the organism in this entire run. Every earlier scan returned 0."
+  },
+  "chain": [
+    {
+      "stage": "semgrep scan @2410fae",
+      "result": "pass",
+      "findings": 1
+    },
+    {
+      "stage": "l9-ci semgrep normalize",
+      "result": "pass",
+      "bundle_revision": "2410fae622bb"
+    },
+    {
+      "stage": "l9-debt-resolver build-sdk-knowledge",
+      "result": "pass"
+    },
+    {
+      "stage": "l9-debt-resolver acquire-github-run (run 33481850033)",
+      "result": "pass",
+      "terminal_state": "evidence_ready",
+      "failed_jobs": 1,
+      "raw_bytes": 21148,
+      "note": "unmodified CLI, merged fix"
+    },
+    {
+      "stage": "l9-debt-resolver build-feedback-event",
+      "result": "pass",
+      "schema": "l9.intelligence-feedback-event/v1",
+      "size_bytes": 2234
+    },
+    {
+      "stage": "l9-debt-resolver publish-feedback (json-file)",
+      "result": "pass",
+      "schema": "l9.feedback-delivery-receipt/v1",
+      "status": "duplicate",
+      "provider_status": 409,
+      "receipt_id": "feedback_receipt_e656a98a894651edb38bd74"
+    },
+    {
+      "stage": "l9-intelligence ingest-resolver-feedback",
+      "result": "pass",
+      "status": "accepted",
+      "ledger_sequence": 1,
+      "record_id": "cr_c14ca6a269c7c73638ce7223ebaeaa56ba705f3843f700424ca64a4cac4e41c7"
+    }
+  ],
+  "privacy_checks": {
+    "raw_repository_path": false,
+    "raw_repository_name": false,
+    "branch_name": false,
+    "raw_log_body": false,
+    "diff_or_patch_body": false,
+    "developer_identity_or_email": false,
+    "secrets_or_tokens": false,
+    "evidence": "The accepted event is 2234 bytes and carries repository_pseudonym, not a raw name. Scanned for /home/user paths, the literal repo name, branch fields, runner log markers, diff hunks, emails and token shapes - none present."
+  },
+  "idempotency": {
+    "key": "feedback_idempotency_582eec173ebbaaef2c3fab3ce792bbf94c6168921f274e855c8ea20b658e6987",
+    "duplicate_safe": true,
+    "evidence": "Re-delivering the identical event returned status=duplicate with the SAME record_id (cr_c14ca6a269c7c73638ce722...) at ledger_sequence 2. verify-store: status=valid, ledger_entries=2, record_count=1, duplicates=1."
+  },
+  "final_artifacts": [
+    {
+      "name": "semgrep-raw.json",
+      "sha256": "8f570ed21f10cd5349e1eb6d4fb9a1ab895433f30d95b28960b71a838a7d12fc"
+    },
+    {
+      "name": "finding-bundle.json",
+      "sha256": "f5daafc075956fb1ac04d3158ae84cd301493211a5d82bda9b4df0a2bc03f47d"
+    },
+    {
+      "name": "sdk-knowledge.json",
+      "sha256": "225398a1e943d1062ef6a6925cfde0e62d5cd611da9a09a93be91c62efb0bec7"
+    },
+    {
+      "name": "resolver-feedback-event.json",
+      "sha256": "bf475810fdbe6fb713a42ebee121819c5548626321ca8529ed6df42c04b6c75e"
+    },
+    {
+      "name": "resolver-delivery-receipt.json",
+      "sha256": "2681b5533d5ca188d1daa78dbcdd10ef089b5bed455178bcc6b10afc2ca8471b"
+    },
+    {
+      "name": "intelligence-ingestion-receipt.json",
+      "sha256": "a68db0286fec244b4e39e2024381cac68bf28a83e0a27829debd778186fa36eb"
+    },
+    {
+      "name": "intelligence-ingestion-receipt-2.json",
+      "sha256": "072113d5a28d0785f68df8042109c66a15dd66002ab56918abb75c267fa4b493"
+    }
+  ]
 }

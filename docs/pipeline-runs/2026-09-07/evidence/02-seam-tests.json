@@ -1,13 +1,13 @@
 {
   "layer": "seam_tests",
-  "status": "fail",
-  "tested_at": "2026-09-07T03:09:46Z",
+  "status": "partial",
+  "tested_at": "2026-09-07T03:45:17Z",
   "repo_health_input": "artifacts/organism/01-repo-health.json",
   "summary": {
-    "pass": 4,
+    "pass": 5,
     "partial": 2,
-    "fail": 1,
-    "note": "One active seam FAILS on a real repository defect: l9-ci-debt-resolver forwards the Authorization header across GitHub's cross-host redirect to blob storage, so job-log acquisition 401s. An earlier revision of this receipt wrongly recorded that as a missing credential and scored the seam partial; the token works and the defect is the resolver's."
+    "fail": 0,
+    "note": "No active seam fails. resolver_to_intelligence moved fail -> PASS after l9-ci-debt-resolver#52 merged: the redirect defect is fixed on main, and the revision-match gate was satisfied with a real failed run paired to an SDK bundle at the same commit. The two remaining partials are blocked producers, not defects."
   },
   "seams": {
     "core_to_sdk": {
@@ -19,9 +19,8 @@
       "receipt": "artifacts/organism/layer-2/receipts/sdk_to_assurance.json"
     },
     "resolver_to_intelligence": {
-      "status": "fail",
-      "receipt": "artifacts/organism/layer-2/receipts/resolver_to_intelligence.json",
-      "blocker_code": "REDIRECT_AUTH_FORWARDING"
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/resolver_to_intelligence.json"
     },
     "intelligence_to_lsp": {
       "status": "partial",
@@ -53,7 +52,7 @@
     "pr_repair_push_disabled_by_default": "pass",
     "observability_rejects_malformed_event": "pass",
     "observability_has_no_control_authority": "pass",
-    "intelligence_rejects_privacy_leak": "not-run",
+    "intelligence_rejects_privacy_leak": "pass",
     "intelligence_quarantines_unknown_or_planned_producer": "not-run",
     "lsp_rejects_bad_defense_pack_protocol": "not-run",
     "lsp_rejects_bad_sdk_contract_version": "not-run",
@@ -71,16 +70,6 @@
     "Four repos retain a harness-added pip tree under their gitignored .venv from Layer 1; removal DENIED."
   ],
   "failures": [
-    {
-      "seam": "resolver_to_intelligence",
-      "producer": "l9-ci-debt-resolver",
-      "consumer": "l9-ci-debt-intelligence",
-      "phase": "emit",
-      "error_code": "REDIRECT_AUTH_FORWARDING",
-      "summary": "transport.py re-sends Authorization across the 302 to productionresultssa4.blob.core.windows.net; Azure returns 401 and the transport maps it to AuthenticationError. Proven by curl -L (200) vs curl -L --location-trusted (401) vs urlopen (401) on the same token and endpoint. With the header stripped at runtime the acquisition completes (93158-byte redacted log, evidence_ready), so this is the sole blocker. Environment-independent: it fails in CI too.",
-      "fix": "Strip Authorization on cross-host redirect in providers/github/transport.py.",
-      "log": "artifacts/organism/layer-2/logs/resolver-acquire.log"
-    },
     {
       "seam": "intelligence_to_lsp",
       "producer": "l9-ci-debt-intelligence",
@@ -104,5 +93,8 @@
     "claim_retracted": "This surface DOES hold a working GitHub credential. GH_TOKEN/GITHUB_TOKEN are a 14-character sentinel, yet REST calls carrying them return 200 because the agent proxy supplies real authentication out of band - exactly as CANONICAL_LAW's surface-transport section records.",
     "consequence": "Two of the three Layer 2 non-pass results were originally attributed to missing credentials. Only one of those attributions survives (pr_repair_standalone, which is a GraphQL-path restriction, separately verified). The resolver's was a repo defect.",
     "github_actions_secrets": "Repository/organization Actions secrets are NOT readable from any session: the API is write-only by GitHub's design, and this proxy additionally returns 403 for /actions/secrets. A secret 'wired into the repo' can only be consumed by a workflow run, never handed to a local tool."
+  },
+  "milestone": {
+    "first_non_zero_finding": "Revision 2410fae622bb of l9-ci-debt-resolver yields finding_count=1 - the first non-zero finding to traverse the organism in this run. Every prior scan (654 files organism-wide, plus semgrep's p/python registry ruleset) returned 0, which is what had kept the finding-carrying path proven only structurally."
   }
 }

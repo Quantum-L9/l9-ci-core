@@ -8,39 +8,40 @@
   "blocker": {
     "phase": "producer (defense pack assembly)",
     "code": "PublicationGateError",
-    "command": "l9-intelligence assemble-defense-pack <compilation> --version 1.0.0 --taxonomy-version 1.0.0 --output-root <dir>",
-    "error": "l9_debt_intelligence.publication.errors.PublicationGateError: no promotion-eligible candidates are available",
-    "why": "The producer chain ran correctly and fully - ingest -> build-snapshot -> build-analytics -> compile-candidates all succeeded on a real corpus - but the corpus holds ONE record derived from a real SDK FindingBundle that contains ZERO findings, so the compiler produced no promotion-eligible candidate and the publication gate refused to assemble a pack.",
-    "assessment": "This is correct fail-closed behaviour by Intelligence, NOT a defect. The seam is unproven for lack of corpus data, not because the path is broken. Feeding the LSP a hand-authored pack would violate the Layer 2 producer rule, so it was not done.",
-    "classification": "insufficient real producer data"
+    "error": "no promotion-eligible candidates are available",
+    "refined_diagnosis": "Re-run after a finding-BEARING corpus became available (revision 2410fae622bb of l9-ci-debt-resolver, finding_count=1, ingested with no limitations alongside the resolver feedback event; snapshot record_count=2). The compiler now produces candidate_count=2 - up from zero - but promotion_eligible_count remains 0. The recurrence report shows why: distinct_producer_count=1 and distinct_scope_count=1. Promotion requires a pattern to RECUR across producers and scopes; a single sighting in one repository at one revision cannot earn a prevention rule.",
+    "assessment": "This is the designed fail-closed behaviour of the publication gate, NOT a defect and NOT the earlier zero-finding starvation. The first diagnosis (an empty corpus) has been superseded: the corpus is no longer empty and candidates now compile. What is missing is recurrence evidence, which requires findings from multiple producers or scopes over time.",
+    "classification": "insufficient recurrence evidence - a corpus-maturity requirement, not a code defect",
+    "what_would_unblock": "Findings of the same canonical rule across at least two distinct producers or scopes, so the compiler can mark a candidate promotion-eligible."
   },
   "producer_chain_proven": [
     {
-      "stage": "ingest-sdk-finding-bundle",
+      "stage": "ingest-sdk-finding-bundle (finding-bearing)",
       "result": "accepted",
-      "note": "real SDK bundle into the corpus"
+      "limitations": []
+    },
+    {
+      "stage": "ingest-resolver-feedback",
+      "result": "accepted"
     },
     {
       "stage": "build-snapshot",
       "result": "pass",
-      "snapshot_id": "cs_9bc98b574b86b33e4987086baf28118cd0747e926d1f9ec292352f831abb3dc7",
-      "record_count": 1,
-      "partition_count": 1,
-      "deterministic_output_hash": "2be2dab7abd8cfcaad69af99e5ffabe841684fdf99123e1122c24b78e0b88e7f"
+      "record_count": 2
     },
     {
       "stage": "build-analytics",
-      "result": "pass",
-      "analysis_run_id": "ar_20a27390eeaf6d665d4bba19b623fe41a53c33f5ce2915ea1273d438b9b2cbf3"
+      "result": "pass"
     },
     {
       "stage": "compile-candidates",
       "result": "pass",
-      "compilation": "compile_8ea7c92cebb9200f67535a19041e0f5c452ae42ec893e2b8829e3a210b14d396"
+      "candidate_count": 2,
+      "promotion_eligible_count": 0
     },
     {
       "stage": "assemble-defense-pack",
-      "result": "blocked (fail-closed, no eligible candidates)"
+      "result": "blocked (fail-closed: no promotion-eligible candidates)"
     }
   ],
   "consumer_not_exercised": "l9-debt-lsp-contracts exposes evaluate-compatibility / install-pack / activate-pack / verify-installed-pack, but none was run: there is no real Intelligence-produced pack to feed them.",
@@ -49,5 +50,6 @@
     "lsp_rejects_bad_sdk_contract_version": "not-run"
   },
   "source_mutation_observed": false,
-  "failure": null
+  "failure": null,
+  "progress_since_first_run": "candidate_count moved 0 -> 2 once a real finding entered the corpus, so the compiler path is now proven end to end. Only promotion remains unmet."
 }

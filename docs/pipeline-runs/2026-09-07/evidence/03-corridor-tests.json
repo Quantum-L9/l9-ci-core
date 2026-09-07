@@ -1,13 +1,13 @@
 {
   "layer": "corridor_tests",
   "status": "partial",
-  "tested_at": "2026-09-07T03:29:52Z",
+  "tested_at": "2026-09-07T03:45:17Z",
   "input_layer": "artifacts/organism/02-seam-tests.json",
   "summary": {
-    "pass": 3,
-    "skipped": 3,
+    "pass": 4,
+    "skipped": 2,
     "fail": 0,
-    "note": "No live corridor FAILED. Three ran and passed; three were skipped because a required Layer 2 seam is not passing. Per the Layer 3 contract a skipped corridor is not a pass, so the layer is partial, never pass."
+    "note": "learning_feedback ran and PASSED once l9-ci-debt-resolver#52 merged unblocked its required seam. Two corridors remain skipped on partial seams. No live corridor failed."
   },
   "corridors": {
     "ci_evidence": {
@@ -15,12 +15,8 @@
       "receipt": "artifacts/organism/layer-3/receipts/ci_evidence.json"
     },
     "learning_feedback": {
-      "status": "skipped",
-      "receipt": "artifacts/organism/layer-3/receipts/learning_feedback.json",
-      "reason": "skipped_due_to_failed_seam",
-      "blocking_seams": [
-        "resolver_to_intelligence"
-      ]
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-3/receipts/learning_feedback.json"
     },
     "editor_advisory": {
       "status": "skipped",
@@ -60,13 +56,6 @@
     "A first identity check compared the observation's artifact digest to sha256 of the bundle FILE and reported a mismatch. The SDK digests the bundle's CANONICAL form (bundle.canonical_digest()), so the check was wrong, not the SDK. Verified with the SDK's own function it matches exactly. ci_evidence was not failed on a defect in the checker."
   ],
   "failures": [
-    {
-      "corridor": "learning_feedback",
-      "phase": "precondition",
-      "artifact": null,
-      "summary": "Required Layer 2 seam resolver_to_intelligence FAILED on a real defect: l9-ci-debt-resolver forwards Authorization across GitHub's cross-host redirect to blob storage, so job-log acquisition 401s. A fix is open as Quantum-L9/l9-ci-debt-resolver#52 (green, unmerged). This corridor is SKIPPED, not forced: composing it would require a hand-authored feedback event, which the contract forbids as proof.",
-      "log": null
-    },
     {
       "corridor": "editor_advisory",
       "phase": "precondition",

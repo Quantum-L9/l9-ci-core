@@ -15,14 +15,14 @@ session.
 | Layer 3 — corridor tests | **yes** | `evidence/03-corridor-tests.json` |
 | Layer 4 — whole-organism aggregation | **yes** | `evidence/04-organism-receipt.json` |
 
-**Layer 3 result: 3 of 6 corridors pass, 3 skipped, 0 fail.**
+**Layer 3 result: 4 of 6 corridors pass, 2 skipped, 0 fail.**
 
 | Corridor | Status | Meaning |
 |---|---|---|
 | `ci_evidence` | **pass** | Core-driven SDK evidence reaches Assurance in one run, digest-linked |
 | `assurance_harness` | **pass** | Harness invokes Assurance without authority confusion |
 | `observability_contracts` | **pass** | Digest determinism holds; malformed input fails closed |
-| `learning_feedback` | skipped | required seam `resolver_to_intelligence` failed |
+| `learning_feedback` | **pass** | unblocked by the merge; full chain ran end to end |
 | `editor_advisory` | skipped | required seam `intelligence_to_lsp` partial |
 | `standalone_repair_safety` | skipped | required seam `pr_repair_standalone` partial |
 
@@ -35,14 +35,14 @@ observation's `artifacts[0].digest` equals `FindingBundle.canonical_digest()`, a
 A skipped corridor is **not** a pass, so Layer 3 is `partial`. None was forced with a hand-authored
 artifact.
 
-**Layer 2 result: 4 of 7 active seams pass, 2 partial, 1 fail.** No seam was forced with a
+**Layer 2 result: 5 of 7 active seams pass, 2 partial, 0 fail.** No seam was forced with a
 hand-authored artifact, and every non-pass is a *blocked producer*, not a broken path:
 
 | Seam | Status | Evidence / blocker |
 |---|---|---|
 | `core_to_sdk` | **pass** | Core's own `invoke-sdk` action drove the SDK; contract identity 2.0.0 verified |
 | `sdk_to_assurance` | **pass** | Real SDK observation admitted — accepted 1, rejected 0 |
-| `resolver_to_intelligence` | **fail** | `REDIRECT_AUTH_FORWARDING` — a real defect in l9-ci-debt-resolver (see below) |
+| `resolver_to_intelligence` | **pass** | was fail; fixed by l9-ci-debt-resolver#52, then completed at a matched revision |
 | `intelligence_to_lsp` | partial | `PublicationGateError` — no promotion-eligible candidates in a 0-finding corpus |
 | `harness_to_assurance` | **pass** | Real Assurance invoked; `authoritative: false` recorded |
 | `pr_repair_standalone` | partial | `SURFACE_UNSUPPORTED_GRAPHQL` — 403 on live review ingest |
@@ -231,3 +231,29 @@ Layers 1 through 4 have all run. Two things stand between this and a deployable 
    that emptiness is what starved `intelligence_to_lsp` and, through it, `editor_advisory`.
 
 Until then `do-not-deploy` is the only verdict the evidence supports.
+
+
+## Update after l9-ci-debt-resolver#52 merged
+
+The redirect defect this run found was fixed and merged (`57cf94e`). Two things followed.
+
+**`resolver_to_intelligence` moved fail → pass, and `learning_feedback` with it.** The acquisition now
+completes with the *unmodified* CLI. The second gate — the resolver's `SnapshotMismatchError`, which
+correctly refuses an SDK bundle whose revision does not match the evidence — was satisfied by pairing
+failed run `33481850033` with a scan of the *same* commit `2410fae622bb`, extracted read-only via
+`git archive` rather than by switching a shared clone. The full chain then ran: acquire → feedback
+event → publish (`l9.feedback-delivery-receipt/v1`, delivered, 201) → Intelligence `accepted`.
+Duplicate delivery deduped to the same `record_id`; `verify-store` reports `valid`. The accepted event
+is 2234 bytes carrying `repository_pseudonym` — no raw path, name, branch, log, diff, email or token.
+
+**The first non-zero finding traversed the organism.** That revision yields `finding_count=1`. Every
+earlier scan in this run returned zero across 654 files and semgrep's `p/python` registry ruleset, so
+until now the finding-carrying path was proven only structurally.
+
+**`intelligence_to_lsp` remains partial, but the diagnosis has changed.** It was starved by an empty
+corpus; that is no longer true. With a real finding ingested the compiler now yields
+`candidate_count: 2` (up from 0) — but `promotion_eligible_count: 0`, because recurrence shows
+`distinct_producer_count: 1` and `distinct_scope_count: 1`. Promotion requires a pattern recurring
+across producers or scopes; one sighting in one repository at one revision cannot earn a prevention
+rule. That is the publication gate working as designed, not a defect. `editor_advisory` stays skipped
+behind it.

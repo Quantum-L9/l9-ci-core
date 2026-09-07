@@ -1,6 +1,6 @@
 # L9 CI Debt Organism Deploy Summary
 
-Generated: 2026-09-07T03:30:18Z
+Generated: 2026-09-07T03:46:10Z
 Final receipt: `artifacts/organism/04-organism-receipt.json`
 
 ## Decision

@@ -8,11 +8,8 @@
       "acceptable": true
     },
     "learning_feedback": {
-      "status": "skipped",
-      "acceptable": false,
-      "blocking_seams": [
-        "resolver_to_intelligence"
-      ]
+      "status": "pass",
+      "acceptable": true
     },
     "editor_advisory": {
       "status": "skipped",
@@ -40,19 +37,12 @@
   },
   "repository_identity_normalization": {},
   "summary": {
-    "pass": 3,
-    "skipped": 3,
+    "pass": 4,
+    "skipped": 2,
     "fail": 0,
-    "note": "No live corridor FAILED. Three ran and passed; three were skipped because a required Layer 2 seam is not passing. Per the Layer 3 contract a skipped corridor is not a pass, so the layer is partial, never pass."
+    "note": "learning_feedback ran and PASSED once l9-ci-debt-resolver#52 merged unblocked its required seam. Two corridors remain skipped on partial seams. No live corridor failed."
   },
   "failures": [
-    {
-      "corridor": "learning_feedback",
-      "phase": "precondition",
-      "artifact": null,
-      "summary": "Required Layer 2 seam resolver_to_intelligence FAILED on a real defect: l9-ci-debt-resolver forwards Authorization across GitHub's cross-host redirect to blob storage, so job-log acquisition 401s. A fix is open as Quantum-L9/l9-ci-debt-resolver#52 (green, unmerged). This corridor is SKIPPED, not forced: composing it would require a hand-authored feedback event, which the contract forbids as proof.",
-      "log": null
-    },
     {
       "corridor": "editor_advisory",
       "phase": "precondition",
@@ -69,7 +59,6 @@
     }
   ],
   "skipped": [
-    "learning_feedback",
     "editor_advisory",
     "standalone_repair_safety"
   ],

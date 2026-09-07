@@ -1,6 +1,6 @@
 {
   "layer": "seam_tests",
-  "status": "fail",
+  "status": "partial",
   "receipt": "artifacts/organism/02-seam-tests.json",
   "required_seams": {
     "core_to_sdk": {
@@ -14,10 +14,9 @@
       "acceptable": true
     },
     "resolver_to_intelligence": {
-      "status": "fail",
+      "status": "pass",
       "receipt": "artifacts/organism/layer-2/receipts/resolver_to_intelligence.json",
-      "acceptable": false,
-      "blocker_code": "REDIRECT_AUTH_FORWARDING"
+      "acceptable": true
     },
     "intelligence_to_lsp": {
       "status": "partial",
@@ -45,22 +44,12 @@
   },
   "repository_identity_normalization": {},
   "summary": {
-    "pass": 4,
+    "pass": 5,
     "partial": 2,
-    "fail": 1,
-    "note": "One active seam FAILS on a real repository defect: l9-ci-debt-resolver forwards the Authorization header across GitHub's cross-host redirect to blob storage, so job-log acquisition 401s. An earlier revision of this receipt wrongly recorded that as a missing credential and scored the seam partial; the token works and the defect is the resolver's."
+    "fail": 0,
+    "note": "No active seam fails. resolver_to_intelligence moved fail -> PASS after l9-ci-debt-resolver#52 merged: the redirect defect is fixed on main, and the revision-match gate was satisfied with a real failed run paired to an SDK bundle at the same commit. The two remaining partials are blocked producers, not defects."
   },
   "failures": [
-    {
-      "seam": "resolver_to_intelligence",
-      "producer": "l9-ci-debt-resolver",
-      "consumer": "l9-ci-debt-intelligence",
-      "phase": "emit",
-      "error_code": "REDIRECT_AUTH_FORWARDING",
-      "summary": "transport.py re-sends Authorization across the 302 to productionresultssa4.blob.core.windows.net; Azure returns 401 and the transport maps it to AuthenticationError. Proven by curl -L (200) vs curl -L --location-trusted (401) vs urlopen (401) on the same token and endpoint. With the header stripped at runtime the acquisition completes (93158-byte redacted log, evidence_ready), so this is the sole blocker. Environment-independent: it fails in CI too.",
-      "fix": "Strip Authorization on cross-host redirect in providers/github/transport.py.",
-      "log": "artifacts/organism/layer-2/logs/resolver-acquire.log"
-    },
     {
       "seam": "intelligence_to_lsp",
       "producer": "l9-ci-debt-intelligence",
