@@ -4,31 +4,19 @@
   "receipt": "artifacts/organism/01-repo-health.json",
   "repos_checked": 9,
   "repos_install_pass": 9,
-  "repos_health_pass": 7,
+  "repos_health_pass": 8,
   "repository_identity_normalized": {},
   "failures": [
-    {
-      "repo": "l9-ci-debt-intelligence",
-      "phase": "health",
-      "command": "pytest -q",
-      "exit_code": 1,
-      "category": "environment_failure",
-      "attributable_to": "layer_1_harness",
-      "repo_defect": false,
-      "diagnosis": "258 of 259 tests pass. The single failure, tests/architecture/test_publication_boundary.py::test_private_keys_are_not_repository_files, asserts no private-key/PEM file exists among repository files. It names '.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem' - a file created by this Layer 1 harness running `ensurepip` into the repo-local gitignored .venv to repair a pip-less venv left by the session-deps hook. The repo's invariant is sound and the repo's own code is not implicated. Removal of the harness-added pip tree was attempted and denied by the operator permission gate, so the contamination persists in this workspace.",
-      "summary": ">       self.assertEqual([], violations); E       AssertionError: Lists differ: [] != ['.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem']; E       Second list contains 1 additional elements.; E       First extra element 0:",
-      "log": "artifacts/organism/logs/l9-ci-debt-intelligence-health.log"
-    },
     {
       "repo": "l9-ci-sdk",
       "phase": "health",
       "command": "make ci",
       "exit_code": 2,
-      "category": "environment_failure",
-      "attributable_to": "sandbox_network_or_credentials",
-      "repo_defect": false,
-      "diagnosis": "`make ci` -> `make deps` -> `make hooks` runs the zizmor pre-commit hook, which fetches https://github.com/actions/checkout.git and receives HTTP 401 Unauthorized for git-upload-pack. This is an external-network/credential limitation of the sandbox, not a defect in l9-ci-sdk. The repo's own test suite was never reached, so this repo's health is undetermined rather than failing.",
-      "summary": "health exited non-zero",
+      "category": "workflow_security_finding",
+      "attributable_to": "repository",
+      "repo_defect": true,
+      "summary": "zizmor secrets-inherit (medium, High confidence) at .github/workflows/l9-nightly.yml:20 - `secrets: inherit` grants a reusable workflow all parent secrets. Pre-existing on main, unsuppressed, and the repo's own make ci gate fails on it.",
+      "diagnosis": "Previously masked: the sandbox's sentinel GH_TOKEN pushed zizmor into online mode where github.com 401'd it, so the gate never reached this audit.",
       "log": "artifacts/organism/logs/l9-ci-sdk-health.log"
     }
   ],

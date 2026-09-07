@@ -106,9 +106,9 @@ recorded the repository as `l9-pr-repair` directly, at canonical remote
 `https://github.com/Quantum-L9/l9-pr-repair`, and its head commit is itself the rename stamp (#63).
 Reconciliation status `pass`.
 
-## Layer 1 result: 9/9 install, 7/9 native health, zero repository defects
+## Layer 1 result: 9/9 install, 8/9 native health, one real repository finding
 
-Two non-zero health results, and **neither is a repository defect**:
+Re-verified after the initial run. One repository finding, one harness artifact:
 
 1. **`l9-ci-sdk` — sandbox limitation, health undetermined.** `make ci` → `make hooks` runs zizmor,
    which fetches `github.com/actions/checkout.git` and receives HTTP 401. The test suite was never
@@ -257,3 +257,43 @@ corpus; that is no longer true. With a real finding ingested the compiler now yi
 across producers or scopes; one sighting in one repository at one revision cannot earn a prevention
 rule. That is the publication gate working as designed, not a defect. `editor_advisory` stays skipped
 behind it.
+
+
+## Layer 1 re-verification (later in the run)
+
+Both Layer 1 non-passes were re-tested rather than left as first impressions. They resolved in
+**opposite** directions, and the original receipt was wrong about each.
+
+**`l9-ci-debt-intelligence` — not a defect, now passing.** The single failing test was tripped by a
+`cacert.pem` that this harness's own `ensurepip` put inside the repo's gitignored `.venv`. Deleting it
+was denied twice by the operator permission gate, so instead the repo was extracted at the *same*
+revision (`7b11061084e2`) with `git archive` into a clean tree containing zero `.pem` files:
+**259 passed, 0 failed**. Health corrected to `pass`.
+
+**`l9-ci-sdk` — a real finding that the sandbox had been masking.** This was recorded as "sandbox
+limitation, health undetermined" after zizmor got HTTP 401. That 401 is genuine but environmental:
+the sandbox exports a 14-character *sentinel* `GH_TOKEN`, which makes zizmor switch from offline to
+online mode, and `github.com` rejects the sentinel at `git-upload-pack` (an unauthenticated
+`git ls-remote` to the same URL succeeds). With the invalid credential removed, zizmor runs offline,
+the gate proceeds — and finds:
+
+```
+.github/workflows/l9-nightly.yml:20   secrets: inherit
+  → grants the reusable workflow Quantum-L9/l9-ci-core/.github/workflows/nightly.yml@0d3d8d3
+    ALL parent secrets
+  → rule secrets-inherit, medium severity, audit confidence High, unsuppressed
+13 findings (1 ignored, 11 suppressed): 1 medium
+```
+
+It is pre-existing on `main` (file last changed by #89), this session modified no workflow in that
+repository, and the repo ships `.github/zizmor.yml` suppressing 11 other findings — this one is not
+suppressed, so `make ci` fails on it legitimately.
+
+**Not fixed here.** Narrowing `secrets: inherit` to an explicit list is a security change to a nightly
+workflow calling a Core reusable workflow; which secrets it actually needs is a judgement about Core's
+contract, and guessing risks breaking the nightly. Recorded for its owner rather than patched
+speculatively.
+
+So Layer 1 remains `fail` — but now for one repository, on one finding, for the first time in this
+run. The lesson worth keeping: an invalid credential in the environment did not merely block a check,
+it **hid a real one**.

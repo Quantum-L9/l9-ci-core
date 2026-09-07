@@ -24,11 +24,11 @@ self = <tests.architecture.test_publication_boundary.PublicationBoundaryTests te
         ]
 >       self.assertEqual([], violations)
 E       AssertionError: Lists differ: [] != ['.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem']
-E
+E       
 E       Second list contains 1 additional elements.
 E       First extra element 0:
 E       '.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem'
-E
+E       
 E       - []
 E       + ['.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem']
 

@@ -1,6 +1,6 @@
 # L9 CI Debt Organism Deploy Summary
 
-Generated: 2026-09-07T03:46:10Z
+Generated: 2026-09-07T13:27:40Z
 Final receipt: `artifacts/organism/04-organism-receipt.json`
 
 ## Decision
@@ -48,7 +48,7 @@ Out of scope: l9-constellation-topology
 
 | Repo | Version | SHA | Install | Health command | Health |
 |---|---|---|---|---|---|
-| l9-ci-debt-intelligence | 0.2.0 | `7b11061084e2` | pass | `pytest -q` | fail |
+| l9-ci-debt-intelligence | 0.2.0 | `7b11061084e2` | pass | `pytest -q (clean git archive extraction of the same revision)` | pass |
 | l9-ci-debt-lsp | 1.0.0 | `ebec362448ef` | pass | `pytest -q` | pass |
 | l9-ci-debt-resolver | 0.7.0 | `2c7406c02351` | pass | `pytest -q` | pass |
 | l9-ci-core | 2.0.0.dev1 | `4c842cb838b6` | pass | `make check` | pass |

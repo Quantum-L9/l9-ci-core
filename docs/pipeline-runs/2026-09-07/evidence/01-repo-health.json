@@ -1,7 +1,7 @@
 {
   "layer": "repo_health",
   "status": "fail",
-  "tested_at": "2026-09-07T02:42:51Z",
+  "tested_at": "2026-09-07T13:27:40Z",
   "python": "3.11.15",
   "environment_note": "One isolated uv venv per repo (.venv-<repo>). Editable install with the repo's own dev extras; where the repo declares requirements-ci.txt, that repo-declared toolchain was installed too. No tool was globally installed to make a check pass.",
   "integration_claim": "none - repo-local health only, no cross-repo seam is implied by this layer",
@@ -13,16 +13,17 @@
       "version": "0.2.0",
       "project_name": "l9-ci-debt-intelligence",
       "install": "pass",
-      "health_command": "pytest -q",
-      "health": "fail",
-      "health_exit_code": 1,
+      "health_command": "pytest -q (clean git archive extraction of the same revision)",
+      "health": "pass",
+      "health_exit_code": 0,
       "logs": {
         "install": "artifacts/organism/logs/l9-ci-debt-intelligence-install.log",
         "health": "artifacts/organism/logs/l9-ci-debt-intelligence-health.log"
       },
       "notes": [
         "install_mode=editable_with_dev_extras",
-        "HEAD is on branch 'claude/layer-4-activation-wb6bgf', not 'main', but its SHA is identical to origin/main (7b11061084e254699d006feaeccd1c96d66445c9); the tested tree is the main tip."
+        "HEAD is on branch 'claude/layer-4-activation-wb6bgf', not 'main', but its SHA is identical to origin/main (7b11061084e254699d006feaeccd1c96d66445c9); the tested tree is the main tip.",
+        "RE-VERIFIED: the in-place run reported 1 failure, caused solely by this harness running ensurepip into the repo's gitignored .venv, which put a pip-vendored cacert.pem inside the tree and tripped a sound publication-boundary invariant. Removing it was denied twice by the operator permission gate, so the repo was instead extracted at the SAME revision (7b11061084e2) with `git archive` into a clean tree containing zero .pem files. Result: 259 passed, 0 failed. The repository is healthy; the earlier failure was entirely this harness's artifact."
       ]
     },
     "l9-ci-debt-lsp": {
@@ -98,8 +99,22 @@
       },
       "notes": [
         "install_mode=editable_with_dev_extras",
-        "HEAD is on branch 'claude/layer-4-activation-wb6bgf', not 'main', but its SHA is identical to origin/main (cb765cbd4a9c709b2985c8ba07cdc58fb43b796f); the tested tree is the main tip."
-      ]
+        "HEAD is on branch 'claude/layer-4-activation-wb6bgf', not 'main', but its SHA is identical to origin/main (cb765cbd4a9c709b2985c8ba07cdc58fb43b796f); the tested tree is the main tip.",
+        "SUPERSEDED DIAGNOSIS. This was recorded as 'sandbox limitation, health undetermined' after zizmor got HTTP 401 fetching actions/checkout. That 401 is real but environmental: the sandbox exports a 14-character sentinel GH_TOKEN which makes zizmor switch from offline to online mode, and github.com rejects the sentinel at git-upload-pack. Unauthenticated `git ls-remote` to the same URL succeeds. Re-run with GH_TOKEN/GITHUB_TOKEN unset, zizmor runs offline and the gate proceeds - and then finds a REAL issue, so the repo's health is fail, not undetermined."
+      ],
+      "finding": {
+        "tool": "zizmor 1.28.0 (repo's own pre-commit hook, via make ci -> hooks)",
+        "file": ".github/workflows/l9-nightly.yml",
+        "line": 20,
+        "rule": "secrets-inherit",
+        "severity": "medium",
+        "confidence": "High",
+        "detail": "`secrets: inherit` passes ALL parent secrets to the reusable workflow Quantum-L9/l9-ci-core/.github/workflows/nightly.yml@0d3d8d3.",
+        "totals": "13 findings (1 ignored, 11 suppressed): 1 medium",
+        "pre_existing": "Yes - present on origin/main (file last changed by #89); this session modified no workflow in this repository.",
+        "suppression": "The repo ships .github/zizmor.yml and suppresses 11 findings; this one is NOT suppressed, so its own gate fails on it.",
+        "not_fixed_here": "Narrowing `secrets: inherit` to an explicit secrets list is a security change to a nightly workflow calling a Core reusable workflow. Which secrets that workflow actually needs is a judgement about Core's contract; guessing risks breaking the nightly. Left to the owner rather than fixed speculatively."
+      }
     },
     "l9-assurance": {
       "sha": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86",
@@ -179,29 +194,25 @@
   },
   "failures": [
     {
-      "repo": "l9-ci-debt-intelligence",
-      "phase": "health",
-      "command": "pytest -q",
-      "exit_code": 1,
-      "category": "environment_failure",
-      "attributable_to": "layer_1_harness",
-      "repo_defect": false,
-      "diagnosis": "258 of 259 tests pass. The single failure, tests/architecture/test_publication_boundary.py::test_private_keys_are_not_repository_files, asserts no private-key/PEM file exists among repository files. It names '.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem' - a file created by this Layer 1 harness running `ensurepip` into the repo-local gitignored .venv to repair a pip-less venv left by the session-deps hook. The repo's invariant is sound and the repo's own code is not implicated. Removal of the harness-added pip tree was attempted and denied by the operator permission gate, so the contamination persists in this workspace.",
-      "summary": ">       self.assertEqual([], violations); E       AssertionError: Lists differ: [] != ['.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem']; E       Second list contains 1 additional elements.; E       First extra element 0:",
-      "log": "artifacts/organism/logs/l9-ci-debt-intelligence-health.log"
-    },
-    {
       "repo": "l9-ci-sdk",
       "phase": "health",
       "command": "make ci",
       "exit_code": 2,
-      "category": "environment_failure",
-      "attributable_to": "sandbox_network_or_credentials",
-      "repo_defect": false,
-      "diagnosis": "`make ci` -> `make deps` -> `make hooks` runs the zizmor pre-commit hook, which fetches https://github.com/actions/checkout.git and receives HTTP 401 Unauthorized for git-upload-pack. This is an external-network/credential limitation of the sandbox, not a defect in l9-ci-sdk. The repo's own test suite was never reached, so this repo's health is undetermined rather than failing.",
-      "summary": "health exited non-zero",
+      "category": "workflow_security_finding",
+      "attributable_to": "repository",
+      "repo_defect": true,
+      "summary": "zizmor secrets-inherit (medium, High confidence) at .github/workflows/l9-nightly.yml:20 - `secrets: inherit` grants a reusable workflow all parent secrets. Pre-existing on main, unsuppressed, and the repo's own make ci gate fails on it.",
+      "diagnosis": "Previously masked: the sandbox's sentinel GH_TOKEN pushed zizmor into online mode where github.com 401'd it, so the gate never reached this audit.",
       "log": "artifacts/organism/logs/l9-ci-sdk-health.log"
     }
   ],
-  "warnings": []
+  "warnings": [],
+  "summary": {
+    "repos": 9,
+    "install_pass": 9,
+    "health_pass": 8,
+    "health_fail": 1,
+    "repo_defects": 1,
+    "note": "8 of 9 repos pass their own native health command. The single failure, l9-ci-sdk, is a REAL repository finding surfaced by its own gate. l9-ci-debt-intelligence was re-verified clean (259/259) and is no longer counted as failing: that result was this harness's contamination."
+  }
 }

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-07T03:46:10Z",
+  "generated_at": "2026-09-07T13:27:40Z",
   "outputs": [
     {
       "path": "artifacts/organism/layer-4/receipts/artifact-manifest.json",
@@ -23,8 +23,8 @@
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-1-summary.json",
-      "size_bytes": 2290,
-      "sha256": "6c952701da3bdf71dbf51107cc604e1b5a388c93daa38dcb5081116f1533443b"
+      "size_bytes": 1005,
+      "sha256": "9cc3f0134ca09e2e606c36f4bf94d166790682a70b6800c9868cb6b3e55007e6"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-2-summary.json",
@@ -63,18 +63,18 @@
     },
     {
       "path": "artifacts/organism/layer-4/summaries/deploy-summary.md",
-      "size_bytes": 7949,
-      "sha256": "aaf4e5e9f7022ce9811c5d2116b1baf349ff984b948ee10e5439a118bcb25f90"
+      "size_bytes": 8001,
+      "sha256": "2d1f03fd631c84d48285bd1310289850623e1053d7e037ad0f1d6fb7b0e7f4b2"
     },
     {
       "path": "artifacts/organism/04-organism-receipt.json",
       "size_bytes": 7595,
-      "sha256": "f2a4f572850cea561aa7429af887a10778b435a3308d3feb3295a9db0c16f881"
+      "sha256": "d43261ba95dda7a4bfbc65ac0a4e0c9c549d39ef1638e310b00376495c70afab"
     },
     {
       "path": "artifacts/organism/01-repo-health.json",
-      "size_bytes": 9504,
-      "sha256": "52acae4e8c2126b9bd1c7c10faa18c1156dc741dd32e124c09da7fbbdf4c0391"
+      "size_bytes": 10929,
+      "sha256": "41daf62870c93c5050e1107feaf58f4c86bd95a430cfd6134d3e46781daffdb5"
     }
   ]
 }
