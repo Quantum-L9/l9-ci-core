@@ -1,0 +1,51 @@
+{
+  "layer": "seam_tests",
+  "status": "missing",
+  "receipt": "artifacts/organism/02-seam-tests.json",
+  "required_seams": {
+    "core_to_sdk": {
+      "status": "missing",
+      "receipt": null,
+      "acceptable": false
+    },
+    "sdk_to_assurance": {
+      "status": "missing",
+      "receipt": null,
+      "acceptable": false
+    },
+    "resolver_to_intelligence": {
+      "status": "missing",
+      "receipt": null,
+      "acceptable": false
+    },
+    "intelligence_to_lsp": {
+      "status": "missing",
+      "receipt": null,
+      "acceptable": false
+    },
+    "harness_to_assurance": {
+      "status": "missing",
+      "receipt": null,
+      "acceptable": false
+    },
+    "pr_repair_standalone": {
+      "status": "missing",
+      "repo": "l9-pr-repair",
+      "receipt": null,
+      "acceptable": false
+    },
+    "observability_contracts": {
+      "status": "missing",
+      "receipt": null,
+      "acceptable": false
+    }
+  },
+  "repository_identity_normalization": {},
+  "failures": [
+    {
+      "phase": "input",
+      "summary": "Layer 2 has not been executed. No active producer-consumer seam has been proven; all seven required seams are unproven."
+    }
+  ],
+  "acceptable_for_deploy": false
+}

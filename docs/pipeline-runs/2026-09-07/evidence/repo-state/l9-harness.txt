@@ -1,0 +1,9 @@
+repo=l9-harness
+remote=https://github.com/Quantum-L9/l9-harness
+branch=claude/layer-4-activation-wb6bgf
+sha=25bbb4046ed5b42af005b989660c0c3b692c0709
+origin_main_sha=25bbb4046ed5b42af005b989660c0c3b692c0709
+commit_date=2026-09-05T18:06:22+00:00
+describe=25bbb40
+dirty_status<<EOF
+EOF

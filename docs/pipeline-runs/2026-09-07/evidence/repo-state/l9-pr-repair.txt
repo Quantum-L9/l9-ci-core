@@ -1,0 +1,9 @@
+repo=l9-pr-repair
+remote=https://github.com/Quantum-L9/l9-pr-repair
+branch=claude/layer-4-activation-wb6bgf
+sha=f5773d4ded37dbb611100166947aa2f78e5fbccc
+origin_main_sha=f5773d4ded37dbb611100166947aa2f78e5fbccc
+commit_date=2026-09-05T18:05:09-04:00
+describe=f5773d4
+dirty_status<<EOF
+EOF

@@ -1,0 +1,57 @@
+{
+  "inactive_by_design": {
+    "core_to_intelligence_gate_event": {
+      "status": "unverified",
+      "tested_as_live": false,
+      "acceptable": false,
+      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way."
+    },
+    "pr_repair_to_intelligence_learning_packet": {
+      "repository": "l9-pr-repair",
+      "status": "unverified",
+      "tested_as_live": false,
+      "acceptable": false,
+      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way."
+    },
+    "lsp_to_intelligence_editor_outcome": {
+      "status": "unverified",
+      "tested_as_live": false,
+      "acceptable": false,
+      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way."
+    },
+    "sdk_to_lsp_direct_finding": {
+      "status": "unverified",
+      "tested_as_live": false,
+      "acceptable": false,
+      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way."
+    },
+    "sdk_to_harness_authority_manifest": {
+      "status": "unverified",
+      "tested_as_live": false,
+      "acceptable": false,
+      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way."
+    },
+    "resolver_to_pr_repair_delegation": {
+      "repository": "l9-pr-repair",
+      "status": "unverified",
+      "tested_as_live": false,
+      "acceptable": false,
+      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way."
+    },
+    "observability_control_plane": {
+      "status": "unverified",
+      "tested_as_live": false,
+      "acceptable": false,
+      "note": "Declaration file absent; Layer 2/3 have not run, so nothing asserts this seam either way.",
+      "contract_status": "prohibited"
+    }
+  },
+  "violations": [],
+  "notes": [
+    "tested_as_live is false for every planned seam, verifiably: Layer 2 and Layer 3 never ran, so nothing was represented as active.",
+    "This is not a pass. The organism carries no declaration of which seams are planned versus live: both layer-2/inactive-by-design.json and layer-3/non-live-corridors.json are absent.",
+    "Note for Layer 2: l9-ci-debt-resolver/.l9/pr-repair-delegation-contract.yaml exists on disk. A contract file is not proof of a live seam; resolver_to_pr_repair_delegation stays unverified until producer and consumer code are exercised.",
+    "The PR_Repair -> l9-pr-repair rename did not activate any repair seam."
+  ],
+  "status": "fail"
+}

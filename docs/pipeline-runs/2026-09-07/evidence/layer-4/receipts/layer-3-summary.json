@@ -1,0 +1,41 @@
+{
+  "layer": "corridor_tests",
+  "status": "missing",
+  "receipt": "artifacts/organism/03-corridor-tests.json",
+  "required_corridors": {
+    "ci_evidence": {
+      "status": "missing",
+      "acceptable": false
+    },
+    "learning_feedback": {
+      "status": "missing",
+      "acceptable": false
+    },
+    "editor_advisory": {
+      "status": "missing",
+      "acceptable": false
+    },
+    "assurance_harness": {
+      "status": "missing",
+      "acceptable": false
+    },
+    "standalone_repair_safety": {
+      "status": "missing",
+      "repo": "l9-pr-repair",
+      "acceptable": false
+    },
+    "observability_contracts": {
+      "status": "missing",
+      "acceptable": false
+    }
+  },
+  "repository_identity_normalization": {},
+  "failures": [
+    {
+      "phase": "input",
+      "summary": "Layer 3 has not been executed. No corridor was composed, skipped, or recorded."
+    }
+  ],
+  "skipped": [],
+  "acceptable_for_deploy": false
+}

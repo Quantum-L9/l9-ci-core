@@ -1,0 +1,44 @@
+{
+  "negative_tests": {
+    "assurance_rejects_unknown_artifact_field": "missing",
+    "assurance_rejects_untrusted_or_out_of_range_sdk_version": "missing",
+    "assurance_rejects_tampered_observation": "missing",
+    "intelligence_rejects_privacy_leak": "missing",
+    "intelligence_quarantines_unknown_or_planned_producer": "missing",
+    "intelligence_duplicate_idempotency_safe": "missing",
+    "lsp_rejects_bad_defense_pack_protocol": "missing",
+    "lsp_rejects_bad_sdk_contract_version": "missing",
+    "harness_does_not_pass_when_assurance_missing": "missing",
+    "harness_non_authoritative": "missing",
+    "pr_repair_rejects_missing_expected_block": "missing",
+    "pr_repair_rejects_stale_expected_block": "missing",
+    "pr_repair_push_disabled_by_default": "missing",
+    "observability_rejects_malformed_event": "missing",
+    "observability_has_no_control_authority": "missing"
+  },
+  "repository_binding": {
+    "pr_repair_tests": "l9-pr-repair"
+  },
+  "failures": [],
+  "missing": [
+    "assurance_rejects_unknown_artifact_field",
+    "assurance_rejects_untrusted_or_out_of_range_sdk_version",
+    "assurance_rejects_tampered_observation",
+    "intelligence_rejects_privacy_leak",
+    "intelligence_quarantines_unknown_or_planned_producer",
+    "intelligence_duplicate_idempotency_safe",
+    "lsp_rejects_bad_defense_pack_protocol",
+    "lsp_rejects_bad_sdk_contract_version",
+    "harness_does_not_pass_when_assurance_missing",
+    "harness_non_authoritative",
+    "pr_repair_rejects_missing_expected_block",
+    "pr_repair_rejects_stale_expected_block",
+    "pr_repair_push_disabled_by_default",
+    "observability_rejects_malformed_event",
+    "observability_has_no_control_authority"
+  ],
+  "notes": [
+    "All 15 required fail-closed tests are missing, not failed: Layer 2 has not run. Missing safety coverage at this breadth is not waivable."
+  ],
+  "status": "fail"
+}

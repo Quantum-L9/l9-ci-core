@@ -1,0 +1,119 @@
+Using CPython 3.11.15 interpreter at: /usr/local/bin/python3
+Creating virtual environment with seed packages at: .venv-l9-ci-core
+ + packaging==26.3
+ + pip==26.2.1
+ + setuptools==84.0.0
+ + wheel==0.48.0
+Activate with: source .venv-l9-ci-core/bin/activate
+HAS_BUILD_SYSTEM=no
+Using Python 3.11.15 environment at: /tmp/l9-organism/.venv-l9-ci-core
+Resolved 3 packages in 4ms
+   Building l9-ci-core-validation @ file:///home/user/l9-ci-core
+  × Failed to build `l9-ci-core-validation @ file:///home/user/l9-ci-core`
+  ├─▶ The build backend returned an error
+  ╰─▶ Call to `setuptools.build_meta:__legacy__.build_editable` failed (exit
+      status: 1)
+
+      [stderr]
+      /root/.cache/uv/builds-v0/.tmpcPtIiI/lib/python3.11/site-packages/setuptools/config/_apply_pyprojecttoml.py:82:
+      SetuptoolsDeprecationWarning: `project.license` as a TOML table is
+      deprecated
+      !!
+
+      
+      ********************************************************************************
+              Please use a simple string containing a SPDX expression for
+      `project.license`. You can also use `project.license-files`. (Both
+      options available on setuptools>=77.0.0).
+
+              By 2027-Feb-18, you need to update your project and remove
+      deprecated calls
+              or your builds will no longer be supported.
+
+              See
+      https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license
+      for details.
+      
+      ********************************************************************************
+
+      !!
+        corresp(dist, value, root_dir)
+      error: Multiple top-level packages discovered in a flat-layout:
+      ['skills', 'presets'].
+
+      To avoid accidental inclusion of unwanted files or directories,
+      setuptools will not proceed with this build.
+
+      If you are trying to create a single distribution with multiple packages
+      on purpose, you should not rely on automatic discovery.
+      Instead, consider the following options:
+
+      1. set up custom discovery (`find` directive with `include` or
+      `exclude`)
+      2. use a `src-layout`
+      3. explicitly set `py_modules` or `packages` with a list of names
+
+      To find more information, look for "package discovery" on setuptools
+      docs.
+
+      hint: This usually indicates a problem with the package or the build
+      environment.
+Using Python 3.11.15 environment at: /tmp/l9-organism/.venv-l9-ci-core
+Resolved 1 package in 2ms
+   Building l9-ci-core-validation @ file:///home/user/l9-ci-core
+  × Failed to build `l9-ci-core-validation @ file:///home/user/l9-ci-core`
+  ├─▶ The build backend returned an error
+  ╰─▶ Call to `setuptools.build_meta:__legacy__.build_editable` failed (exit
+      status: 1)
+
+      [stderr]
+      /root/.cache/uv/builds-v0/.tmpJRJhqE/lib/python3.11/site-packages/setuptools/config/_apply_pyprojecttoml.py:82:
+      SetuptoolsDeprecationWarning: `project.license` as a TOML table is
+      deprecated
+      !!
+
+      
+      ********************************************************************************
+              Please use a simple string containing a SPDX expression for
+      `project.license`. You can also use `project.license-files`. (Both
+      options available on setuptools>=77.0.0).
+
+              By 2027-Feb-18, you need to update your project and remove
+      deprecated calls
+              or your builds will no longer be supported.
+
+              See
+      https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license
+      for details.
+      
+      ********************************************************************************
+
+      !!
+        corresp(dist, value, root_dir)
+      error: Multiple top-level packages discovered in a flat-layout:
+      ['skills', 'presets'].
+
+      To avoid accidental inclusion of unwanted files or directories,
+      setuptools will not proceed with this build.
+
+      If you are trying to create a single distribution with multiple packages
+      on purpose, you should not rely on automatic discovery.
+      Instead, consider the following options:
+
+      1. set up custom discovery (`find` directive with `include` or
+      `exclude`)
+      2. use a `src-layout`
+      3. explicitly set `py_modules` or `packages` with a list of names
+
+      To find more information, look for "package discovery" on setuptools
+      docs.
+
+      hint: This usually indicates a problem with the package or the build
+      environment.
+INSTALL_MODE=not_applicable_no_build_system
+-- repo-declared CI toolchain: requirements-ci.txt --
+Using Python 3.11.15 environment at: /tmp/l9-organism/.venv-l9-ci-core
+Resolved 2 packages in 3ms
+Installed 2 packages in 1ms
+ + pyyaml==6.0.3
+ + types-pyyaml==6.0.12.20260724

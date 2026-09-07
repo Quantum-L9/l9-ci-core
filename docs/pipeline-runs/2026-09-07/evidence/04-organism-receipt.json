@@ -1,0 +1,168 @@
+{
+  "organism": "l9-ci-debt-assurance-repair",
+  "status": "fail",
+  "deploy_decision": "do-not-deploy",
+  "tested_at": "2026-09-07T01:26:35Z",
+  "layers_executed": [
+    "repo_health",
+    "whole_organism_aggregation"
+  ],
+  "layers_not_executed": [
+    "seam_tests",
+    "corridor_tests"
+  ],
+  "scope": {
+    "repos_in_scope": [
+      "l9-ci-debt-intelligence",
+      "l9-ci-debt-lsp",
+      "l9-ci-debt-resolver",
+      "l9-ci-core",
+      "l9-ci-sdk",
+      "l9-assurance",
+      "l9-harness",
+      "l9-pr-repair",
+      "l9-observability-core"
+    ],
+    "repos_out_of_scope": [
+      "l9-constellation-topology"
+    ],
+    "repository_renames": {
+      "PR_Repair": {
+        "canonical_name": "l9-pr-repair",
+        "canonical_remote": "https://github.com/Quantum-L9/l9-pr-repair",
+        "continuity_verified": true,
+        "note": "No legacy identity appeared in any receipt; nothing required normalization."
+      }
+    }
+  },
+  "repos": {
+    "l9-ci-debt-intelligence": {
+      "sha": "7b11061084e254699d006feaeccd1c96d66445c9",
+      "version": "0.2.0"
+    },
+    "l9-ci-debt-lsp": {
+      "sha": "ebec362448efb539115a7d3c3587c753943d8648",
+      "version": "1.0.0"
+    },
+    "l9-ci-debt-resolver": {
+      "sha": "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1",
+      "version": "0.7.0"
+    },
+    "l9-ci-core": {
+      "sha": "4c842cb838b6c49cf44681ecc683a432538fd348",
+      "version": "2.0.0.dev1"
+    },
+    "l9-ci-sdk": {
+      "sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+      "version": "2.0.0"
+    },
+    "l9-assurance": {
+      "sha": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86",
+      "version": "2.1.1"
+    },
+    "l9-harness": {
+      "sha": "25bbb4046ed5b42af005b989660c0c3b692c0709",
+      "version": "2.0.4"
+    },
+    "l9-pr-repair": {
+      "remote": "https://github.com/Quantum-L9/l9-pr-repair",
+      "legacy_names": [
+        "PR_Repair"
+      ],
+      "sha": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
+      "version": "0.4.0"
+    },
+    "l9-observability-core": {
+      "sha": "6a84c783f2fbaefbd9c62784506607e0f487c621",
+      "version": "1.0.0"
+    }
+  },
+  "layers": {
+    "repo_health": {
+      "status": "fail",
+      "receipt": "artifacts/organism/01-repo-health.json"
+    },
+    "seam_tests": {
+      "status": "not_executed",
+      "receipt": "artifacts/organism/02-seam-tests.json"
+    },
+    "corridor_tests": {
+      "status": "not_executed",
+      "receipt": "artifacts/organism/03-corridor-tests.json"
+    }
+  },
+  "active_seams": {
+    "core_to_sdk": "missing",
+    "sdk_to_assurance": "missing",
+    "resolver_to_intelligence": "missing",
+    "intelligence_to_lsp": "missing",
+    "harness_to_assurance": "missing",
+    "pr_repair_standalone": "missing",
+    "observability_contracts": "missing"
+  },
+  "live_corridors": {
+    "ci_evidence": "missing",
+    "learning_feedback": "missing",
+    "editor_advisory": "missing",
+    "assurance_harness": "missing",
+    "standalone_repair_safety": "missing",
+    "observability_contracts": "missing"
+  },
+  "inactive_by_design": {
+    "core_to_intelligence_gate_event": "unverified",
+    "pr_repair_to_intelligence_learning_packet": "unverified",
+    "lsp_to_intelligence_editor_outcome": "unverified",
+    "sdk_to_lsp_direct_finding": "unverified",
+    "sdk_to_harness_authority_manifest": "unverified",
+    "resolver_to_pr_repair_delegation": "unverified",
+    "observability_control_plane": "prohibited"
+  },
+  "negative_tests": {
+    "assurance_rejects_unknown_artifact_field": "missing",
+    "assurance_rejects_untrusted_or_out_of_range_sdk_version": "missing",
+    "assurance_rejects_tampered_observation": "missing",
+    "intelligence_rejects_privacy_leak": "missing",
+    "intelligence_quarantines_unknown_or_planned_producer": "missing",
+    "intelligence_duplicate_idempotency_safe": "missing",
+    "lsp_rejects_bad_defense_pack_protocol": "missing",
+    "lsp_rejects_bad_sdk_contract_version": "missing",
+    "harness_does_not_pass_when_assurance_missing": "missing",
+    "harness_non_authoritative": "missing",
+    "pr_repair_rejects_missing_expected_block": "missing",
+    "pr_repair_rejects_stale_expected_block": "missing",
+    "pr_repair_push_disabled_by_default": "missing",
+    "observability_rejects_malformed_event": "missing",
+    "observability_has_no_control_authority": "missing"
+  },
+  "repo_identity_reconciliation": "artifacts/organism/layer-4/receipts/repo-identity-reconciliation.json",
+  "artifact_manifest": "artifacts/organism/layer-4/receipts/artifact-manifest.json",
+  "authority_boundaries": "artifacts/organism/layer-4/receipts/authority-boundaries.json",
+  "failures": [
+    {
+      "code": "LAYER_1_NOT_PASSING",
+      "input": "artifacts/organism/01-repo-health.json",
+      "summary": "Layer 1 status is 'fail'. Repo-defect count 1 (l9-ci-core mypy stub declarations); the other two non-zero results are attributed to the Layer 1 harness and to sandbox network/credentials respectively. See the Layer 1 receipt's failures[] for the per-repo diagnosis and attribution."
+    },
+    {
+      "code": "LAYER_2_NOT_EXECUTED",
+      "input": "artifacts/organism/02-seam-tests.json",
+      "summary": "Layer 2 has not run. All seven active seams are unproven."
+    },
+    {
+      "code": "LAYER_3_NOT_EXECUTED",
+      "input": "artifacts/organism/03-corridor-tests.json",
+      "summary": "Layer 3 has not run. All six live corridors are unproven."
+    },
+    {
+      "code": "NEGATIVE_COVERAGE_ABSENT",
+      "summary": "All 15 required fail-closed negative tests are missing."
+    }
+  ],
+  "warnings": [
+    "Layer 1 and Layer 4 made no repository mutation: no source edit, no commit, no push, no PR, no registry or schema change, no l9-pr-repair mutation enablement.",
+    "All nine repositories are checked out at their origin/main tips with clean git trees. Eight sit on branch claude/layer-4-activation-wb6bgf whose SHA is identical to origin/main.",
+    "Layer 1 environment caveat: the harness ran ensurepip into four repo-local gitignored .venv directories to repair pip-less venvs left by the session-deps hook. Removal was attempted and denied by the operator permission gate, so l9-ci-debt-intelligence, l9-ci-debt-lsp, l9-ci-debt-resolver and l9-ci-core still carry a harness-added pip tree under .venv. This is why l9-ci-debt-intelligence reports one failing test."
+  ],
+  "waivers": [],
+  "final_statement": "DO NOT DEPLOY. Layer 1 has run and is informative but not passing; Layers 2 and 3 have not run at all, so every seam, every corridor and every fail-closed negative test remains unproven. The organism is unproven rather than proven-broken - only one of the three Layer 1 non-zero results is a repository defect (l9-ci-core mypy stub declarations)."
+}

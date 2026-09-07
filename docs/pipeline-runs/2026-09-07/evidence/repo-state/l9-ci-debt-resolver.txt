@@ -1,0 +1,9 @@
+repo=l9-ci-debt-resolver
+remote=https://github.com/Quantum-L9/l9-ci-debt-resolver
+branch=claude/layer-4-activation-wb6bgf
+sha=2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1
+origin_main_sha=2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1
+commit_date=2026-09-05T18:05:02-04:00
+describe=2c7406c
+dirty_status<<EOF
+EOF

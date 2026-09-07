@@ -1,0 +1,36 @@
+{
+  "expected_repos": [
+    "l9-ci-debt-intelligence",
+    "l9-ci-debt-lsp",
+    "l9-ci-debt-resolver",
+    "l9-ci-core",
+    "l9-ci-sdk",
+    "l9-assurance",
+    "l9-harness",
+    "l9-pr-repair",
+    "l9-observability-core"
+  ],
+  "canonical_remotes": {
+    "l9-pr-repair": "https://github.com/Quantum-L9/l9-pr-repair"
+  },
+  "legacy_aliases_normalized": {},
+  "observed_repos": [
+    "l9-assurance",
+    "l9-ci-core",
+    "l9-ci-debt-intelligence",
+    "l9-ci-debt-lsp",
+    "l9-ci-debt-resolver",
+    "l9-ci-sdk",
+    "l9-harness",
+    "l9-observability-core",
+    "l9-pr-repair"
+  ],
+  "missing_repos": [],
+  "unexpected_repos": [],
+  "identity_reconciliation": "artifacts/organism/layer-4/receipts/repo-identity-reconciliation.json",
+  "notes": [
+    "Scope is computed from Layer 1 evidence. Layer 2/3 contribute nothing (not run).",
+    "l9-constellation-topology was not treated as in scope."
+  ],
+  "status": "pass"
+}

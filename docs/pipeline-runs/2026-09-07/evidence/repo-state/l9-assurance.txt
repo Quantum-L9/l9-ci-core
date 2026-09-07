@@ -1,0 +1,9 @@
+repo=l9-assurance
+remote=https://github.com/Quantum-L9/l9-assurance
+branch=main
+sha=e9f012bf42af99ac621dbc8b07f837f1c91f9e86
+origin_main_sha=e9f012bf42af99ac621dbc8b07f837f1c91f9e86
+commit_date=2026-09-06T18:12:38-04:00
+describe=e9f012b
+dirty_status<<EOF
+EOF

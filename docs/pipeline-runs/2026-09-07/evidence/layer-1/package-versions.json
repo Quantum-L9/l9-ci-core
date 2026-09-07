@@ -1,0 +1,56 @@
+{
+  "l9-assurance": {
+    "has_pyproject": true,
+    "project_name": "l9-assurance",
+    "requires_python": ">=3.11,<3.14",
+    "version": "2.1.1"
+  },
+  "l9-ci-core": {
+    "has_pyproject": true,
+    "project_name": "l9-ci-core-validation",
+    "requires_python": ">=3.11",
+    "version": "2.0.0.dev1"
+  },
+  "l9-ci-debt-intelligence": {
+    "has_pyproject": true,
+    "project_name": "l9-ci-debt-intelligence",
+    "requires_python": ">=3.11",
+    "version": "0.2.0"
+  },
+  "l9-ci-debt-lsp": {
+    "has_pyproject": true,
+    "project_name": "l9-ci-debt-lsp",
+    "requires_python": ">=3.11",
+    "version": "1.0.0"
+  },
+  "l9-ci-debt-resolver": {
+    "has_pyproject": true,
+    "project_name": "l9-ci-debt-resolver",
+    "requires_python": ">=3.11",
+    "version": "0.7.0"
+  },
+  "l9-ci-sdk": {
+    "has_pyproject": true,
+    "project_name": "l9-ci",
+    "requires_python": ">=3.11",
+    "version": "2.0.0"
+  },
+  "l9-harness": {
+    "has_pyproject": true,
+    "project_name": "l9-harness",
+    "requires_python": ">=3.11,<3.14",
+    "version": "2.0.4"
+  },
+  "l9-observability-core": {
+    "has_pyproject": true,
+    "project_name": "l9-observability-core",
+    "requires_python": ">=3.11",
+    "version": "1.0.0"
+  },
+  "l9-pr-repair": {
+    "has_pyproject": true,
+    "project_name": "pr-repair",
+    "requires_python": ">=3.11",
+    "version": "0.4.0"
+  }
+}

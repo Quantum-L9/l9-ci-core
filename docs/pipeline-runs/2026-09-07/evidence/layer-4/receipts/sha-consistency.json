@@ -1,0 +1,92 @@
+{
+  "repos": {
+    "l9-ci-debt-intelligence": {
+      "layer_1_sha": "7b11061084e254699d006feaeccd1c96d66445c9",
+      "layer_2_shas": [],
+      "layer_3_shas": [],
+      "consistent": true,
+      "notes": [
+        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+      ]
+    },
+    "l9-ci-debt-lsp": {
+      "layer_1_sha": "ebec362448efb539115a7d3c3587c753943d8648",
+      "layer_2_shas": [],
+      "layer_3_shas": [],
+      "consistent": true,
+      "notes": [
+        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+      ]
+    },
+    "l9-ci-debt-resolver": {
+      "layer_1_sha": "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1",
+      "layer_2_shas": [],
+      "layer_3_shas": [],
+      "consistent": true,
+      "notes": [
+        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+      ]
+    },
+    "l9-ci-core": {
+      "layer_1_sha": "4c842cb838b6c49cf44681ecc683a432538fd348",
+      "layer_2_shas": [],
+      "layer_3_shas": [],
+      "consistent": true,
+      "notes": [
+        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+      ]
+    },
+    "l9-ci-sdk": {
+      "layer_1_sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+      "layer_2_shas": [],
+      "layer_3_shas": [],
+      "consistent": true,
+      "notes": [
+        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+      ]
+    },
+    "l9-assurance": {
+      "layer_1_sha": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86",
+      "layer_2_shas": [],
+      "layer_3_shas": [],
+      "consistent": true,
+      "notes": [
+        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+      ]
+    },
+    "l9-harness": {
+      "layer_1_sha": "25bbb4046ed5b42af005b989660c0c3b692c0709",
+      "layer_2_shas": [],
+      "layer_3_shas": [],
+      "consistent": true,
+      "notes": [
+        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+      ]
+    },
+    "l9-pr-repair": {
+      "canonical_remote": "https://github.com/Quantum-L9/l9-pr-repair",
+      "legacy_names_seen": [],
+      "layer_1_sha": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
+      "layer_2_shas": [],
+      "layer_3_shas": [],
+      "consistent": true,
+      "notes": [
+        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+      ],
+      "rename_continuity_verified": true
+    },
+    "l9-observability-core": {
+      "layer_1_sha": "6a84c783f2fbaefbd9c62784506607e0f487c621",
+      "layer_2_shas": [],
+      "layer_3_shas": [],
+      "consistent": true,
+      "notes": [
+        "Only Layer 1 records a SHA; Layer 2/3 have not run, so no cross-layer comparison was possible."
+      ]
+    }
+  },
+  "warnings": [
+    "No drift was detected and none could be: cross-layer SHA comparison requires at least two layers, and only Layer 1 has run."
+  ],
+  "status": "pass"
+}

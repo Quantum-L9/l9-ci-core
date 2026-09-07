@@ -1,0 +1,219 @@
+{
+  "layer": "repo_health",
+  "status": "fail",
+  "tested_at": "2026-09-07T01:24:43Z",
+  "python": "3.11.15",
+  "environment_note": "One isolated uv venv per repo (.venv-<repo>). Editable install with the repo's own dev extras; where the repo declares requirements-ci.txt, that repo-declared toolchain was installed too. No tool was globally installed to make a check pass.",
+  "integration_claim": "none - repo-local health only, no cross-repo seam is implied by this layer",
+  "repos": {
+    "l9-ci-debt-intelligence": {
+      "sha": "7b11061084e254699d006feaeccd1c96d66445c9",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "head_equals_origin_main": true,
+      "version": "0.2.0",
+      "project_name": "l9-ci-debt-intelligence",
+      "install": "pass",
+      "health_command": "pytest -q",
+      "health": "fail",
+      "health_exit_code": 1,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-ci-debt-intelligence-install.log",
+        "health": "artifacts/organism/logs/l9-ci-debt-intelligence-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "HEAD is on branch 'claude/layer-4-activation-wb6bgf', not 'main', but its SHA is identical to origin/main (7b11061084e254699d006feaeccd1c96d66445c9); the tested tree is the main tip."
+      ]
+    },
+    "l9-ci-debt-lsp": {
+      "sha": "ebec362448efb539115a7d3c3587c753943d8648",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "head_equals_origin_main": true,
+      "version": "1.0.0",
+      "project_name": "l9-ci-debt-lsp",
+      "install": "pass",
+      "health_command": "pytest -q",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-ci-debt-lsp-install.log",
+        "health": "artifacts/organism/logs/l9-ci-debt-lsp-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "HEAD is on branch 'claude/layer-4-activation-wb6bgf', not 'main', but its SHA is identical to origin/main (ebec362448efb539115a7d3c3587c753943d8648); the tested tree is the main tip."
+      ]
+    },
+    "l9-ci-debt-resolver": {
+      "sha": "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "head_equals_origin_main": true,
+      "version": "0.7.0",
+      "project_name": "l9-ci-debt-resolver",
+      "install": "pass",
+      "health_command": "pytest -q",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-ci-debt-resolver-install.log",
+        "health": "artifacts/organism/logs/l9-ci-debt-resolver-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "HEAD is on branch 'claude/layer-4-activation-wb6bgf', not 'main', but its SHA is identical to origin/main (2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1); the tested tree is the main tip."
+      ]
+    },
+    "l9-ci-core": {
+      "sha": "4c842cb838b6c49cf44681ecc683a432538fd348",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "head_equals_origin_main": true,
+      "version": "2.0.0.dev1",
+      "project_name": "l9-ci-core-validation",
+      "install": "pass",
+      "health_command": "make check",
+      "health": "fail",
+      "health_exit_code": 2,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-ci-core-install.log",
+        "health": "artifacts/organism/logs/l9-ci-core-health.log"
+      },
+      "notes": [
+        "install_mode=not_applicable_no_build_system",
+        "HEAD is on branch 'claude/layer-4-activation-wb6bgf', not 'main', but its SHA is identical to origin/main (4c842cb838b6c49cf44681ecc683a432538fd348); the tested tree is the main tip."
+      ]
+    },
+    "l9-ci-sdk": {
+      "sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "head_equals_origin_main": true,
+      "version": "2.0.0",
+      "project_name": "l9-ci",
+      "install": "pass",
+      "health_command": "make ci",
+      "health": "fail",
+      "health_exit_code": 2,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-ci-sdk-install.log",
+        "health": "artifacts/organism/logs/l9-ci-sdk-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "HEAD is on branch 'claude/layer-4-activation-wb6bgf', not 'main', but its SHA is identical to origin/main (cb765cbd4a9c709b2985c8ba07cdc58fb43b796f); the tested tree is the main tip."
+      ]
+    },
+    "l9-assurance": {
+      "sha": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86",
+      "branch": "main",
+      "head_equals_origin_main": true,
+      "version": "2.1.1",
+      "project_name": "l9-assurance",
+      "install": "pass",
+      "health_command": "python scripts/ci.py",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-assurance-install.log",
+        "health": "artifacts/organism/logs/l9-assurance-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras"
+      ]
+    },
+    "l9-harness": {
+      "sha": "25bbb4046ed5b42af005b989660c0c3b692c0709",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "head_equals_origin_main": true,
+      "version": "2.0.4",
+      "project_name": "l9-harness",
+      "install": "pass",
+      "health_command": "pytest -q",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-harness-install.log",
+        "health": "artifacts/organism/logs/l9-harness-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "HEAD is on branch 'claude/layer-4-activation-wb6bgf', not 'main', but its SHA is identical to origin/main (25bbb4046ed5b42af005b989660c0c3b692c0709); the tested tree is the main tip."
+      ]
+    },
+    "l9-pr-repair": {
+      "sha": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "head_equals_origin_main": true,
+      "version": "0.4.0",
+      "project_name": "pr-repair",
+      "install": "pass",
+      "health_command": "pytest -q",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-pr-repair-install.log",
+        "health": "artifacts/organism/logs/l9-pr-repair-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "HEAD is on branch 'claude/layer-4-activation-wb6bgf', not 'main', but its SHA is identical to origin/main (f5773d4ded37dbb611100166947aa2f78e5fbccc); the tested tree is the main tip."
+      ]
+    },
+    "l9-observability-core": {
+      "sha": "6a84c783f2fbaefbd9c62784506607e0f487c621",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "head_equals_origin_main": true,
+      "version": "1.0.0",
+      "project_name": "l9-observability-core",
+      "install": "pass",
+      "health_command": "make ci",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-observability-core-install.log",
+        "health": "artifacts/organism/logs/l9-observability-core-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "HEAD is on branch 'claude/layer-4-activation-wb6bgf', not 'main', but its SHA is identical to origin/main (6a84c783f2fbaefbd9c62784506607e0f487c621); the tested tree is the main tip."
+      ]
+    }
+  },
+  "failures": [
+    {
+      "repo": "l9-ci-debt-intelligence",
+      "phase": "health",
+      "command": "pytest -q",
+      "exit_code": 1,
+      "category": "environment_failure",
+      "attributable_to": "layer_1_harness",
+      "repo_defect": false,
+      "diagnosis": "258 of 259 tests pass. The single failure, tests/architecture/test_publication_boundary.py::test_private_keys_are_not_repository_files, asserts no private-key/PEM file exists among repository files. It names '.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem' - a file created by this Layer 1 harness running `ensurepip` into the repo-local gitignored .venv to repair a pip-less venv left by the session-deps hook. The repo's invariant is sound and the repo's own code is not implicated. Removal of the harness-added pip tree was attempted and denied by the operator permission gate, so the contamination persists in this workspace.",
+      "summary": ">       self.assertEqual([], violations); E       AssertionError: Lists differ: [] != ['.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem']; E       Second list contains 1 additional elements.; E       First extra element 0:",
+      "log": "artifacts/organism/logs/l9-ci-debt-intelligence-health.log"
+    },
+    {
+      "repo": "l9-ci-core",
+      "phase": "health",
+      "command": "make check",
+      "exit_code": 2,
+      "category": "missing_declared_tool",
+      "attributable_to": "repository",
+      "repo_defect": true,
+      "diagnosis": "`make check` runs ruff (pass), ruff format (pass), then mypy, which reports 4 errors, all 'Library stubs not installed': yaml in tools/check_release_writers.py, .github/actions/provision-sdk/provision.py and tools/verify_control_plane.py, and jsonschema in tools/l9_repo/__main__.py. types-PyYAML is declared in requirements-ci.txt but mypy runs under $PYTHON=python3 (tools.l9_repo), not the environment that declaration was installed into; types-jsonschema is not declared anywhere in the repo. This is a real repo-local dependency-declaration gap, not a harness artifact.",
+      "summary": "tools/check_release_writers.py:49: error: Library stubs not installed for \"yaml\"  [import-untyped]; tools/l9_repo/__main__.py:1004: error: Library stubs not installed for \"jsonschema\"  [import-untyped]; .github/actions/provision-sdk/provision.py:56: error: Library stubs not installed for \"yaml\"  [import-untyped]; tools/verify_control_plane.py:49: error: Library stubs not installed for \"yaml\"  [import-untyped]",
+      "log": "artifacts/organism/logs/l9-ci-core-health.log"
+    },
+    {
+      "repo": "l9-ci-sdk",
+      "phase": "health",
+      "command": "make ci",
+      "exit_code": 2,
+      "category": "environment_failure",
+      "attributable_to": "sandbox_network_or_credentials",
+      "repo_defect": false,
+      "diagnosis": "`make ci` -> `make deps` -> `make hooks` runs the zizmor pre-commit hook, which fetches https://github.com/actions/checkout.git and receives HTTP 401 Unauthorized for git-upload-pack. This is an external-network/credential limitation of the sandbox, not a defect in l9-ci-sdk. The repo's own test suite was never reached, so this repo's health is undetermined rather than failing.",
+      "summary": "health exited non-zero",
+      "log": "artifacts/organism/logs/l9-ci-sdk-health.log"
+    }
+  ],
+  "warnings": []
+}

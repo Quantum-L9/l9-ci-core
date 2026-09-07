@@ -1,0 +1,9 @@
+{
+  "artifacts": [],
+  "missing_artifacts": [],
+  "invalid_json_artifacts": [],
+  "notes": [
+    "No artifact path was enumerated because no Layer 2 or Layer 3 receipt exists to reference one. An empty manifest means 'nothing to hash', not 'everything verified'."
+  ],
+  "status": "fail"
+}

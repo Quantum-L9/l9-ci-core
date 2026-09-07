@@ -1,0 +1,9 @@
+repo=l9-ci-debt-intelligence
+remote=https://github.com/Quantum-L9/l9-ci-debt-intelligence
+branch=claude/layer-4-activation-wb6bgf
+sha=7b11061084e254699d006feaeccd1c96d66445c9
+origin_main_sha=7b11061084e254699d006feaeccd1c96d66445c9
+commit_date=2026-09-06T18:04:10-04:00
+describe=7b11061
+dirty_status<<EOF
+EOF

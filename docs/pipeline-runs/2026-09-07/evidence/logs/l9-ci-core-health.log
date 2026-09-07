@@ -1,0 +1,16 @@
+HEALTH_COMMAND=make check
++ ruff check .
+All checks passed!
++ ruff format --check .
+76 files already formatted
++ mypy
+tools/check_release_writers.py:49: error: Library stubs not installed for "yaml"  [import-untyped]
+tools/l9_repo/__main__.py:1004: error: Library stubs not installed for "jsonschema"  [import-untyped]
+tools/l9_repo/__main__.py:1004: note: Hint: "python3 -m pip install types-jsonschema"
+.github/actions/provision-sdk/provision.py:56: error: Library stubs not installed for "yaml"  [import-untyped]
+.github/actions/provision-sdk/provision.py:56: note: Hint: "python3 -m pip install types-PyYAML"
+.github/actions/provision-sdk/provision.py:56: note: (or run "mypy --install-types" to install all missing stub packages)
+.github/actions/provision-sdk/provision.py:56: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+tools/verify_control_plane.py:49: error: Library stubs not installed for "yaml"  [import-untyped]
+Found 4 errors in 4 files (checked 23 source files)
+make: *** [Makefile:9: check] Error 1

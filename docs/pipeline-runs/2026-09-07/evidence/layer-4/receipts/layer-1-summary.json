@@ -1,0 +1,49 @@
+{
+  "layer": "repo_health",
+  "status": "fail",
+  "receipt": "artifacts/organism/01-repo-health.json",
+  "repos_checked": 9,
+  "repos_install_pass": 9,
+  "repos_health_pass": 6,
+  "repository_identity_normalized": {},
+  "failures": [
+    {
+      "repo": "l9-ci-debt-intelligence",
+      "phase": "health",
+      "command": "pytest -q",
+      "exit_code": 1,
+      "category": "environment_failure",
+      "attributable_to": "layer_1_harness",
+      "repo_defect": false,
+      "diagnosis": "258 of 259 tests pass. The single failure, tests/architecture/test_publication_boundary.py::test_private_keys_are_not_repository_files, asserts no private-key/PEM file exists among repository files. It names '.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem' - a file created by this Layer 1 harness running `ensurepip` into the repo-local gitignored .venv to repair a pip-less venv left by the session-deps hook. The repo's invariant is sound and the repo's own code is not implicated. Removal of the harness-added pip tree was attempted and denied by the operator permission gate, so the contamination persists in this workspace.",
+      "summary": ">       self.assertEqual([], violations); E       AssertionError: Lists differ: [] != ['.venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem']; E       Second list contains 1 additional elements.; E       First extra element 0:",
+      "log": "artifacts/organism/logs/l9-ci-debt-intelligence-health.log"
+    },
+    {
+      "repo": "l9-ci-core",
+      "phase": "health",
+      "command": "make check",
+      "exit_code": 2,
+      "category": "missing_declared_tool",
+      "attributable_to": "repository",
+      "repo_defect": true,
+      "diagnosis": "`make check` runs ruff (pass), ruff format (pass), then mypy, which reports 4 errors, all 'Library stubs not installed': yaml in tools/check_release_writers.py, .github/actions/provision-sdk/provision.py and tools/verify_control_plane.py, and jsonschema in tools/l9_repo/__main__.py. types-PyYAML is declared in requirements-ci.txt but mypy runs under $PYTHON=python3 (tools.l9_repo), not the environment that declaration was installed into; types-jsonschema is not declared anywhere in the repo. This is a real repo-local dependency-declaration gap, not a harness artifact.",
+      "summary": "tools/check_release_writers.py:49: error: Library stubs not installed for \"yaml\"  [import-untyped]; tools/l9_repo/__main__.py:1004: error: Library stubs not installed for \"jsonschema\"  [import-untyped]; .github/actions/provision-sdk/provision.py:56: error: Library stubs not installed for \"yaml\"  [import-untyped]; tools/verify_control_plane.py:49: error: Library stubs not installed for \"yaml\"  [import-untyped]",
+      "log": "artifacts/organism/logs/l9-ci-core-health.log"
+    },
+    {
+      "repo": "l9-ci-sdk",
+      "phase": "health",
+      "command": "make ci",
+      "exit_code": 2,
+      "category": "environment_failure",
+      "attributable_to": "sandbox_network_or_credentials",
+      "repo_defect": false,
+      "diagnosis": "`make ci` -> `make deps` -> `make hooks` runs the zizmor pre-commit hook, which fetches https://github.com/actions/checkout.git and receives HTTP 401 Unauthorized for git-upload-pack. This is an external-network/credential limitation of the sandbox, not a defect in l9-ci-sdk. The repo's own test suite was never reached, so this repo's health is undetermined rather than failing.",
+      "summary": "health exited non-zero",
+      "log": "artifacts/organism/logs/l9-ci-sdk-health.log"
+    }
+  ],
+  "warnings": [],
+  "acceptable_for_deploy": false
+}
