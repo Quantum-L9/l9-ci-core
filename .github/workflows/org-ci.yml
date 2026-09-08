@@ -340,9 +340,8 @@ jobs:
 
       - id: repository_verify
         name: Run repository verification contract
-        continue-on-error: true
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@fc97917cb26b20e85c1f96d28d1f5451a8c36f41
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@63428872c2fc010f79d319f499b9ce844b181063
         with:
           workspace: .
 
@@ -510,13 +509,16 @@ jobs:
       - name: Enforce repository verification
         if: always() && (steps.runtime.outputs.profile == 'pr_fast' || steps.runtime.outputs.profile == 'merge')
         env:
-          REPOSITORY_VERIFY_OUTCOME: ${{ steps.repository_verify.outcome }}
+          REPOSITORY_VERIFY_STATUS: ${{ steps.repository_verify.outputs.status }}
         run: |
           set -euo pipefail
-          if [ "${REPOSITORY_VERIFY_OUTCOME}" != "success" ]; then
-            echo "Blocking profile: repository verification did not pass (${REPOSITORY_VERIFY_OUTCOME})" >&2
-            exit 1
-          fi
+          case "${REPOSITORY_VERIFY_STATUS}" in
+            pass|not_applicable) ;;
+            *)
+              echo "Blocking profile: repository verification did not pass (${REPOSITORY_VERIFY_STATUS:-unavailable})" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Enforce central mode on SDK technical gate
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
