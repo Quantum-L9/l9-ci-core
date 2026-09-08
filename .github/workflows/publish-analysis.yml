@@ -115,7 +115,7 @@ jobs:
       # fully-qualified pinned form instead; keep the pin on a released commit.
       - id: sdk
         name: Provision immutable SDK
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@01f5b16b3520ce75c168c5720864dfeddd5423a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@4c842cb838b6c49cf44681ecc683a432538fd348
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
