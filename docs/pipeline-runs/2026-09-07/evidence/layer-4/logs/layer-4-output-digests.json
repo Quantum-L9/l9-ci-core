@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-08T02:35:00Z",
+  "generated_at": "2026-09-08T02:06:18Z",
   "outputs": [
     {
       "path": "artifacts/organism/01-repo-health.json",
@@ -13,8 +13,8 @@
     },
     {
       "path": "artifacts/organism/03-corridor-tests.json",
-      "size_bytes": 3046,
-      "sha256": "f1668852b05365f7e207ba2bd1e0c20ad6c442c3522ad7a3851db6dfa6b1a387"
+      "size_bytes": 2715,
+      "sha256": "fc22459441d91fb56bee7fde11ed30cce5ca1c1737c5b5e932a85601688d483a"
     },
     {
       "path": "artifacts/organism/04-organism-receipt.json",
@@ -33,8 +33,8 @@
     },
     {
       "path": "artifacts/organism/layer-2/receipts/intelligence_to_lsp.json",
-      "size_bytes": 4117,
-      "sha256": "7ba3f068603d3c6d28dd77b551cc176ac9bad4b1eaed2d38829b37d703e20ec4"
+      "size_bytes": 4745,
+      "sha256": "89718fbd71fd6e3ec283e46c5c22e7c1c80ff09a9710c85b9be111b00f4976c7"
     },
     {
       "path": "artifacts/organism/layer-2/receipts/pr_repair_standalone.json",
@@ -88,8 +88,8 @@
     },
     {
       "path": "artifacts/organism/layer-3/receipts/editor_advisory.json",
-      "size_bytes": 634,
-      "sha256": "ff8be8670f0a83ae67f7ee94b6f56b0f041498b6919a3736cc0f5677d0fe8545"
+      "size_bytes": 1206,
+      "sha256": "15dc52861c4536924df5f8ea60266314a43a330d255b675dc97ee9b44e919704"
     },
     {
       "path": "artifacts/organism/layer-3/receipts/standalone_repair_safety.json",
@@ -128,8 +128,8 @@
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-3-summary.json",
-      "size_bytes": 1568,
-      "sha256": "12063823f68c2c26c98567275c5beeee285a2c322798eb3dee91776856586b49"
+      "size_bytes": 1456,
+      "sha256": "bbcd8b84e0497d5b23dc536135d35348c401040c1163ab623e42406fcb3082da"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/local-repo-observation.json",
@@ -166,5 +166,6 @@
       "size_bytes": 14130,
       "sha256": "fa8887ed4dd35de5c6ba09927b152fa629f9e71fe8b55f6bf8efff811df0471f"
     }
-  ]
+  ],
+  "regenerated": "Digests recomputed over the published bytes after the 2026-09-08 Layer 3 rerun edited four manifest-tracked files (03-corridor-tests.json, layer-2/receipts/intelligence_to_lsp.json, layer-3/receipts/editor_advisory.json, layer-4/receipts/layer-3-summary.json) without re-running the manifest step. The covered path set is unchanged; only size_bytes and sha256 were refreshed. No receipt content was altered to make a digest match."
 }

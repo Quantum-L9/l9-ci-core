@@ -660,3 +660,33 @@ Compile `compile_5feb52ee…`: **60** candidates, **0** promotion-eligible, max 
 Layer 3 stays **partial** (5 pass / 1 skipped / 0 fail). Layer 4 was **not** entered.
 
 Verdict unchanged: **`fail` / `do-not-deploy`**.
+
+## Digest manifest regressed on the 2026-09-08 Layer 3 rerun
+
+The rerun (`f9b8f21`) edited four manifest-tracked files and did not re-run the manifest step, so
+the published `layer-4/logs/layer-4-output-digests.json` described bytes that no longer existed:
+
+| File | Recorded | Actual |
+|---|---|---|
+| `03-corridor-tests.json` | 3046 B | 2715 B |
+| `layer-2/receipts/intelligence_to_lsp.json` | 4117 B | 4745 B |
+| `layer-3/receipts/editor_advisory.json` | 634 B | 1206 B |
+| `layer-4/receipts/layer-3-summary.json` | 1568 B | 1456 B |
+
+29 of 33 verified; 4 mismatched. All four are valid JSON with legitimate rerun content — the
+manifest was simply stale (`generated_at: 2026-09-08T02:35:00Z`, from the prior push).
+
+This is the same failure this run already diagnosed once: **compute the manifest last, over the
+bytes that ship.** It regressed because a rerun can edit receipts without re-entering the
+aggregation step that writes the manifest.
+
+Fixed by recomputing `size_bytes` and `sha256` for exactly the paths already listed. The covered
+path set is deliberately **not** re-derived — the manifest's scope is whatever the aggregation
+declared, and re-deriving it here would silently widen or narrow what is attested. No receipt
+content was altered to make a digest match.
+
+Re-verified against the published copies: **33/33**, 0 mismatched, 0 missing.
+
+**Standing hazard.** Any future edit to a manifest-tracked receipt must recompute the manifest, or
+the bundle ships self-inconsistent again. The durable fix is for the manifest step to be the last
+thing any rerun does, not only the last thing a full aggregation does.
