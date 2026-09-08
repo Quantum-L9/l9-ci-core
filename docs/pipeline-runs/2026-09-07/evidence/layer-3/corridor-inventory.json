@@ -1,6 +1,8 @@
 {
   "layer": "corridor_tests",
+  "declared_at": "2026-09-08T02:50:00Z",
   "input_layer": "artifacts/organism/02-seam-tests.json",
+  "rerun": "2026-09-08T02:50:00Z",
   "corridors": [
     {
       "id": "ci_evidence",
@@ -29,13 +31,9 @@
         "resolver_to_intelligence"
       ],
       "required_seam_status": {
-        "resolver_to_intelligence": "fail"
+        "resolver_to_intelligence": "pass"
       },
-      "status": "skipped",
-      "skip_reason": "skipped_due_to_failed_seam",
-      "blocking_seams": [
-        "resolver_to_intelligence"
-      ]
+      "status": "ready"
     },
     {
       "id": "editor_advisory",
@@ -49,11 +47,12 @@
       "required_seam_status": {
         "intelligence_to_lsp": "partial"
       },
-      "status": "skipped",
+      "status": "blocked",
       "skip_reason": "skipped_due_to_failed_seam",
       "blocking_seams": [
         "intelligence_to_lsp"
-      ]
+      ],
+      "note": "Declared blocked. Pack assembly will still be re-attempted; the corridor is not forced."
     },
     {
       "id": "assurance_harness",
@@ -78,13 +77,9 @@
         "pr_repair_standalone"
       ],
       "required_seam_status": {
-        "pr_repair_standalone": "partial"
+        "pr_repair_standalone": "pass"
       },
-      "status": "skipped",
-      "skip_reason": "skipped_due_to_failed_seam",
-      "blocking_seams": [
-        "pr_repair_standalone"
-      ]
+      "status": "ready"
     },
     {
       "id": "observability_contracts",
@@ -100,9 +95,14 @@
       "status": "ready"
     }
   ],
-  "skipped_corridors": [
+  "ready_corridors": [
+    "ci_evidence",
     "learning_feedback",
-    "editor_advisory",
-    "standalone_repair_safety"
+    "assurance_harness",
+    "standalone_repair_safety",
+    "observability_contracts"
+  ],
+  "blocked_corridors": [
+    "editor_advisory"
   ]
 }

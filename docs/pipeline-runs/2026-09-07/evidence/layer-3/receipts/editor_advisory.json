@@ -1,6 +1,7 @@
 {
   "corridor": "editor_advisory",
   "status": "skipped",
+  "tested_at": "2026-09-08T03:05:00Z",
   "path": [
     "l9-ci-debt-intelligence",
     "l9-ci-debt-lsp"
@@ -8,12 +9,22 @@
   "required_seams": {
     "intelligence_to_lsp": "partial"
   },
-  "reason": "Required Layer 2 seam intelligence_to_lsp is still partial. Candidates score 0.35/deferred (threshold 4.0; static-finding ceiling 2.5). Historical miner on Core #148 quarantined 59 observations as sensitive_content; 0 native events admitted; no pack. Skipped, not forced.",
+  "reason": "Required Layer 2 seam intelligence_to_lsp is still partial. assemble-defense-pack on compile_958379ff… and on the remine compilation compile_5feb52ee… both raise PublicationGateError: no promotion-eligible candidates. Best remine score is 0.95/deferred (threshold 4.0). Historical miner now admits events (210 records, 70 episodes) after the acquisition SHA-screen fix; that is not a pack. Skipped, not forced. No hand-authored pack.",
   "required_failed_or_missing_seams": [
     "intelligence_to_lsp"
   ],
   "tested_as_live": false,
   "forced": false,
+  "assemble_attempts": [
+    {
+      "compilation": "compile_958379ff180318c64555d8e5f0c244fced92c1bd95e7d69cd8f9b4f5f88a1ee8",
+      "result": "PublicationGateError"
+    },
+    {
+      "compilation": "compile_5feb52ee6b8d66b7245964fc0edc2c17fd37f46c740012352783a47cf62dfdb3",
+      "result": "not assembled — promotion_eligible_count=0, max_score=0.95"
+    }
+  ],
   "artifacts": [],
   "failure": null
 }

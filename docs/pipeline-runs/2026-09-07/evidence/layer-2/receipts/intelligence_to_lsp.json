@@ -73,5 +73,23 @@
     "normalized_observations": 0,
     "native_events_admitted": 0,
     "pack_assembled": false
+  },
+  "historical_probe_rerun": {
+    "tested_at": "2026-09-08T03:05:00Z",
+    "receipt": "artifacts/organism/layer-2/payloads/intelligence_to_lsp/historical-probe-2026-09-08-rerun.json",
+    "producer_sha_used": "37138368fd7d3eae6fbd0c350a8425561bc66a40",
+    "core_148_after_sha_screen_fix": {
+      "source_observations": 59,
+      "quarantined_observations": 2,
+      "normalized_observations": 60,
+      "episodes": 1,
+      "native_events": 3
+    },
+    "batch_ok_count": 44,
+    "corpus_record_count": 210,
+    "candidate_count": 60,
+    "promotion_eligible_count": 0,
+    "max_score": 0.95,
+    "pack_assembled": false
   }
 }

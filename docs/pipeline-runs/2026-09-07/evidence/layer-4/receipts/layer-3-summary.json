@@ -1,6 +1,7 @@
 {
   "layer": "corridor_tests",
   "status": "partial",
+  "tested_at": "2026-09-08T03:05:00Z",
   "receipt": "artifacts/organism/03-corridor-tests.json",
   "required_corridors": {
     "ci_evidence": {
@@ -37,19 +38,20 @@
     "pass": 5,
     "skipped": 1,
     "fail": 0,
-    "note": "Layer 2/3 rerun 2026-09-08: standalone_repair_safety moved skipped -> PASS, composed on the live ingest payload. editor_advisory remains skipped behind intelligence_to_lsp. No live corridor failed."
+    "note": "Layer 3 rerun 2026-09-08T03:05:00Z. editor_advisory still skipped. Historical miner admits events; no promotion-eligible pack. Layer 4 not entered."
   },
   "failures": [
     {
       "corridor": "editor_advisory",
       "phase": "precondition",
       "artifact": null,
-      "summary": "Required Layer 2 seam intelligence_to_lsp is partial: compiler yields candidate_count=2, promotion_eligible_count=0 on a finding-bearing corpus (record_count=2; one producer, one scope). No Intelligence-produced defense pack exists to feed the LSP. Not forced.",
+      "summary": "intelligence_to_lsp still partial: 60 candidates, 0 promotion-eligible, max_score=0.95 after remine of 45 PRs (210 corpus records).",
       "log": null
     }
   ],
   "skipped": [
     "editor_advisory"
   ],
-  "acceptable_for_deploy": false
+  "acceptable_for_deploy": false,
+  "layer_4_entered": false
 }

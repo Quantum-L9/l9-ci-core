@@ -644,3 +644,19 @@ Shipped SDK 2.0.0 @ `5405fa5` then produced the five missing pull-request observ
 Admit accepted 6 / rejected 0. Evaluate wrote `AssuranceDecision` `dec_d0e45c245bb22fb4417831f5540a852af93e3f09`, verdict **fail**. Completeness is complete. L3-F1 is closed. Remaining organism failures: Layer 2 partial, Layer 3 partial, profile fail. `do-not-deploy` unchanged.
 
 Evidence: `docs/pipeline-runs/2026-09-07/evidence/layer-3/payloads/ci_evidence/profile-evidence/`.
+
+## Layer 3 rerun (2026-09-08T03:05:00Z)
+
+Declared inventory from live Layer 2 seams (`layer-3/corridor-inventory.json`): five corridors ready, `editor_advisory` blocked.
+
+`assemble-defense-pack` on the published compilation still raised `PublicationGateError`.
+
+The acquisition SHA screen was the miner wall: GitHub identity is a 40-character object id, and `inspect_value` treated that as `sensitive_content`, so Core #148 quarantined 59/59 and reconstruction saw no pull request. Fix is Intelligence `3713836` (`feat/historical-acquisition-allows-provider-shas`). Corpus ingress still rejects bare SHAs.
+
+Remine of #148 after the fix: 59 harvested, 2 quarantined, 60 normalized, 1 episode, 3 native events accepted. Batch of 44 more merged PRs across the nine live constellation repos: 69 episodes, 207 events. Corpus snapshot `cs_a153b951…` has **210** records.
+
+Compile `compile_5feb52ee…`: **60** candidates, **0** promotion-eligible, max score **0.95** (`deferred`). Recurrence reached 5/1-scope; `effort`, `repair_success`, and `false_positive_safety` stayed 0.0 because reconstructed outcomes were not `clean_verified` / `target_failure_resolved` and `effort_minutes` is never derived. Threshold 4.0 was not lowered. No pack. No hand-authored pack.
+
+Layer 3 stays **partial** (5 pass / 1 skipped / 0 fail). Layer 4 was **not** entered.
+
+Verdict unchanged: **`fail` / `do-not-deploy`**.

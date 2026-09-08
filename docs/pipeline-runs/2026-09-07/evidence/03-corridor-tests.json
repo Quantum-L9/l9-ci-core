@@ -1,13 +1,14 @@
 {
   "layer": "corridor_tests",
   "status": "partial",
-  "tested_at": "2026-09-08T00:16:39Z",
+  "tested_at": "2026-09-08T03:05:00Z",
   "input_layer": "artifacts/organism/02-seam-tests.json",
+  "inventory": "artifacts/organism/layer-3/corridor-inventory.json",
   "summary": {
     "pass": 5,
     "skipped": 1,
     "fail": 0,
-    "note": "Layer 2/3 rerun 2026-09-08: standalone_repair_safety moved skipped -> PASS, composed on the live ingest payload. editor_advisory remains skipped behind intelligence_to_lsp. No live corridor failed."
+    "note": "Layer 3 rerun 2026-09-08T03:05:00Z. Five ready corridors restated pass from live receipts (not re-forced). editor_advisory re-attempted: assemble-defense-pack still PublicationGateError. Historical miner now admits 210 events after the acquisition SHA-screen fix; max candidate score 0.95 < 4.0. No live corridor failed. No hand-authored pack."
   },
   "corridors": {
     "ci_evidence": {
@@ -42,22 +43,20 @@
   "non_live_corridors": "artifacts/organism/layer-3/non-live-corridors.json",
   "corridor_inventory": "artifacts/organism/layer-3/corridor-inventory.json",
   "provenance": {
-    "fresh_run": "ci_evidence was produced by a NEW chain, not by reusing Layer 2 artifacts, so same-run identity is genuinely demonstrated rather than assumed.",
-    "shared_artifact": "assurance_harness consumed the same fresh observation, so the two passing corridors compose on one artifact.",
-    "zero_findings_caveat": "ci_evidence continuity still uses a 0-finding SDK scan of l9-pr-repair/src for admission proof. That is unrelated to the Intelligence corpus, which is finding-bearing (record_count=2). standalone_repair_safety used a live Copilot review payload with 0 actuation findings.",
+    "fresh_run": "ci_evidence continuity and profile evaluate remain the live artifacts from earlier this day. This rerun did not substitute fixtures.",
+    "editor_advisory_reattempted": true,
     "no_fixture_used_as_corridor_proof": true,
-    "remote_mutation": "none"
+    "remote_mutation": "none against organism remotes. Intelligence SHA-screen fix is local commit 3713836 on feat/historical-acquisition-allows-provider-shas."
   },
-  "corrections": [
-    "A first identity check compared the observation's artifact digest to sha256 of the bundle FILE and reported a mismatch. The SDK digests the bundle's CANONICAL form (bundle.canonical_digest()), so the check was wrong, not the SDK. Verified with the SDK's own function it matches exactly. ci_evidence was not failed on a defect in the checker."
-  ],
   "failures": [
     {
       "corridor": "editor_advisory",
       "phase": "precondition",
       "artifact": null,
-      "summary": "Required Layer 2 seam intelligence_to_lsp is partial: compiler yields candidate_count=2, promotion_eligible_count=0 on a finding-bearing corpus (record_count=2; one producer, one scope). No Intelligence-produced defense pack exists to feed the LSP. Not forced.",
+      "summary": "Required Layer 2 seam intelligence_to_lsp is partial. Historical miner now admits events (210 records / 70 episodes). Compiler yields candidate_count=60, promotion_eligible_count=0, max_score=0.95. No Intelligence-produced defense pack. Not forced.",
       "log": null
     }
-  ]
+  ],
+  "layer_4_entered": false,
+  "layer_4_reason": "Layer 3 success is 6/6 pass. A skipped corridor is not a pass."
 }
