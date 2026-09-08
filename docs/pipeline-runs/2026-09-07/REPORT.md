@@ -690,3 +690,13 @@ Re-verified against the published copies: **33/33**, 0 mismatched, 0 missing.
 **Standing hazard.** Any future edit to a manifest-tracked receipt must recompute the manifest, or
 the bundle ships self-inconsistent again. The durable fix is for the manifest step to be the last
 thing any rerun does, not only the last thing a full aggregation does.
+
+## Layer 3 resolution (2026-09-08T03:10:00Z)
+
+Intelligence SHA-screen + equivalence fix: https://github.com/Quantum-L9/l9-ci-debt-intelligence/pull/73 (`3f16047`). Acquisition no longer quarantines GitHub object ids. Equivalence now treats ordered step names plus executed-then-skipped gates as the contract; fail→pass conclusions and GitHub cascade-skips are not contract changes. Census of the first 70 episodes named that false `validation_contract_changed` (14 cascade-skips, 2 conclusion flips).
+
+Reprocess + second remine: **432** corpus records, **128** episodes, **33** `clean_verified`. Fingerprint `Analyze (central Core)` / `Detect repository language (SDK)` spans **6** repos and **20** occurrences with **10** verified repairs (T-select met).
+
+Compile `compile_7088b5b2…`: **102** candidates, **0** promotion-eligible, max score **3.75** (`compiled_candidate`). Components: recurrence 5.0, scope 5.0, effort 0.0 (designed), repair_success 1.67, false_positive_safety 5.0. Global historical `success_ratio` is 0.333. Threshold **4.0** was not lowered. Pack not assembled. LSP not consumed.
+
+Layer 3 stays **partial** (5 pass / 1 skipped / 0 fail). Layer 4 was **not** entered. `do-not-deploy` unchanged.

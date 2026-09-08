@@ -52,7 +52,7 @@
       "blocking_seams": [
         "intelligence_to_lsp"
       ],
-      "note": "Declared blocked. Pack assembly will still be re-attempted; the corridor is not forced."
+      "note": "Declared blocked. T-compile stopped at max_score=3.75 < 4.0; pack was not assembled; the corridor is not forced."
     },
     {
       "id": "assurance_harness",

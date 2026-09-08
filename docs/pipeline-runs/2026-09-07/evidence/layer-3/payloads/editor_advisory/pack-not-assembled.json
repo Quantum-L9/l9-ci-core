@@ -1,0 +1,6 @@
+{
+  "todo": "T-pack",
+  "assembled": false,
+  "reason": "T-compile gate failed: promotion_eligible_count=0, max_score=3.75 < 4.0. Plan forbids assemble-defense-pack and forbids a hand-authored pack.",
+  "recorded_at": "2026-09-08T03:10:00Z"
+}

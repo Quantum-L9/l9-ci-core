@@ -1,7 +1,7 @@
 {
   "corridor": "editor_advisory",
   "status": "skipped",
-  "tested_at": "2026-09-08T03:05:00Z",
+  "tested_at": "2026-09-08T03:10:00Z",
   "path": [
     "l9-ci-debt-intelligence",
     "l9-ci-debt-lsp"
@@ -9,7 +9,7 @@
   "required_seams": {
     "intelligence_to_lsp": "partial"
   },
-  "reason": "Required Layer 2 seam intelligence_to_lsp is still partial. assemble-defense-pack on compile_958379ff… and on the remine compilation compile_5feb52ee… both raise PublicationGateError: no promotion-eligible candidates. Best remine score is 0.95/deferred (threshold 4.0). Historical miner now admits events (210 records, 70 episodes) after the acquisition SHA-screen fix; that is not a pack. Skipped, not forced. No hand-authored pack.",
+  "reason": "Required Layer 2 seam intelligence_to_lsp is still partial. T-compile on compile_7088b5b2… is promotion_eligible_count=0, max_score=3.75 < 4.0. Plan gate stopped assemble-defense-pack. No Intelligence-produced pack. LSP four-command consume not run. Skipped, not forced. No hand-authored pack.",
   "required_failed_or_missing_seams": [
     "intelligence_to_lsp"
   ],
@@ -23,8 +23,19 @@
     {
       "compilation": "compile_5feb52ee6b8d66b7245964fc0edc2c17fd37f46c740012352783a47cf62dfdb3",
       "result": "not assembled — promotion_eligible_count=0, max_score=0.95"
+    },
+    {
+      "compilation": "compile_7088b5b2b2ac94dcc5e70bf3b22245d8c412b6e2ea61b53a84eb1ce0a3fcf735",
+      "result": "not assembled — promotion_eligible_count=0, max_score=3.75 (T-compile stop)"
     }
   ],
-  "artifacts": [],
-  "failure": null
+  "artifacts": [
+    "artifacts/organism/layer-3/payloads/editor_advisory/episode-census.json",
+    "artifacts/organism/layer-3/payloads/editor_advisory/compile-ceiling.json",
+    "artifacts/organism/layer-3/payloads/editor_advisory/pack-not-assembled.json",
+    "artifacts/organism/layer-3/payloads/editor_advisory/lsp-not-consumed.json",
+    "artifacts/organism/layer-2/payloads/intelligence_to_lsp/compile-result-layer3-resolution.json"
+  ],
+  "failure": null,
+  "intelligence_pr": "https://github.com/Quantum-L9/l9-ci-debt-intelligence/pull/73"
 }

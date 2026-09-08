@@ -1,0 +1,29 @@
+{
+  "recorded_at": "2026-09-08T03:10:00Z",
+  "gate": "T-compile",
+  "promotion_eligible_count": 0,
+  "max_score": 3.75,
+  "promotion_threshold": 4.0,
+  "assembled": false,
+  "reason": "max_score < 4.0. Plan gate: stop. Do not assemble. Do not hand-author a pack. Do not lower 4.0.",
+  "score_gap": {
+    "needed": 4.0,
+    "observed": 3.75,
+    "missing": 0.25,
+    "only_open_component": "repair_success",
+    "effort_minutes": "never reconstructed (designed)",
+    "global_success_ratio": 0.333333333333,
+    "false_positive_ratio": 0.0
+  },
+  "fingerprint_select": {
+    "semantic_failure_identity": "historical:2422a9b47072a3c7f9cc4db75ad370a63d28b87e1be59a1b63ba259f56b48814",
+    "job_name": "Analyze (central Core)",
+    "failed_steps": ["Detect repository language (SDK)"],
+    "occurrences": 20,
+    "repo_count": 6,
+    "clean_verified": 10,
+    "meets_t_select": true
+  },
+  "intelligence_pr": "https://github.com/Quantum-L9/l9-ci-debt-intelligence/pull/73",
+  "intelligence_head": "3f16047eebeaeef91354156aaaad1c7b59c9f612"
+}

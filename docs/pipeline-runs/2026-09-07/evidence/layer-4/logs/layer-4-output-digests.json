@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-08T02:06:18Z",
+  "generated_at": "2026-09-08T03:10:00Z",
   "outputs": [
     {
       "path": "artifacts/organism/01-repo-health.json",
@@ -13,8 +13,8 @@
     },
     {
       "path": "artifacts/organism/03-corridor-tests.json",
-      "size_bytes": 2715,
-      "sha256": "fc22459441d91fb56bee7fde11ed30cce5ca1c1737c5b5e932a85601688d483a"
+      "size_bytes": 3067,
+      "sha256": "8289dbf8c4e891d25d80fe410036cfb804c80a33341f55e7910510e3caacf26b"
     },
     {
       "path": "artifacts/organism/04-organism-receipt.json",
@@ -88,8 +88,8 @@
     },
     {
       "path": "artifacts/organism/layer-3/receipts/editor_advisory.json",
-      "size_bytes": 1206,
-      "sha256": "15dc52861c4536924df5f8ea60266314a43a330d255b675dc97ee9b44e919704"
+      "size_bytes": 1782,
+      "sha256": "78886e06c063a1e0cc26dfcce20c1d0f052da73ee65a26b741137dc431b31481"
     },
     {
       "path": "artifacts/organism/layer-3/receipts/standalone_repair_safety.json",
@@ -167,5 +167,5 @@
       "sha256": "fa8887ed4dd35de5c6ba09927b152fa629f9e71fe8b55f6bf8efff811df0471f"
     }
   ],
-  "regenerated": "Digests recomputed over the published bytes after the 2026-09-08 Layer 3 rerun edited four manifest-tracked files (03-corridor-tests.json, layer-2/receipts/intelligence_to_lsp.json, layer-3/receipts/editor_advisory.json, layer-4/receipts/layer-3-summary.json) without re-running the manifest step. The covered path set is unchanged; only size_bytes and sha256 were refreshed. No receipt content was altered to make a digest match."
+  "regenerated": "Digests recomputed over the published bytes after the Layer 3 resolution receipts (03-corridor-tests.json, layer-3/receipts/editor_advisory.json) changed. The covered path set is unchanged; only size_bytes and sha256 were refreshed for those two paths. No receipt content was altered to make a digest match."
 }

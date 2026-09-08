@@ -1,14 +1,14 @@
 {
   "layer": "corridor_tests",
   "status": "partial",
-  "tested_at": "2026-09-08T03:05:00Z",
+  "tested_at": "2026-09-08T03:10:00Z",
   "input_layer": "artifacts/organism/02-seam-tests.json",
   "inventory": "artifacts/organism/layer-3/corridor-inventory.json",
   "summary": {
     "pass": 5,
     "skipped": 1,
     "fail": 0,
-    "note": "Layer 3 rerun 2026-09-08T03:05:00Z. Five ready corridors restated pass from live receipts (not re-forced). editor_advisory re-attempted: assemble-defense-pack still PublicationGateError. Historical miner now admits 210 events after the acquisition SHA-screen fix; max candidate score 0.95 < 4.0. No live corridor failed. No hand-authored pack."
+    "note": "Layer 3 resolution 2026-09-08T03:10:00Z. Five ready corridors restated pass from live receipts (not re-forced). editor_advisory re-attempted through T-land-sha, T-census, T-equiv, T-select, T-compile. Compile ceiling is 3.75 < 4.0; pack not assembled; LSP not consumed. No live corridor failed. No hand-authored pack."
   },
   "corridors": {
     "ci_evidence": {
@@ -43,17 +43,21 @@
   "non_live_corridors": "artifacts/organism/layer-3/non-live-corridors.json",
   "corridor_inventory": "artifacts/organism/layer-3/corridor-inventory.json",
   "provenance": {
-    "fresh_run": "ci_evidence continuity and profile evaluate remain the live artifacts from earlier this day. This rerun did not substitute fixtures.",
+    "fresh_run": "ci_evidence continuity and profile evaluate remain the live artifacts from earlier this day. This resolution did not substitute fixtures.",
     "editor_advisory_reattempted": true,
     "no_fixture_used_as_corridor_proof": true,
-    "remote_mutation": "none against organism remotes. Intelligence SHA-screen fix is local commit 3713836 on feat/historical-acquisition-allows-provider-shas."
+    "t_compile_gate": "stop",
+    "max_score": 3.75,
+    "promotion_eligible_count": 0,
+    "intelligence_pr": "https://github.com/Quantum-L9/l9-ci-debt-intelligence/pull/73",
+    "remote_mutation": "Intelligence SHA-screen + equivalence fix published as PR 73 (3f16047). Core evidence only on #150."
   },
   "failures": [
     {
       "corridor": "editor_advisory",
       "phase": "precondition",
-      "artifact": null,
-      "summary": "Required Layer 2 seam intelligence_to_lsp is partial. Historical miner now admits events (210 records / 70 episodes). Compiler yields candidate_count=60, promotion_eligible_count=0, max_score=0.95. No Intelligence-produced defense pack. Not forced.",
+      "artifact": "artifacts/organism/layer-3/payloads/editor_advisory/compile-ceiling.json",
+      "summary": "Required Layer 2 seam intelligence_to_lsp is partial. After SHA-screen PR 73, false-equivalence fix, and targeted remine (432 records / 128 episodes; Analyze (central Core)|Detect repository language (SDK) spans 6 repos / 20 occurrences / 10 clean_verified), compile_7088b5b2… yields 102 candidates, 0 promotion-eligible, max_score=3.75 (repair_success 1.67/5). Threshold 4.0 not lowered. No pack. Not forced.",
       "log": null
     }
   ],

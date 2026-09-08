@@ -1,0 +1,9 @@
+{
+  "todo": "T-lsp",
+  "evaluate_compatibility": "not_run",
+  "install_pack": "not_run",
+  "activate_pack": "not_run",
+  "verify_installed_pack": "not_run",
+  "reason": "No Intelligence-produced promotion-eligible pack exists. LSP consume is gated on T-pack. Not forced.",
+  "recorded_at": "2026-09-08T03:10:00Z"
+}
