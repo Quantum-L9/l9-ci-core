@@ -30,11 +30,10 @@
       "acceptable": true
     },
     "pr_repair_standalone": {
-      "status": "partial",
+      "status": "pass",
       "repo": "l9-pr-repair",
       "receipt": "artifacts/organism/layer-2/receipts/pr_repair_standalone.json",
-      "acceptable": false,
-      "blocker_code": "SURFACE_UNSUPPORTED_GRAPHQL"
+      "acceptable": true
     },
     "observability_contracts": {
       "status": "pass",
@@ -44,10 +43,10 @@
   },
   "repository_identity_normalization": {},
   "summary": {
-    "pass": 5,
-    "partial": 2,
+    "pass": 6,
+    "partial": 1,
     "fail": 0,
-    "note": "No active seam fails. resolver_to_intelligence moved fail -> PASS after l9-ci-debt-resolver#52 merged: the redirect defect is fixed on main, and the revision-match gate was satisfied with a real failed run paired to an SDK bundle at the same commit. The two remaining partials are blocked producers, not defects."
+    "note": "Layer 2/3 rerun 2026-09-08: pr_repair_standalone moved partial -> PASS after live GraphQL ingest-review succeeded. intelligence_to_lsp remains partial (PublicationGateError; corpus maturity). Passing seams from the original run are restated, not re-forced. No seam was forced with a hand-authored artifact."
   },
   "failures": [
     {
@@ -56,18 +55,9 @@
       "consumer": "l9-ci-debt-lsp",
       "phase": "emit",
       "error_code": "PublicationGateError",
-      "summary": "The full producer chain ran, but no candidate is promotion-eligible, so the publication gate fail-closed. Correct behaviour; the seam is unproven for lack of corpus maturity, not for lack of a working path. Per the seam receipt: record_count=2, candidate_count=2, promotion_eligible_count=0 \u2014 one producer and one scope, so the recurrence threshold cannot be met by construction.",
+      "summary": "The full producer chain ran, but no candidate is promotion-eligible, so the publication gate fail-closed. Correct behaviour; the seam is unproven for lack of corpus maturity, not for lack of a working path. Per the seam receipt: record_count=2, candidate_count=2, promotion_eligible_count=0 — one producer and one scope, so the recurrence threshold cannot be met by construction.",
       "log": null,
       "superseded_summary": "Earlier text said '1 record from a real 0-finding SDK bundle'. That was true before the resolver feedback event was ingested; the corpus then held 2 records."
-    },
-    {
-      "seam": "pr_repair_standalone",
-      "producer": "l9-pr-repair",
-      "consumer": "l9-pr-repair",
-      "phase": "emit",
-      "error_code": "SURFACE_UNSUPPORTED_GRAPHQL",
-      "summary": "ingest-review of a REAL review event (l9-ci-core PR #148) got HTTP 403 from api.github.com/graphql. Safety properties were proven with the repo's own example payload; the live review->payload path is unproven.",
-      "log": null
     }
   ],
   "acceptable_for_deploy": false

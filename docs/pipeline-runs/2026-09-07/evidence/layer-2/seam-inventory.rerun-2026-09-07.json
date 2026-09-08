@@ -1,0 +1,21 @@
+{
+  "layer": "seam_tests",
+  "written": "BEFORE this Layer 2/3 rerun",
+  "rerun_at": "2026-09-07T20:20:00Z",
+  "active_seams_to_rerun": [
+    "intelligence_to_lsp",
+    "pr_repair_standalone"
+  ],
+  "negative_tests_to_run": [
+    "intelligence_quarantines_unknown_or_planned_producer",
+    "lsp_rejects_bad_defense_pack_protocol",
+    "lsp_rejects_bad_sdk_contract_version",
+    "pr_repair_rejects_missing_expected_block",
+    "pr_repair_rejects_stale_expected_block"
+  ],
+  "corridors_to_rerun": [
+    "editor_advisory",
+    "standalone_repair_safety"
+  ],
+  "note": "Passing seams from the original run are not restated as new proof. This declaration is fixed before the tests below run."
+}

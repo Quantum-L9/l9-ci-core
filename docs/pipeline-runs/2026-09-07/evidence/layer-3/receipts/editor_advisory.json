@@ -8,7 +8,7 @@
   "required_seams": {
     "intelligence_to_lsp": "partial"
   },
-  "reason": "Required Layer 2 seam intelligence_to_lsp is partial. Refined after a finding-bearing corpus became available: the compiler now yields candidate_count=2 (up from 0) but promotion_eligible_count=0, because recurrence shows distinct_producer_count=1 and distinct_scope_count=1. Promotion requires a pattern recurring across producers or scopes. No Intelligence-produced defense pack therefore exists to feed the LSP, and a hand-authored pack would not prove the seam. Skipped, not forced.",
+  "reason": "Required Layer 2 seam intelligence_to_lsp is still partial after the Layer 2/3 rerun. The compiler yields candidate_count=2, promotion_eligible_count=0 (distinct_producer_count=1, distinct_scope_count=1) on a finding-bearing corpus (record_count=2). No Intelligence-produced defense pack exists to feed the LSP. A hand-authored pack would not prove the seam. Skipped, not forced.",
   "required_failed_or_missing_seams": [
     "intelligence_to_lsp"
   ],

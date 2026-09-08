@@ -561,3 +561,34 @@ is resolved. Layers 2 and 3 were **not** replayed.
 
 Verdict still **`fail` / `do-not-deploy`**: two partial seams, two skipped corridors, L3-F1 open,
 five negative tests not run.
+
+## Layer 2 and Layer 3 rerun (2026-09-08)
+
+Targeted replay of the two blocked seams, the five previously not-run negatives, and the two
+skipped corridors. Active set declared first in
+`evidence/layer-2/seam-inventory.rerun-2026-09-07.json`. Passing seams were not re-forced.
+
+### Errors that were real, and what changed
+
+1. **Five negatives marked `not-run`.** They were never missing implementations. Ran them:
+   Intelligence unknown/planned producer quarantine (2 unittest cases), LSP bad protocol + bad
+   SDK contract, pr-repair missing `expected_block` and stale `expected_block`. **15/15 pass.**
+   `NEGATIVE_COVERAGE_INCOMPLETE` is resolved.
+2. **`pr_repair_standalone` / `SURFACE_UNSUPPORTED_GRAPHQL`.** Live `ingest-review` of the real
+   Core PR #148 Copilot review event reached `api.github.com/graphql` with a bound token and
+   wrote a schema-valid payload (0 actuation findings — Copilot could not review files). Dry-run
+   consumed that live payload: no modified files, no push, `protected_paths_touched=false`.
+   Seam is **pass**. `standalone_repair_safety` is **pass**, composed on that payload.
+3. **Stale “0-finding SDK bundle” text** on `intelligence_to_lsp` / `editor_advisory` / Layer 3
+   summaries. The corpus is finding-bearing (`record_count=2`, `candidate_count=2`). Promotion
+   remains 0 because recurrence is one producer and one scope. Text corrected.
+
+### What did not move
+
+`intelligence_to_lsp` stays **partial** (`PublicationGateError`). Assemble was re-attempted
+against the published compilation; this worktree lacks `pyarrow`, so parquet snapshots could
+not be reloaded. On-disk `compilation-result.json` still records `promotion_eligible_count=0`.
+No pack was assembled. `editor_advisory` stays **skipped**. No hand-authored pack.
+
+Verdict still **`fail` / `do-not-deploy`**: 6/7 seams pass, 1 partial; 5/6 corridors pass, 1
+skipped; L3-F1 open. No waivers.

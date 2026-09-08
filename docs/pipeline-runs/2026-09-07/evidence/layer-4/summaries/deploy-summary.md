@@ -105,7 +105,7 @@ neither stub package. With both installed, `make check` exits 0 — ruff clean, 
 
 ## Active seam results
 
-Layer 2 ran. **5 of 7 pass, 2 partial, 0 fail.**
+Layer 2 ran, then a targeted rerun on 2026-09-08. **6 of 7 pass, 1 partial, 0 fail.**
 
 | Seam | Status | Evidence / blocker |
 |---|---|---|
@@ -114,16 +114,16 @@ Layer 2 ran. **5 of 7 pass, 2 partial, 0 fail.**
 | resolver_to_intelligence | pass | Live GitHub acquisition after the cross-host redirect defect was fixed and merged (l9-ci-debt-resolver #52) |
 | intelligence_to_lsp | partial | `PublicationGateError` — 2 candidates, 0 promotion-eligible: one producer, one scope, so recurrence maturity is unmet |
 | harness_to_assurance | pass | Real Assurance invoked; `authoritative: false` recorded |
-| pr_repair_standalone | partial | `SURFACE_UNSUPPORTED_GRAPHQL` — this sandbox 403s GraphQL, so live review ingest is unreachable here |
+| pr_repair_standalone | pass | Live `ingest-review` reached GraphQL and wrote a schema-valid payload for Core PR #148; dry-run used that live payload |
 | observability_contracts | pass | Deterministic digest; malformed input rejected |
 
-No active seam failed, and no seam was forced with a hand-authored artifact. The two partials differ
-in kind: `intelligence_to_lsp` is the organism's own gate correctly refusing to promote an immature
-corpus, while `pr_repair_standalone` is blocked by this sandbox's transport, not by the code.
+No active seam failed, and no seam was forced with a hand-authored artifact. The remaining partial
+is `intelligence_to_lsp`: the organism's own gate correctly refusing to promote an immature
+corpus (one producer, one scope). `pr_repair_standalone` is no longer blocked by GraphQL.
 
 ## Corridor results
 
-Layer 3 ran. **4 of 6 pass, 2 skipped, 0 fail.**
+Layer 3 ran, then a targeted rerun on 2026-09-08. **5 of 6 pass, 1 skipped, 0 fail.**
 
 | Corridor | Status | Meaning |
 |---|---|---|
@@ -132,7 +132,7 @@ Layer 3 ran. **4 of 6 pass, 2 skipped, 0 fail.**
 | assurance_harness | pass | Harness invokes Assurance without authority confusion |
 | observability_contracts | pass | Digest/validation boundary holds |
 | editor_advisory | skipped | required seam `intelligence_to_lsp` is partial |
-| standalone_repair_safety | skipped | required seam `pr_repair_standalone` is partial |
+| standalone_repair_safety | pass | composed on the live ingest payload; dry-run, no mutation |
 
 A skipped corridor is not a pass, so Layer 3 is `partial`. None was forced with a hand-authored
 artifact.
@@ -169,12 +169,14 @@ decision. Finding `ASSURANCE_POLICY_EVIDENCE_INCOMPLETE` (`L3-F1`) records
 
 ## Negative tests
 
-**10 of 15 ran and passed; 5 not run; 0 failed.** Assurance rejects unknown artifact fields
+**15 of 15 ran and passed; 0 not run; 0 failed.** Assurance rejects unknown artifact fields
 (`EVIDENCE_SCHEMA_INVALID`), out-of-range SDK versions (`EVIDENCE_PRODUCER_VERSION_REVOKED`) and
-tampered digests (`EVIDENCE_PAYLOAD_DIGEST_MISMATCH`). Intelligence is duplicate-safe. Harness refuses
-to pass when Assurance is missing and marks itself non-authoritative. pr-repair cannot push by default.
-Observability rejects malformed events and holds no control authority. The 5 not-run tests sit behind
-a blocked producer, not behind a skipped check: intelligence_quarantines_unknown_or_planned_producer, lsp_rejects_bad_defense_pack_protocol, lsp_rejects_bad_sdk_contract_version, pr_repair_rejects_missing_expected_block, pr_repair_rejects_stale_expected_block.
+tampered digests (`EVIDENCE_PAYLOAD_DIGEST_MISMATCH`). Intelligence is duplicate-safe and quarantines
+unknown or planned producers. LSP rejects a bad defense-pack protocol and a bad SDK contract version.
+Harness refuses to pass when Assurance is missing and marks itself non-authoritative. pr-repair cannot
+push by default and rejects a missing or stale `expected_block`. Observability rejects malformed
+events and holds no control authority. The five previously not-run tests were executed on the
+Layer 2/3 rerun; the implementations already existed at the recorded SHAs.
 
 ## Cross-layer SHA alignment — a documented non-goal
 
@@ -193,15 +195,14 @@ deliberately re-run at the revision its own `SnapshotMismatchError` gate demands
 
 | Code | Detail |
 |---|---|
-| `LAYER_2_NOT_PASSING` | Layer 2 status 'partial': 5 of 7 active seams PASS (core_to_sdk, harness_to_assurance, observability_contracts, resolver_to_intelligence, sdk_to_assurance); 2 partial (intelligence_to_lsp, pr_repair_standalone); 0 fail (none). No seam was forced with a hand-authored artifact. |
-| `LAYER_3_NOT_PASSING` | Layer 3 status 'partial': 4 of 6 corridors PASS (assurance_harness, ci_evidence, learning_feedback, observability_contracts); 2 SKIPPED because a required Layer 2 seam is not passing (editor_advisory, standalone_repair_safety); 0 fail (none). A skipped corridor is not a pass, and none was forced with a hand-authored artifact. |
-| `NEGATIVE_COVERAGE_INCOMPLETE` | 10 of 15 fail-closed negative tests ran and passed; 5 were not run because their producer is blocked (intelligence_quarantines_unknown_or_planned_producer, lsp_rejects_bad_defense_pack_protocol, lsp_rejects_bad_sdk_contract_version, pr_repair_rejects_missing_expected_block, pr_repair_rejects_stale_expected_block); 0 failed. |
+| `LAYER_2_NOT_PASSING` | Layer 2 status 'partial': 6 of 7 active seams PASS (core_to_sdk, harness_to_assurance, observability_contracts, resolver_to_intelligence, sdk_to_assurance, pr_repair_standalone); 1 partial (intelligence_to_lsp); 0 fail. No seam was forced with a hand-authored artifact. |
+| `LAYER_3_NOT_PASSING` | Layer 3 status 'partial': 5 of 6 corridors PASS (assurance_harness, ci_evidence, learning_feedback, observability_contracts, standalone_repair_safety); 1 SKIPPED because a required Layer 2 seam is not passing (editor_advisory); 0 fail. A skipped corridor is not a pass, and none was forced with a hand-authored artifact. |
 | `ASSURANCE_POLICY_EVIDENCE_INCOMPLETE` (`L3-F1`) | `ci_evidence_transport` is pass. `assurance_policy_evidence_completeness` is open/indeterminate: no determinate Assurance policy/profile decision exists. Do not read `ci_evidence=pass` as a completed Assurance profile. |
 
 ## Waivers
 
 None, and none would be admissible: a waiver requires every safety-critical seam to pass, and
-2 are partial.
+1 is partial.
 
 ## Final statement
 
@@ -211,13 +212,13 @@ about missing evidence — it is a verdict on what the evidence shows.
 What is proven: real SDK output reaches Assurance in the same run, digest-linked; resolver feedback
 reaches Intelligence over a live corridor; Harness invokes Assurance while recording itself
 non-authoritative; Observability holds its digest and validation boundary and no control authority;
-and 10 fail-closed negative tests reject what they are supposed to reject.
+and 15 fail-closed negative tests reject what they are supposed to reject. Live pr-repair GraphQL
+ingest now works; `standalone_repair_safety` is composed on that live payload.
 
 What is not: `intelligence_to_lsp` cannot promote a defense pack because the corpus has one producer
 and one scope, so recurrence maturity is unmet — the gate is behaving correctly and the corridor
-behind it (`editor_advisory`) is therefore unproven, not working. `pr_repair_standalone` is blocked
-by this sandbox's GraphQL 403, taking `standalone_repair_safety` with it. The SDK `secrets-inherit`
-gate failure is resolved by #95; that does not make the partial seams or skipped corridors passes.
+behind it (`editor_advisory`) is therefore unproven, not working. The SDK `secrets-inherit`
+gate failure is resolved by #95; that does not make the remaining partial seam or skipped corridor a pass.
 
 Nothing failed outright and nothing was forced with a hand-authored artifact. But a partial seam is
 not a pass and a skipped corridor is not a pass, so `do-not-deploy` is the only defensible verdict.

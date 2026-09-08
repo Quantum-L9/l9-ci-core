@@ -1,18 +1,47 @@
 {
   "corridor": "standalone_repair_safety",
-  "status": "skipped",
+  "status": "pass",
   "path": [
     "l9-pr-repair"
   ],
   "required_seams": {
-    "pr_repair_standalone": "partial"
+    "pr_repair_standalone": "pass"
   },
-  "reason": "Required Layer 2 seam pr_repair_standalone is partial: ingest-review of a REAL review event (l9-ci-core PR #148) returned HTTP 403 from api.github.com/graphql on this surface. The dry-run safety properties were proven in Layer 2 using the repository's own example payload, but the live review->payload path is unproven, so the corridor is not composed.",
-  "required_failed_or_missing_seams": [
-    "pr_repair_standalone"
-  ],
-  "tested_as_live": false,
+  "tested_at": "2026-09-08T00:16:39Z",
+  "reason": null,
+  "required_failed_or_missing_seams": [],
+  "tested_as_live": true,
   "forced": false,
-  "artifacts": [],
+  "what_was_proven": {
+    "composed_on": "the live ingest payload from Layer 2 rerun, not the repository example fixture",
+    "dry_run": "pr-repair run with PR_FIX_MODE=dry_run, PR_FIX_ALLOW_PUSH=0, GITHUB_REPOSITORY=Quantum-L9/l9-ci-core",
+    "execution_status": "approval_required (0 repairable findings; executable=false)",
+    "modified_files": [],
+    "push_result": null,
+    "protected_paths_touched": false,
+    "remote_mutation": false
+  },
+  "artifacts": [
+    {
+      "name": "agent_review_payload.live.json",
+      "path": "artifacts/organism/layer-3/payloads/standalone_repair_safety/agent_review_payload.live.json",
+      "sha256": "20506cf9af54164e537e0156bb5e924674e6f3510c9f082310271296ca114cf9"
+    },
+    {
+      "name": "run_trace.json",
+      "path": "artifacts/organism/layer-3/payloads/standalone_repair_safety/run_trace.json",
+      "sha256": "67addaae9c544829da9313270a4d7c3beecd0f5f1cf39a5a6f642e15796c29f1"
+    },
+    {
+      "name": "repair_plan.json",
+      "path": "artifacts/organism/layer-3/payloads/standalone_repair_safety/repair_plan.json",
+      "sha256": "a7b07d982d0109fef62658e6dd6f27fe887645670cb8b6044eb0aca7d6c2e83b"
+    },
+    {
+      "name": "repair_execution.json",
+      "path": "artifacts/organism/layer-3/payloads/standalone_repair_safety/repair_execution.json",
+      "sha256": "2e77ff5f6d8c0f743bafba997e96f2809a766044cb0e3405d7ebb9afccb1b3bf"
+    }
+  ],
   "failure": null
 }

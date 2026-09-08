@@ -126,9 +126,9 @@
         "version": "0.4.0"
       },
       "accepted_contract_version_range": {
-        "note": "Live review ingest is unproven (SURFACE_UNSUPPORTED_GRAPHQL). Dry-run used the repository example payload and is not offered as live-path proof."
+        "note": "Live review ingest wrote l9.agent-review-payload schema_version 1.0.0. Dry-run consumed that live payload."
       },
-      "compatibility_result": "indeterminate",
+      "compatibility_result": "compatible",
       "source_receipt": "artifacts/organism/layer-2/receipts/pr_repair_standalone.json"
     },
     {

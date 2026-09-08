@@ -21,7 +21,7 @@
     "tokens": "GH_TOKEN and GITHUB_TOKEN unset (zizmor offline)",
     "evidence": "zizmor Passed; mypy 89 files clean; pytest 505 passed; compileall ok",
     "merged_pr": "https://github.com/Quantum-L9/l9-ci-sdk/pull/95",
-    "layers_2_and_3_replayed": false
+    "layers_2_and_3_replayed": true
   },
   "resolved_failures": [
     {
@@ -38,5 +38,5 @@
       "log": "artifacts/organism/logs/l9-ci-sdk-health.log"
     }
   ],
-  "acceptable_for_deploy_note": "Layer 1 pass does not waive Layer 2 partial, Layer 3 partial, L3-F1, or incomplete negative coverage."
+  "acceptable_for_deploy_note": "Layer 1 pass does not waive Layer 2 partial, Layer 3 partial, or L3-F1. Negative coverage is now 15/15 pass."
 }

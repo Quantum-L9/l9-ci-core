@@ -23,12 +23,9 @@
       "acceptable": true
     },
     "standalone_repair_safety": {
-      "status": "skipped",
+      "status": "pass",
       "repo": "l9-pr-repair",
-      "acceptable": false,
-      "blocking_seams": [
-        "pr_repair_standalone"
-      ]
+      "acceptable": true
     },
     "observability_contracts": {
       "status": "pass",
@@ -37,30 +34,22 @@
   },
   "repository_identity_normalization": {},
   "summary": {
-    "pass": 4,
-    "skipped": 2,
+    "pass": 5,
+    "skipped": 1,
     "fail": 0,
-    "note": "learning_feedback ran and PASSED once l9-ci-debt-resolver#52 merged unblocked its required seam. Two corridors remain skipped on partial seams. No live corridor failed."
+    "note": "Layer 2/3 rerun 2026-09-08: standalone_repair_safety moved skipped -> PASS, composed on the live ingest payload. editor_advisory remains skipped behind intelligence_to_lsp. No live corridor failed."
   },
   "failures": [
     {
       "corridor": "editor_advisory",
       "phase": "precondition",
       "artifact": null,
-      "summary": "Required Layer 2 seam intelligence_to_lsp is partial: the Intelligence producer chain ran end to end but the publication gate fail-closed with 'no promotion-eligible candidates' on a corpus built from a real 0-finding SDK bundle. No Intelligence-produced defense pack exists to feed the LSP, and a hand-authored pack would not prove the seam.",
-      "log": null
-    },
-    {
-      "corridor": "standalone_repair_safety",
-      "phase": "precondition",
-      "artifact": null,
-      "summary": "Required Layer 2 seam pr_repair_standalone is partial: ingest-review of a REAL review event (l9-ci-core PR #148) returned HTTP 403 from api.github.com/graphql on this surface. The dry-run safety properties were proven in Layer 2 using the repository's own example payload, but the live review->payload path is unproven, so the corridor is not composed.",
+      "summary": "Required Layer 2 seam intelligence_to_lsp is partial: compiler yields candidate_count=2, promotion_eligible_count=0 on a finding-bearing corpus (record_count=2; one producer, one scope). No Intelligence-produced defense pack exists to feed the LSP. Not forced.",
       "log": null
     }
   ],
   "skipped": [
-    "editor_advisory",
-    "standalone_repair_safety"
+    "editor_advisory"
   ],
   "acceptable_for_deploy": false
 }

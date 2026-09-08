@@ -46,10 +46,22 @@
   ],
   "consumer_not_exercised": "l9-debt-lsp-contracts exposes evaluate-compatibility / install-pack / activate-pack / verify-installed-pack, but none was run: there is no real Intelligence-produced pack to feed them.",
   "negative_tests": {
-    "lsp_rejects_bad_defense_pack_protocol": "not-run",
-    "lsp_rejects_bad_sdk_contract_version": "not-run"
+    "lsp_rejects_bad_defense_pack_protocol": {
+      "result": "pass",
+      "evidence": "evaluate_compatibility on a mutated l9.debt-defense/v999 pack: status=incompatible, protocol_supported=false."
+    },
+    "lsp_rejects_bad_sdk_contract_version": {
+      "result": "pass",
+      "evidence": "tests/contracts/test_compatibility.py::test_incompatible_sdk_contract_is_rejected (pytest exit 0) plus evaluate_compatibility on SDK_contract_version=l9.integration-contract/v999: sdk_contract_supported=false."
+    }
   },
   "source_mutation_observed": false,
   "failure": null,
-  "progress_since_first_run": "candidate_count moved 0 -> 2 once a real finding entered the corpus, so the compiler path is now proven end to end. Only promotion remains unmet."
+  "progress_since_first_run": "candidate_count moved 0 -> 2 once a real finding entered the corpus, so the compiler path is now proven end to end. Only promotion remains unmet.",
+  "rerun": {
+    "tested_at": "2026-09-08T00:16:39Z",
+    "declared_before": "artifacts/organism/layer-2/seam-inventory.rerun-2026-09-07.json",
+    "assemble_defense_pack": "re-attempted against the published compilation compile_958379ff…; this worktree has no pyarrow, so the CLI could not reload parquet snapshots. On-disk compilation-result.json still records candidate_count=2, promotion_eligible_count=0. No pack was assembled. No hand-authored pack was used.",
+    "status_unchanged": "partial — PublicationGateError remains the designed fail-closed result on a one-producer, one-scope corpus."
+  }
 }

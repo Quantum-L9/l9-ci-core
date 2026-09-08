@@ -99,7 +99,7 @@
       "consumer": "l9-pr-repair",
       "contract": "l9.agent-review-payload/v1",
       "status": "active",
-      "observed_result": "partial",
+      "observed_result": "pass",
       "receipt": "artifacts/organism/layer-2/receipts/pr_repair_standalone.json"
     },
     {
@@ -141,5 +141,13 @@
       "id": "observability_control_plane",
       "reason": "Observability exposes canonicalisation, digest and schema validation only. No scheduler/gate/retry/admission/repair surface exists or was used."
     }
-  ]
+  ],
+  "rerun_2026_09_08": {
+    "written_before_this_rerun": "artifacts/organism/layer-2/seam-inventory.rerun-2026-09-07.json",
+    "note": "The original inventory remains reconstructed-after. This rerun's active set was declared before the two blocked seams and five negatives were re-executed.",
+    "observed_updates": {
+      "pr_repair_standalone": "pass",
+      "intelligence_to_lsp": "partial"
+    }
+  }
 }

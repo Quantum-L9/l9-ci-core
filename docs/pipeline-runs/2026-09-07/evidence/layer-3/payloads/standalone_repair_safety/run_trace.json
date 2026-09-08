@@ -1,0 +1,48 @@
+[
+  {
+    "event": "payload_ingested",
+    "fields": {
+      "autofix_candidates": 0,
+      "manual_review_required": 0,
+      "pr_number": 148,
+      "schema_version": "1.0.0"
+    },
+    "seq": 1
+  },
+  {
+    "event": "findings_routed",
+    "fields": {
+      "autofix": 0,
+      "manual": 0
+    },
+    "seq": 2
+  },
+  {
+    "event": "pipeline_routing",
+    "fields": {
+      "autofix": 0,
+      "manual": 0,
+      "pr_number": 148
+    },
+    "seq": 3
+  },
+  {
+    "event": "pr_pipeline_complete",
+    "fields": {
+      "execution_status": "approval_required",
+      "mode": "dry_run",
+      "plan_id": "1224ffe4-74b6-417e-b5c0-655a1b74070c",
+      "pr_number": 148
+    },
+    "seq": 4
+  },
+  {
+    "event": "autofix_telemetry_emitted",
+    "fields": {
+      "false_positive_rules": [],
+      "pr_number": 148,
+      "promotion_candidates": []
+    },
+    "seq": 5
+  }
+]

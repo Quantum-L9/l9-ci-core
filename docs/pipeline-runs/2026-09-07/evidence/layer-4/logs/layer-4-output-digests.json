@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-07T15:02:54Z",
+  "generated_at": "2026-09-08T00:21:00Z",
   "outputs": [
     {
       "path": "artifacts/organism/01-repo-health.json",
@@ -7,9 +7,54 @@
       "sha256": "23c5d536cd2751ecad128e3b7e804055acd3401c932d47dffa6c6ac934655a7b"
     },
     {
+      "path": "artifacts/organism/02-seam-tests.json",
+      "size_bytes": 6697,
+      "sha256": "5ced3ddba51a58c4096393818410b3b3d67b8a7a67b48a143abe69769c7ab3cc"
+    },
+    {
+      "path": "artifacts/organism/03-corridor-tests.json",
+      "size_bytes": 3046,
+      "sha256": "f1668852b05365f7e207ba2bd1e0c20ad6c442c3522ad7a3851db6dfa6b1a387"
+    },
+    {
       "path": "artifacts/organism/04-organism-receipt.json",
-      "size_bytes": 10472,
-      "sha256": "a6b6f43260cb478b50445dbf04469cfc074e6581add9b424cc00caa501a354d6"
+      "size_bytes": 10698,
+      "sha256": "a3971b359ef98b2a0b5de6a8970ad6c12423b58e414bae88970cdc58f3628f21"
+    },
+    {
+      "path": "artifacts/organism/deploy-summary.md",
+      "size_bytes": 13430,
+      "sha256": "ae1d7deab96a0c9a3806a80c5acd14abad54a0541561674d4503583d5a08f45c"
+    },
+    {
+      "path": "artifacts/organism/layer-2/receipts/intelligence_to_lsp.json",
+      "size_bytes": 3930,
+      "sha256": "b0a2d14b24d3ded0d1e91150ec19873e452689d301632f53ac2a9a2db2632831"
+    },
+    {
+      "path": "artifacts/organism/layer-2/receipts/pr_repair_standalone.json",
+      "size_bytes": 4653,
+      "sha256": "11d2097a2911348c5ecf3d4c01ae2d413047fd421f543157cc21e3e8d4ee6788"
+    },
+    {
+      "path": "artifacts/organism/layer-2/seam-inventory.json",
+      "size_bytes": 5964,
+      "sha256": "e19a786b93b2faba05fa613f9817762e97ff77c259bc17f4ee7e3c33fb891897"
+    },
+    {
+      "path": "artifacts/organism/layer-2/seam-inventory.rerun-2026-09-07.json",
+      "size_bytes": 693,
+      "sha256": "c1c35bf3fc30e06c3ca95bc0ac2c3aa397765059ca3510e5f4fe0c20c5eb2cc1"
+    },
+    {
+      "path": "artifacts/organism/layer-3/receipts/editor_advisory.json",
+      "size_bytes": 742,
+      "sha256": "16dc91ff88c2c62bf9d030faf4f1229d86c67d1c0498c23a28b4e7b0aaffeae3"
+    },
+    {
+      "path": "artifacts/organism/layer-3/receipts/standalone_repair_safety.json",
+      "size_bytes": 1734,
+      "sha256": "f43e8e2755b3e13bef8a5da67716782c6eedf14c6d5db34bb57402b03c6f6924"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/artifact-manifest.json",
@@ -33,18 +78,18 @@
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-1-summary.json",
-      "size_bytes": 2164,
-      "sha256": "a1a54447530c38bbb9261307ffb32135c19bba72dac640d39a64573eb5f5dfcd"
+      "size_bytes": 2170,
+      "sha256": "3da11a7139bcb8cd3885cdc122e819613bb0ab33dd268730068abbd66511751d"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-2-summary.json",
-      "size_bytes": 3173,
-      "sha256": "5c4525819f5d48ada6bbba59a449b5d2057abeeb9af38c968ac2803dc1f4b5ed"
+      "size_bytes": 2666,
+      "sha256": "3f7540befb449ee4d37d7379016e7908382a08c5095cde96e7bd808682bf760e"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-3-summary.json",
-      "size_bytes": 2228,
-      "sha256": "bcbc2b73bd13585e1259924ed43f5648aee20837a24f7a90acdc105be7b80798"
+      "size_bytes": 1568,
+      "sha256": "12063823f68c2c26c98567275c5beeee285a2c322798eb3dee91776856586b49"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/local-repo-observation.json",
@@ -53,8 +98,8 @@
     },
     {
       "path": "artifacts/organism/layer-4/receipts/negative-test-summary.json",
-      "size_bytes": 1424,
-      "sha256": "f654d4b30f7274b69b6544ef678aa31c0e120d35a483123cbf95d3c3286f4c51"
+      "size_bytes": 1307,
+      "sha256": "e8e9342a525ab6cee8575b959e2241ad905c425f027553eb6535c7c60450eab6"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/repo-identity-reconciliation.json",
@@ -72,14 +117,14 @@
       "sha256": "7f4b5222ec1e531b387fff2f30abdad8b0d9fbe54329e9d93a23dda3ddccfc52"
     },
     {
-      "path": "artifacts/organism/layer-4/summaries/deploy-summary.md",
-      "size_bytes": 13723,
-      "sha256": "1ae581afd4bd1e1bbcda06349b221f4cd2016409110a6e5fefe0a9c1e287c9ef"
+      "path": "artifacts/organism/layer-4/receipts/version-consistency.json",
+      "size_bytes": 4978,
+      "sha256": "a604d2fc999303a04316269dfb1141c3fa9c5d4c30426e5a80f91ddfb2f89f63"
     },
     {
-      "path": "artifacts/organism/layer-4/receipts/version-consistency.json",
-      "size_bytes": 5019,
-      "sha256": "9a0f67a09190a5f6a7861d054b5e353371670d75dcb3496c123d92c5154c0f0e"
+      "path": "artifacts/organism/layer-4/summaries/deploy-summary.md",
+      "size_bytes": 13430,
+      "sha256": "ae1d7deab96a0c9a3806a80c5acd14abad54a0541561674d4503583d5a08f45c"
     }
   ]
 }

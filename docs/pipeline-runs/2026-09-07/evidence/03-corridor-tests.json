@@ -1,13 +1,13 @@
 {
   "layer": "corridor_tests",
   "status": "partial",
-  "tested_at": "2026-09-07T03:45:17Z",
+  "tested_at": "2026-09-08T00:16:39Z",
   "input_layer": "artifacts/organism/02-seam-tests.json",
   "summary": {
-    "pass": 4,
-    "skipped": 2,
+    "pass": 5,
+    "skipped": 1,
     "fail": 0,
-    "note": "learning_feedback ran and PASSED once l9-ci-debt-resolver#52 merged unblocked its required seam. Two corridors remain skipped on partial seams. No live corridor failed."
+    "note": "Layer 2/3 rerun 2026-09-08: standalone_repair_safety moved skipped -> PASS, composed on the live ingest payload. editor_advisory remains skipped behind intelligence_to_lsp. No live corridor failed."
   },
   "corridors": {
     "ci_evidence": {
@@ -31,12 +31,8 @@
       "receipt": "artifacts/organism/layer-3/receipts/assurance_harness.json"
     },
     "standalone_repair_safety": {
-      "status": "skipped",
-      "receipt": "artifacts/organism/layer-3/receipts/standalone_repair_safety.json",
-      "reason": "skipped_due_to_failed_seam",
-      "blocking_seams": [
-        "pr_repair_standalone"
-      ]
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-3/receipts/standalone_repair_safety.json"
     },
     "observability_contracts": {
       "status": "pass",
@@ -48,7 +44,7 @@
   "provenance": {
     "fresh_run": "ci_evidence was produced by a NEW chain, not by reusing Layer 2 artifacts, so same-run identity is genuinely demonstrated rather than assumed.",
     "shared_artifact": "assurance_harness consumed the same fresh observation, so the two passing corridors compose on one artifact.",
-    "zero_findings_caveat": "The FindingBundle again carries 0 findings - a real semgrep 1.176.1 scan of l9-pr-repair/src returned none. Continuity, admission and authority are proven; a non-zero finding has still never traversed the organism.",
+    "zero_findings_caveat": "ci_evidence continuity still uses a 0-finding SDK scan of l9-pr-repair/src for admission proof. That is unrelated to the Intelligence corpus, which is finding-bearing (record_count=2). standalone_repair_safety used a live Copilot review payload with 0 actuation findings.",
     "no_fixture_used_as_corridor_proof": true,
     "remote_mutation": "none"
   },
@@ -60,14 +56,7 @@
       "corridor": "editor_advisory",
       "phase": "precondition",
       "artifact": null,
-      "summary": "Required Layer 2 seam intelligence_to_lsp is partial: the Intelligence producer chain ran end to end but the publication gate fail-closed with 'no promotion-eligible candidates' on a corpus built from a real 0-finding SDK bundle. No Intelligence-produced defense pack exists to feed the LSP, and a hand-authored pack would not prove the seam.",
-      "log": null
-    },
-    {
-      "corridor": "standalone_repair_safety",
-      "phase": "precondition",
-      "artifact": null,
-      "summary": "Required Layer 2 seam pr_repair_standalone is partial: ingest-review of a REAL review event (l9-ci-core PR #148) returned HTTP 403 from api.github.com/graphql on this surface. The dry-run safety properties were proven in Layer 2 using the repository's own example payload, but the live review->payload path is unproven, so the corridor is not composed.",
+      "summary": "Required Layer 2 seam intelligence_to_lsp is partial: compiler yields candidate_count=2, promotion_eligible_count=0 on a finding-bearing corpus (record_count=2; one producer, one scope). No Intelligence-produced defense pack exists to feed the LSP. Not forced.",
       "log": null
     }
   ]

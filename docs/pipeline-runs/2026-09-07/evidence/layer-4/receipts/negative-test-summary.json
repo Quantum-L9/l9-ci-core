@@ -4,14 +4,14 @@
     "assurance_rejects_untrusted_or_out_of_range_sdk_version": "pass",
     "assurance_rejects_tampered_observation": "pass",
     "intelligence_rejects_privacy_leak": "pass",
-    "intelligence_quarantines_unknown_or_planned_producer": "not-run",
+    "intelligence_quarantines_unknown_or_planned_producer": "pass",
     "intelligence_duplicate_idempotency_safe": "pass",
-    "lsp_rejects_bad_defense_pack_protocol": "not-run",
-    "lsp_rejects_bad_sdk_contract_version": "not-run",
+    "lsp_rejects_bad_defense_pack_protocol": "pass",
+    "lsp_rejects_bad_sdk_contract_version": "pass",
     "harness_does_not_pass_when_assurance_missing": "pass",
     "harness_non_authoritative": "pass",
-    "pr_repair_rejects_missing_expected_block": "not-run",
-    "pr_repair_rejects_stale_expected_block": "not-run",
+    "pr_repair_rejects_missing_expected_block": "pass",
+    "pr_repair_rejects_stale_expected_block": "pass",
     "pr_repair_push_disabled_by_default": "pass",
     "observability_rejects_malformed_event": "pass",
     "observability_has_no_control_authority": "pass"
@@ -20,16 +20,11 @@
     "pr_repair_tests": "l9-pr-repair"
   },
   "failures": [],
-  "missing": [
-    "intelligence_quarantines_unknown_or_planned_producer",
-    "lsp_rejects_bad_defense_pack_protocol",
-    "lsp_rejects_bad_sdk_contract_version",
-    "pr_repair_rejects_missing_expected_block",
-    "pr_repair_rejects_stale_expected_block"
-  ],
+  "missing": [],
   "notes": [
-    "10 of 15 fail-closed tests ran and passed; 5 were not run. NONE failed.",
-    "Every not-run test sits behind a blocked producer, not behind a skipped check."
+    "15 of 15 fail-closed tests ran and passed; 0 were not run; 0 failed.",
+    "The five previously not-run tests were executed on the Layer 2/3 rerun (2026-09-08). They were never blocked by a producer defect: the implementations already existed at the recorded SHAs."
   ],
-  "status": "partial"
+  "status": "pass",
+  "tested_at": "2026-09-08T00:16:39Z"
 }
