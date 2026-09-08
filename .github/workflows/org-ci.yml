@@ -338,6 +338,14 @@ jobs:
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
           root: .
 
+      - id: repository_verify
+        name: Run repository verification contract
+        continue-on-error: true
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@fc97917cb26b20e85c1f96d28d1f5451a8c36f41
+        with:
+          workspace: .
+
       - name: Install Semgrep (exact central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         env:
@@ -482,6 +490,7 @@ jobs:
           MODE: ${{ steps.gov.outputs.mode }}
           SDK_REVISION: ${{ steps.sdk.outputs['sdk-revision'] }}
           LANGUAGE: ${{ steps.language.outputs.language }}
+          REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status || steps.repository_verify.outcome }}
           GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
           ARTIFACT_NAME: ${{ steps.names.outputs['artifact-name'] }}
         run: |
@@ -493,9 +502,21 @@ jobs:
             echo "- Mode: \`${MODE:-unknown}\`"
             echo "- SDK revision: \`${SDK_REVISION:-unknown}\`"
             echo "- Detected language: \`${LANGUAGE:-unknown}\`"
+            echo "- Repository verification: \`${REPOSITORY_VERIFY:-unavailable}\`"
             echo "- Technical gate: \`${GATE_STATUS:-unavailable}\`"
             echo "- Artifact set: \`${ARTIFACT_NAME:-unavailable}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce repository verification
+        if: always() && (steps.runtime.outputs.profile == 'pr_fast' || steps.runtime.outputs.profile == 'merge')
+        env:
+          REPOSITORY_VERIFY_OUTCOME: ${{ steps.repository_verify.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "${REPOSITORY_VERIFY_OUTCOME}" != "success" ]; then
+            echo "Blocking profile: repository verification did not pass (${REPOSITORY_VERIFY_OUTCOME})" >&2
+            exit 1
+          fi
 
       - name: Enforce central mode on SDK technical gate
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
