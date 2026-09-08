@@ -43,8 +43,8 @@
     }
   },
   "negative_tests": {
-    "intelligence_rejects_privacy_leak": "not-run",
-    "intelligence_quarantines_unknown_or_planned_producer": "not-run",
+    "intelligence_rejects_privacy_leak": "pass",
+    "intelligence_quarantines_unknown_or_planned_producer": "pass",
     "intelligence_duplicate_idempotency_safe": "pass"
   },
   "test_scoped_config": {
