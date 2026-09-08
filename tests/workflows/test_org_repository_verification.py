@@ -28,7 +28,9 @@ def _load_runner():
 class OrgRepositoryVerificationTests(unittest.TestCase):
     def test_org_workflow_uses_immutable_core_action_pin(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        expected = f"Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@{PIN}"
+        expected = (
+            f"Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@{PIN}"
+        )
         self.assertIn(expected, text)
         self.assertRegex(PIN, re.compile(r"^[0-9a-f]{40}$"))
         self.assertNotIn("run-repository-verification@main", text)
