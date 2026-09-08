@@ -66,6 +66,6 @@
       "sha256": "67addaae9c544829da9313270a4d7c3beecd0f5f1cf39a5a6f642e15796c29f1"
     }
   ],
-  "workspace_residue": "Rerun wrote untracked .l9/ artifacts in the dedicated l9-pr-repair-l23 worktree. No tracked file was modified. Shared clone /Users/ib-mac/PR_Repair was not mutated.",
+  "workspace_residue": "Rerun wrote untracked .l9/ artifacts in the dedicated l9-pr-repair worktree (https://github.com/Quantum-L9/l9-pr-repair). No tracked file was modified.",
   "failure": null
 }

@@ -7,11 +7,13 @@ Final receipt: `artifacts/organism/04-organism-receipt.json`
 
 **Do not deploy.**
 
-Status `fail`, decision `do-not-deploy`. All three input layers ran: Layer 1 `fail`, Layer 2
-`partial`, Layer 3 `partial`. Nothing failed outright, but `2`
-seam(s) are partial and `2` corridor(s) are skipped behind them, so
-those paths are unproven rather than proven working. Layer 4 aggregates evidence and is forbidden
-from creating it, so the gaps are reported rather than filled in.
+Status `fail`, decision `do-not-deploy`. All four layers ran: Layer 1 `pass`, Layer 2
+`partial`, Layer 3 `partial`. Nothing failed outright, but `1`
+seam is partial (`intelligence_to_lsp`) and `1` corridor is skipped behind it
+(`editor_advisory`), so those paths are unproven rather than proven working. Layer 4
+aggregates evidence and is forbidden from creating it, so the gaps are reported rather
+than filled in. The repair repository is `https://github.com/Quantum-L9/l9-pr-repair`
+(formerly `PR_Repair`). `pr_repair_standalone` and `standalone_repair_safety` are pass.
 
 ## Tested scope
 
@@ -67,7 +69,7 @@ command. 0 repository defect(s) and 0 environmental result(s).
 `secrets-inherit` finding in `.github/workflows/l9-nightly.yml`. That file was removed when
 https://github.com/Quantum-L9/l9-ci-sdk/pull/95 merged (`5405fa5768b0`). A Layer 1 refresh of
 SDK only, with `GH_TOKEN`/`GITHUB_TOKEN` unset, now records `make ci` pass (zizmor clean, mypy
-clean, 505 pytest passed). Layers 2 and 3 were not replayed.
+clean, 505 pytest passed). Layers 2 and 3 were then replayed on 2026-09-08.
 
 This was first recorded as a sandbox limitation, and that diagnosis was wrong in an instructive way.
 The sandbox exports a 14-character sentinel `GH_TOKEN`, which flips zizmor from offline to online

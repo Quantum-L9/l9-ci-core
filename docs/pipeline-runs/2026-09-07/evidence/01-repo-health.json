@@ -95,7 +95,7 @@
       "notes": [
         "install_mode=editable_with_dev_extras",
         "Tested in a clean `git archive` extraction of origin/main, re-inited as a git repo at that exact content. No .venv, no untracked files, no branch \u2014 so a harness artifact cannot be mistaken for a repository defect, and the tested revision is unambiguous.",
-        "Refreshed after l9-ci-sdk#95 at 5405fa5768b084b4c29066e810c81664fba3c21b. make ci now passes (zizmor clean). Original Layer 1 used Python 3.11; this refresh used 3.12. Layers 2 and 3 were not replayed."
+        "Refreshed after l9-ci-sdk#95 at 5405fa5768b084b4c29066e810c81664fba3c21b. make ci now passes (zizmor clean). Original Layer 1 used Python 3.11; this refresh used 3.12. Layers 2 and 3 were replayed on 2026-09-08 against https://github.com/Quantum-L9/l9-pr-repair."
       ]
     },
     "l9-assurance": {

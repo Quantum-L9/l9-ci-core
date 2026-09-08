@@ -592,3 +592,20 @@ No pack was assembled. `editor_advisory` stays **skipped**. No hand-authored pac
 
 Verdict still **`fail` / `do-not-deploy`**: 6/7 seams pass, 1 partial; 5/6 corridors pass, 1
 skipped; L3-F1 open. No waivers.
+
+## Layer 4 identity + aggregation catch-up (2026-09-08)
+
+Focused on the four-layer organism tree (`docs/pipeline-runs/2026-09-07/`), not WIP.
+
+The live repair repository is already `https://github.com/Quantum-L9/l9-pr-repair`. Layer 4
+still carried pre-rerun aggregation: Decision said Layer 1 `fail` and `2` partial seams /
+`2` skipped corridors; SDK notes said Layers 2 and 3 were not replayed; `pr_repair_standalone`
+residue still named a local `PR_Repair` checkout. Those are corrected.
+
+`repository_renames.PR_Repair` stays as the historical GitHub-rename map. It is not a live
+identity. Authority-boundary observations that were already proven by passing seams (Core,
+SDK, resolver, Intelligence ingest/compile, live `l9-pr-repair` dry-run) are now marked
+`verified`. `defense_pack_production` remains unproven.
+
+Verdict unchanged: **`fail` / `do-not-deploy`**. `intelligence_to_lsp` is still partial;
+`editor_advisory` is still skipped; L3-F1 is still open.
