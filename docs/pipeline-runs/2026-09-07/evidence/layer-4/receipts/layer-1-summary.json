@@ -38,5 +38,5 @@
       "log": "artifacts/organism/logs/l9-ci-sdk-health.log"
     }
   ],
-  "acceptable_for_deploy_note": "Layer 1 pass does not waive Layer 2 partial, Layer 3 partial, or L3-F1. Negative coverage is now 15/15 pass."
+  "acceptable_for_deploy_note": "Layer 1 pass does not waive Layer 2 partial, Layer 3 partial, or ASSURANCE_POLICY_PROFILE_FAIL. L3-F1 is closed. Negative coverage is now 15/15 pass."
 }

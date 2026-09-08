@@ -164,11 +164,14 @@ informational (`layer-4/receipts/sha-consistency.json`). Compatibility is record
 ## ci_evidence vs Assurance policy completeness
 
 `ci_evidence` / `ci_evidence_transport` stay **pass**: Core-driven SDK evidence was admitted by
-real Assurance code, digest-linked, same run. That is not a determinate Assurance policy/profile
-decision. Finding `ASSURANCE_POLICY_EVIDENCE_INCOMPLETE` (`L3-F1`) records
-`assurance_policy_evidence_completeness: open/indeterminate`. Shipped evaluate on the live
-envelope exited 42 (`sdkVersion` unexpected) and wrote no AssuranceDecision. The seven-control
-matrix lives on `04-organism-receipt.json`; the seventh row is the open gap.
+real Assurance code, digest-linked, same run. `assurance_policy_evidence_completeness` is now
+**complete**. Shipped `evaluate --profile l9.pull-request@1` on Assurance `origin/main` `e9f012b`
+wrote `AssuranceDecision` `dec_d0e45c245bb22fb4417831f5540a852af93e3f09`, verdict **fail**.
+Six controls pass; `L9.CI.REPOSITORY_METADATA` fails because shipped
+`project-repository-metadata` on clean `l9-pr-repair@f5773d4` found no committed `MANIFEST.md`.
+The earlier exit-42 (`sdkVersion` unexpected) was a dependabot-checkout schema miss; `origin/main`
+already admits the field. L3-F1 is closed. See
+`layer-3/payloads/ci_evidence/profile-evidence/probe.json`.
 
 ## Negative tests
 
@@ -200,7 +203,7 @@ deliberately re-run at the revision its own `SnapshotMismatchError` gate demands
 |---|---|
 | `LAYER_2_NOT_PASSING` | Layer 2 status 'partial': 6 of 7 active seams PASS (core_to_sdk, harness_to_assurance, observability_contracts, resolver_to_intelligence, sdk_to_assurance, pr_repair_standalone); 1 partial (intelligence_to_lsp); 0 fail. No seam was forced with a hand-authored artifact. |
 | `LAYER_3_NOT_PASSING` | Layer 3 status 'partial': 5 of 6 corridors PASS (assurance_harness, ci_evidence, learning_feedback, observability_contracts, standalone_repair_safety); 1 SKIPPED because a required Layer 2 seam is not passing (editor_advisory); 0 fail. A skipped corridor is not a pass, and none was forced with a hand-authored artifact. |
-| `ASSURANCE_POLICY_EVIDENCE_INCOMPLETE` (`L3-F1`) | `ci_evidence_transport` is pass. Shipped evaluate wrote no AssuranceDecision (exit 42, `sdkVersion` unexpected). Completeness stays open/indeterminate. |
+| `ASSURANCE_POLICY_PROFILE_FAIL` | `l9.pull-request@1` evaluate wrote `dec_d0e45c245bb22fb4417831f5540a852af93e3f09`, verdict fail. `L9.CI.REPOSITORY_METADATA` failed (no committed `MANIFEST.md` on `l9-pr-repair@f5773d4`). L3-F1 is closed. |
 
 ## Waivers
 
@@ -221,8 +224,10 @@ ingest now works; `standalone_repair_safety` is composed on that live payload.
 What is not: `intelligence_to_lsp` cannot promote a defense pack. Candidates score 0.35 against a
 4.0 threshold (static-finding ceiling 2.5). Historical miner on Core #148 admitted 0 events
 (59 quarantined as sensitive_content). The corridor behind it (`editor_advisory`) stays skipped.
-The SDK `secrets-inherit` gate failure is resolved by #95; that does not make the remaining
-partial seam or skipped corridor a pass.
+The pull-request Assurance profile is now determinate and **fail**
+(`L9.CI.REPOSITORY_METADATA`: no committed `MANIFEST.md` on `l9-pr-repair@f5773d4`). L3-F1 is
+closed. The SDK `secrets-inherit` gate failure is resolved by #95; that does not make the remaining
+partial seam, skipped corridor, or profile fail a pass.
 
 Nothing failed outright and nothing was forced with a hand-authored artifact. But a partial seam is
 not a pass and a skipped corridor is not a pass, so `do-not-deploy` is the only defensible verdict.

@@ -1,0 +1,45 @@
+{
+  "schema": "l9.organism-probe/v1",
+  "probe": "assurance_evaluate_l9.pull-request",
+  "tested_at": "2026-09-08T02:30:00Z",
+  "assurance_version": "2.1.1",
+  "assurance_sha": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86",
+  "assurance_source": "origin/main extracted to /tmp/l9-assurance-e9f012 (not the dependabot worktree that lacked artifact.sdkVersion)",
+  "sdk_version": "2.0.0",
+  "sdk_sha": "5405fa5768b084b4c29066e810c81664fba3c21b",
+  "profile": "l9.pull-request@1",
+  "policy": "l9.organization-default@1",
+  "subject": "artifacts/organism/layer-3/payloads/ci_evidence/subject.json",
+  "subject_revision": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
+  "evaluation_time": "2026-09-08T02:30:00Z",
+  "prior_false_negative": {
+    "path": "artifacts/organism/layer-3/payloads/ci_evidence/evaluate-2026-09-08/probe.json",
+    "error": "EVIDENCE_SCHEMA_INVALID sdkVersion unexpected",
+    "cause": "evaluate was invoked against a dependabot Assurance checkout whose schema omitted sdkVersion; origin/main e9f012b already lists the field"
+  },
+  "observations": {
+    "l9.mandatory-findings": "existing organism observation (passed)",
+    "l9.sdk-validation": "l9-ci observation project-sdk-validation on finding-bundle.json (passed)",
+    "l9.repository-metadata": "l9-ci observation project-repository-metadata on clean pr-repair@f5773d4 (failed: no committed MANIFEST.md)",
+    "l9.lint": "ruff check src exit 0, then l9-ci observation build --status passed",
+    "l9.tests": "pytest -q exit 0, then l9-ci observation build --status passed",
+    "l9.transport-packet": "semgrep --config l9-transport.yml --error src exit 0, then l9-ci observation build --status passed"
+  },
+  "admit": {
+    "accepted": 6,
+    "rejected": 0,
+    "quarantined": 0,
+    "duplicate": 0
+  },
+  "evaluate": {
+    "exit_code": 20,
+    "class": "fail",
+    "decision_written": true,
+    "decision_id": "dec_d0e45c245bb22fb4417831f5540a852af93e3f09",
+    "verdict": "fail",
+    "path": "artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/evaluate/decision.json"
+  },
+  "handwritten_decision": false,
+  "fields_stripped": false,
+  "l3_f1": "closed"
+}

@@ -1,0 +1,88 @@
+{
+  "schema": "l9.evidence-envelope",
+  "schemaVersion": "1.0.0",
+  "evidenceId": "ev_d7782103700f8441a0bd9250a275d680b6f4b797",
+  "subject": {
+    "kind": "git-revision",
+    "repository": {
+      "host": "github.com",
+      "owner": "Quantum-L9",
+      "name": "l9-pr-repair"
+    },
+    "revision": {
+      "commit": "f5773d4ded37dbb611100166947aa2f78e5fbccc"
+    }
+  },
+  "producer": {
+    "id": "l9-ci-sdk",
+    "repository": "Quantum-L9/l9-ci-sdk",
+    "version": "2.0.0"
+  },
+  "evidenceType": "l9.observation/l9.repository-metadata",
+  "observedAt": "2026-09-08T02:10:00Z",
+  "issuedAt": "2026-09-08T02:10:00Z",
+  "payload": {
+    "artifacts": [
+      {
+        "digest": {
+          "algorithm": "sha256",
+          "value": "093d8ba048964971ecb33ad4669354b8f8b3de68766b573c00ed170e2b7860b1"
+        },
+        "mediaType": "text/markdown",
+        "name": "repository-manifest",
+        "path": "MANIFEST.md"
+      }
+    ],
+    "check": {
+      "configurationDigest": {
+        "algorithm": "sha256",
+        "value": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "id": "l9.repository-metadata",
+      "version": "1.0.0"
+    },
+    "execution": {
+      "attempt": 1,
+      "completedAt": "2026-09-08T02:10:00Z",
+      "runId": "corridor-l3f1-complete-20260908T020000Z",
+      "startedAt": "2026-09-08T02:00:00Z",
+      "status": "failed"
+    },
+    "findings": [],
+    "observationId": "sha256:d7782103700f8441a0bd9250a275d680b6f4b797418026162437b25fad74f7b2",
+    "producer": {
+      "id": "l9-ci-sdk",
+      "repository": "Quantum-L9/l9-ci-sdk",
+      "version": "2.0.0"
+    },
+    "schema": "l9.observation",
+    "schemaVersion": "1.0.0",
+    "subject": {
+      "kind": "git-revision",
+      "repository": {
+        "host": "github.com",
+        "name": "l9-pr-repair",
+        "owner": "Quantum-L9"
+      },
+      "revision": {
+        "commit": "f5773d4ded37dbb611100166947aa2f78e5fbccc"
+      }
+    },
+    "summary": {
+      "errorCount": 0,
+      "findingCount": 0,
+      "informationalCount": 0,
+      "warningCount": 0
+    }
+  },
+  "payloadDigest": {
+    "algorithm": "sha256",
+    "value": "357fd8c304a9dd1de6f44e8486d9bbb2f69f22fb81d8e03d161b8514bbfa1503"
+  },
+  "sourceObservationId": "sha256:d7782103700f8441a0bd9250a275d680b6f4b797418026162437b25fad74f7b2",
+  "lineage": [],
+  "admissionContext": {
+    "receivedAt": "2026-09-08T02:10:00Z",
+    "channel": "local"
+  }
+}

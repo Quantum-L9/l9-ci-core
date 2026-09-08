@@ -625,3 +625,22 @@ Historical miner was run against real GitHub `Quantum-L9/l9-ci-core#148` with a 
 Shipped `evaluate --profile l9.pull-request@1 --policy l9.organization-default@1` on the existing `ci_evidence` envelope exited **42** (`EVIDENCE_SCHEMA_INVALID`: `artifacts[0].sdkVersion` unexpected). Re-admit accepted 0 / rejected 1. No `AssuranceDecision` was written. Fields were not stripped to force a decision. Original organism admission/transport remains pass; that is not a profile decision.
 
 Verdict still **`fail` / `do-not-deploy`**. No waivers.
+
+## L3-F1 closed (2026-09-08T02:30:00Z)
+
+The previous evaluate exit 42 was a **wrong Assurance checkout**: the dependabot worktree omitted `artifact.sdkVersion`. Shipped `origin/main` `e9f012b` already lists the field.
+
+Shipped SDK 2.0.0 @ `5405fa5` then produced the five missing pull-request observations against clean `l9-pr-repair@f5773d4`:
+
+| Check | How | Status |
+|---|---|---|
+| `l9.mandatory-findings` | existing organism observation | passed |
+| `l9.sdk-validation` | `l9-ci observation project-sdk-validation` | passed |
+| `l9.repository-metadata` | `l9-ci observation project-repository-metadata` | **failed** (no committed `MANIFEST.md`) |
+| `l9.lint` | `ruff check src` exit 0 + `observation build` | passed |
+| `l9.tests` | `pytest -q` exit 0 + `observation build` | passed |
+| `l9.transport-packet` | `semgrep --config l9-transport.yml --error` exit 0 + `observation build` | passed |
+
+Admit accepted 6 / rejected 0. Evaluate wrote `AssuranceDecision` `dec_d0e45c245bb22fb4417831f5540a852af93e3f09`, verdict **fail**. Completeness is complete. L3-F1 is closed. Remaining organism failures: Layer 2 partial, Layer 3 partial, profile fail. `do-not-deploy` unchanged.
+
+Evidence: `docs/pipeline-runs/2026-09-07/evidence/layer-3/payloads/ci_evidence/profile-evidence/`.

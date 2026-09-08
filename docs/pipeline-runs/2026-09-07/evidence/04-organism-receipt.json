@@ -108,7 +108,7 @@
     "observability_contracts": "pass"
   },
   "ci_evidence_transport": "pass",
-  "assurance_policy_evidence_completeness": "open/indeterminate",
+  "assurance_policy_evidence_completeness": "complete",
   "provenance_model": "version-governed",
   "source_sha_gating": false,
   "version_consistency": "artifacts/organism/layer-4/receipts/version-consistency.json",
@@ -119,7 +119,7 @@
         "id": 1,
         "control": "schema_admission",
         "status": "proven",
-        "evidence": "no_evidence_schema_invalid; accepted 1, rejected 0"
+        "evidence": "Original organism admission accepted 1. Profile-complete admit accepted 6, rejected 0, quarantined 0 (artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/admission/admission-report.json)."
       },
       {
         "id": 2,
@@ -154,9 +154,9 @@
       {
         "id": 7,
         "control": "determinate_assurance_policy_profile_decision",
-        "status": "open/indeterminate",
+        "status": "proven",
         "alias": "L3-F1",
-        "evidence": "Admission/transport of the original organism run remains pass. 2026-09-08 shipped evaluate --profile l9.pull-request@1 --policy l9.organization-default@1 on that envelope exited 42 (EVIDENCE_SCHEMA_INVALID: artifacts[0].sdkVersion unexpected). Re-admit accepted 0 rejected 1. No AssuranceDecision was written. Fields were not stripped. See artifacts/organism/layer-3/payloads/ci_evidence/evaluate-2026-09-08/probe.json."
+        "evidence": "Shipped evaluate on origin/main e9f012b wrote AssuranceDecision dec_d0e45c245bb22fb4417831f5540a852af93e3f09. Verdict fail. Six controls pass; L9.CI.REPOSITORY_METADATA fails because project-repository-metadata on clean pr-repair@f5773d4 found no committed MANIFEST.md. Prior exit-42 was a dependabot-checkout schema miss; origin/main already admits sdkVersion. See artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/probe.json."
       }
     ]
   },
@@ -201,9 +201,8 @@
       "summary": "Layer 3 status 'partial': 5 of 6 corridors PASS (assurance_harness, ci_evidence, learning_feedback, observability_contracts, standalone_repair_safety); 1 SKIPPED because a required Layer 2 seam is not passing (editor_advisory); 0 fail. A skipped corridor is not a pass, and none was forced with a hand-authored artifact."
     },
     {
-      "code": "ASSURANCE_POLICY_EVIDENCE_INCOMPLETE",
-      "alias": "L3-F1",
-      "summary": "ci_evidence_transport is pass from the original organism admission. 2026-09-08 shipped evaluate on that envelope did not produce an AssuranceDecision (exit 42, sdkVersion unevaluated). Completeness stays open/indeterminate. Do not read ci_evidence=pass as a completed Assurance profile."
+      "code": "ASSURANCE_POLICY_PROFILE_FAIL",
+      "summary": "l9.pull-request@1 evaluate wrote decision dec_d0e45c245bb22fb4417831f5540a852af93e3f09, verdict fail. L9.CI.REPOSITORY_METADATA failed: shipped project-repository-metadata on Quantum-L9/l9-pr-repair@f5773d4 found no committed MANIFEST.md. Six other profile controls passed. L3-F1 (no decision) is closed."
     }
   ],
   "warnings": [
@@ -214,7 +213,7 @@
     "Original Layer-2 seam-inventory.json was reconstructed AFTER the first seam tests. This rerun declared its active set first in layer-2/seam-inventory.rerun-2026-09-07.json."
   ],
   "waivers": [],
-  "final_statement": "DO NOT DEPLOY. Layer 1 is pass 9/9. Layer 2 is partial: 6/7 pass, intelligence_to_lsp still PublicationGateError (candidates score 0.35; threshold 4.0; static ceiling 2.5; historical miner on Core #148 admitted 0 events). Layer 3 is partial: 5/6 pass, editor_advisory skipped. L3-F1 still open: shipped evaluate did not write an AssuranceDecision. 15/15 negatives passed. No waivers.",
+  "final_statement": "DO NOT DEPLOY. Layer 1 is pass 9/9. Layer 2 is partial: 6/7 pass, intelligence_to_lsp still PublicationGateError (candidates score 0.35; threshold 4.0; static ceiling 2.5; historical miner on Core #148 admitted 0 events). Layer 3 is partial: 5/6 pass, editor_advisory skipped. L3-F1 is closed: shipped evaluate wrote AssuranceDecision dec_d0e45c245bb22fb4417831f5540a852af93e3f09, verdict fail (repository-metadata). 15/15 negatives passed. No waivers.",
   "sdk_health_refresh": {
     "cause": "l9-ci-sdk#95 merged; nightly Core callers (secrets-inherit) removed",
     "tested_at": "2026-09-07T23:54:25Z",
@@ -234,6 +233,12 @@
       "code": "NEGATIVE_COVERAGE_INCOMPLETE",
       "resolved_at": "2026-09-08T00:16:39Z",
       "summary": "15 of 15 fail-closed negative tests now ran and passed. The five previously not-run tests were executed on the Layer 2/3 rerun."
+    },
+    {
+      "code": "ASSURANCE_POLICY_EVIDENCE_INCOMPLETE",
+      "alias": "L3-F1",
+      "resolved_at": "2026-09-08T02:30:00Z",
+      "summary": "Shipped evaluate --profile l9.pull-request@1 on origin/main e9f012b wrote AssuranceDecision dec_d0e45c245bb22fb4417831f5540a852af93e3f09. Completeness is complete (6/6 checks admitted, 7/7 controls assessed). Prior exit 42 was a dependabot-checkout schema miss."
     }
   ],
   "layer_2_3_rerun": {

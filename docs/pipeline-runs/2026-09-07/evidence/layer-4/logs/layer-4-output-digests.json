@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-08T01:20:00Z",
+  "generated_at": "2026-09-08T02:35:00Z",
   "outputs": [
     {
       "path": "artifacts/organism/01-repo-health.json",
@@ -18,13 +18,13 @@
     },
     {
       "path": "artifacts/organism/04-organism-receipt.json",
-      "size_bytes": 10867,
-      "sha256": "f97cc9aed473e67f0c0863c156cba8be43587e40f8fc59e400efe407ad161b1e"
+      "size_bytes": 11491,
+      "sha256": "a52c9fc093d4ef2fa25730ff62dadd954f8bfd67a775c1805cbf0fbd273e5e3e"
     },
     {
       "path": "artifacts/organism/deploy-summary.md",
-      "size_bytes": 13690,
-      "sha256": "2f5cf1f3d72963e031bc61209026e001a8be79b17a5bca5997a221a6bc9900b2"
+      "size_bytes": 14130,
+      "sha256": "fa8887ed4dd35de5c6ba09927b152fa629f9e71fe8b55f6bf8efff811df0471f"
     },
     {
       "path": "artifacts/organism/layer-2/payloads/intelligence_to_lsp/historical-probe-2026-09-08.json",
@@ -62,6 +62,31 @@
       "sha256": "ed353f189002c37762b417e3d13954bf2da5d17c55403e77c813ec16c2370517"
     },
     {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/admission/admission-report.json",
+      "size_bytes": 30784,
+      "sha256": "2ec206bce2fbd9ca478b1027a656f34ddb9cd305c495abbf748051252273b31e"
+    },
+    {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/evaluate/decision.json",
+      "size_bytes": 6026,
+      "sha256": "f11771f8ec352addfe792f4973a383819565b6d4c1968d17e9e2819448939200"
+    },
+    {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/evaluate/decision.summary.md",
+      "size_bytes": 818,
+      "sha256": "85b379b1dcb0bccfb158ad30f7af17e250279ea51f6bee413f0f8218abc54fdf"
+    },
+    {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/evaluate/evidence-manifest.json",
+      "size_bytes": 1573,
+      "sha256": "21417a17a3982c6929ab7bd0b83a090c2fb21d45726d773ed9ad758cd17352a2"
+    },
+    {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/probe.json",
+      "size_bytes": 2145,
+      "sha256": "40e654614dfcb536fb42245ccf3dd85fea04da7d99e987873b68e1000270dc70"
+    },
+    {
       "path": "artifacts/organism/layer-3/receipts/editor_advisory.json",
       "size_bytes": 634,
       "sha256": "ff8be8670f0a83ae67f7ee94b6f56b0f041498b6919a3736cc0f5677d0fe8545"
@@ -93,8 +118,8 @@
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-1-summary.json",
-      "size_bytes": 2170,
-      "sha256": "3da11a7139bcb8cd3885cdc122e819613bb0ab33dd268730068abbd66511751d"
+      "size_bytes": 2211,
+      "sha256": "d3c45609d8d94b07db007cf5aaa19a2f3c1f067c33e945e062757432be2bedd5"
     },
     {
       "path": "artifacts/organism/layer-4/receipts/layer-2-summary.json",
@@ -138,8 +163,8 @@
     },
     {
       "path": "artifacts/organism/layer-4/summaries/deploy-summary.md",
-      "size_bytes": 13690,
-      "sha256": "2f5cf1f3d72963e031bc61209026e001a8be79b17a5bca5997a221a6bc9900b2"
+      "size_bytes": 14130,
+      "sha256": "fa8887ed4dd35de5c6ba09927b152fa629f9e71fe8b55f6bf8efff811df0471f"
     }
   ]
 }
