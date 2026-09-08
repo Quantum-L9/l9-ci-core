@@ -166,8 +166,9 @@ informational (`layer-4/receipts/sha-consistency.json`). Compatibility is record
 `ci_evidence` / `ci_evidence_transport` stay **pass**: Core-driven SDK evidence was admitted by
 real Assurance code, digest-linked, same run. That is not a determinate Assurance policy/profile
 decision. Finding `ASSURANCE_POLICY_EVIDENCE_INCOMPLETE` (`L3-F1`) records
-`assurance_policy_evidence_completeness: open/indeterminate`. The seven-control matrix lives on
-`04-organism-receipt.json`; the seventh row is the open gap.
+`assurance_policy_evidence_completeness: open/indeterminate`. Shipped evaluate on the live
+envelope exited 42 (`sdkVersion` unexpected) and wrote no AssuranceDecision. The seven-control
+matrix lives on `04-organism-receipt.json`; the seventh row is the open gap.
 
 ## Negative tests
 
@@ -199,7 +200,7 @@ deliberately re-run at the revision its own `SnapshotMismatchError` gate demands
 |---|---|
 | `LAYER_2_NOT_PASSING` | Layer 2 status 'partial': 6 of 7 active seams PASS (core_to_sdk, harness_to_assurance, observability_contracts, resolver_to_intelligence, sdk_to_assurance, pr_repair_standalone); 1 partial (intelligence_to_lsp); 0 fail. No seam was forced with a hand-authored artifact. |
 | `LAYER_3_NOT_PASSING` | Layer 3 status 'partial': 5 of 6 corridors PASS (assurance_harness, ci_evidence, learning_feedback, observability_contracts, standalone_repair_safety); 1 SKIPPED because a required Layer 2 seam is not passing (editor_advisory); 0 fail. A skipped corridor is not a pass, and none was forced with a hand-authored artifact. |
-| `ASSURANCE_POLICY_EVIDENCE_INCOMPLETE` (`L3-F1`) | `ci_evidence_transport` is pass. `assurance_policy_evidence_completeness` is open/indeterminate: no determinate Assurance policy/profile decision exists. Do not read `ci_evidence=pass` as a completed Assurance profile. |
+| `ASSURANCE_POLICY_EVIDENCE_INCOMPLETE` (`L3-F1`) | `ci_evidence_transport` is pass. Shipped evaluate wrote no AssuranceDecision (exit 42, `sdkVersion` unexpected). Completeness stays open/indeterminate. |
 
 ## Waivers
 
@@ -217,10 +218,11 @@ non-authoritative; Observability holds its digest and validation boundary and no
 and 15 fail-closed negative tests reject what they are supposed to reject. Live pr-repair GraphQL
 ingest now works; `standalone_repair_safety` is composed on that live payload.
 
-What is not: `intelligence_to_lsp` cannot promote a defense pack because the corpus has one producer
-and one scope, so recurrence maturity is unmet — the gate is behaving correctly and the corridor
-behind it (`editor_advisory`) is therefore unproven, not working. The SDK `secrets-inherit`
-gate failure is resolved by #95; that does not make the remaining partial seam or skipped corridor a pass.
+What is not: `intelligence_to_lsp` cannot promote a defense pack. Candidates score 0.35 against a
+4.0 threshold (static-finding ceiling 2.5). Historical miner on Core #148 admitted 0 events
+(59 quarantined as sensitive_content). The corridor behind it (`editor_advisory`) stays skipped.
+The SDK `secrets-inherit` gate failure is resolved by #95; that does not make the remaining
+partial seam or skipped corridor a pass.
 
 Nothing failed outright and nothing was forced with a hand-authored artifact. But a partial seam is
 not a pass and a skipped corridor is not a pass, so `do-not-deploy` is the only defensible verdict.

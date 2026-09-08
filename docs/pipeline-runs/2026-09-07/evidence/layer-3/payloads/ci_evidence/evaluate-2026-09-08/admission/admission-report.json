@@ -1,0 +1,69 @@
+{
+  "subject": {
+    "kind": "git-revision",
+    "repository": {
+      "host": "github.com",
+      "owner": "Quantum-L9",
+      "name": "l9-pr-repair"
+    },
+    "revision": {
+      "commit": "f5773d4ded37dbb611100166947aa2f78e5fbccc"
+    }
+  },
+  "receivedAt": "2026-09-08T01:00:00Z",
+  "results": [
+    {
+      "status": "rejected",
+      "reasons": [
+        {
+          "code": "EVIDENCE_SCHEMA_INVALID",
+          "message": "$.artifacts[0]: Unevaluated properties are not allowed ('sdkVersion' was unexpected)"
+        }
+      ],
+      "validations": {
+        "schema": {
+          "status": "fail",
+          "code": "EVIDENCE_SCHEMA_INVALID",
+          "message": "$.artifacts[0]: Unevaluated properties are not allowed ('sdkVersion' was unexpected)"
+        },
+        "producer": {
+          "status": "skipped"
+        },
+        "subject": {
+          "status": "skipped"
+        },
+        "integrity": {
+          "status": "skipped"
+        },
+        "freshness": {
+          "status": "skipped"
+        },
+        "authorization": {
+          "status": "skipped"
+        },
+        "replay": {
+          "status": "skipped"
+        },
+        "lineage": {
+          "status": "skipped"
+        }
+      }
+    }
+  ],
+  "accepted": [],
+  "rejectedCount": 1,
+  "quarantinedCount": 0,
+  "duplicateCount": 0,
+  "unknowns": [
+    {
+      "unknownId": "unknown_admission_0000",
+      "category": "invalid-evidence",
+      "description": "$.artifacts[0]: Unevaluated properties are not allowed ('sdkVersion' was unexpected)",
+      "impact": "decision",
+      "relatedControls": [],
+      "resolvableBy": [
+        "produce conformant exact-revision evidence"
+      ]
+    }
+  ]
+}

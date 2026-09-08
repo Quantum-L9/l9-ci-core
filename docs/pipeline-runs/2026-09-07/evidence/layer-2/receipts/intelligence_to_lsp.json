@@ -9,10 +9,10 @@
     "phase": "producer (defense pack assembly)",
     "code": "PublicationGateError",
     "error": "no promotion-eligible candidates are available",
-    "refined_diagnosis": "Re-run after a finding-BEARING corpus became available (revision 2410fae622bb of l9-ci-debt-resolver, finding_count=1, ingested with no limitations alongside the resolver feedback event; snapshot record_count=2). The compiler now produces candidate_count=2 - up from zero - but promotion_eligible_count remains 0. The recurrence report shows why: distinct_producer_count=1 and distinct_scope_count=1. Promotion requires a pattern to RECUR across producers and scopes; a single sighting in one repository at one revision cannot earn a prevention rule.",
-    "assessment": "This is the designed fail-closed behaviour of the publication gate, NOT a defect and NOT the earlier zero-finding starvation. The first diagnosis (an empty corpus) has been superseded: the corpus is no longer empty and candidates now compile. What is missing is recurrence evidence, which requires findings from multiple producers or scopes over time.",
-    "classification": "insufficient recurrence evidence - a corpus-maturity requirement, not a code defect",
-    "what_would_unblock": "Findings of the same canonical rule across at least two distinct producers or scopes, so the compiler can mark a candidate promotion-eligible."
+    "refined_diagnosis": "On-disk compilation compile_958379ff… has candidate_count=2 and promotion_eligible_count=0. Both candidates score 0.35 (deferred). scoring.py promotes at total>=4.0. Static findings have a hard ceiling of 2.5 (recurrence+scope only). The remaining 2.5 requires effort, repair_success, and false_positive_safety from l9.historical-resolution-event/v1. Those three components are 0.0 because rule-effectiveness success_ratio and false_positive_ratio are null and effort mean_minutes is null. A second SDK finding cannot close the seam.",
+    "assessment": "Designed publication-gate fail-closed. Not a missing LSP consumer. Not a defect to lower the 4.0 threshold.",
+    "classification": "corpus-maturity: historical repair/FP dimensions absent; static-finding ceiling 2.5 < 4.0",
+    "what_would_unblock": "Real l9.historical-resolution-event/v1 observations that survive safety screening and score >=4.0, then assemble-defense-pack. Do not hand-author a pack."
   },
   "producer_chain_proven": [
     {
@@ -63,5 +63,15 @@
     "declared_before": "artifacts/organism/layer-2/seam-inventory.rerun-2026-09-07.json",
     "assemble_defense_pack": "re-attempted against the published compilation compile_958379ff…; this worktree has no pyarrow, so the CLI could not reload parquet snapshots. On-disk compilation-result.json still records candidate_count=2, promotion_eligible_count=0. No pack was assembled. No hand-authored pack was used.",
     "status_unchanged": "partial — PublicationGateError remains the designed fail-closed result on a one-producer, one-scope corpus."
+  },
+  "historical_probe": {
+    "tested_at": "2026-09-08T01:18:00Z",
+    "receipt": "artifacts/organism/layer-2/payloads/intelligence_to_lsp/historical-probe-2026-09-08.json",
+    "source_pr": "Quantum-L9/l9-ci-core#148",
+    "quarantined_observations": 59,
+    "quarantine_reason": "sensitive_content (git-object-id / SHA fields)",
+    "normalized_observations": 0,
+    "native_events_admitted": 0,
+    "pack_assembled": false
   }
 }

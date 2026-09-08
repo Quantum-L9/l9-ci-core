@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-08T00:40:00Z",
+  "generated_at": "2026-09-08T01:20:00Z",
   "outputs": [
     {
       "path": "artifacts/organism/01-repo-health.json",
@@ -18,18 +18,23 @@
     },
     {
       "path": "artifacts/organism/04-organism-receipt.json",
-      "size_bytes": 10698,
-      "sha256": "a3971b359ef98b2a0b5de6a8970ad6c12423b58e414bae88970cdc58f3628f21"
+      "size_bytes": 10867,
+      "sha256": "f97cc9aed473e67f0c0863c156cba8be43587e40f8fc59e400efe407ad161b1e"
     },
     {
       "path": "artifacts/organism/deploy-summary.md",
-      "size_bytes": 13630,
-      "sha256": "d86736d42f1045b4212d97694fa0c3f652e3d110b1db696dccf4f6dd0335e4c9"
+      "size_bytes": 13690,
+      "sha256": "2f5cf1f3d72963e031bc61209026e001a8be79b17a5bca5997a221a6bc9900b2"
+    },
+    {
+      "path": "artifacts/organism/layer-2/payloads/intelligence_to_lsp/historical-probe-2026-09-08.json",
+      "size_bytes": 1226,
+      "sha256": "9e573293405c64a30365b1aec2ad04d08849d158cd6a83cf72f6dd6bab6d5f2b"
     },
     {
       "path": "artifacts/organism/layer-2/receipts/intelligence_to_lsp.json",
-      "size_bytes": 3930,
-      "sha256": "b0a2d14b24d3ded0d1e91150ec19873e452689d301632f53ac2a9a2db2632831"
+      "size_bytes": 4117,
+      "sha256": "7ba3f068603d3c6d28dd77b551cc176ac9bad4b1eaed2d38829b37d703e20ec4"
     },
     {
       "path": "artifacts/organism/layer-2/receipts/pr_repair_standalone.json",
@@ -47,9 +52,19 @@
       "sha256": "c1c35bf3fc30e06c3ca95bc0ac2c3aa397765059ca3510e5f4fe0c20c5eb2cc1"
     },
     {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/evaluate-2026-09-08/admission/admission-report.json",
+      "size_bytes": 1689,
+      "sha256": "8d94b6397ad84d91a5b1f30f43e82eb6dd4daaa21608818b7c2d24360449359d"
+    },
+    {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/evaluate-2026-09-08/probe.json",
+      "size_bytes": 1085,
+      "sha256": "ed353f189002c37762b417e3d13954bf2da5d17c55403e77c813ec16c2370517"
+    },
+    {
       "path": "artifacts/organism/layer-3/receipts/editor_advisory.json",
-      "size_bytes": 742,
-      "sha256": "16dc91ff88c2c62bf9d030faf4f1229d86c67d1c0498c23a28b4e7b0aaffeae3"
+      "size_bytes": 634,
+      "sha256": "ff8be8670f0a83ae67f7ee94b6f56b0f041498b6919a3736cc0f5677d0fe8545"
     },
     {
       "path": "artifacts/organism/layer-3/receipts/standalone_repair_safety.json",
@@ -123,8 +138,8 @@
     },
     {
       "path": "artifacts/organism/layer-4/summaries/deploy-summary.md",
-      "size_bytes": 13630,
-      "sha256": "d86736d42f1045b4212d97694fa0c3f652e3d110b1db696dccf4f6dd0335e4c9"
+      "size_bytes": 13690,
+      "sha256": "2f5cf1f3d72963e031bc61209026e001a8be79b17a5bca5997a221a6bc9900b2"
     }
   ]
 }

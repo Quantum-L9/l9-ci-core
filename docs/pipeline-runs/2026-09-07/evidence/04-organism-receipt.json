@@ -156,7 +156,7 @@
         "control": "determinate_assurance_policy_profile_decision",
         "status": "open/indeterminate",
         "alias": "L3-F1",
-        "evidence": "Admission/transport passed. No Assurance policy/profile decision artifact exists."
+        "evidence": "Admission/transport of the original organism run remains pass. 2026-09-08 shipped evaluate --profile l9.pull-request@1 --policy l9.organization-default@1 on that envelope exited 42 (EVIDENCE_SCHEMA_INVALID: artifacts[0].sdkVersion unexpected). Re-admit accepted 0 rejected 1. No AssuranceDecision was written. Fields were not stripped. See artifacts/organism/layer-3/payloads/ci_evidence/evaluate-2026-09-08/probe.json."
       }
     ]
   },
@@ -203,7 +203,7 @@
     {
       "code": "ASSURANCE_POLICY_EVIDENCE_INCOMPLETE",
       "alias": "L3-F1",
-      "summary": "ci_evidence_transport is pass: Core-driven SDK evidence was admitted by real Assurance code, digest-linked, same run. assurance_policy_evidence_completeness is open/indeterminate: no determinate Assurance policy/profile decision exists. Do not read ci_evidence=pass as a completed Assurance profile."
+      "summary": "ci_evidence_transport is pass from the original organism admission. 2026-09-08 shipped evaluate on that envelope did not produce an AssuranceDecision (exit 42, sdkVersion unevaluated). Completeness stays open/indeterminate. Do not read ci_evidence=pass as a completed Assurance profile."
     }
   ],
   "warnings": [
@@ -214,7 +214,7 @@
     "Original Layer-2 seam-inventory.json was reconstructed AFTER the first seam tests. This rerun declared its active set first in layer-2/seam-inventory.rerun-2026-09-07.json."
   ],
   "waivers": [],
-  "final_statement": "DO NOT DEPLOY. Layer 1 is 'pass' (9/9) after l9-ci-sdk#95. Layer 2 is 'partial': 6/7 seams pass, 1 partial (intelligence_to_lsp PublicationGateError), 0 fail. Layer 3 is 'partial': 5/6 corridors pass, 1 skipped (editor_advisory), 0 fail. L3-F1 (ASSURANCE_POLICY_EVIDENCE_INCOMPLETE) is still open. 15/15 fail-closed negative tests passed. Live pr-repair GraphQL ingest now works; the remaining blocked path is defense-pack promotion, which requires recurrence across producers or scopes. Cross-layer SHA alignment is a documented non-goal.",
+  "final_statement": "DO NOT DEPLOY. Layer 1 is pass 9/9. Layer 2 is partial: 6/7 pass, intelligence_to_lsp still PublicationGateError (candidates score 0.35; threshold 4.0; static ceiling 2.5; historical miner on Core #148 admitted 0 events). Layer 3 is partial: 5/6 pass, editor_advisory skipped. L3-F1 still open: shipped evaluate did not write an AssuranceDecision. 15/15 negatives passed. No waivers.",
   "sdk_health_refresh": {
     "cause": "l9-ci-sdk#95 merged; nightly Core callers (secrets-inherit) removed",
     "tested_at": "2026-09-07T23:54:25Z",

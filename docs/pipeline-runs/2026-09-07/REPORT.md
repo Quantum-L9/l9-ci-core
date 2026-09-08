@@ -609,3 +609,19 @@ SDK, resolver, Intelligence ingest/compile, live `l9-pr-repair` dry-run) are now
 
 Verdict unchanged: **`fail` / `do-not-deploy`**. `intelligence_to_lsp` is still partial;
 `editor_advisory` is still skipped; L3-F1 is still open.
+
+## Build of core150_l23_blockers_1cd2a947 (2026-09-08)
+
+Executed on `/Users/ib-mac/.l9/worktrees/l9-ci-core-pr150` @ `claude/layer-4-activation-wb6bgf`. WIP and Cursor-Governance remediator files were not touched.
+
+### intelligence_to_lsp — still partial
+
+Shipped `scoring.py` promotes at **4.0**. On-disk candidates score **0.35** (`deferred`). Static findings ceiling is **2.5**. The missing 2.5 is effort + repair_success + false_positive_safety from `l9.historical-resolution-event/v1`.
+
+Historical miner was run against real GitHub `Quantum-L9/l9-ci-core#148` with a bound token. It harvested observations; safety quarantined **59/59** as `sensitive_content` (git SHA / object-id fields). Normalized=0, native events admitted=0, no pack. `editor_advisory` stays skipped. No hand-authored pack.
+
+### L3-F1 — still open
+
+Shipped `evaluate --profile l9.pull-request@1 --policy l9.organization-default@1` on the existing `ci_evidence` envelope exited **42** (`EVIDENCE_SCHEMA_INVALID`: `artifacts[0].sdkVersion` unexpected). Re-admit accepted 0 / rejected 1. No `AssuranceDecision` was written. Fields were not stripped to force a decision. Original organism admission/transport remains pass; that is not a profile decision.
+
+Verdict still **`fail` / `do-not-deploy`**. No waivers.

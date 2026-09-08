@@ -8,7 +8,7 @@
   "required_seams": {
     "intelligence_to_lsp": "partial"
   },
-  "reason": "Required Layer 2 seam intelligence_to_lsp is still partial after the Layer 2/3 rerun. The compiler yields candidate_count=2, promotion_eligible_count=0 (distinct_producer_count=1, distinct_scope_count=1) on a finding-bearing corpus (record_count=2). No Intelligence-produced defense pack exists to feed the LSP. A hand-authored pack would not prove the seam. Skipped, not forced.",
+  "reason": "Required Layer 2 seam intelligence_to_lsp is still partial. Candidates score 0.35/deferred (threshold 4.0; static-finding ceiling 2.5). Historical miner on Core #148 quarantined 59 observations as sensitive_content; 0 native events admitted; no pack. Skipped, not forced.",
   "required_failed_or_missing_seams": [
     "intelligence_to_lsp"
   ],
