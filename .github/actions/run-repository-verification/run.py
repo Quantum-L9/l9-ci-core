@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run a consumer repository's canonical execution contract with pinned Core code."""
+
 from __future__ import annotations
 
 import os
@@ -7,10 +8,11 @@ import sys
 from pathlib import Path
 
 CORE_ROOT = Path(__file__).resolve().parents[3]
-if str(CORE_ROOT) not in sys.path:
-    sys.path.insert(0, str(CORE_ROOT))
+CORE_TOOLS = CORE_ROOT / "tools"
+if str(CORE_TOOLS) not in sys.path:
+    sys.path.insert(0, str(CORE_TOOLS))
 
-from tools.l9_repo.__main__ import RepositoryWorkflow  # noqa: E402
+from l9_repo.__main__ import RepositoryWorkflow  # noqa: E402
 
 
 def _write_output(name: str, value: str) -> None:
@@ -31,16 +33,24 @@ def main() -> int:
         return 0
 
     _write_output("present", "true")
-    workflow = RepositoryWorkflow(workspace)
+    try:
+        workflow = RepositoryWorkflow(workspace)
 
-    # Setup is preparatory. The three authoritative verification phases remain
-    # validate -> check -> test. All contract parsing and command execution is
-    # performed by this immutable Core checkout, never consumer-vendored
-    # tools/l9_repo code.
-    workflow.setup()
-    workflow.validate()
-    workflow.check()
-    workflow.test()
+        # Setup is preparatory. The three authoritative verification phases remain
+        # validate -> check -> test. Contract parsing and command execution are
+        # performed by this immutable Core checkout, never consumer-vendored
+        # tools/l9_repo code.
+        workflow.setup()
+        workflow.validate()
+        workflow.check()
+        workflow.test()
+    except Exception as exc:
+        # Expected repository-verification failures become typed evidence so the
+        # existing SDK/Semgrep analysis can still finish. The workflow's final
+        # enforcement step fails blocking profiles on any non-pass typed result.
+        _write_output("status", "fail")
+        print(f"repository verification: FAIL ({exc})", file=sys.stderr)
+        return 0
 
     _write_output("status", "pass")
     print("repository verification: PASS (validate + check + test)")
