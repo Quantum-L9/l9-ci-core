@@ -33,6 +33,8 @@ class ForbiddenOwnershipTests(unittest.TestCase):
                 relative in EXCLUDED
                 or ".git" in relative.parts
                 or relative.parts[0] == "tests"
+                or relative.parts[0] == ".venv"
+                or relative.parts[:2] == (".l9", "runtime")
             ):
                 continue
             text = path.read_text(encoding="utf-8", errors="ignore").lower()
