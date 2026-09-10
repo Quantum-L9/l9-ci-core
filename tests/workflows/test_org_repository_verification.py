@@ -7,8 +7,8 @@ import os
 import re
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "org-ci.yml"
@@ -74,7 +74,7 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
                 "L9_REPOSITORY_WORKSPACE": tmp,
                 "GITHUB_OUTPUT": output.name,
             }
-            with mock.patch.dict(os.environ, env, clear=False):
+            with unittest.mock.patch.dict(os.environ, env, clear=False):
                 self.assertEqual(0, runner.main())
             text = Path(output.name).read_text(encoding="utf-8")
             self.assertIn("present=false", text)
@@ -112,8 +112,8 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
                 "GITHUB_OUTPUT": output.name,
             }
             with (
-                mock.patch.dict(os.environ, env, clear=False),
-                mock.patch.object(runner, "RepositoryWorkflow", FakeWorkflow),
+                unittest.mock.patch.dict(os.environ, env, clear=False),
+                unittest.mock.patch.object(runner, "RepositoryWorkflow", FakeWorkflow),
             ):
                 self.assertEqual(0, runner.main())
             self.assertEqual(["setup", "validate", "check", "test"], calls)
@@ -143,8 +143,10 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
                 "GITHUB_OUTPUT": output.name,
             }
             with (
-                mock.patch.dict(os.environ, env, clear=False),
-                mock.patch.object(runner, "RepositoryWorkflow", FailingWorkflow),
+                unittest.mock.patch.dict(os.environ, env, clear=False),
+                unittest.mock.patch.object(
+                    runner, "RepositoryWorkflow", FailingWorkflow
+                ),
             ):
                 self.assertEqual(0, runner.main())
             text = Path(output.name).read_text(encoding="utf-8")
