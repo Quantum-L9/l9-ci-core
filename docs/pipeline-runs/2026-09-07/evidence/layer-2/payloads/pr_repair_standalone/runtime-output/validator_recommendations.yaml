@@ -1,0 +1,8 @@
+target_system: external_validator_suite
+write_policy: review_only_no_direct_mutation
+sections:
+  new_rule_candidates: []
+  false_positive_candidates: []
+  severity_adjustments: []
+  missing_check_candidates: []
+packet_count: 0

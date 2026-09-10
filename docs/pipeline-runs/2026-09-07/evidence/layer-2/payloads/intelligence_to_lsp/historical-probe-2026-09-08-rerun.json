@@ -1,0 +1,60 @@
+{
+  "schema": "l9.organism-probe/v1",
+  "probe": "intelligence_historical_miner",
+  "tested_at": "2026-09-08T03:05:00Z",
+  "producer_sha_pinned": "7b11061084e254699d006feaeccd1c96d66445c9",
+  "producer_sha_used": "37138368fd7d3eae6fbd0c350a8425561bc66a40",
+  "producer_delta": "feat/historical-acquisition-allows-provider-shas — inspect_value(detect_git_object_ids=False) on acquisition observations. Corpus assess_redaction still rejects bare SHAs.",
+  "token_source": "aws bind GH_TOKEN (value not recorded)",
+  "first_pr": {
+    "command": "run_bootstrap Quantum-L9/l9-ci-core 148 --without-logs",
+    "source_observations": 59,
+    "quarantined_observations": 2,
+    "normalized_observations": 60,
+    "episodes": 1,
+    "native_events": 3,
+    "admission_statuses": ["accepted"],
+    "prior_probe": "59/59 quarantined as git-object-id; ReconstructionError: pull request context is required"
+  },
+  "batch": {
+    "receipt": "/Users/ib-mac/.l9/historical-l3/batch-result.json",
+    "ok_count": 44,
+    "episode_sum": 69,
+    "event_sum": 207,
+    "plus_core_148": {
+      "episodes": 1,
+      "native_events": 3
+    },
+    "corpus_record_count": 210
+  },
+  "compile": {
+    "snapshot_id": "cs_a153b9511a17c686e0a40a1a9fb452cbd26efacf36bcc1cab521a1f6d85a4934",
+    "analysis_run_id": "ar_2b861b0910f1bfaf5cb8b2aa2502a18f39331b6c18bad686da0cbbb7d1f63627",
+    "compilation_id": "compile_5feb52ee6b8d66b7245964fc0edc2c17fd37f46c740012352783a47cf62dfdb3",
+    "candidate_count": 60,
+    "promotion_eligible_count": 0,
+    "max_score": 0.95,
+    "max_score_state": "deferred",
+    "max_score_components": {
+      "recurrence": 2.5,
+      "scope_breadth": 1.0,
+      "effort": 0.0,
+      "repair_success": 0.0,
+      "false_positive_safety": 0.0
+    },
+    "effectiveness": {
+      "canonical_rule_id": null,
+      "attempt_count": 210,
+      "successful_count": 0,
+      "failed_count": 52,
+      "success_ratio": 0.0,
+      "confirmed_true_positive_count": 0,
+      "confirmed_false_positive_count": 0,
+      "false_positive_ratio": null,
+      "unknown_count": 210
+    }
+  },
+  "pack_assembled": false,
+  "hand_authored_pack": false,
+  "why_not_4_0": "Historical miner now admits events. Fingerprints do not cross repositories (max distinct_scope_count=1). Episode outcomes were not clean_verified/target_failure_resolved, so false_positive_disposition stayed unknown and repair_success stayed 0.0. effort_minutes is never reconstructed. Threshold 4.0 was not lowered."
+}

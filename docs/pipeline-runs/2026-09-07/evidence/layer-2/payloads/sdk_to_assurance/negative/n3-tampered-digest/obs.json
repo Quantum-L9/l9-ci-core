@@ -1,0 +1,54 @@
+{
+  "artifacts": [
+    {
+      "digest": {
+        "algorithm": "sha256",
+        "value": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "mediaType": "application/vnd.l9.finding-bundle+json",
+      "name": "finding-bundle",
+      "sdkVersion": "2.0.0"
+    }
+  ],
+  "check": {
+    "configurationDigest": {
+      "algorithm": "sha256",
+      "value": "08edd67f3cc9a9c944bd27a8e78543c2f70ee4c56177d331a108ba1b94f90e6e"
+    },
+    "id": "l9.mandatory-findings",
+    "version": "1.0.0"
+  },
+  "execution": {
+    "attempt": 1,
+    "completedAt": "2026-09-07T02:50:47Z",
+    "runId": "organism-layer2-run1",
+    "startedAt": "2026-09-07T02:50:47Z",
+    "status": "passed"
+  },
+  "findings": [],
+  "observationId": "sha256:cf29b59d2dfea4c0d568cfde0f1617d679331808feae67cc8c9cb34a53ca2b55",
+  "producer": {
+    "id": "l9-ci-sdk",
+    "repository": "Quantum-L9/l9-ci-sdk",
+    "version": "2.0.0"
+  },
+  "schema": "l9.observation",
+  "schemaVersion": "1.0.0",
+  "subject": {
+    "kind": "git-revision",
+    "repository": {
+      "host": "github.com",
+      "name": "l9-pr-repair",
+      "owner": "Quantum-L9"
+    },
+    "revision": {
+      "commit": "f5773d4ded37dbb611100166947aa2f78e5fbccc"
+    }
+  },
+  "summary": {
+    "errorCount": 0,
+    "findingCount": 0,
+    "informationalCount": 0,
+    "warningCount": 0
+  }
+}

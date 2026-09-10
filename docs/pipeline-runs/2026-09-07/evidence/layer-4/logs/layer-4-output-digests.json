@@ -1,0 +1,171 @@
+{
+  "generated_at": "2026-09-08T03:10:00Z",
+  "outputs": [
+    {
+      "path": "artifacts/organism/01-repo-health.json",
+      "size_bytes": 10719,
+      "sha256": "59eba75a0c223cdd2916fc0efc7e8d121e235a64a8807d5b3ba1d8554c43e1a4"
+    },
+    {
+      "path": "artifacts/organism/02-seam-tests.json",
+      "size_bytes": 6697,
+      "sha256": "5ced3ddba51a58c4096393818410b3b3d67b8a7a67b48a143abe69769c7ab3cc"
+    },
+    {
+      "path": "artifacts/organism/03-corridor-tests.json",
+      "size_bytes": 3067,
+      "sha256": "8289dbf8c4e891d25d80fe410036cfb804c80a33341f55e7910510e3caacf26b"
+    },
+    {
+      "path": "artifacts/organism/04-organism-receipt.json",
+      "size_bytes": 11491,
+      "sha256": "a52c9fc093d4ef2fa25730ff62dadd954f8bfd67a775c1805cbf0fbd273e5e3e"
+    },
+    {
+      "path": "artifacts/organism/deploy-summary.md",
+      "size_bytes": 14130,
+      "sha256": "fa8887ed4dd35de5c6ba09927b152fa629f9e71fe8b55f6bf8efff811df0471f"
+    },
+    {
+      "path": "artifacts/organism/layer-2/payloads/intelligence_to_lsp/historical-probe-2026-09-08.json",
+      "size_bytes": 1226,
+      "sha256": "9e573293405c64a30365b1aec2ad04d08849d158cd6a83cf72f6dd6bab6d5f2b"
+    },
+    {
+      "path": "artifacts/organism/layer-2/receipts/intelligence_to_lsp.json",
+      "size_bytes": 4745,
+      "sha256": "89718fbd71fd6e3ec283e46c5c22e7c1c80ff09a9710c85b9be111b00f4976c7"
+    },
+    {
+      "path": "artifacts/organism/layer-2/receipts/pr_repair_standalone.json",
+      "size_bytes": 4640,
+      "sha256": "ce54c88026f57db4617c9b7da90abba68fe37244e7f557c739a5e1b46a274bd3"
+    },
+    {
+      "path": "artifacts/organism/layer-2/seam-inventory.json",
+      "size_bytes": 5964,
+      "sha256": "e19a786b93b2faba05fa613f9817762e97ff77c259bc17f4ee7e3c33fb891897"
+    },
+    {
+      "path": "artifacts/organism/layer-2/seam-inventory.rerun-2026-09-07.json",
+      "size_bytes": 693,
+      "sha256": "c1c35bf3fc30e06c3ca95bc0ac2c3aa397765059ca3510e5f4fe0c20c5eb2cc1"
+    },
+    {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/evaluate-2026-09-08/admission/admission-report.json",
+      "size_bytes": 1689,
+      "sha256": "8d94b6397ad84d91a5b1f30f43e82eb6dd4daaa21608818b7c2d24360449359d"
+    },
+    {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/evaluate-2026-09-08/probe.json",
+      "size_bytes": 1085,
+      "sha256": "ed353f189002c37762b417e3d13954bf2da5d17c55403e77c813ec16c2370517"
+    },
+    {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/admission/admission-report.json",
+      "size_bytes": 30784,
+      "sha256": "2ec206bce2fbd9ca478b1027a656f34ddb9cd305c495abbf748051252273b31e"
+    },
+    {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/evaluate/decision.json",
+      "size_bytes": 6026,
+      "sha256": "f11771f8ec352addfe792f4973a383819565b6d4c1968d17e9e2819448939200"
+    },
+    {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/evaluate/decision.summary.md",
+      "size_bytes": 818,
+      "sha256": "85b379b1dcb0bccfb158ad30f7af17e250279ea51f6bee413f0f8218abc54fdf"
+    },
+    {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/evaluate/evidence-manifest.json",
+      "size_bytes": 1573,
+      "sha256": "21417a17a3982c6929ab7bd0b83a090c2fb21d45726d773ed9ad758cd17352a2"
+    },
+    {
+      "path": "artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/probe.json",
+      "size_bytes": 2145,
+      "sha256": "40e654614dfcb536fb42245ccf3dd85fea04da7d99e987873b68e1000270dc70"
+    },
+    {
+      "path": "artifacts/organism/layer-3/receipts/editor_advisory.json",
+      "size_bytes": 1782,
+      "sha256": "78886e06c063a1e0cc26dfcce20c1d0f052da73ee65a26b741137dc431b31481"
+    },
+    {
+      "path": "artifacts/organism/layer-3/receipts/standalone_repair_safety.json",
+      "size_bytes": 1734,
+      "sha256": "f43e8e2755b3e13bef8a5da67716782c6eedf14c6d5db34bb57402b03c6f6924"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/artifact-manifest.json",
+      "size_bytes": 41412,
+      "sha256": "e9955f3a9f7b81fb6f7edbe7c3e81cb73370727159fba0bb4666ea9ad367227f"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/authority-boundaries.json",
+      "size_bytes": 3889,
+      "sha256": "39657f718d0b8ac34d45512ae2c1927d94448f3392fc3c7ea30beff061200b82"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/inactive-seam-summary.json",
+      "size_bytes": 3171,
+      "sha256": "be415680f4a62aa1e330a31962e18f578851dcd7c47b839997d15404444fc728"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/input-presence.json",
+      "size_bytes": 1136,
+      "sha256": "2b8546386494b39127e2fc99baaba9848510041d629757fc7add9ec36e7135a8"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/layer-1-summary.json",
+      "size_bytes": 2211,
+      "sha256": "d3c45609d8d94b07db007cf5aaa19a2f3c1f067c33e945e062757432be2bedd5"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/layer-2-summary.json",
+      "size_bytes": 2666,
+      "sha256": "3f7540befb449ee4d37d7379016e7908382a08c5095cde96e7bd808682bf760e"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/layer-3-summary.json",
+      "size_bytes": 1456,
+      "sha256": "bbcd8b84e0497d5b23dc536135d35348c401040c1163ab623e42406fcb3082da"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/local-repo-observation.json",
+      "size_bytes": 3441,
+      "sha256": "39031e1ebadc54521f9a2a0f9461146264094bbf5806f836ad2fd18b9417ef41"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/negative-test-summary.json",
+      "size_bytes": 1307,
+      "sha256": "e8e9342a525ab6cee8575b959e2241ad905c425f027553eb6535c7c60450eab6"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/repo-identity-reconciliation.json",
+      "size_bytes": 1223,
+      "sha256": "1e6ef761330f8cc58f3488aaaa1e575e25ea43ced49ec91ad4bf6583239ccc09"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/repo-scope-check.json",
+      "size_bytes": 986,
+      "sha256": "2f550f78ca407ac8b0d0e3d88aa1c01bd75c98b23504302b2393df8c15623bb0"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/sha-consistency.json",
+      "size_bytes": 9481,
+      "sha256": "7f4b5222ec1e531b387fff2f30abdad8b0d9fbe54329e9d93a23dda3ddccfc52"
+    },
+    {
+      "path": "artifacts/organism/layer-4/receipts/version-consistency.json",
+      "size_bytes": 4978,
+      "sha256": "a604d2fc999303a04316269dfb1141c3fa9c5d4c30426e5a80f91ddfb2f89f63"
+    },
+    {
+      "path": "artifacts/organism/layer-4/summaries/deploy-summary.md",
+      "size_bytes": 14130,
+      "sha256": "fa8887ed4dd35de5c6ba09927b152fa629f9e71fe8b55f6bf8efff811df0471f"
+    }
+  ],
+  "regenerated": "Digests recomputed over the published bytes after the Layer 3 resolution receipts (03-corridor-tests.json, layer-3/receipts/editor_advisory.json) changed. The covered path set is unchanged; only size_bytes and sha256 were refreshed for those two paths. No receipt content was altered to make a digest match."
+}

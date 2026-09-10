@@ -1,0 +1,441 @@
+{
+  "confounders": {
+    "merge_commit": 3,
+    "multiple_commits_between_failure_and_success": 1,
+    "multiple_failure_fingerprints": 28,
+    "test_change": 7,
+    "workflow_definition_change": 1
+  },
+  "cross_repo_or_recurrent_clusters": [
+    {
+      "cluster": "Analyze (semgrep -> SDK)|Normalize provider report",
+      "occurrences": 5,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-lsp"
+      ]
+    },
+    {
+      "cluster": "Validate Python assurance plane (3.13)|Run repository gates",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-assurance"
+      ]
+    },
+    {
+      "cluster": "Validate Python assurance plane (3.11)|Run repository gates",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-assurance"
+      ]
+    },
+    {
+      "cluster": "Validate Python assurance plane (3.12)|Run repository gates",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-assurance"
+      ]
+    },
+    {
+      "cluster": "contracts|Run Phase 1 tests",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "cluster": "compile|Run complete contract suite",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "cluster": "analytics|Run complete Phase 1\u20134 suite",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "cluster": "ingestion|Run contract and ingestion tests",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "cluster": "Test Suite|pytest with coverage",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "cluster": "snapshots|Run architecture and snapshot tests",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "cluster": "effectiveness|Run complete Phase 1\u20137 suite",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "cluster": "ruff|Ruff check",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "cluster": "Lint and Type Check|ruff check",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "cluster": "mypy|Mypy static type gate",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "cluster": "publication-contract|Run complete Phase 1\u20136 suite",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "cluster": "Lint, type-check, test, coverage|Evaluate all gates (fail closed only after every gate has run)",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-sdk"
+      ]
+    }
+  ],
+  "episode_count": 70,
+  "equivalence_reasons": {
+    "job_removed": 2,
+    "validation_contract_changed": 16,
+    "validation_skip_added": 4,
+    "workflow_definition_changed": 1
+  },
+  "equivalent_check_relationship": {
+    "equivalent": 52,
+    "not_equivalent": 18
+  },
+  "false_conclusion_flip_samples": [
+    {
+      "confounders": [],
+      "episode_id": "hep_45ed2701764720af2003347b195ee62ea635aa4c6b6e054e25afc9b8cff70d1c",
+      "equivalence_reasons": [
+        "validation_contract_changed"
+      ],
+      "failed_steps": [
+        "Run Phase 1 validation"
+      ],
+      "job_name": "Unit tests",
+      "outcome": "outcome_unknown",
+      "pull_request": 147,
+      "repository": "Quantum-L9/l9-ci-core"
+    },
+    {
+      "confounders": [],
+      "episode_id": "hep_3a174fea02aba63a097eeeadf26542f4feb7d7ea71b7989225805709316919a8",
+      "equivalence_reasons": [
+        "validation_contract_changed"
+      ],
+      "failed_steps": [
+        "Run Phase 1 validation"
+      ],
+      "job_name": "Unit tests",
+      "outcome": "outcome_unknown",
+      "pull_request": 148,
+      "repository": "Quantum-L9/l9-ci-core"
+    }
+  ],
+  "fingerprint_x_repo_top": [
+    {
+      "fingerprint": "historical:36051b41008a0ad466b4d3c8b18cd6bfcef940c3beaa47f1d64db40f3d17eb96",
+      "occurrences": 5,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-lsp"
+      ]
+    },
+    {
+      "fingerprint": "historical:f0b10ccad80773a12b18501ebe8a7513452bddfb11c9b9eedd81954e4ab3b901",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-assurance"
+      ]
+    },
+    {
+      "fingerprint": "historical:6b963e068bac7770ccbccacf052122ca1d249c4750821ce3751334d381753e6c",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-assurance"
+      ]
+    },
+    {
+      "fingerprint": "historical:3c780b0f6b5e1bef085cd30c17cce9be4ff8243d7b221e9948d590f7a0109590",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-assurance"
+      ]
+    },
+    {
+      "fingerprint": "historical:f5004f5f78bb1ddf851d598579fe50aa38fd4c029c9e91f7c70ba585bfff0964",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "fingerprint": "historical:53f79bd2c876f7b97063d29e40e0155d26707a2e17ba97aeb21bdd1d6a7275d2",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "fingerprint": "historical:7c44705761471427acbb817e1465795e02f7cc9bc8fdae0f65d614baa7f03dde",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "fingerprint": "historical:1643e7441eae0674358c7de372fa9a393c87e9aa1cb1e76bf154e5c2bb85de31",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "fingerprint": "historical:33aea5613f7da08990ec3a586f46707df60e36b8439af649da9b109a23832454",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "fingerprint": "historical:062ab4d4ffcbc0451a3f8c690bf7e87250395ec6485821131251749cbafb61fc",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "fingerprint": "historical:633c23cee405d632f780d18b684a182157b4922b74fdd2b5786618d96d8f5286",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "fingerprint": "historical:40a01eaa4c84ab3e43c67ba67051a81d32a37947106ac5d6a317dba31dc2f57e",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "fingerprint": "historical:655d2cc1181d91e0fc43ce534ca8c311dd848cadc0451f44b5cfe448a959d4de",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "fingerprint": "historical:c97541e6acbe4c0dc354c507c22a3a31f63f1c0579b0f0e4734f07c302267f28",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "fingerprint": "historical:6dcdf6d5ba9a7fd0f7bab28b018ab5a0c174653af495e1a52402372987d90982",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-debt-intelligence"
+      ]
+    },
+    {
+      "fingerprint": "historical:286de562bd7cdbbc5a566c7d4654b7c6c93dfb78cfb15cb68009e7f69b43e0e9",
+      "occurrences": 4,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-sdk"
+      ]
+    },
+    {
+      "fingerprint": "historical:39333eef715931725ff9f8e551bf5e3edbc1d96948c8658d454fc19c868f8c2b",
+      "occurrences": 2,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-ci-core"
+      ]
+    },
+    {
+      "fingerprint": "historical:2ff7962a2c98745a528aa7d5da9ff83f0493ef1de91c6ccbcc98f784fa5f54ea",
+      "occurrences": 1,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-assurance"
+      ]
+    },
+    {
+      "fingerprint": "historical:1cb45e9e6ce09e89043f819b8246d748a4bb71ad857478c050770874e22c43b2",
+      "occurrences": 1,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-harness"
+      ]
+    },
+    {
+      "fingerprint": "historical:2422a9b47072a3c7f9cc4db75ad370a63d28b87e1be59a1b63ba259f56b48814",
+      "occurrences": 1,
+      "repo_count": 1,
+      "repositories": [
+        "Quantum-L9/l9-observability-core"
+      ]
+    }
+  ],
+  "job_step_clusters_top": [
+    {
+      "cluster": "Analyze (semgrep -> SDK)|Normalize provider report",
+      "count": 5
+    },
+    {
+      "cluster": "Validate Python assurance plane (3.13)|Run repository gates",
+      "count": 4
+    },
+    {
+      "cluster": "Validate Python assurance plane (3.11)|Run repository gates",
+      "count": 4
+    },
+    {
+      "cluster": "Validate Python assurance plane (3.12)|Run repository gates",
+      "count": 4
+    },
+    {
+      "cluster": "contracts|Run Phase 1 tests",
+      "count": 4
+    },
+    {
+      "cluster": "compile|Run complete contract suite",
+      "count": 4
+    },
+    {
+      "cluster": "analytics|Run complete Phase 1\u20134 suite",
+      "count": 4
+    },
+    {
+      "cluster": "ingestion|Run contract and ingestion tests",
+      "count": 4
+    },
+    {
+      "cluster": "Test Suite|pytest with coverage",
+      "count": 4
+    },
+    {
+      "cluster": "snapshots|Run architecture and snapshot tests",
+      "count": 4
+    },
+    {
+      "cluster": "effectiveness|Run complete Phase 1\u20137 suite",
+      "count": 4
+    },
+    {
+      "cluster": "ruff|Ruff check",
+      "count": 4
+    },
+    {
+      "cluster": "Lint and Type Check|ruff check",
+      "count": 4
+    },
+    {
+      "cluster": "mypy|Mypy static type gate",
+      "count": 4
+    },
+    {
+      "cluster": "publication-contract|Run complete Phase 1\u20136 suite",
+      "count": 4
+    },
+    {
+      "cluster": "Lint, type-check, test, coverage|Evaluate all gates (fail closed only after every gate has run)",
+      "count": 4
+    },
+    {
+      "cluster": "Unit tests|Run Phase 1 validation",
+      "count": 2
+    },
+    {
+      "cluster": "Admit real SDK observations|Prove the SDK -> assurance admission seam",
+      "count": 1
+    },
+    {
+      "cluster": "review|Run actions/dependency-review-action@v4",
+      "count": 1
+    },
+    {
+      "cluster": "Analyze (central Core)|Detect repository language (SDK)",
+      "count": 1
+    }
+  ],
+  "outcomes": {
+    "outcome_unknown": 18,
+    "repeated_failure": 52
+  },
+  "t_equiv_go": true,
+  "t_equiv_reason": "All 16 validation_contract_changed flags are false: 14 GitHub cascade-skips after a failed sibling, 2 fail\u2192pass conclusion flips on identical step names. Zero intentional skips. Skip-a-running-gate stays a real contract change.",
+  "validation_contract_kind": {
+    "false_conclusion_flip": 2,
+    "no_jobs": 2,
+    "not_flagged": 52,
+    "skip_or_status_change": 14
+  },
+  "validation_contract_kind_refined": {
+    "cascade_skip_after_failure": 14,
+    "conclusion_only": 2,
+    "intentional_skip": 0
+  }
+}

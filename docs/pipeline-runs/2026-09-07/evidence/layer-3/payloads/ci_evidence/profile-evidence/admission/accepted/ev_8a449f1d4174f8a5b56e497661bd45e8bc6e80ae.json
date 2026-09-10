@@ -1,0 +1,78 @@
+{
+  "schema": "l9.evidence-envelope",
+  "schemaVersion": "1.0.0",
+  "evidenceId": "ev_8a449f1d4174f8a5b56e497661bd45e8bc6e80ae",
+  "subject": {
+    "kind": "git-revision",
+    "repository": {
+      "host": "github.com",
+      "owner": "Quantum-L9",
+      "name": "l9-pr-repair"
+    },
+    "revision": {
+      "commit": "f5773d4ded37dbb611100166947aa2f78e5fbccc"
+    }
+  },
+  "producer": {
+    "id": "l9-ci-sdk",
+    "repository": "Quantum-L9/l9-ci-sdk",
+    "version": "2.0.0"
+  },
+  "evidenceType": "l9.observation/l9.tests",
+  "observedAt": "2026-09-08T02:10:00Z",
+  "issuedAt": "2026-09-08T02:10:00Z",
+  "payload": {
+    "artifacts": [],
+    "check": {
+      "configurationDigest": {
+        "algorithm": "sha256",
+        "value": "b95a40497695c13b04330ce4f5573171374bb9e939e5a19a902a0db4778dfb2b"
+      },
+      "id": "l9.tests",
+      "version": "1.0.0"
+    },
+    "execution": {
+      "attempt": 1,
+      "completedAt": "2026-09-08T02:10:00Z",
+      "runId": "corridor-l3f1-complete-20260908T020000Z",
+      "startedAt": "2026-09-08T02:00:00Z",
+      "status": "passed"
+    },
+    "findings": [],
+    "observationId": "sha256:8a449f1d4174f8a5b56e497661bd45e8bc6e80ae5927695d0973a86ee7dc4a2b",
+    "producer": {
+      "id": "l9-ci-sdk",
+      "repository": "Quantum-L9/l9-ci-sdk",
+      "version": "2.0.0"
+    },
+    "schema": "l9.observation",
+    "schemaVersion": "1.0.0",
+    "subject": {
+      "kind": "git-revision",
+      "repository": {
+        "host": "github.com",
+        "name": "l9-pr-repair",
+        "owner": "Quantum-L9"
+      },
+      "revision": {
+        "commit": "f5773d4ded37dbb611100166947aa2f78e5fbccc"
+      }
+    },
+    "summary": {
+      "errorCount": 0,
+      "findingCount": 0,
+      "informationalCount": 0,
+      "warningCount": 0
+    }
+  },
+  "payloadDigest": {
+    "algorithm": "sha256",
+    "value": "53c0a64738ec1d4897826e7cb5940639c20c5bb9f7286e943d22ffe8243c5d83"
+  },
+  "sourceObservationId": "sha256:8a449f1d4174f8a5b56e497661bd45e8bc6e80ae5927695d0973a86ee7dc4a2b",
+  "lineage": [],
+  "admissionContext": {
+    "receivedAt": "2026-09-08T02:10:00Z",
+    "channel": "local"
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "seam": "intelligence_to_lsp",
+  "status": "partial",
+  "producer": "l9-ci-debt-intelligence",
+  "consumer": "l9-ci-debt-lsp",
+  "producer_sha": "7b11061084e254699d006feaeccd1c96d66445c9",
+  "consumer_sha": "ebec362448efb539115a7d3c3587c753943d8648",
+  "blocker": {
+    "phase": "producer (defense pack assembly)",
+    "code": "PublicationGateError",
+    "error": "no promotion-eligible candidates are available",
+    "refined_diagnosis": "On-disk compilation compile_958379ff… has candidate_count=2 and promotion_eligible_count=0. Both candidates score 0.35 (deferred). scoring.py promotes at total>=4.0. Static findings have a hard ceiling of 2.5 (recurrence+scope only). The remaining 2.5 requires effort, repair_success, and false_positive_safety from l9.historical-resolution-event/v1. Those three components are 0.0 because rule-effectiveness success_ratio and false_positive_ratio are null and effort mean_minutes is null. A second SDK finding cannot close the seam.",
+    "assessment": "Designed publication-gate fail-closed. Not a missing LSP consumer. Not a defect to lower the 4.0 threshold.",
+    "classification": "corpus-maturity: historical repair/FP dimensions absent; static-finding ceiling 2.5 < 4.0",
+    "what_would_unblock": "Real l9.historical-resolution-event/v1 observations that survive safety screening and score >=4.0, then assemble-defense-pack. Do not hand-author a pack."
+  },
+  "producer_chain_proven": [
+    {
+      "stage": "ingest-sdk-finding-bundle (finding-bearing)",
+      "result": "accepted",
+      "limitations": []
+    },
+    {
+      "stage": "ingest-resolver-feedback",
+      "result": "accepted"
+    },
+    {
+      "stage": "build-snapshot",
+      "result": "pass",
+      "record_count": 2
+    },
+    {
+      "stage": "build-analytics",
+      "result": "pass"
+    },
+    {
+      "stage": "compile-candidates",
+      "result": "pass",
+      "candidate_count": 2,
+      "promotion_eligible_count": 0
+    },
+    {
+      "stage": "assemble-defense-pack",
+      "result": "blocked (fail-closed: no promotion-eligible candidates)"
+    }
+  ],
+  "consumer_not_exercised": "l9-debt-lsp-contracts exposes evaluate-compatibility / install-pack / activate-pack / verify-installed-pack, but none was run: there is no real Intelligence-produced pack to feed them.",
+  "negative_tests": {
+    "lsp_rejects_bad_defense_pack_protocol": {
+      "result": "pass",
+      "evidence": "evaluate_compatibility on a mutated l9.debt-defense/v999 pack: status=incompatible, protocol_supported=false."
+    },
+    "lsp_rejects_bad_sdk_contract_version": {
+      "result": "pass",
+      "evidence": "tests/contracts/test_compatibility.py::test_incompatible_sdk_contract_is_rejected (pytest exit 0) plus evaluate_compatibility on SDK_contract_version=l9.integration-contract/v999: sdk_contract_supported=false."
+    }
+  },
+  "source_mutation_observed": false,
+  "failure": null,
+  "progress_since_first_run": "candidate_count moved 0 -> 2 once a real finding entered the corpus, so the compiler path is now proven end to end. Only promotion remains unmet.",
+  "rerun": {
+    "tested_at": "2026-09-08T00:16:39Z",
+    "declared_before": "artifacts/organism/layer-2/seam-inventory.rerun-2026-09-07.json",
+    "assemble_defense_pack": "re-attempted against the published compilation compile_958379ff…; this worktree has no pyarrow, so the CLI could not reload parquet snapshots. On-disk compilation-result.json still records candidate_count=2, promotion_eligible_count=0. No pack was assembled. No hand-authored pack was used.",
+    "status_unchanged": "partial — PublicationGateError remains the designed fail-closed result on a one-producer, one-scope corpus."
+  },
+  "historical_probe": {
+    "tested_at": "2026-09-08T01:18:00Z",
+    "receipt": "artifacts/organism/layer-2/payloads/intelligence_to_lsp/historical-probe-2026-09-08.json",
+    "source_pr": "Quantum-L9/l9-ci-core#148",
+    "quarantined_observations": 59,
+    "quarantine_reason": "sensitive_content (git-object-id / SHA fields)",
+    "normalized_observations": 0,
+    "native_events_admitted": 0,
+    "pack_assembled": false
+  },
+  "historical_probe_rerun": {
+    "tested_at": "2026-09-08T03:05:00Z",
+    "receipt": "artifacts/organism/layer-2/payloads/intelligence_to_lsp/historical-probe-2026-09-08-rerun.json",
+    "producer_sha_used": "37138368fd7d3eae6fbd0c350a8425561bc66a40",
+    "core_148_after_sha_screen_fix": {
+      "source_observations": 59,
+      "quarantined_observations": 2,
+      "normalized_observations": 60,
+      "episodes": 1,
+      "native_events": 3
+    },
+    "batch_ok_count": 44,
+    "corpus_record_count": 210,
+    "candidate_count": 60,
+    "promotion_eligible_count": 0,
+    "max_score": 0.95,
+    "pack_assembled": false
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "purpose": "Layer 4 repository-identity clarification only.",
+  "is_layer_1_evidence": false,
+  "disclaimer": "No install, health command, seam, or corridor was executed by Layer 4. These SHAs must not be read as Layer 1 repo-health results.",
+  "observed_at": "2026-09-07T01:16:06Z",
+  "repos": {
+    "l9-ci-debt-intelligence": {
+      "present_in_workspace": true,
+      "remote": "https://github.com/Quantum-L9/l9-ci-debt-intelligence",
+      "head_sha": "7b11061084e254699d006feaeccd1c96d66445c9",
+      "origin_main_sha": "7b11061084e254699d006feaeccd1c96d66445c9",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "dirty": false
+    },
+    "l9-ci-debt-lsp": {
+      "present_in_workspace": true,
+      "remote": "https://github.com/Quantum-L9/l9-ci-debt-lsp",
+      "head_sha": "ebec362448efb539115a7d3c3587c753943d8648",
+      "origin_main_sha": "ebec362448efb539115a7d3c3587c753943d8648",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "dirty": false
+    },
+    "l9-ci-debt-resolver": {
+      "present_in_workspace": true,
+      "remote": "https://github.com/Quantum-L9/l9-ci-debt-resolver",
+      "head_sha": "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1",
+      "origin_main_sha": "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "dirty": false
+    },
+    "l9-ci-core": {
+      "present_in_workspace": true,
+      "remote": "https://github.com/Quantum-L9/l9-ci-core",
+      "head_sha": "4c842cb838b6c49cf44681ecc683a432538fd348",
+      "origin_main_sha": "4c842cb838b6c49cf44681ecc683a432538fd348",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "dirty": false
+    },
+    "l9-ci-sdk": {
+      "present_in_workspace": true,
+      "remote": "https://github.com/Quantum-L9/l9-ci-sdk",
+      "head_sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+      "origin_main_sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "dirty": false
+    },
+    "l9-assurance": {
+      "present_in_workspace": false,
+      "remote": null,
+      "head_sha": null,
+      "origin_main_sha": null,
+      "branch": null,
+      "dirty": null,
+      "notes": [
+        "Repository exists and is publicly readable (verified via session repository-access probe, clone_url https://github.com/Quantum-L9/l9-assurance), but is not checked out in this workspace and carries no Layer 1-3 evidence."
+      ]
+    },
+    "l9-harness": {
+      "present_in_workspace": true,
+      "remote": "https://github.com/Quantum-L9/l9-harness",
+      "head_sha": "25bbb4046ed5b42af005b989660c0c3b692c0709",
+      "origin_main_sha": "25bbb4046ed5b42af005b989660c0c3b692c0709",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "dirty": false
+    },
+    "l9-pr-repair": {
+      "present_in_workspace": true,
+      "remote": "https://github.com/Quantum-L9/l9-pr-repair",
+      "head_sha": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
+      "origin_main_sha": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "dirty": false
+    },
+    "l9-observability-core": {
+      "present_in_workspace": true,
+      "remote": "https://github.com/Quantum-L9/l9-observability-core",
+      "head_sha": "6a84c783f2fbaefbd9c62784506607e0f487c621",
+      "origin_main_sha": "6a84c783f2fbaefbd9c62784506607e0f487c621",
+      "branch": "claude/layer-4-activation-wb6bgf",
+      "dirty": false
+    }
+  }
+}

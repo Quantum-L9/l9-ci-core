@@ -1,0 +1,65 @@
+{
+  "corridor": "learning_feedback",
+  "status": "pass",
+  "path": [
+    "l9-ci-debt-resolver",
+    "l9-ci-debt-intelligence"
+  ],
+  "required_seams": {
+    "resolver_to_intelligence": "pass"
+  },
+  "repo_shas": {
+    "l9-ci-debt-resolver": "2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6 (scanned revision)",
+    "l9-ci-debt-intelligence": "7b11061084e254699d006feaeccd1c96d66445c9"
+  },
+  "contract_ids": [
+    "l9.finding-bundle/v1",
+    "l9.sdk-knowledge-document/v1",
+    "l9.evidence-bundle/v1",
+    "l9.intelligence-feedback-event/v1",
+    "l9.feedback-delivery-receipt/v1",
+    "l9.ingestion-result/v1"
+  ],
+  "artifacts": [
+    {
+      "name": "resolver-feedback-event.json",
+      "sha256": "bf475810fdbe6fb713a42ebee121819c5548626321ca8529ed6df42c04b6c75e",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/resolver-feedback-event.json"
+    },
+    {
+      "name": "resolver-delivery-receipt.json",
+      "sha256": "2681b5533d5ca188d1daa78dbcdd10ef089b5bed455178bcc6b10afc2ca8471b",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/resolver-delivery-receipt.json"
+    },
+    {
+      "name": "intelligence-ingestion-receipt.json",
+      "sha256": "a68db0286fec244b4e39e2024381cac68bf28a83e0a27829debd778186fa36eb",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/intelligence-ingestion-receipt.json"
+    }
+  ],
+  "flow": "real failed CI run (33481850033) -> acquire-github-run -> l9.evidence-bundle/v1 -> build-feedback-event (with SDK knowledge from a real semgrep scan at the SAME revision) -> publish-feedback (json-file transport) -> ingest-resolver-feedback -> accepted.",
+  "privacy": {
+    "raw_logs": false,
+    "source_code": false,
+    "diff_body": false,
+    "patch_body": false,
+    "raw_paths": false,
+    "developer_identity": false,
+    "secrets": false,
+    "evidence": "Accepted event is 2234 bytes carrying repository_pseudonym, not a raw name."
+  },
+  "idempotency": {
+    "key": "feedback_idempotency_582eec173ebbaaef2c3fab3ce792bbf94c6168921f274e855c8ea20b658e6987",
+    "duplicate_safe": true,
+    "evidence": "duplicate delivery -> status=duplicate, same record_id, ledger_entries=2, record_count=1, verify-store status=valid."
+  },
+  "identity_continuity": {
+    "run_id": "33481850033",
+    "repository": "pseudonymised",
+    "revision": "2410fae622bb",
+    "delivery_receipt_id": "feedback_receipt_e656a98a894651edb38bd74e5bf035e3fa4e0d095a6d7f08c04246fe3bacfe4a",
+    "ingestion_record_id": "cr_c14ca6a269c7c73638ce7223ebaeaa56ba705f3843f700424ca64a4cac4e41c7",
+    "note": "The SDK knowledge and the evidence bundle share revision 2410fae622bb; the resolver enforces this and raised SnapshotMismatchError when they did not."
+  },
+  "failure": null
+}

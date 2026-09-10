@@ -1,0 +1,41 @@
+{
+  "source": "pyproject.toml [project] in each git-archive extraction of origin/main",
+  "packages": {
+    "l9-assurance": {
+      "project_name": "l9-assurance",
+      "version": "2.1.1"
+    },
+    "l9-ci-core": {
+      "project_name": "l9-ci-core-validation",
+      "version": "2.0.0.dev1"
+    },
+    "l9-ci-debt-intelligence": {
+      "project_name": "l9-ci-debt-intelligence",
+      "version": "0.2.0"
+    },
+    "l9-ci-debt-lsp": {
+      "project_name": "l9-ci-debt-lsp",
+      "version": "1.0.0"
+    },
+    "l9-ci-debt-resolver": {
+      "project_name": "l9-ci-debt-resolver",
+      "version": "0.7.0"
+    },
+    "l9-ci-sdk": {
+      "project_name": "l9-ci",
+      "version": "2.0.0"
+    },
+    "l9-harness": {
+      "project_name": "l9-harness",
+      "version": "2.0.4"
+    },
+    "l9-observability-core": {
+      "project_name": "l9-observability-core",
+      "version": "1.0.0"
+    },
+    "l9-pr-repair": {
+      "project_name": "pr-repair",
+      "version": "0.4.0"
+    }
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "corridor": "assurance_harness",
+  "status": "pass",
+  "path": [
+    "l9-harness",
+    "l9-assurance"
+  ],
+  "required_seams": {
+    "harness_to_assurance": "pass"
+  },
+  "repo_shas": {
+    "l9-harness": "25bbb4046ed5b42af005b989660c0c3b692c0709",
+    "l9-assurance": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86"
+  },
+  "artifacts": [
+    {
+      "name": "harness-run-record.json",
+      "sha256": "5941238e144766f36215d86e18e633efbe0d911dd74ecdb1a32a9143a5b054c8",
+      "path": "artifacts/organism/layer-3/payloads/assurance_harness/harness-run-record.json"
+    },
+    {
+      "name": "invocation-record.json",
+      "path": "artifacts/organism/layer-2/payloads/harness_to_assurance/invocations/ec6e1a51-b257-4f82-9556-141a0f87a39a/invocation-record.json",
+      "sha256_as_emitted": "4c04775cf943543ac4c1feacd473d6a0ca05576b4d3744f0ebf2e0915d1e3562",
+      "sha256_as_published": "eae309df821751c4fb7746a273b7379557ab1d33224b975a10e70691212777e8",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
+    },
+    {
+      "name": "assurance-admission-receipt.json",
+      "sha256": "54316cdb63166cf94855ef66a566c7f13bbb019d4b88c39979fa9005a6e96891",
+      "path": "artifacts/organism/layer-3/payloads/assurance_harness/out/admission-report.json"
+    }
+  ],
+  "authoritative_component": "l9-assurance",
+  "harness_authoritative": false,
+  "checks": {
+    "harness_invoked_real_assurance": {
+      "result": "pass",
+      "evidence": "harness status=pass, child exit_code=0"
+    },
+    "assurance_output_preserved": {
+      "result": "pass",
+      "evidence": "admission-report accepted=1 rejected=0, identical to the direct admission of the same corridor observation."
+    },
+    "harness_marks_itself_non_authoritative": {
+      "result": "pass",
+      "evidence": "invocation-record.json (l9.assurance-invocation-record) authoritative == false"
+    },
+    "harness_did_not_fork_verdict": {
+      "result": "pass",
+      "evidence": "harness recorded argv/stdout/stderr digests (stdout 3a7277fbf5c7e56a...) and the child exit code; it computed no admission decision."
+    },
+    "corridor_used_the_ci_evidence_observation": {
+      "result": "pass",
+      "evidence": "Same fresh observation this run produced, so the two corridors compose on one artifact."
+    }
+  },
+  "failure": null
+}

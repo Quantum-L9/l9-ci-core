@@ -1,0 +1,39 @@
+{
+  "non_live_corridors": {
+    "core_to_intelligence_gate_event": {
+      "status": "not_live",
+      "reason": "No Layer 2 seam receipt proves a Core-emitted gate event consumed by Intelligence.",
+      "tested_as_live": false
+    },
+    "pr_repair_to_intelligence_learning_packet": {
+      "status": "not_live",
+      "reason": "pr-repair writes learning_packets.json locally in dry-run, but nothing delivers it to Intelligence and Intelligence declares no pr-repair producer.",
+      "tested_as_live": false
+    },
+    "lsp_to_intelligence_editor_outcome": {
+      "status": "not_live",
+      "reason": "No Layer 2 evidence of an LSP-emitted editor outcome consumed by Intelligence.",
+      "tested_as_live": false
+    },
+    "sdk_to_lsp_direct_finding": {
+      "status": "not_live",
+      "reason": "The SDK emits l9.finding-bundle/v1; no evidence the LSP consumes SDK findings directly. Only the defense-pack path is declared.",
+      "tested_as_live": false
+    },
+    "sdk_to_harness_authority_manifest": {
+      "status": "not_live",
+      "reason": "The harness consumed no SDK capability manifest; it invoked Assurance directly.",
+      "tested_as_live": false
+    },
+    "resolver_to_pr_repair_delegation": {
+      "status": "not_live",
+      "reason": "l9-ci-debt-resolver/.l9/pr-repair-delegation-contract.yaml exists on disk, but a contract file is not proof of a live seam: no resolver command emits a delegation request and pr-repair exposes no delegation intake.",
+      "tested_as_live": false
+    },
+    "observability_control_plane": {
+      "status": "prohibited",
+      "reason": "Observability exposes canonicalisation, digest and schema validation only. No scheduler/gate/retry/admission/repair surface exists or was used.",
+      "tested_as_live": false
+    }
+  }
+}

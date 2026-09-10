@@ -1,0 +1,10 @@
+[
+  {
+    "evidenceId": "ev_1b56c327360036e425c05992f9f3c1466732f34a",
+    "digest": {
+      "algorithm": "sha256",
+      "value": "aff945dae55fab15669845b56379f76689718b6a5bba7a13b425479944a4a6a5"
+    },
+    "evidenceType": "l9.observation/l9.mandatory-findings"
+  }
+]

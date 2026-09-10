@@ -1,0 +1,9 @@
+repo=l9-ci-debt-lsp
+remote=https://github.com/Quantum-L9/l9-ci-debt-lsp
+branch=claude/layer-4-activation-wb6bgf
+sha=ebec362448efb539115a7d3c3587c753943d8648
+origin_main_sha=ebec362448efb539115a7d3c3587c753943d8648
+commit_date=2026-09-06T18:04:36-04:00
+describe=ebec362
+dirty_status<<EOF
+EOF

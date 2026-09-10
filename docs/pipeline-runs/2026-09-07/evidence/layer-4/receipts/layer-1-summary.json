@@ -1,0 +1,42 @@
+{
+  "layer": "repo_health",
+  "status": "pass",
+  "receipt": "artifacts/organism/01-repo-health.json",
+  "repos_checked": 9,
+  "repos_install_pass": 9,
+  "repos_health_pass": 9,
+  "repository_identity_normalized": {},
+  "failures": [],
+  "warnings": [],
+  "acceptable_for_deploy": false,
+  "sdk_health_refresh": {
+    "cause": "l9-ci-sdk#95 merged; nightly Core callers (secrets-inherit) removed",
+    "tested_at": "2026-09-07T23:54:25Z",
+    "sha": "5405fa5768b084b4c29066e810c81664fba3c21b",
+    "previous_sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+    "health_command": "make ci",
+    "health": "pass",
+    "health_exit_code": 0,
+    "python": "3.12",
+    "tokens": "GH_TOKEN and GITHUB_TOKEN unset (zizmor offline)",
+    "evidence": "zizmor Passed; mypy 89 files clean; pytest 505 passed; compileall ok",
+    "merged_pr": "https://github.com/Quantum-L9/l9-ci-sdk/pull/95",
+    "layers_2_and_3_replayed": true
+  },
+  "resolved_failures": [
+    {
+      "repo": "l9-ci-sdk",
+      "phase": "health",
+      "command": "make ci",
+      "exit_code": 2,
+      "category": "workflow_security_finding",
+      "attributable_to": "repository",
+      "repo_defect": true,
+      "diagnosis": "`make ci` -> `make check` -> `make hooks` runs the repo's own zizmor pre-commit hook, which reports secrets-inherit (medium, audit confidence High) at .github/workflows/l9-nightly.yml:20 \u2014 `secrets: inherit` grants the called Core reusable workflow ALL of this repository's secrets. Pre-existing on main (file last changed by #89), NOT in the repo's .github/zizmor.yml suppression list, so the repo's own gate fails on it legitimately. 13 findings (1 ignored, 11 suppressed): 1 medium. Filed as Quantum-L9/l9-ci-sdk#96 with the full callee-chain analysis; not patched here because the fix turns on Core's secret contract, not on anything local.",
+      "issue": "https://github.com/Quantum-L9/l9-ci-sdk/issues/96",
+      "summary": "health exited non-zero",
+      "log": "artifacts/organism/logs/l9-ci-sdk-health.log"
+    }
+  ],
+  "acceptable_for_deploy_note": "Layer 1 pass does not waive Layer 2 partial, Layer 3 partial, or ASSURANCE_POLICY_PROFILE_FAIL. L3-F1 is closed. Negative coverage is now 15/15 pass."
+}

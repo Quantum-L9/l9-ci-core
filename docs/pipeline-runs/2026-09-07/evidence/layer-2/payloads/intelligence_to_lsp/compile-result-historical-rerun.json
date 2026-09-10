@@ -1,0 +1,10 @@
+{
+  "candidate_count": 60,
+  "compilation_id": "compile_5feb52ee6b8d66b7245964fc0edc2c17fd37f46c740012352783a47cf62dfdb3",
+  "compiled_candidate_count": 0,
+  "deterministic_output_hash": "25f6438e1896b57f2fd6baff04f7c3ceb9672af8b5831b28d09ed4ac8f3dddac",
+  "promotion_eligible_count": 0,
+  "schema_version": "l9.compilation-build-result/v1",
+  "source_snapshot_id": "cs_a153b9511a17c686e0a40a1a9fb452cbd26efacf36bcc1cab521a1f6d85a4934",
+  "analysis_run_id": "ar_2b861b0910f1bfaf5cb8b2aa2502a18f39331b6c18bad686da0cbbb7d1f63627"
+}

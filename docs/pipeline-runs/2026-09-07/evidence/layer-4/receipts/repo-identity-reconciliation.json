@@ -1,0 +1,41 @@
+{
+  "canonical_repository": {
+    "name": "l9-pr-repair",
+    "remote": "https://github.com/Quantum-L9/l9-pr-repair"
+  },
+  "legacy_aliases": [
+    "PR_Repair"
+  ],
+  "observed_names": [
+    "l9-pr-repair"
+  ],
+  "layer_1": {
+    "observed_name": "l9-pr-repair",
+    "sha": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
+    "remote": "https://github.com/Quantum-L9/l9-pr-repair"
+  },
+  "layer_2": {
+    "observed_names": [
+      "l9-pr-repair"
+    ],
+    "shas": [
+      "f5773d4ded37dbb611100166947aa2f78e5fbccc"
+    ]
+  },
+  "layer_3": {
+    "observed_names": [
+      "l9-pr-repair"
+    ],
+    "shas": []
+  },
+  "canonical_sha_reachable": true,
+  "treated_as_single_repository": true,
+  "normalization_applied": false,
+  "warnings": [
+    "No legacy PR_Repair identity appears in any receipt: Layer 1 recorded the repository as l9-pr-repair directly, so no normalization was applied and none was needed.",
+    "Layer 2 and Layer 3 name the repository identically; no legacy alias appears in either.",
+    "Layer 1 head commit f5773d4ded37dbb611100166947aa2f78e5fbccc is the rename-stamp commit ('Stamp corpus identity as Quantum-L9/l9-pr-repair after the GitHub rename', #63)."
+  ],
+  "failure": null,
+  "status": "pass"
+}

@@ -1,0 +1,69 @@
+{
+  "subject": {
+    "kind": "git-revision",
+    "repository": {
+      "host": "github.com",
+      "owner": "Quantum-L9",
+      "name": "l9-pr-repair"
+    },
+    "revision": {
+      "commit": "f5773d4ded37dbb611100166947aa2f78e5fbccc"
+    }
+  },
+  "receivedAt": "2026-09-07T02:51:23.377315Z",
+  "results": [
+    {
+      "status": "rejected",
+      "reasons": [
+        {
+          "code": "EVIDENCE_PAYLOAD_DIGEST_MISMATCH",
+          "message": "content-addressed observationId does not match observation content (declared sha256:cf29b59d2dfea4c0d568cfde0f1617d679331808feae67cc8c9cb34a53ca2b55, computed sha256:dc59088c1b67d0af4d3e988226e685ab4ab287d017bdba1a30bb58a50b819453)"
+        }
+      ],
+      "validations": {
+        "schema": {
+          "status": "pass"
+        },
+        "producer": {
+          "status": "pass"
+        },
+        "subject": {
+          "status": "pass"
+        },
+        "integrity": {
+          "status": "fail",
+          "code": "EVIDENCE_PAYLOAD_DIGEST_MISMATCH",
+          "message": "content-addressed observationId does not match observation content (declared sha256:cf29b59d2dfea4c0d568cfde0f1617d679331808feae67cc8c9cb34a53ca2b55, computed sha256:dc59088c1b67d0af4d3e988226e685ab4ab287d017bdba1a30bb58a50b819453)"
+        },
+        "freshness": {
+          "status": "pass"
+        },
+        "authorization": {
+          "status": "pass"
+        },
+        "replay": {
+          "status": "skipped"
+        },
+        "lineage": {
+          "status": "skipped"
+        }
+      }
+    }
+  ],
+  "accepted": [],
+  "rejectedCount": 1,
+  "quarantinedCount": 0,
+  "duplicateCount": 0,
+  "unknowns": [
+    {
+      "unknownId": "unknown_admission_0000",
+      "category": "invalid-evidence",
+      "description": "Observation identity does not match its content.",
+      "impact": "decision",
+      "relatedControls": [],
+      "resolvableBy": [
+        "produce conformant exact-revision evidence"
+      ]
+    }
+  ]
+}

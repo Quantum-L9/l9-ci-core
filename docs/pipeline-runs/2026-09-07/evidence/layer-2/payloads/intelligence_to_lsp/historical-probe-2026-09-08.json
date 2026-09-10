@@ -1,0 +1,36 @@
+{
+  "schema": "l9.organism-probe/v1",
+  "probe": "intelligence_historical_miner",
+  "tested_at": "2026-09-08T01:18:00Z",
+  "command": "python -m l9_debt_intelligence.historical Quantum-L9/l9-ci-core 148 --without-logs",
+  "producer_sha": "7b11061084e254699d006feaeccd1c96d66445c9",
+  "token_source": "aws bind GH_TOKEN (value not recorded)",
+  "exit_code": 1,
+  "error": "ReconstructionError: pull request context is required",
+  "harvest": {
+    "source_pr": "Quantum-L9/l9-ci-core#148",
+    "quarantined_observations": 59,
+    "quarantine_reason": "sensitive_content",
+    "normalized_observations": 0,
+    "native_events_admitted": 0,
+    "corpus_files": 0
+  },
+  "existing_compilation": {
+    "compilation_id": "compile_958379ff180318c64555d8e5f0c244fced92c1bd95e7d69cd8f9b4f5f88a1ee8",
+    "candidate_count": 2,
+    "promotion_eligible_count": 0,
+    "candidate_scores": [0.35, 0.35],
+    "candidate_state": "deferred",
+    "score_components": {
+      "recurrence": 0.5,
+      "scope_breadth": 1.0,
+      "effort": 0.0,
+      "repair_success": 0.0,
+      "false_positive_safety": 0.0
+    },
+    "static_finding_ceiling": 2.5,
+    "promotion_threshold": 4.0
+  },
+  "pack_assembled": false,
+  "hand_authored_pack": false
+}

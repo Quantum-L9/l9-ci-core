@@ -1,0 +1,16 @@
+{
+  "artifact_dir": "runtime/pr_repair",
+  "completed_phases": [
+    "parse_payload",
+    "process_pr_123"
+  ],
+  "current_phase": "process_pr_123",
+  "mode": "dry_run",
+  "pr_numbers": [
+    123
+  ],
+  "repo": "Quantum-L9/l9-pr-repair",
+  "run_id": "ed826253-1ac7-46d0-84da-bf73c518bef8",
+  "started_at": "2026-09-07T02:57:53.813546Z",
+  "status": "completed"
+}

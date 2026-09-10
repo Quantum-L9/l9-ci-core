@@ -1,0 +1,9 @@
+repo=l9-ci-sdk
+remote=https://github.com/Quantum-L9/l9-ci-sdk
+branch=claude/layer-4-activation-wb6bgf
+sha=cb765cbd4a9c709b2985c8ba07cdc58fb43b796f
+origin_main_sha=cb765cbd4a9c709b2985c8ba07cdc58fb43b796f
+commit_date=2026-09-06T17:52:42-04:00
+describe=cb765cb
+dirty_status<<EOF
+EOF

@@ -1,0 +1,71 @@
+{
+  "seam": "pr_repair_standalone",
+  "status": "pass",
+  "repo": "l9-pr-repair",
+  "sha": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
+  "canonical_remote": "https://github.com/Quantum-L9/l9-pr-repair",
+  "remote_mutation_observed": false,
+  "push_enabled": false,
+  "tested_at": "2026-09-08T00:16:39Z",
+  "rerun": {
+    "declared_before": "artifacts/organism/layer-2/seam-inventory.rerun-2026-09-07.json",
+    "previous_status": "partial",
+    "previous_blocker": "SURFACE_UNSUPPORTED_GRAPHQL",
+    "resolution": "Live ingest-review reached api.github.com/graphql with a bound GITHUB_TOKEN (Infisical CLI user profile) and wrote a schema-valid agent_review_payload. The 403 recorded in the original run is no longer observed on this surface."
+  },
+  "blocker": null,
+  "what_was_proven": {
+    "payload_source": "Live ingest-review of the real GitHub pull_request_review event for Quantum-L9/l9-ci-core PR #148 review 5123102833 (Copilot). Not the repository example payload.",
+    "live_ingest": "pass — pr-repair ingest-review --event-path <copied event> wrote a schema-valid payload (exit 0). GraphQL was reached; SURFACE_UNSUPPORTED_GRAPHQL is retired.",
+    "finding_count": "0 autofix candidates, 0 manual findings. Honest for this review: Copilot reported it was unable to review any files. The two inline comments stored alongside the original event belong to a different review (chatgpt-codex-connector 5123108052) and are outside the default Copilot-only enable set.",
+    "dry_run_completes": "pass — live payload, not the fixture: payload_ingested -> findings_routed -> pipeline_routing -> pr_pipeline_complete -> autofix_telemetry_emitted.",
+    "default_mode_is_dry_run": "pass — PR_FIX_MODE=dry_run; repair_plan.execution_mode='dry_run'.",
+    "nothing_executed": "pass — repair_execution.modified_files=[]; applied_finding_ids=[]; push_result=null; executable=false.",
+    "protected_paths_untouched": "pass — repair_plan.protected_paths_touched=false, risk_level=low.",
+    "no_branch_created": "pass — dry-run created no repair branch.",
+    "no_remote_mutation": "pass — no push, no merge, no PR. Tracked tree unchanged (only untracked .l9/ rerun artifacts in the worktree)."
+  },
+  "negative_tests": {
+    "pr_repair_push_disabled_by_default": {
+      "result": "pass",
+      "evidence": "config.py allow_push default False; PR_FIX_ALLOW_PUSH requires mode=repair_verify_and_push."
+    },
+    "pr_repair_rejects_missing_expected_block": {
+      "result": "pass",
+      "evidence": "tests/security/test_patch_applier_exact_match.py::test_replace_range_without_expected_block_fails_closed and test_replace_range_with_null_expected_block_fails_closed (pytest exit 0). Implementation at origin/main f5773d4 already requires expected_block."
+    },
+    "pr_repair_rejects_stale_expected_block": {
+      "result": "pass",
+      "evidence": "tests/security/test_patch_applier_exact_match.py::test_replace_range_rejects_block_drift and tests/integration/test_llm_apply.py::test_apply_aborts_when_the_expected_block_is_stale (pytest exit 0)."
+    }
+  },
+  "artifacts": [
+    {
+      "name": "github-event.json (real, assembled from live API)",
+      "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/github-event.json",
+      "note": "Same event as the original run. Re-ingested from a copy inside the pr-repair worktree because ingest-review refuses paths outside cwd/temp/PR_REPAIR_IO_ROOT."
+    },
+    {
+      "name": "agent_review_payload.live.json",
+      "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/live-rerun/agent_review_payload.live.json",
+      "sha256": "20506cf9af54164e537e0156bb5e924674e6f3510c9f082310271296ca114cf9"
+    },
+    {
+      "name": "live-rerun/repair_plan.json",
+      "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/live-rerun/repair_plan.json",
+      "sha256": "a7b07d982d0109fef62658e6dd6f27fe887645670cb8b6044eb0aca7d6c2e83b"
+    },
+    {
+      "name": "live-rerun/repair_execution.json",
+      "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/live-rerun/repair_execution.json",
+      "sha256": "2e77ff5f6d8c0f743bafba997e96f2809a766044cb0e3405d7ebb9afccb1b3bf"
+    },
+    {
+      "name": "live-rerun/run_trace.json",
+      "path": "artifacts/organism/layer-2/payloads/pr_repair_standalone/live-rerun/run_trace.json",
+      "sha256": "67addaae9c544829da9313270a4d7c3beecd0f5f1cf39a5a6f642e15796c29f1"
+    }
+  ],
+  "workspace_residue": "Rerun wrote untracked .l9/ artifacts in the dedicated l9-pr-repair worktree (https://github.com/Quantum-L9/l9-pr-repair). No tracked file was modified.",
+  "failure": null
+}

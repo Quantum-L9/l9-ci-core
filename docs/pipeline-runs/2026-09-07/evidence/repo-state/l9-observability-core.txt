@@ -1,0 +1,9 @@
+repo=l9-observability-core
+remote=https://github.com/Quantum-L9/l9-observability-core
+branch=claude/layer-4-activation-wb6bgf
+sha=6a84c783f2fbaefbd9c62784506607e0f487c621
+origin_main_sha=6a84c783f2fbaefbd9c62784506607e0f487c621
+commit_date=2026-09-05T17:07:21-04:00
+describe=6a84c78
+dirty_status<<EOF
+EOF

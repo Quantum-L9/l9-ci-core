@@ -1,0 +1,255 @@
+{
+  "organism": "l9-ci-debt-assurance-repair",
+  "status": "fail",
+  "deploy_decision": "do-not-deploy",
+  "tested_at": "2026-09-08T00:16:39Z",
+  "layers_executed": [
+    "repo_health",
+    "seam_tests",
+    "corridor_tests",
+    "whole_organism_aggregation"
+  ],
+  "layers_not_executed": [],
+  "scope": {
+    "repos_in_scope": [
+      "l9-ci-debt-intelligence",
+      "l9-ci-debt-lsp",
+      "l9-ci-debt-resolver",
+      "l9-ci-core",
+      "l9-ci-sdk",
+      "l9-assurance",
+      "l9-harness",
+      "l9-pr-repair",
+      "l9-observability-core"
+    ],
+    "repos_out_of_scope": [
+      "l9-constellation-topology"
+    ],
+    "repository_renames": {
+      "PR_Repair": {
+        "canonical_name": "l9-pr-repair",
+        "canonical_remote": "https://github.com/Quantum-L9/l9-pr-repair",
+        "continuity_verified": true,
+        "note": "No legacy identity appeared in any receipt; nothing required normalization."
+      }
+    }
+  },
+  "repos": {
+    "l9-ci-debt-intelligence": {
+      "sha": "7b11061084e254699d006feaeccd1c96d66445c9",
+      "version": "0.2.0"
+    },
+    "l9-ci-debt-lsp": {
+      "sha": "ebec362448efb539115a7d3c3587c753943d8648",
+      "version": "1.0.0"
+    },
+    "l9-ci-debt-resolver": {
+      "sha": "57cf94e1c8a744620346dca81cde88b3d6f64004",
+      "version": "0.7.0"
+    },
+    "l9-ci-core": {
+      "sha": "4c842cb838b6c49cf44681ecc683a432538fd348",
+      "version": "2.0.0.dev1"
+    },
+    "l9-ci-sdk": {
+      "sha": "5405fa5768b084b4c29066e810c81664fba3c21b",
+      "version": "2.0.0"
+    },
+    "l9-assurance": {
+      "sha": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86",
+      "version": "2.1.1"
+    },
+    "l9-harness": {
+      "sha": "25bbb4046ed5b42af005b989660c0c3b692c0709",
+      "version": "2.0.4"
+    },
+    "l9-pr-repair": {
+      "remote": "https://github.com/Quantum-L9/l9-pr-repair",
+      "legacy_names": [
+        "PR_Repair"
+      ],
+      "sha": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
+      "version": "0.4.0"
+    },
+    "l9-observability-core": {
+      "sha": "6a84c783f2fbaefbd9c62784506607e0f487c621",
+      "version": "1.0.0"
+    }
+  },
+  "layers": {
+    "repo_health": {
+      "status": "pass",
+      "receipt": "artifacts/organism/01-repo-health.json"
+    },
+    "seam_tests": {
+      "status": "partial",
+      "receipt": "artifacts/organism/02-seam-tests.json"
+    },
+    "corridor_tests": {
+      "status": "partial",
+      "receipt": "artifacts/organism/03-corridor-tests.json"
+    }
+  },
+  "active_seams": {
+    "core_to_sdk": "pass",
+    "sdk_to_assurance": "pass",
+    "resolver_to_intelligence": "pass",
+    "intelligence_to_lsp": "partial",
+    "harness_to_assurance": "pass",
+    "pr_repair_standalone": "pass",
+    "observability_contracts": "pass"
+  },
+  "live_corridors": {
+    "ci_evidence": "pass",
+    "learning_feedback": "pass",
+    "editor_advisory": "skipped",
+    "assurance_harness": "pass",
+    "standalone_repair_safety": "pass",
+    "observability_contracts": "pass"
+  },
+  "ci_evidence_transport": "pass",
+  "assurance_policy_evidence_completeness": "complete",
+  "provenance_model": "version-governed",
+  "source_sha_gating": false,
+  "version_consistency": "artifacts/organism/layer-4/receipts/version-consistency.json",
+  "assurance_policy_seven_control_matrix": {
+    "source": "reconstructed from Layer 2/3 receipts already on disk; not a new Assurance contract",
+    "controls": [
+      {
+        "id": 1,
+        "control": "schema_admission",
+        "status": "proven",
+        "evidence": "Original organism admission accepted 1. Profile-complete admit accepted 6, rejected 0, quarantined 0 (artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/admission/admission-report.json)."
+      },
+      {
+        "id": 2,
+        "control": "sdk_version_in_allowed_range",
+        "status": "proven",
+        "evidence": "artifact.sdkVersion 2.0.0 accepted"
+      },
+      {
+        "id": 3,
+        "control": "producer_trust_no_unexpected_quarantine",
+        "status": "proven",
+        "evidence": "quarantined 0; trusted SDK not pending"
+      },
+      {
+        "id": 4,
+        "control": "observation_bundle_digest_continuity",
+        "status": "proven",
+        "evidence": "observation.artifacts[0].digest equals FindingBundle.canonical_digest()"
+      },
+      {
+        "id": 5,
+        "control": "assurance_receipt_references_observation",
+        "status": "proven",
+        "evidence": "evidenceId derives from observationId"
+      },
+      {
+        "id": 6,
+        "control": "fail_closed_unknown_field_and_tampered_digest",
+        "status": "proven",
+        "evidence": "EVIDENCE_SCHEMA_INVALID and EVIDENCE_PAYLOAD_DIGEST_MISMATCH"
+      },
+      {
+        "id": 7,
+        "control": "determinate_assurance_policy_profile_decision",
+        "status": "proven",
+        "alias": "L3-F1",
+        "evidence": "Shipped evaluate on origin/main e9f012b wrote AssuranceDecision dec_d0e45c245bb22fb4417831f5540a852af93e3f09. Verdict fail. Six controls pass; L9.CI.REPOSITORY_METADATA fails because project-repository-metadata on clean pr-repair@f5773d4 found no committed MANIFEST.md. Prior exit-42 was a dependabot-checkout schema miss; origin/main already admits sdkVersion. See artifacts/organism/layer-3/payloads/ci_evidence/profile-evidence/probe.json."
+      }
+    ]
+  },
+  "inactive_by_design": {
+    "core_to_intelligence_gate_event": "planned-or-not-live",
+    "pr_repair_to_intelligence_learning_packet": "planned-or-not-live",
+    "lsp_to_intelligence_editor_outcome": "planned-or-not-live",
+    "sdk_to_lsp_direct_finding": "planned-or-not-live",
+    "sdk_to_harness_authority_manifest": "planned-or-not-live",
+    "resolver_to_pr_repair_delegation": "planned-or-not-live",
+    "observability_control_plane": "prohibited"
+  },
+  "negative_tests": {
+    "assurance_rejects_unknown_artifact_field": "pass",
+    "assurance_rejects_untrusted_or_out_of_range_sdk_version": "pass",
+    "assurance_rejects_tampered_observation": "pass",
+    "intelligence_rejects_privacy_leak": "pass",
+    "intelligence_quarantines_unknown_or_planned_producer": "pass",
+    "intelligence_duplicate_idempotency_safe": "pass",
+    "lsp_rejects_bad_defense_pack_protocol": "pass",
+    "lsp_rejects_bad_sdk_contract_version": "pass",
+    "harness_does_not_pass_when_assurance_missing": "pass",
+    "harness_non_authoritative": "pass",
+    "pr_repair_rejects_missing_expected_block": "pass",
+    "pr_repair_rejects_stale_expected_block": "pass",
+    "pr_repair_push_disabled_by_default": "pass",
+    "observability_rejects_malformed_event": "pass",
+    "observability_has_no_control_authority": "pass"
+  },
+  "repo_identity_reconciliation": "artifacts/organism/layer-4/receipts/repo-identity-reconciliation.json",
+  "artifact_manifest": "artifacts/organism/layer-4/receipts/artifact-manifest.json",
+  "authority_boundaries": "artifacts/organism/layer-4/receipts/authority-boundaries.json",
+  "failures": [
+    {
+      "code": "LAYER_2_NOT_PASSING",
+      "input": "artifacts/organism/02-seam-tests.json",
+      "summary": "Layer 2 status 'partial': 6 of 7 active seams PASS (core_to_sdk, harness_to_assurance, observability_contracts, resolver_to_intelligence, sdk_to_assurance, pr_repair_standalone); 1 partial (intelligence_to_lsp); 0 fail. No seam was forced with a hand-authored artifact."
+    },
+    {
+      "code": "LAYER_3_NOT_PASSING",
+      "input": "artifacts/organism/03-corridor-tests.json",
+      "summary": "Layer 3 status 'partial': 5 of 6 corridors PASS (assurance_harness, ci_evidence, learning_feedback, observability_contracts, standalone_repair_safety); 1 SKIPPED because a required Layer 2 seam is not passing (editor_advisory); 0 fail. A skipped corridor is not a pass, and none was forced with a hand-authored artifact."
+    },
+    {
+      "code": "ASSURANCE_POLICY_PROFILE_FAIL",
+      "summary": "l9.pull-request@1 evaluate wrote decision dec_d0e45c245bb22fb4417831f5540a852af93e3f09, verdict fail. L9.CI.REPOSITORY_METADATA failed: shipped project-repository-metadata on Quantum-L9/l9-pr-repair@f5773d4 found no committed MANIFEST.md. Six other profile controls passed. L3-F1 (no decision) is closed."
+    }
+  ],
+  "warnings": [
+    "Layer 1 and Layer 4 made no repository mutation: no source edit, no commit, no push, no PR, no registry or schema change, no l9-pr-repair mutation enablement.",
+    "All nine repositories are checked out at their origin/main tips with clean git trees. Eight sit on branch claude/layer-4-activation-wb6bgf whose SHA is identical to origin/main.",
+    "Layer 1 environment caveat: the harness ran ensurepip into four repo-local gitignored .venv directories to repair pip-less venvs left by the session-deps hook. Removal was attempted and denied by the operator permission gate, so l9-ci-debt-intelligence, l9-ci-debt-lsp, l9-ci-debt-resolver and l9-ci-core still carry a harness-added pip tree under .venv. This is why l9-ci-debt-intelligence reports one failing test.",
+    "Provenance is version-governed. source_sha_gating is false. Cross-layer SHA alignment remains informational only.",
+    "Original Layer-2 seam-inventory.json was reconstructed AFTER the first seam tests. This rerun declared its active set first in layer-2/seam-inventory.rerun-2026-09-07.json."
+  ],
+  "waivers": [],
+  "final_statement": "DO NOT DEPLOY. Layer 1 is pass 9/9. Layer 2 is partial: 6/7 pass, intelligence_to_lsp still PublicationGateError (candidates score 0.35; threshold 4.0; static ceiling 2.5; historical miner on Core #148 admitted 0 events). Layer 3 is partial: 5/6 pass, editor_advisory skipped. L3-F1 is closed: shipped evaluate wrote AssuranceDecision dec_d0e45c245bb22fb4417831f5540a852af93e3f09, verdict fail (repository-metadata). 15/15 negatives passed. No waivers.",
+  "sdk_health_refresh": {
+    "cause": "l9-ci-sdk#95 merged; nightly Core callers (secrets-inherit) removed",
+    "tested_at": "2026-09-07T23:54:25Z",
+    "sha": "5405fa5768b084b4c29066e810c81664fba3c21b",
+    "previous_sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+    "health_command": "make ci",
+    "health": "pass",
+    "health_exit_code": 0,
+    "python": "3.12",
+    "tokens": "GH_TOKEN and GITHUB_TOKEN unset (zizmor offline)",
+    "evidence": "zizmor Passed; mypy 89 files clean; pytest 505 passed; compileall ok",
+    "merged_pr": "https://github.com/Quantum-L9/l9-ci-sdk/pull/95",
+    "layers_2_and_3_replayed": true
+  },
+  "resolved_failures": [
+    {
+      "code": "NEGATIVE_COVERAGE_INCOMPLETE",
+      "resolved_at": "2026-09-08T00:16:39Z",
+      "summary": "15 of 15 fail-closed negative tests now ran and passed. The five previously not-run tests were executed on the Layer 2/3 rerun."
+    },
+    {
+      "code": "ASSURANCE_POLICY_EVIDENCE_INCOMPLETE",
+      "alias": "L3-F1",
+      "resolved_at": "2026-09-08T02:30:00Z",
+      "summary": "Shipped evaluate --profile l9.pull-request@1 on origin/main e9f012b wrote AssuranceDecision dec_d0e45c245bb22fb4417831f5540a852af93e3f09. Completeness is complete (6/6 checks admitted, 7/7 controls assessed). Prior exit 42 was a dependabot-checkout schema miss."
+    }
+  ],
+  "layer_2_3_rerun": {
+    "tested_at": "2026-09-08T00:16:39Z",
+    "inventory_declared_before": "artifacts/organism/layer-2/seam-inventory.rerun-2026-09-07.json",
+    "pr_repair_standalone": "pass",
+    "standalone_repair_safety": "pass",
+    "intelligence_to_lsp": "partial",
+    "editor_advisory": "skipped",
+    "negatives": "15/15 pass",
+    "layers_2_and_3_replayed": true,
+    "passing_seams_not_forced": true
+  }
+}

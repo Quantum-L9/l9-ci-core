@@ -1,0 +1,22 @@
+{
+  "autofix_candidates": [],
+  "generated_at": "2026-09-08T00:15:58.742803+00:00",
+  "manual_review_required": [],
+  "pr": {
+    "author": "cryptoxdog",
+    "base_branch": "main",
+    "changed_files": [
+      ".gitignore",
+      "MANIFEST.sha256"
+    ],
+    "head_branch": "agent/cursor/undoA-core",
+    "head_sha": "841f2dd9e0dbe54a9acb4d59669c7e1ef40a0c03",
+    "is_draft": false,
+    "labels": [],
+    "pr_number": 148,
+    "repo_name": "l9-ci-core",
+    "repo_owner": "Quantum-L9",
+    "title": "Stop ignoring session-injected Claude paths in tracked .gitignore"
+  },
+  "schema_version": "1.0.0"
+}

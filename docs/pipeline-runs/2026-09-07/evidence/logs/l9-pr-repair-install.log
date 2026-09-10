@@ -1,0 +1,58 @@
+Using CPython 3.11.15 interpreter at: /usr/local/bin/python3
+Creating virtual environment with seed packages at: .venv3-l9-pr-repair
+ + packaging==26.3
+ + pip==26.2.1
+ + setuptools==84.0.0
+ + wheel==0.48.0
+Activate with: source .venv3-l9-pr-repair/bin/activate
+HAS_BUILD_SYSTEM=no
+Using Python 3.11.15 environment at: /tmp/l9-organism/.venv3-l9-pr-repair
+Resolved 18 packages in 963ms
+   Building pr-repair @ file:///tmp/l9-organism/layer1-trees/l9-pr-repair
+      Built pr-repair @ file:///tmp/l9-organism/layer1-trees/l9-pr-repair
+Prepared 1 package in 1.01s
+Installed 18 packages in 228ms
+ + annotated-types==0.8.0
+ + attrs==26.1.0
+ + certifi==2026.7.22
+ + charset-normalizer==3.5.1
+ + idna==3.19
+ + jsonschema==4.26.0
+ + jsonschema-specifications==2025.9.1
+ + pr-repair==0.4.0 (from file:///tmp/l9-organism/layer1-trees/l9-pr-repair)
+ + pydantic==2.13.5
+ + pydantic-core==2.46.5
+ + python-dotenv==1.2.3
+ + pyyaml==6.0.3
+ + referencing==0.37.0
+ + requests==2.34.2
+ + rpds-py==2026.6.3
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.4
+ + urllib3==2.7.0
+warning: The package `pr-repair @ file:///tmp/l9-organism/layer1-trees/l9-pr-repair` does not have an extra named `dev`
+INSTALL_MODE=editable_with_dev_extras
+-- repo-declared dependency-group dev: mypy>=1.11 types-requests types-PyYAML pytest>=8 pytest-cov pytest-timeout pytest-xdist ruff>=0.6 --
+Using Python 3.11.15 environment at: /tmp/l9-organism/.venv3-l9-pr-repair
+Resolved 20 packages in 58ms
+Installed 17 packages in 40ms
+ + ast-serialize==0.10.0
+ + coverage==7.16.0
+ + execnet==2.1.2
+ + iniconfig==2.3.0
+ + librt==0.15.0
+ + mypy==2.3.1
+ + mypy-extensions==1.1.0
+ + pathspec==1.1.1
+ + pluggy==1.6.0
+ + pygments==2.21.0
+ + pytest==9.1.1
+ + pytest-cov==7.1.0
+ + pytest-timeout==2.4.0
+ + pytest-xdist==3.8.0
+ + ruff==0.16.6
+ + types-pyyaml==6.0.12.20260906
+ + types-requests==2.33.0.20260906
+-- repo-declared toolchain: requirements-ci.txt --
+Using Python 3.11.15 environment at: /tmp/l9-organism/.venv3-l9-pr-repair
+Audited 7 packages in 4ms

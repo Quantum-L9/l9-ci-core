@@ -1,0 +1,153 @@
+{
+  "layer": "seam_tests",
+  "provenance": {
+    "written": "AFTER the seam tests ran, not before them.",
+    "why_this_matters": "The Layer 2 contract requires this inventory to be produced BEFORE running seam tests, so that the set of seams claimed active is fixed in advance and cannot be chosen to fit the results. That ordering was NOT followed: the seam tests ran at 2026-09-07T03:45:17Z and this file was reconstructed afterwards from their receipts and from layer-2/inactive-by-design.json. It is therefore an accurate index of what was tested, but it is NOT independent evidence that the active set was declared in advance. Recorded rather than backdated.",
+    "reconstructed_from": [
+      "artifacts/organism/layer-2/receipts/*.json",
+      "artifacts/organism/layer-2/inactive-by-design.json",
+      "artifacts/organism/01-repo-health.json"
+    ]
+  },
+  "repos": {
+    "l9-ci-debt-intelligence": {
+      "sha": "7b11061084e254699d006feaeccd1c96d66445c9",
+      "version": "0.2.0"
+    },
+    "l9-ci-debt-lsp": {
+      "sha": "ebec362448efb539115a7d3c3587c753943d8648",
+      "version": "1.0.0"
+    },
+    "l9-ci-debt-resolver": {
+      "sha": "57cf94e1c8a744620346dca81cde88b3d6f64004",
+      "version": "0.7.0"
+    },
+    "l9-ci-core": {
+      "sha": "4c842cb838b6c49cf44681ecc683a432538fd348",
+      "version": "2.0.0.dev1"
+    },
+    "l9-ci-sdk": {
+      "sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+      "version": "2.0.0"
+    },
+    "l9-assurance": {
+      "sha": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86",
+      "version": "2.1.1"
+    },
+    "l9-harness": {
+      "sha": "25bbb4046ed5b42af005b989660c0c3b692c0709",
+      "version": "2.0.4"
+    },
+    "l9-pr-repair": {
+      "sha": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
+      "version": "0.4.0"
+    },
+    "l9-observability-core": {
+      "sha": "6a84c783f2fbaefbd9c62784506607e0f487c621",
+      "version": "1.0.0"
+    }
+  },
+  "active_seams": [
+    {
+      "id": "core_to_sdk",
+      "producer": "l9-ci-core",
+      "consumer": "l9-ci-sdk",
+      "contract": "l9.finding-bundle/v1",
+      "status": "active",
+      "observed_result": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/core_to_sdk.json"
+    },
+    {
+      "id": "sdk_to_assurance",
+      "producer": "l9-ci-sdk",
+      "consumer": "l9-assurance",
+      "contract": "l9.observation/1.0.0",
+      "status": "active",
+      "observed_result": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/sdk_to_assurance.json"
+    },
+    {
+      "id": "resolver_to_intelligence",
+      "producer": "l9-ci-debt-resolver",
+      "consumer": "l9-ci-debt-intelligence",
+      "contract": "l9.intelligence-feedback-event/v1",
+      "status": "active",
+      "observed_result": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/resolver_to_intelligence.json"
+    },
+    {
+      "id": "intelligence_to_lsp",
+      "producer": "l9-ci-debt-intelligence",
+      "consumer": "l9-ci-debt-lsp",
+      "contract": "l9.defense-pack/v1",
+      "status": "active",
+      "observed_result": "partial",
+      "receipt": "artifacts/organism/layer-2/receipts/intelligence_to_lsp.json"
+    },
+    {
+      "id": "harness_to_assurance",
+      "producer": "l9-harness",
+      "consumer": "l9-assurance",
+      "contract": "l9.assurance-invocation-record",
+      "status": "active",
+      "observed_result": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/harness_to_assurance.json"
+    },
+    {
+      "id": "pr_repair_standalone",
+      "producer": "l9-pr-repair",
+      "consumer": "l9-pr-repair",
+      "contract": "l9.agent-review-payload/v1",
+      "status": "active",
+      "observed_result": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/pr_repair_standalone.json"
+    },
+    {
+      "id": "observability_contracts",
+      "producer": "l9-observability-core",
+      "consumer": "l9-observability-core",
+      "contract": "l9.observation/1.0.0",
+      "status": "active",
+      "observed_result": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/observability_contracts.json"
+    }
+  ],
+  "inactive_or_planned_seams": [
+    {
+      "id": "core_to_intelligence_gate_event",
+      "reason": "No Layer 2 evidence of a Core-emitted gate event consumed by Intelligence."
+    },
+    {
+      "id": "pr_repair_to_intelligence_learning_packet",
+      "reason": "pr-repair writes runtime/pr_repair/learning_packets.json locally in dry-run, but nothing delivers it to Intelligence and Intelligence declares no pr-repair producer. Local emission is not a live seam."
+    },
+    {
+      "id": "lsp_to_intelligence_editor_outcome",
+      "reason": "No Layer 2 evidence."
+    },
+    {
+      "id": "sdk_to_lsp_direct_finding",
+      "reason": "The SDK emits l9.finding-bundle/v1; no evidence the LSP consumes SDK findings directly. Only the defense-pack path is declared."
+    },
+    {
+      "id": "sdk_to_harness_authority_manifest",
+      "reason": "The harness consumed no SDK capability manifest; it invoked Assurance directly."
+    },
+    {
+      "id": "resolver_to_pr_repair_delegation",
+      "reason": "l9-ci-debt-resolver/.l9/pr-repair-delegation-contract.yaml EXISTS on disk, but a contract file is not proof of a live seam: no resolver command emits a delegation request and pr-repair exposes no delegation intake. Not tested as active."
+    },
+    {
+      "id": "observability_control_plane",
+      "reason": "Observability exposes canonicalisation, digest and schema validation only. No scheduler/gate/retry/admission/repair surface exists or was used."
+    }
+  ],
+  "rerun_2026_09_08": {
+    "written_before_this_rerun": "artifacts/organism/layer-2/seam-inventory.rerun-2026-09-07.json",
+    "note": "The original inventory remains reconstructed-after. This rerun's active set was declared before the two blocked seams and five negatives were re-executed.",
+    "observed_updates": {
+      "pr_repair_standalone": "pass",
+      "intelligence_to_lsp": "partial"
+    }
+  }
+}

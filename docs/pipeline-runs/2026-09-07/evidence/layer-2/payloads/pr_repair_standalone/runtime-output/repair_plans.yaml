@@ -1,0 +1,65 @@
+- plan_id: d079e93b-c7cd-4e95-904e-fc250fe6d52a
+  pr_ref:
+    repo_owner: quantum-l9
+    repo_name: pr_repair
+    pr_number: 123
+    title: Rename TransportPacket to Packet across engine
+    head_branch: feature/transport-packet-rename
+    base_branch: main
+    head_sha: 0123456789abcdef0123456789abcdef01234567
+    is_draft: false
+    author: l9-audit-bot
+    labels:
+    - l9
+    - needs-implementer
+    changed_files:
+    - engine/transport.py
+    - engine/server.py
+  targeted_findings:
+  - finding_id: semgrep-transport-packet-0001
+    pr_number: 123
+    source_name: agent_review
+    source_priority: 110
+    severity: medium
+    category: lint_failure
+    message: TransportPacket has been renamed to Packet; update the reference.
+    file_path: engine/transport.py
+    line_start: 42
+    line_end: 42
+    suggested_fix: null
+    replacement_text: Packet
+    rule_id: l9.transport-packet-rename
+    review_disposition: autofix
+    evidence_url: https://example.com/semgrep/transport-packet-0001
+    tags: []
+    tool: null
+    thread_id: null
+    comment_id: null
+    repairable: true
+    confidence: 1.0
+    fingerprint: 85f36fb5a246c6e129321960ad05090f8a9881a5474a5ad258b6a62f7e4cf02d
+    tier_impact: T1
+    protected_path: false
+    skip_review_path: false
+    contract_ids:
+    - C-04
+    - C-05
+    - C-17
+    repo_rule_sources:
+    - /home/user/l9-pr-repair/AGENT.md
+    root_cause_key: lint_failure:engine/transport.py
+    classification_reason: category=lint_failure; protected_path=False; skip_review_path=False;
+      tier_impact=T1
+  target_files:
+  - engine/transport.py
+  target_tier: T1
+  protected_paths_touched: false
+  verification_command:
+  - make
+  - agent-check
+  risk_level: low
+  approval_required: false
+  executable: true
+  execution_mode: dry_run
+  rationale: pr=123; repairable_findings=1; protected_paths_touched=False; target_tier=T1;
+    risk_level=low; approval_required=False; executable=True

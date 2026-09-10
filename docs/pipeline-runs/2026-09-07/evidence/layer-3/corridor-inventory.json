@@ -1,0 +1,108 @@
+{
+  "layer": "corridor_tests",
+  "declared_at": "2026-09-08T02:50:00Z",
+  "input_layer": "artifacts/organism/02-seam-tests.json",
+  "rerun": "2026-09-08T02:50:00Z",
+  "corridors": [
+    {
+      "id": "ci_evidence",
+      "path": [
+        "l9-ci-core",
+        "l9-ci-sdk",
+        "l9-assurance"
+      ],
+      "required_seams": [
+        "core_to_sdk",
+        "sdk_to_assurance"
+      ],
+      "required_seam_status": {
+        "core_to_sdk": "pass",
+        "sdk_to_assurance": "pass"
+      },
+      "status": "ready"
+    },
+    {
+      "id": "learning_feedback",
+      "path": [
+        "l9-ci-debt-resolver",
+        "l9-ci-debt-intelligence"
+      ],
+      "required_seams": [
+        "resolver_to_intelligence"
+      ],
+      "required_seam_status": {
+        "resolver_to_intelligence": "pass"
+      },
+      "status": "ready"
+    },
+    {
+      "id": "editor_advisory",
+      "path": [
+        "l9-ci-debt-intelligence",
+        "l9-ci-debt-lsp"
+      ],
+      "required_seams": [
+        "intelligence_to_lsp"
+      ],
+      "required_seam_status": {
+        "intelligence_to_lsp": "partial"
+      },
+      "status": "blocked",
+      "skip_reason": "skipped_due_to_failed_seam",
+      "blocking_seams": [
+        "intelligence_to_lsp"
+      ],
+      "note": "Declared blocked. T-compile stopped at max_score=3.75 < 4.0; pack was not assembled; the corridor is not forced."
+    },
+    {
+      "id": "assurance_harness",
+      "path": [
+        "l9-harness",
+        "l9-assurance"
+      ],
+      "required_seams": [
+        "harness_to_assurance"
+      ],
+      "required_seam_status": {
+        "harness_to_assurance": "pass"
+      },
+      "status": "ready"
+    },
+    {
+      "id": "standalone_repair_safety",
+      "path": [
+        "l9-pr-repair"
+      ],
+      "required_seams": [
+        "pr_repair_standalone"
+      ],
+      "required_seam_status": {
+        "pr_repair_standalone": "pass"
+      },
+      "status": "ready"
+    },
+    {
+      "id": "observability_contracts",
+      "path": [
+        "l9-observability-core"
+      ],
+      "required_seams": [
+        "observability_contracts"
+      ],
+      "required_seam_status": {
+        "observability_contracts": "pass"
+      },
+      "status": "ready"
+    }
+  ],
+  "ready_corridors": [
+    "ci_evidence",
+    "learning_feedback",
+    "assurance_harness",
+    "standalone_repair_safety",
+    "observability_contracts"
+  ],
+  "blocked_corridors": [
+    "editor_advisory"
+  ]
+}

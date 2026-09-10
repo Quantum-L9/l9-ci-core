@@ -1,0 +1,72 @@
+{
+  "seam": "core_to_sdk",
+  "status": "pass",
+  "producer": "l9-ci-core",
+  "consumer": "l9-ci-sdk",
+  "producer_sha": "659e2c07f8dd2f8b64ed8b696bc35790c728a4a1",
+  "consumer_sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+  "commands": [
+    "semgrep --config l9_ci/rulesets/semgrep/python/ --json --metrics=off src  (real scanner, run from repo root)",
+    "l9-ci-core/.github/actions/invoke-sdk/invoke.py  L9_OPERATION=semgrep-normalize  (Core drives SDK)",
+    "l9-ci-core/.github/actions/invoke-sdk/invoke.py  L9_OPERATION=compatibility-check (SDK contract identity)",
+    "l9-ci bundle validate | gate evaluate | bundle project-agent-payload | bundle project-sarif"
+  ],
+  "artifacts": [
+    {
+      "name": "finding-bundle.json",
+      "path": "artifacts/organism/layer-2/payloads/core_to_sdk/finding-bundle.json",
+      "sha256": "08edd67f3cc9a9c944bd27a8e78543c2f70ee4c56177d331a108ba1b94f90e6e"
+    },
+    {
+      "name": "core-driven-finding-bundle.json",
+      "path": "artifacts/organism/layer-2/payloads/core_to_sdk/core-driven-finding-bundle.json",
+      "sha256": "47a479ba86c168d1dc954f6a2f4aaaf3b7c3d695365e058fb82f68399bbc2cae"
+    },
+    {
+      "name": "gate-result.json",
+      "path": "artifacts/organism/layer-2/payloads/core_to_sdk/gate-result.json",
+      "sha256": "49e96f579d6802b40f1187bf94dbe61305b287927e7cc2894e1693a1919212f3"
+    },
+    {
+      "name": "agent-review-payload.json",
+      "path": "artifacts/organism/layer-2/payloads/core_to_sdk/agent-review-payload.json",
+      "sha256": "040b5018d1684accd01fec788fd663eae4858052afc0c12134d8e3fea81291ad"
+    },
+    {
+      "name": "results.sarif",
+      "path": "artifacts/organism/layer-2/payloads/core_to_sdk/results.sarif",
+      "sha256": "278b964c5dac163c86afa0fdc2c76d14425b93dfd008da9e9b7fbbe8a4493029"
+    },
+    {
+      "name": "semgrep-raw.json",
+      "path": "artifacts/organism/layer-2/payloads/core_to_sdk/semgrep-raw.json",
+      "sha256": "ab61459f5260510f6fe5895ea364437cd0251d9032e78151e7ac8a5ac8627f31"
+    }
+  ],
+  "contract_ids": [
+    "l9.finding-bundle/v1"
+  ],
+  "evidence": {
+    "core_invoked_sdk": true,
+    "core_command_executed": "l9-ci semgrep normalize --input ... --root /home/user/l9-pr-repair --snapshot-id snapshot_41af5f02... --provider-version 1.176.1 --revision f5773d4... --strict --required --no-dirty",
+    "sdk_contract_identity": {
+      "SDK_version": "2.0.0",
+      "compatible": true,
+      "schema_version": "1.0.0"
+    },
+    "bundle_validated_by_sdk": true,
+    "gate_result_produced": true,
+    "projections_produced": [
+      "agent-review-payload.json",
+      "results.sarif"
+    ],
+    "scan_target": "Quantum-L9/l9-pr-repair @ f5773d4 (94 files, real semgrep 1.176.1, packaged L9 ruleset)",
+    "workspace_containment_enforced": "Core rejected an input outside GITHUB_WORKSPACE before accepting a contained one.",
+    "hand_authored_bundle": false
+  },
+  "limitations": [
+    "provision-sdk was not exercised; the SDK was provisioned into a local venv and Core's invoke-sdk consumed that verified executable. Core's RESOLUTION path is therefore proven only for invocation, not for registry download.",
+    "The FindingBundle carries zero findings: the real semgrep scan of l9-pr-repair/src (94 files) and a registry-ruleset scan both returned 0 results. The finding-carrying path is proven structurally with a real bundle, not with non-zero findings."
+  ],
+  "failure": null
+}

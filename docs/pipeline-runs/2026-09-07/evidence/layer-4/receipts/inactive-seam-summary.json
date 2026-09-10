@@ -1,0 +1,73 @@
+{
+  "inactive_by_design": {
+    "core_to_intelligence_gate_event": {
+      "status": "inactive-or-planned",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
+      "tested_as_live": false,
+      "acceptable": true,
+      "reason": "No Layer 2 evidence of a Core-emitted gate event consumed by Intelligence."
+    },
+    "pr_repair_to_intelligence_learning_packet": {
+      "repository": "l9-pr-repair",
+      "status": "inactive-or-planned",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
+      "tested_as_live": false,
+      "acceptable": true,
+      "reason": "pr-repair writes runtime/pr_repair/learning_packets.json locally in dry-run, but nothing delivers it to Intelligence and Intelligence declares no pr-repair producer. Local emission is not a live seam."
+    },
+    "lsp_to_intelligence_editor_outcome": {
+      "status": "inactive-or-planned",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
+      "tested_as_live": false,
+      "acceptable": true,
+      "reason": "No Layer 2 evidence."
+    },
+    "sdk_to_lsp_direct_finding": {
+      "status": "inactive-or-planned",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
+      "tested_as_live": false,
+      "acceptable": true,
+      "reason": "The SDK emits l9.finding-bundle/v1; no evidence the LSP consumes SDK findings directly. Only the defense-pack path is declared."
+    },
+    "sdk_to_harness_authority_manifest": {
+      "status": "inactive-or-planned",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
+      "tested_as_live": false,
+      "acceptable": true,
+      "reason": "The harness consumed no SDK capability manifest; it invoked Assurance directly."
+    },
+    "resolver_to_pr_repair_delegation": {
+      "repository": "l9-pr-repair",
+      "status": "inactive-or-planned",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
+      "tested_as_live": false,
+      "acceptable": true,
+      "reason": "l9-ci-debt-resolver/.l9/pr-repair-delegation-contract.yaml EXISTS on disk, but a contract file is not proof of a live seam: no resolver command emits a delegation request and pr-repair exposes no delegation intake. Not tested as active."
+    },
+    "observability_control_plane": {
+      "status": "prohibited",
+      "declared_by_layer_2": true,
+      "declared_by_layer_3": true,
+      "tested_as_live": false,
+      "acceptable": true,
+      "reason": "Observability exposes canonicalisation, digest and schema validation only. No scheduler/gate/retry/admission/repair surface exists or was used."
+    }
+  },
+  "violations": [],
+  "sources": [
+    "artifacts/organism/layer-2/inactive-by-design.json",
+    "artifacts/organism/layer-3/non-live-corridors.json"
+  ],
+  "notes": [
+    "Every planned seam is declared and none was tested as live.",
+    "resolver_to_pr_repair_delegation stays inactive even though l9-ci-debt-resolver/.l9/pr-repair-delegation-contract.yaml exists: a contract file on disk is not a live seam, and no resolver command emits a delegation request.",
+    "The PR_Repair -> l9-pr-repair rename activated no repair seam."
+  ],
+  "status": "pass"
+}

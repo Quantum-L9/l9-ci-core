@@ -1,0 +1,31 @@
+{
+  "candidate_count": 102,
+  "compilation_id": "compile_7088b5b2b2ac94dcc5e70bf3b22245d8c412b6e2ea61b53a84eb1ce0a3fcf735",
+  "compilation_path": "/Users/ib-mac/.l9/historical-l3/compilation/compile_7088b5b2b2ac94dcc5e70bf3b22245d8c412b6e2ea61b53a84eb1ce0a3fcf735",
+  "compiled_candidate_count": 3,
+  "deterministic_output_hash": "ab62f3a1343cdb723300470cda0b63ec0ab80cf35d6f69a302889895884517fb",
+  "promotion_eligible_count": 0,
+  "schema_version": "l9.compilation-build-result/v1",
+  "max_score": 3.75,
+  "promotion_threshold": 4.0,
+  "gate": "stop",
+  "source_snapshot_id": "cs_56b0bdd500f4316cebc5b23c3b4d3c056257d28581cce4e4d5f77a827c42af68",
+  "analysis_run_id": "ar_c6f43b3f2c492382dc85af137282a257c53e9e02a316f5d72dbaa5c477897ccb",
+  "record_count": 432,
+  "top_candidate": {
+    "state": "compiled_candidate",
+    "score": 3.75,
+    "score_components": {
+      "effort": 0.0,
+      "false_positive_safety": 5.0,
+      "recurrence": 5.0,
+      "repair_success": 1.666667,
+      "scope_breadth": 5.0
+    },
+    "rationale": "Observed 21 times across 6 distinct scopes.",
+    "match_contract": {
+      "event_class": "repair_attempt",
+      "recurrence_fingerprint": "4d0fbc073dbb7b39910f923ce1be901c6a076b9463c5c4bb55a76b4fe3893568"
+    }
+  }
+}

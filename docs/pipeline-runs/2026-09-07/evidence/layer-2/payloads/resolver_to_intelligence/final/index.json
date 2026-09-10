@@ -1,0 +1,8 @@
+{
+  "bundle_count": 0,
+  "evidence_ids": [],
+  "limitations": [
+    "no evidence bundle could be projected; correlate-classify has no input from this acquisition"
+  ],
+  "schema_version": "l9.evidence-bundle-index/v1"
+}

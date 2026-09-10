@@ -1,0 +1,6 @@
+2026-09-07T02:57:53 INFO pr_repair payload_ingested autofix_candidates=1 manual_review_required=1 pr_number=123 schema_version='1.0.0'
+2026-09-07T02:57:53 INFO pr_repair findings_routed autofix=1 manual=1
+2026-09-07T02:57:53 INFO pr_repair pipeline_routing autofix=1 manual=1 pr_number=123
+2026-09-07T02:57:53 INFO pr_repair llm_proposals_complete actionable=0 eligible=1 skipped_protected=0
+2026-09-07T02:57:53 INFO pr_repair pr_pipeline_complete execution_status='not_executed' mode='dry_run' plan_id='d079e93b-c7cd-4e95-904e-fc250fe6d52a' pr_number=123
+2026-09-07T02:57:53 INFO pr_repair autofix_telemetry_emitted false_positive_rules=[] pr_number=123 promotion_candidates=[]

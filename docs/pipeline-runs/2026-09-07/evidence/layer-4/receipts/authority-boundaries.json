@@ -1,0 +1,102 @@
+{
+  "authority_boundaries": {
+    "l9-ci-sdk": {
+      "allowed_authority": [
+        "check_execution",
+        "canonical_findings",
+        "finding_bundle",
+        "sdk_projections"
+      ],
+      "violations": [],
+      "verified": true,
+      "evidence": "core_to_sdk and sdk_to_assurance both pass: Core invoked the SDK; the SDK observation was admitted by Assurance."
+    },
+    "l9-ci-core": {
+      "allowed_authority": [
+        "workflow_distribution",
+        "orchestration",
+        "artifact_routing"
+      ],
+      "violations": [],
+      "verified": true,
+      "evidence": "core_to_sdk pass: Core's invoke-sdk action produced the FindingBundle that every downstream artifact descends from."
+    },
+    "l9-assurance": {
+      "allowed_authority": [
+        "evidence_admission",
+        "policy_evaluation",
+        "verdict"
+      ],
+      "violations": [],
+      "verified": true,
+      "evidence": "Assurance produced every admission decision in this run, directly and when invoked by the harness, and the two agreed."
+    },
+    "l9-harness": {
+      "allowed_authority": [
+        "subordinate_execution",
+        "assurance_adapter"
+      ],
+      "violations": [],
+      "verified": true,
+      "evidence": "invocation-record.json carries authoritative=false in both the Layer 2 seam and the Layer 3 corridor; the harness recorded argv/stdout/stderr digests and the child exit code, and computed no admission decision of its own."
+    },
+    "l9-ci-debt-resolver": {
+      "allowed_authority": [
+        "repair_planning",
+        "local_apply",
+        "feedback_event_production"
+      ],
+      "violations": [],
+      "verified": true,
+      "evidence": "resolver_to_intelligence pass: live feedback event ingested by Intelligence."
+    },
+    "l9-ci-debt-intelligence": {
+      "allowed_authority": [
+        "corpus_ingestion",
+        "learning",
+        "defense_pack_production"
+      ],
+      "violations": [],
+      "verified": true,
+      "evidence": "Ingestion and compile ran (record_count=2, candidate_count=2). defense_pack_production remains unproven: PublicationGateError, promotion_eligible_count=0. No pack was forced."
+    },
+    "l9-ci-debt-lsp": {
+      "allowed_authority": [
+        "advisory_editor_projection",
+        "defense_pack_consumption"
+      ],
+      "violations": [],
+      "verified": true,
+      "evidence": "No source mutation observed. The seam is partial for lack of a promotable pack, so the advisory boundary was not exercised further."
+    },
+    "l9-pr-repair": {
+      "canonical_remote": "https://github.com/Quantum-L9/l9-pr-repair",
+      "legacy_names": [
+        "PR_Repair"
+      ],
+      "allowed_authority": [
+        "standalone_dry_run",
+        "manual_review_assistance"
+      ],
+      "violations": [],
+      "verified": true,
+      "evidence": "Live ingest-review of Core PR #148 reached GraphQL and wrote a schema-valid payload. Dry-run on that payload: execution_mode=dry_run, modified_files=[], push_result=null, protected_paths_touched=false. Push still requires both PR_FIX_ALLOW_PUSH=1 and mode=repair_verify_and_push."
+    },
+    "l9-observability-core": {
+      "allowed_authority": [
+        "contracts",
+        "canonical_digests",
+        "correlation_validation"
+      ],
+      "violations": [],
+      "verified": true,
+      "evidence": "Only canonicalisation, digest and schema validation were exercised. No scheduler, gate, retry, admission, dispatch or remediation surface exists in the public API."
+    }
+  },
+  "verified_count": 9,
+  "notes": [
+    "A boundary counts as verified only where a passing seam or corridor recorded it. All nine in-scope repos now have a recorded boundary observation. intelligence defense_pack_production is still unproven (PublicationGateError).",
+    "Layers 1-4 performed no remote mutation against any organism repository."
+  ],
+  "status": "pass"
+}

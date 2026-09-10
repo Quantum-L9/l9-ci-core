@@ -1,0 +1,210 @@
+{
+  "seam": "resolver_to_intelligence",
+  "status": "pass",
+  "producer": "l9-ci-debt-resolver",
+  "consumer": "l9-ci-debt-intelligence",
+  "producer_sha": "57cf94e1c8a744620346dca81cde88b3d6f64004",
+  "consumer_sha": "7b11061084e254699d006feaeccd1c96d66445c9",
+  "contract_ids": [
+    "l9.finding-bundle/v1",
+    "l9.sdk-knowledge-document/v1",
+    "l9.intelligence-feedback-event/v1",
+    "l9.ingestion-result/v1"
+  ],
+  "what_was_proven": {
+    "resolver_producer_stage_1": {
+      "command": "l9-debt-resolver build-sdk-knowledge <real SDK bundle> --repository Quantum-L9/l9-pr-repair",
+      "result": "pass",
+      "artifact": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/sdk-knowledge.json",
+      "sha256": "6a28336ef12132e39e85f07aa0ed7c37c9e652ef9a737932750a2594baf32178",
+      "note": "Real resolver code projected the real Core-driven SDK FindingBundle onto l9.sdk-knowledge-document/v1. This is the resolver-side input build-feedback-event needs.  Also proven: with the redirect defect worked around, acquire-github-run completes and emits a real l9.evidence-bundle/v1 from a real failed CI run."
+    },
+    "intelligence_consumer_accepts_real_producer_output": {
+      "command": "l9-intelligence ingest-sdk-finding-bundle <real SDK bundle> --repository Quantum-L9/l9-pr-repair",
+      "result": "accepted",
+      "receipt": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/intelligence-ingestion-receipt.json",
+      "sha256": "2e2d46be7dedd693ff135e92ca6895864c32b090e7afc6a3be04d057acdbcd67",
+      "ingestion": {
+        "status": "accepted",
+        "ledger_sequence": 1,
+        "event_id": "finding-bundle_ef2a8d09e227559b7679176d283f5c2c01b23869b97905d0f94dc5841576e160",
+        "record_id": "cr_9584d55dd63aabf507b02e60238800167e69017036eb92e479bc3b8751399639"
+      },
+      "note": "This is the SDK -> Intelligence ingestion path, NOT the resolver -> Intelligence seam. It proves Intelligence's real ingestion code accepts real producer output; it is explicitly NOT a substitute for the blocked resolver feedback path."
+    },
+    "idempotency": {
+      "test": "intelligence_duplicate_idempotency_safe",
+      "result": "pass",
+      "evidence": "Re-ingesting the identical bundle returned status=duplicate with the SAME record_id (cr_9584d55d...) and ledger_sequence=2. verify-store reports status=valid, ledger_entries=2, record_count=1, duplicates=1 - the append-only ledger recorded the delivery without creating a second corpus record."
+    },
+    "pseudonymisation_enforced": {
+      "result": "pass",
+      "evidence": "Intelligence refused to ingest until L9_INTELLIGENCE_PSEUDONYM_KEY and L9_INTELLIGENCE_PATH_KEY were both set, stating the corpus would otherwise partition by producer. Repository identity is pseudonymised, never stored raw."
+    }
+  },
+  "negative_tests": {
+    "intelligence_rejects_privacy_leak": "pass",
+    "intelligence_quarantines_unknown_or_planned_producer": "pass",
+    "intelligence_duplicate_idempotency_safe": "pass"
+  },
+  "test_scoped_config": {
+    "L9_INTELLIGENCE_PSEUDONYM_KEY": "layer2-organism-test-key-not-a-secret-0001",
+    "L9_INTELLIGENCE_PATH_KEY": "layer2-organism-test-pathkey-not-a-secret-01",
+    "note": "Non-secret test-scoped keys for a throwaway corpus under artifacts/. Not credentials."
+  },
+  "failure": null,
+  "retraction": {
+    "what_was_wrong": "An earlier revision of this receipt classified the blocker as 'credentials - this surface holds no GitHub credential the resolver's transport can use' and set status=partial. That was WRONG.",
+    "how_it_was_disproved": "GH_TOKEN/GITHUB_TOKEN are present and WORK: a direct REST call and a plain urllib.request.urlopen with that token both return HTTP 200 against the same Actions endpoints the resolver uses.",
+    "corrected_status": "fail - a reproducible defect in l9-ci-debt-resolver, not an environment limit."
+  },
+  "diagnostic_confirmation": {
+    "method": "Ran the resolver's REAL acquisition with a runtime-only opener that strips Authorization on cross-host redirect. No repository source was modified.",
+    "result": "pass - the redirect bug is the SOLE blocker of log acquisition.",
+    "acquisition": {
+      "terminal_state": "evidence_ready",
+      "failed_job_count": 1,
+      "complete_evidence_count": 1,
+      "job": "101379037661 (Unit tests / 'Run Phase 1 validation')",
+      "log_size_bytes": 93158,
+      "log_sha256": "a5d854adc72662532a638aaf58410f74540275959936f55e0c96171a388eca68",
+      "redaction_applied": [
+        "UNIX_PATH"
+      ],
+      "schema": "l9.acquisition-report/v1 + l9.ci-run-evidence/v1"
+    }
+  },
+  "second_blocker": {
+    "phase": "producer (build-feedback-event)",
+    "code": "SnapshotMismatchError",
+    "error": "SDK snapshot does not match repository revision",
+    "assessment": "CORRECT fail-closed behaviour, not a defect. The evidence bundle is an l9-ci-core run while the available SDK knowledge was built from an l9-pr-repair scan. Completing the seam needs a failed CI run AND an SDK bundle at the SAME revision. No failed run exists at any revision checked out here (origin/main 4c842cb has none, and PR #150's runs are all green), and switching a shared clone to the failing run's branch is forbidden.",
+    "classification": "test-data alignment, not a code defect"
+  },
+  "resolved": {
+    "when": "after Quantum-L9/l9-ci-debt-resolver#52 merged (57cf94e)",
+    "how": "The redirect defect this receipt identified is fixed on main, so acquire-github-run now completes with the UNMODIFIED CLI - no runtime patch. The second gate (SnapshotMismatchError) was satisfied by pairing a failed CI run with an SDK bundle at the SAME revision: run 33481850033 at 2410fae622bb, whose tree was extracted read-only with `git archive` (no branch switch in the shared clone) and scanned with real semgrep 1.176.1.",
+    "first_non_zero_finding": "That revision yields finding_count=1 - the FIRST non-zero finding to traverse the organism in this entire run. Every earlier scan returned 0."
+  },
+  "chain": [
+    {
+      "stage": "semgrep scan @2410fae",
+      "result": "pass",
+      "findings": 1
+    },
+    {
+      "stage": "l9-ci semgrep normalize",
+      "result": "pass",
+      "bundle_revision": "2410fae622bb"
+    },
+    {
+      "stage": "l9-debt-resolver build-sdk-knowledge",
+      "result": "pass"
+    },
+    {
+      "stage": "l9-debt-resolver acquire-github-run (run 33481850033)",
+      "result": "pass",
+      "terminal_state": "evidence_ready",
+      "failed_jobs": 1,
+      "raw_bytes": 21148,
+      "note": "unmodified CLI, merged fix"
+    },
+    {
+      "stage": "l9-debt-resolver build-feedback-event",
+      "result": "pass",
+      "schema": "l9.intelligence-feedback-event/v1",
+      "size_bytes": 2234
+    },
+    {
+      "stage": "l9-debt-resolver publish-feedback (json-file)",
+      "result": "pass",
+      "schema": "l9.feedback-delivery-receipt/v1",
+      "status": "duplicate",
+      "provider_status": 409,
+      "receipt_id": "feedback_receipt_e656a98a894651edb38bd74"
+    },
+    {
+      "stage": "l9-intelligence ingest-resolver-feedback",
+      "result": "pass",
+      "status": "accepted",
+      "ledger_sequence": 1,
+      "record_id": "cr_c14ca6a269c7c73638ce7223ebaeaa56ba705f3843f700424ca64a4cac4e41c7"
+    }
+  ],
+  "privacy_checks": {
+    "raw_repository_path": false,
+    "raw_repository_name": false,
+    "branch_name": false,
+    "raw_log_body": false,
+    "diff_or_patch_body": false,
+    "developer_identity_or_email": false,
+    "secrets_or_tokens": false,
+    "evidence": "The accepted event is 2234 bytes and carries repository_pseudonym, not a raw name. Scanned for /home/user paths, the literal repo name, branch fields, runner log markers, diff hunks, emails and token shapes - none present."
+  },
+  "idempotency": {
+    "key": "feedback_idempotency_582eec173ebbaaef2c3fab3ce792bbf94c6168921f274e855c8ea20b658e6987",
+    "duplicate_safe": true,
+    "evidence": "Re-delivering the identical event returned status=duplicate with the SAME record_id (cr_c14ca6a269c7c73638ce722...) at ledger_sequence 2. verify-store: status=valid, ledger_entries=2, record_count=1, duplicates=1."
+  },
+  "final_artifacts": [
+    {
+      "name": "semgrep-raw.json",
+      "sha256": "8f570ed21f10cd5349e1eb6d4fb9a1ab895433f30d95b28960b71a838a7d12fc",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/semgrep-raw.json"
+    },
+    {
+      "name": "finding-bundle.json",
+      "sha256": "f5daafc075956fb1ac04d3158ae84cd301493211a5d82bda9b4df0a2bc03f47d",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/finding-bundle.json"
+    },
+    {
+      "name": "sdk-knowledge.json",
+      "sha256": "225398a1e943d1062ef6a6925cfde0e62d5cd611da9a09a93be91c62efb0bec7",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/sdk-knowledge.json"
+    },
+    {
+      "name": "resolver-feedback-event.json",
+      "sha256": "bf475810fdbe6fb713a42ebee121819c5548626321ca8529ed6df42c04b6c75e",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/resolver-feedback-event.json"
+    },
+    {
+      "name": "resolver-delivery-receipt.json",
+      "sha256": "2681b5533d5ca188d1daa78dbcdd10ef089b5bed455178bcc6b10afc2ca8471b",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/resolver-delivery-receipt.json"
+    },
+    {
+      "name": "intelligence-ingestion-receipt.json",
+      "sha256": "a68db0286fec244b4e39e2024381cac68bf28a83e0a27829debd778186fa36eb",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/intelligence-ingestion-receipt.json"
+    },
+    {
+      "name": "intelligence-ingestion-receipt-2.json",
+      "sha256": "072113d5a28d0785f68df8042109c66a15dd66002ab56918abb75c267fa4b493",
+      "path": "artifacts/organism/layer-2/payloads/resolver_to_intelligence/final/intelligence-ingestion-receipt-2.json"
+    }
+  ],
+  "producer_sha_provenance": {
+    "revision": "57cf94e1c8a744620346dca81cde88b3d6f64004",
+    "ref": "origin/main (squash-merge of Quantum-L9/l9-ci-debt-resolver#52)",
+    "ran_from": "the working clone at branch head 8a5718e",
+    "identity_proof": "git diff --stat 8a5718e 57cf94e is EMPTY over the whole tree, so the code that ran this seam is byte-identical to main.",
+    "superseded": "2c7406c02351c7aca73e027a8a9d6d7f0cbcefc1 \u2014 the pre-fix revision this receipt previously named. It could not have produced a pass; naming it was a receipt error, not a different result.",
+    "scanned_revision": "2410fae622bb \u2014 the revision of the FAILED CI run whose logs were acquired, paired with an SDK bundle at the same revision to satisfy the resolver's own SnapshotMismatchError gate. Distinct from the revision of the resolver CODE above."
+  },
+  "historical_blocker": {
+    "phase": "producer (acquire-github-run, job-log retrieval)",
+    "code": "REDIRECT_AUTH_FORWARDING",
+    "defect_owner": "l9-ci-debt-resolver",
+    "location": "src/l9_debt_resolver/providers/github/transport.py:_request (urllib.request.urlopen, default HTTPRedirectHandler)",
+    "mechanism": "GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs returns 302 to a SIGNED Azure Blob Storage URL (productionresultssa4.blob.core.windows.net). urllib's default redirect handler re-sends the Authorization: Bearer header to that host. Azure rejects a signed request that also carries an Authorization header, returning HTTP 401 'Server failed to authenticate the request. Please refer to the information in the www-authenticate header'. transport.py maps any 401 to AuthenticationError, so a redirect bug is reported as a GitHub credential failure.",
+    "proof": [
+      "curl -L (strips auth cross-host by default) -> 200",
+      "curl -L --location-trusted (re-sends auth cross-host) -> 401",
+      "python urllib.request.urlopen (re-sends auth cross-host) -> 401",
+      "Same token, same endpoint, same session: the only variable is whether Authorization survives the cross-host redirect."
+    ],
+    "environment_independent": "GitHub always redirects job logs to blob storage, so this fails wherever the resolver runs, including CI. It is not specific to this sandbox.",
+    "fix": "Strip the Authorization header when a redirect crosses to a different host (what requests and curl do by default). A ~6-line HTTPRedirectHandler subclass in transport.py.",
+    "state": "RESOLVED \u2014 fixed on main at 57cf94e (#52). Retained because this receipt is the record that identified it."
+  }
+}

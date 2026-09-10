@@ -1,0 +1,205 @@
+{
+  "layer": "repo_health",
+  "status": "pass",
+  "tested_at": "2026-09-07T14:47:57Z",
+  "python": "3.11",
+  "driver": "run_layer1_v3.sh",
+  "environment_note": "Every repository was extracted with `git archive` at its fetched origin/main revision into a fresh tree and tested THERE, in its own seeded uv venv. The working clones were read-only. Editable install with the repo's own dev extras, plus its PEP 735 dependency-groups and every requirements file its own gate declares. No tool was globally installed to make a check pass. GH_TOKEN/GITHUB_TOKEN were unset for the health step: this sandbox exports a 14-character sentinel, and a non-empty token flips zizmor from offline to online mode, where github.com rejects the sentinel at git-upload-pack with 401 and the gate aborts before its audit runs.",
+  "integration_claim": "none - repo-local health only, no cross-repo seam is implied by this layer",
+  "repos": {
+    "l9-ci-debt-intelligence": {
+      "sha": "7b11061084e254699d006feaeccd1c96d66445c9",
+      "revision_source": "fetched origin/main, extracted with git archive",
+      "version": "0.2.0",
+      "project_name": "l9-ci-debt-intelligence",
+      "install": "pass",
+      "health_command": "pytest -q",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-ci-debt-intelligence-install.log",
+        "health": "artifacts/organism/logs/l9-ci-debt-intelligence-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "Tested in a clean `git archive` extraction of origin/main, re-inited as a git repo at that exact content. No .venv, no untracked files, no branch \u2014 so a harness artifact cannot be mistaken for a repository defect, and the tested revision is unambiguous."
+      ]
+    },
+    "l9-ci-debt-lsp": {
+      "sha": "ebec362448efb539115a7d3c3587c753943d8648",
+      "revision_source": "fetched origin/main, extracted with git archive",
+      "version": "1.0.0",
+      "project_name": "l9-ci-debt-lsp",
+      "install": "pass",
+      "health_command": "pytest -q",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-ci-debt-lsp-install.log",
+        "health": "artifacts/organism/logs/l9-ci-debt-lsp-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "Tested in a clean `git archive` extraction of origin/main, re-inited as a git repo at that exact content. No .venv, no untracked files, no branch \u2014 so a harness artifact cannot be mistaken for a repository defect, and the tested revision is unambiguous."
+      ]
+    },
+    "l9-ci-debt-resolver": {
+      "sha": "57cf94e1c8a744620346dca81cde88b3d6f64004",
+      "revision_source": "fetched origin/main, extracted with git archive",
+      "version": "0.7.0",
+      "project_name": "l9-ci-debt-resolver",
+      "install": "pass",
+      "health_command": "pytest -q",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-ci-debt-resolver-install.log",
+        "health": "artifacts/organism/logs/l9-ci-debt-resolver-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "Tested in a clean `git archive` extraction of origin/main, re-inited as a git repo at that exact content. No .venv, no untracked files, no branch \u2014 so a harness artifact cannot be mistaken for a repository defect, and the tested revision is unambiguous."
+      ]
+    },
+    "l9-ci-core": {
+      "sha": "4c842cb838b6c49cf44681ecc683a432538fd348",
+      "revision_source": "fetched origin/main, extracted with git archive",
+      "version": "2.0.0.dev1",
+      "project_name": "l9-ci-core-validation",
+      "install": "pass",
+      "health_command": "make check",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-ci-core-install.log",
+        "health": "artifacts/organism/logs/l9-ci-core-health.log"
+      },
+      "notes": [
+        "install_mode=not_applicable_no_build_system",
+        "Tested in a clean `git archive` extraction of origin/main, re-inited as a git repo at that exact content. No .venv, no untracked files, no branch \u2014 so a harness artifact cannot be mistaken for a repository defect, and the tested revision is unambiguous."
+      ]
+    },
+    "l9-ci-sdk": {
+      "sha": "5405fa5768b084b4c29066e810c81664fba3c21b",
+      "revision_source": "fetched origin/main, extracted with git archive",
+      "version": "2.0.0",
+      "project_name": "l9-ci",
+      "install": "pass",
+      "health_command": "make ci",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-ci-sdk-install.log",
+        "health": "artifacts/organism/logs/l9-ci-sdk-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "Tested in a clean `git archive` extraction of origin/main, re-inited as a git repo at that exact content. No .venv, no untracked files, no branch \u2014 so a harness artifact cannot be mistaken for a repository defect, and the tested revision is unambiguous.",
+        "Refreshed after l9-ci-sdk#95 at 5405fa5768b084b4c29066e810c81664fba3c21b. make ci now passes (zizmor clean). Original Layer 1 used Python 3.11; this refresh used 3.12. Layers 2 and 3 were replayed on 2026-09-08 against https://github.com/Quantum-L9/l9-pr-repair."
+      ]
+    },
+    "l9-assurance": {
+      "sha": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86",
+      "revision_source": "fetched origin/main, extracted with git archive",
+      "version": "2.1.1",
+      "project_name": "l9-assurance",
+      "install": "pass",
+      "health_command": "python scripts/ci.py",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-assurance-install.log",
+        "health": "artifacts/organism/logs/l9-assurance-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "Tested in a clean `git archive` extraction of origin/main, re-inited as a git repo at that exact content. No .venv, no untracked files, no branch \u2014 so a harness artifact cannot be mistaken for a repository defect, and the tested revision is unambiguous."
+      ]
+    },
+    "l9-harness": {
+      "sha": "25bbb4046ed5b42af005b989660c0c3b692c0709",
+      "revision_source": "fetched origin/main, extracted with git archive",
+      "version": "2.0.4",
+      "project_name": "l9-harness",
+      "install": "pass",
+      "health_command": "pytest -q",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-harness-install.log",
+        "health": "artifacts/organism/logs/l9-harness-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "Tested in a clean `git archive` extraction of origin/main, re-inited as a git repo at that exact content. No .venv, no untracked files, no branch \u2014 so a harness artifact cannot be mistaken for a repository defect, and the tested revision is unambiguous."
+      ]
+    },
+    "l9-pr-repair": {
+      "sha": "f5773d4ded37dbb611100166947aa2f78e5fbccc",
+      "revision_source": "fetched origin/main, extracted with git archive",
+      "version": "0.4.0",
+      "project_name": "pr-repair",
+      "install": "pass",
+      "health_command": "pytest -q",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-pr-repair-install.log",
+        "health": "artifacts/organism/logs/l9-pr-repair-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "Tested in a clean `git archive` extraction of origin/main, re-inited as a git repo at that exact content. No .venv, no untracked files, no branch \u2014 so a harness artifact cannot be mistaken for a repository defect, and the tested revision is unambiguous."
+      ]
+    },
+    "l9-observability-core": {
+      "sha": "6a84c783f2fbaefbd9c62784506607e0f487c621",
+      "revision_source": "fetched origin/main, extracted with git archive",
+      "version": "1.0.0",
+      "project_name": "l9-observability-core",
+      "install": "pass",
+      "health_command": "make ci",
+      "health": "pass",
+      "health_exit_code": 0,
+      "logs": {
+        "install": "artifacts/organism/logs/l9-observability-core-install.log",
+        "health": "artifacts/organism/logs/l9-observability-core-health.log"
+      },
+      "notes": [
+        "install_mode=editable_with_dev_extras",
+        "Tested in a clean `git archive` extraction of origin/main, re-inited as a git repo at that exact content. No .venv, no untracked files, no branch \u2014 so a harness artifact cannot be mistaken for a repository defect, and the tested revision is unambiguous."
+      ]
+    }
+  },
+  "failures": [],
+  "warnings": [],
+  "sdk_health_refresh": {
+    "cause": "l9-ci-sdk#95 merged; nightly Core callers (secrets-inherit) removed",
+    "tested_at": "2026-09-07T23:54:25Z",
+    "sha": "5405fa5768b084b4c29066e810c81664fba3c21b",
+    "previous_sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+    "health_command": "make ci",
+    "health": "pass",
+    "health_exit_code": 0,
+    "python": "3.12",
+    "tokens": "GH_TOKEN and GITHUB_TOKEN unset (zizmor offline)",
+    "evidence": "zizmor Passed; mypy 89 files clean; pytest 505 passed; compileall ok",
+    "merged_pr": "https://github.com/Quantum-L9/l9-ci-sdk/pull/95",
+    "layers_2_and_3_replayed": false
+  },
+  "resolved_failures": [
+    {
+      "repo": "l9-ci-sdk",
+      "phase": "health",
+      "command": "make ci",
+      "exit_code": 2,
+      "category": "workflow_security_finding",
+      "attributable_to": "repository",
+      "repo_defect": true,
+      "diagnosis": "`make ci` -> `make check` -> `make hooks` runs the repo's own zizmor pre-commit hook, which reports secrets-inherit (medium, audit confidence High) at .github/workflows/l9-nightly.yml:20 \u2014 `secrets: inherit` grants the called Core reusable workflow ALL of this repository's secrets. Pre-existing on main (file last changed by #89), NOT in the repo's .github/zizmor.yml suppression list, so the repo's own gate fails on it legitimately. 13 findings (1 ignored, 11 suppressed): 1 medium. Filed as Quantum-L9/l9-ci-sdk#96 with the full callee-chain analysis; not patched here because the fix turns on Core's secret contract, not on anything local.",
+      "issue": "https://github.com/Quantum-L9/l9-ci-sdk/issues/96",
+      "summary": "health exited non-zero",
+      "log": "artifacts/organism/logs/l9-ci-sdk-health.log"
+    }
+  ]
+}

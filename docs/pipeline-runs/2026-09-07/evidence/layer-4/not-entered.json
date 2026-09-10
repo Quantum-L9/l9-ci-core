@@ -1,0 +1,7 @@
+{
+  "todo": "T-l4",
+  "entered": false,
+  "reason": "Layer 4 aggregation runs only after Layer 3 status=pass (6/6). Layer 3 remains partial (5 pass / 1 skipped). deploy_decision stays do-not-deploy. MANIFEST.md on pr-repair was not invented.",
+  "recorded_at": "2026-09-08T03:10:00Z",
+  "deploy_decision": "do-not-deploy"
+}

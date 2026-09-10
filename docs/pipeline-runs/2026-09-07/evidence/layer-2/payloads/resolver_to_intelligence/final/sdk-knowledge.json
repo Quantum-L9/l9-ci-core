@@ -1,0 +1,71 @@
+{
+  "contracts": [
+    {
+      "contract_id": "l9.integration-contract/v1",
+      "kind": "sdk_integration_contract",
+      "metadata": {
+        "producer_contract": "l9.finding-bundle/v1",
+        "provider_ids": [
+          "semgrep"
+        ],
+        "sdk_version": "2.0.0",
+        "source": "sdk_finding_bundle"
+      },
+      "subject_entity_ids": [
+        "entity:file:src/l9_debt_resolver/runtime/remediation_service.py"
+      ]
+    }
+  ],
+  "entities": [
+    {
+      "end_line": null,
+      "entity_id": "entity:file:src/l9_debt_resolver/runtime/remediation_service.py",
+      "kind": "file",
+      "language": "python",
+      "metadata": {
+        "source": "sdk_finding_bundle_locations"
+      },
+      "path": "src/l9_debt_resolver/runtime/remediation_service.py",
+      "start_line": null,
+      "symbol": null
+    }
+  ],
+  "findings": [
+    {
+      "entity_ids": [
+        "entity:file:src/l9_debt_resolver/runtime/remediation_service.py"
+      ],
+      "evidence_ids": [
+        "ev_semgrep_4215a1d1e922eda832427e0e03d403e03756dea411ccf7b31f025874930fa8bc"
+      ],
+      "finding_id": "fn_semgrep_82315828bd24488ab92338a3c9738f7faada57479325b02c9e9ef42d139f2f0b",
+      "metadata": {
+        "canonical_rule_id": "L9-PYTHON-BROAD-EXCEPT",
+        "category": "correctness",
+        "confidence": "unknown",
+        "fingerprint": "00d24d531180ca44940d9896b81e7c5ce5a9cc803b7f0682f3cfa9da9caafe83",
+        "provider_id": "semgrep",
+        "provider_rule_id": "tmp.l9-organism.l9-ci-sdk.l9_ci.rulesets.semgrep.python.l9.baseline.python.broad-except",
+        "rule_id_source": "canonical_rule_id"
+      },
+      "rule_id": "L9-PYTHON-BROAD-EXCEPT",
+      "severity": "informational"
+    }
+  ],
+  "repository": "Quantum-L9/l9-ci-debt-resolver",
+  "revision": "2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6",
+  "schema_version": "l9.sdk-knowledge-document/v1",
+  "snapshot": {
+    "capability_profile": [
+      "python"
+    ],
+    "limitations": [
+      "SDK knowledge entities are file-level: a finding bundle carries no symbol structure, so no function or class boundaries were inferred",
+      "resolver-side test discovery is not implemented; related tests are unknown and the tests list is empty despite a repository root being supplied (rev-2410fae)"
+    ],
+    "repository": "Quantum-L9/l9-ci-debt-resolver",
+    "revision": "2410fae622bbe42d5b11f5cdb89b2b1bcacd5fc6",
+    "snapshot_id": "snapshot_a3028e10f787ca84ef469b10184eac5e537040de42f8bf28362c3dada484add8"
+  },
+  "tests": []
+}

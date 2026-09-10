@@ -1,0 +1,14 @@
+[
+  {
+    "abstained": true,
+    "cost": 0.0,
+    "diagnostics": [
+      "model abstained"
+    ],
+    "file_path": "engine/server.py",
+    "finding_id": "arch-boundary-0007",
+    "instruction": null,
+    "model": "",
+    "rationale": ""
+  }
+]

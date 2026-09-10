@@ -1,0 +1,64 @@
+{
+  "layer": "seam_tests",
+  "status": "partial",
+  "receipt": "artifacts/organism/02-seam-tests.json",
+  "required_seams": {
+    "core_to_sdk": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/core_to_sdk.json",
+      "acceptable": true
+    },
+    "sdk_to_assurance": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/sdk_to_assurance.json",
+      "acceptable": true
+    },
+    "resolver_to_intelligence": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/resolver_to_intelligence.json",
+      "acceptable": true
+    },
+    "intelligence_to_lsp": {
+      "status": "partial",
+      "receipt": "artifacts/organism/layer-2/receipts/intelligence_to_lsp.json",
+      "acceptable": false,
+      "blocker_code": "PublicationGateError"
+    },
+    "harness_to_assurance": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/harness_to_assurance.json",
+      "acceptable": true
+    },
+    "pr_repair_standalone": {
+      "status": "pass",
+      "repo": "l9-pr-repair",
+      "receipt": "artifacts/organism/layer-2/receipts/pr_repair_standalone.json",
+      "acceptable": true
+    },
+    "observability_contracts": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/observability_contracts.json",
+      "acceptable": true
+    }
+  },
+  "repository_identity_normalization": {},
+  "summary": {
+    "pass": 6,
+    "partial": 1,
+    "fail": 0,
+    "note": "Layer 2/3 rerun 2026-09-08: pr_repair_standalone moved partial -> PASS after live GraphQL ingest-review succeeded. intelligence_to_lsp remains partial (PublicationGateError; corpus maturity). Passing seams from the original run are restated, not re-forced. No seam was forced with a hand-authored artifact."
+  },
+  "failures": [
+    {
+      "seam": "intelligence_to_lsp",
+      "producer": "l9-ci-debt-intelligence",
+      "consumer": "l9-ci-debt-lsp",
+      "phase": "emit",
+      "error_code": "PublicationGateError",
+      "summary": "The full producer chain ran, but no candidate is promotion-eligible, so the publication gate fail-closed. Correct behaviour; the seam is unproven for lack of corpus maturity, not for lack of a working path. Per the seam receipt: record_count=2, candidate_count=2, promotion_eligible_count=0 — one producer and one scope, so the recurrence threshold cannot be met by construction.",
+      "log": null,
+      "superseded_summary": "Earlier text said '1 record from a real 0-finding SDK bundle'. That was true before the resolver feedback event was ingested; the corpus then held 2 records."
+    }
+  ],
+  "acceptable_for_deploy": false
+}

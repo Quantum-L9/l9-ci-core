@@ -1,0 +1,75 @@
+{
+  "seam": "sdk_to_assurance",
+  "status": "pass",
+  "producer": "l9-ci-sdk",
+  "consumer": "l9-assurance",
+  "producer_sha": "cb765cbd4a9c709b2985c8ba07cdc58fb43b796f",
+  "consumer_sha": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86",
+  "producer_version": "2.0.0",
+  "contract_ids": [
+    "l9.finding-bundle/v1",
+    "l9.observation/1.0.0"
+  ],
+  "positive_artifacts": [
+    {
+      "name": "finding-bundle.json",
+      "path": "artifacts/organism/layer-2/payloads/core_to_sdk/finding-bundle.json",
+      "sha256": "08edd67f3cc9a9c944bd27a8e78543c2f70ee4c56177d331a108ba1b94f90e6e"
+    },
+    {
+      "name": "mandatory-findings-observation.json",
+      "path": "artifacts/organism/layer-2/payloads/sdk_to_assurance/mandatory-findings-observation.json",
+      "sha256": "54606bcf8fa2a4a02d6f31aa04ae1979e7eeb6fac7dc358a91918c20ffef073c"
+    },
+    {
+      "name": "subject.json",
+      "path": "artifacts/organism/layer-2/payloads/sdk_to_assurance/subject.json",
+      "sha256_as_emitted": "22156b36cf125d5c81fd8e06f501e7c673adc8c9e866bec1c11c1aeb3230a74b",
+      "sha256_as_published": "4a88a959c4180f5a801b54c839057ea99276c882a5ea6709ca53f92a13355f52",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
+    },
+    {
+      "name": "assurance-admission-receipt.json",
+      "path": "artifacts/organism/layer-2/payloads/sdk_to_assurance/assurance-admission-receipt.json",
+      "sha256": "3261062f88ae1301d62ac357edc9e0e8c9375a9a34d7e16ab393ec8a2467ad4c"
+    }
+  ],
+  "positive_result": {
+    "command": "l9-assurance evidence admit --subject <derived from SDK observation> --input <SDK observation> --output <dir>",
+    "stdout": "Accepted 1; rejected 0; quarantined 0; duplicate 0.",
+    "evidence_id": "ev_cf29b59d2dfea4c0d568cfde0f1617d679331808",
+    "accepted_producer": {
+      "id": "l9-ci-sdk",
+      "repository": "Quantum-L9/l9-ci-sdk",
+      "version": "2.0.0"
+    },
+    "evidence_schema_invalid": false,
+    "sdk_version_rejected": false,
+    "quarantined_for_producer_trust": false
+  },
+  "negative_tests": {
+    "unknown_artifact_field": {
+      "result": "pass",
+      "assurance_code": "EVIDENCE_SCHEMA_INVALID",
+      "message": "$.artifacts[0]: Unevaluated properties are not allowed ('unknownField' was unexpected)"
+    },
+    "out_of_range_sdk_version": {
+      "result": "pass",
+      "assurance_code": "EVIDENCE_PRODUCER_VERSION_REVOKED",
+      "message": "producer version is not authorized"
+    },
+    "tampered_digest": {
+      "result": "pass",
+      "assurance_code": "EVIDENCE_PAYLOAD_DIGEST_MISMATCH",
+      "message": "content-addressed observationId does not match observation content"
+    }
+  },
+  "evidence": {
+    "producer_output_is_real": "Observation projected by `l9-ci observation project-mandatory-findings` from a FindingBundle normalized by SDK code from a real semgrep 1.176.1 report.",
+    "consumer_is_real": "Admission performed by the l9-assurance CLI's evidence.admit route (AssuranceEngine.admit).",
+    "subject_provenance": "Derived programmatically from the SDK observation's own subject block, not hand-authored.",
+    "negatives_are_mutations_of_real_output": true,
+    "audit_regression_closed": "The original audit found Assurance rejected the SDK's artifact.sdkVersion field and producer trust was inactive. Both now behave correctly: the real field is accepted and an out-of-range version is rejected as EVIDENCE_PRODUCER_VERSION_REVOKED."
+  },
+  "failure": null
+}

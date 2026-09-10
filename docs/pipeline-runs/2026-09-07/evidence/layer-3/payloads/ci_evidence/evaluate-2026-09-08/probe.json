@@ -1,0 +1,27 @@
+{
+  "schema": "l9.organism-probe/v1",
+  "probe": "assurance_evaluate_l9.pull-request",
+  "tested_at": "2026-09-08T01:18:00Z",
+  "assurance_version": "2.1.1",
+  "assurance_sha": "worktree l9-assurance-pr24 (shipped protocol release-zero)",
+  "profile": "l9.pull-request@1",
+  "policy": "l9.organization-default@1",
+  "subject": "artifacts/organism/layer-3/payloads/ci_evidence/subject.json",
+  "evidence": "artifacts/organism/layer-3/payloads/ci_evidence/out/accepted",
+  "evaluation_time": "2026-09-08T01:00:00Z",
+  "evaluate": {
+    "exit_code": 42,
+    "class": "admission",
+    "error": "EVIDENCE_SCHEMA_INVALID: $.artifacts[0]: Unevaluated properties are not allowed ('sdkVersion' was unexpected)",
+    "decision_written": false
+  },
+  "re_admit": {
+    "input": "artifacts/organism/layer-3/payloads/ci_evidence/input",
+    "accepted": 0,
+    "rejected": 1,
+    "receipt": "artifacts/organism/layer-3/payloads/ci_evidence/evaluate-2026-09-08/admission/admission-report.json"
+  },
+  "handwritten_decision": false,
+  "fields_stripped": false,
+  "assurance_decision_artifact": null
+}

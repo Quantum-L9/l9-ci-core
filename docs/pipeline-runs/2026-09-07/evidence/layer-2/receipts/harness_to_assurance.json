@@ -1,0 +1,43 @@
+{
+  "seam": "harness_to_assurance",
+  "status": "pass",
+  "driver": "l9-harness",
+  "authority": "l9-assurance",
+  "driver_sha": "25bbb4046ed5b42af005b989660c0c3b692c0709",
+  "authority_sha": "e9f012bf42af99ac621dbc8b07f837f1c91f9e86",
+  "command": "l9-harness --json assurance --executable <real l9-assurance> --invocations <dir> admit --subject <SDK-derived subject> --input <real SDK observation> --output <dir>",
+  "artifacts": [
+    {
+      "name": "invocation-record.json",
+      "path": "artifacts/organism/layer-2/payloads/harness_to_assurance/invocations/ec6e1a51-b257-4f82-9556-141a0f87a39a/invocation-record.json",
+      "sha256_as_emitted": "54a38a9ffdc1f4e50ef6a6de13bdc1492b241b4796a77cbe5bbb766605347504",
+      "sha256_as_published": "eae309df821751c4fb7746a273b7379557ab1d33224b975a10e70691212777e8",
+      "normalisation": "Published bytes differ from the emitted bytes by trailing whitespace only. The publishing repository's pre-commit gate runs end-of-file-fixer and trailing-whitespace over every committed file, including this evidence tree. Equality was PROVEN, not assumed: JSON artifacts were parsed and compared as objects; text artifacts were compared with trailing whitespace stripped. sha256_as_emitted is what the producer wrote; sha256_as_published is what verifies against the copy in this repository."
+    },
+    {
+      "name": "admission-report.json (Assurance output, preserved)",
+      "sha256": "0d29b23e90af3b4a4bdb60bdb45af871044bfecc89a4d2962e21e1709306bb6a",
+      "path": "artifacts/organism/layer-2/payloads/harness_to_assurance/out/admission-report.json"
+    }
+  ],
+  "authoritative_component": "l9-assurance",
+  "harness_authoritative": false,
+  "positive_evidence": {
+    "invoked_real_assurance": "pass - the harness executed the real l9-assurance binary; exit_code 0.",
+    "assurance_output_preserved": "pass - admission-report.json records accepted=1, rejected=0, identical to the direct Seam B admission of the same real SDK observation.",
+    "non_authoritative_marker": "pass - invocation-record.json (schema l9.assurance-invocation-record) carries \"authoritative\": false explicitly.",
+    "did_not_fork_verdict": "pass - the harness recorded stdoutDigest/stderrDigest/argvDigest and the child exit code; it computed no admission decision of its own.",
+    "harness_result_schema": "l9.harness-command-result status=pass, reason_codes=[], limitations=[]"
+  },
+  "negative_tests": {
+    "harness_does_not_pass_when_assurance_missing": {
+      "result": "pass",
+      "evidence": "With --executable /nonexistent/l9-assurance the harness returned status='fail', exit_code=40, reason_codes=['HARNESS_INPUT_INVALID']. It did not fabricate a pass."
+    },
+    "harness_non_authoritative": {
+      "result": "pass",
+      "evidence": "invocation-record.authoritative == false"
+    }
+  },
+  "failure": null
+}

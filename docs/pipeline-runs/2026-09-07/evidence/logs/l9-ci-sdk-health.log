@@ -1,0 +1,132 @@
+ensure-toolchain: provisioning .venv (make deps)
+"/Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/.venv/bin/python" -m pip install -U pip
+Requirement already satisfied: pip in ./.venv/lib/python3.12/site-packages (26.1.2)
+Collecting pip
+  Using cached pip-26.2.1-py3-none-any.whl.metadata (4.6 kB)
+Using cached pip-26.2.1-py3-none-any.whl (1.8 MB)
+Installing collected packages: pip
+  Attempting uninstall: pip
+    Found existing installation: pip 26.1.2
+    Uninstalling pip-26.1.2:
+      Successfully uninstalled pip-26.1.2
+Successfully installed pip-26.2.1
+"/Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/.venv/bin/python" -m pip install -r requirements-ci.txt pre-commit
+Collecting pre-commit
+  Using cached pre_commit-4.6.2-py2.py3-none-any.whl.metadata (1.2 kB)
+Collecting jsonschema==4.26.0 (from -r /Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/requirements.txt (line 6))
+  Using cached jsonschema-4.26.0-py3-none-any.whl.metadata (7.6 kB)
+Collecting referencing==0.37.0 (from -r /Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/requirements.txt (line 7))
+  Using cached referencing-0.37.0-py3-none-any.whl.metadata (2.8 kB)
+Collecting PyYAML==6.0.3 (from -r /Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/requirements.txt (line 8))
+  Using cached pyyaml-6.0.3-cp312-cp312-macosx_11_0_arm64.whl.metadata (2.4 kB)
+Collecting ruff==0.16.4 (from -r requirements-ci.txt (line 24))
+  Using cached ruff-0.16.4-py3-none-macosx_11_0_arm64.whl.metadata (26 kB)
+Collecting mypy==2.3.1 (from -r requirements-ci.txt (line 30))
+  Using cached mypy-2.3.1-cp312-cp312-macosx_11_0_arm64.whl.metadata (2.4 kB)
+Collecting types-PyYAML==6.0.12.20260724 (from -r requirements-ci.txt (line 31))
+  Using cached types_pyyaml-6.0.12.20260724-py3-none-any.whl.metadata (1.7 kB)
+Collecting types-jsonschema==4.26.0.20260518 (from -r requirements-ci.txt (line 32))
+  Using cached types_jsonschema-4.26.0.20260518-py3-none-any.whl.metadata (1.8 kB)
+Collecting pytest==9.1.1 (from -r requirements-ci.txt (line 35))
+  Using cached pytest-9.1.1-py3-none-any.whl.metadata (7.6 kB)
+Collecting rfc3339-validator==0.1.4 (from -r requirements-ci.txt (line 42))
+  Using cached rfc3339_validator-0.1.4-py2.py3-none-any.whl.metadata (1.5 kB)
+Collecting attrs>=22.2.0 (from jsonschema==4.26.0->-r /Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/requirements.txt (line 6))
+  Using cached attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)
+Collecting jsonschema-specifications>=2023.03.6 (from jsonschema==4.26.0->-r /Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/requirements.txt (line 6))
+  Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl.metadata (2.9 kB)
+Collecting rpds-py>=0.25.0 (from jsonschema==4.26.0->-r /Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/requirements.txt (line 6))
+  Using cached rpds_py-2026.6.3-cp312-cp312-macosx_11_0_arm64.whl.metadata (4.1 kB)
+Collecting typing-extensions>=4.4.0 (from referencing==0.37.0->-r /Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/requirements.txt (line 7))
+  Using cached typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting mypy_extensions>=1.0.0 (from mypy==2.3.1->-r requirements-ci.txt (line 30))
+  Using cached mypy_extensions-1.1.0-py3-none-any.whl.metadata (1.1 kB)
+Collecting pathspec>=1.0.0 (from mypy==2.3.1->-r requirements-ci.txt (line 30))
+  Using cached pathspec-1.1.1-py3-none-any.whl.metadata (14 kB)
+Collecting librt>=0.13.0 (from mypy==2.3.1->-r requirements-ci.txt (line 30))
+  Using cached librt-0.15.0-cp312-cp312-macosx_11_0_arm64.whl.metadata (1.3 kB)
+Collecting ast-serialize<1.0.0,>=0.6.0 (from mypy==2.3.1->-r requirements-ci.txt (line 30))
+  Using cached ast_serialize-0.10.0-cp39-abi3-macosx_11_0_arm64.whl.metadata (1.4 kB)
+Collecting iniconfig>=1.0.1 (from pytest==9.1.1->-r requirements-ci.txt (line 35))
+  Using cached iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting packaging>=22 (from pytest==9.1.1->-r requirements-ci.txt (line 35))
+  Using cached packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+Collecting pluggy<2,>=1.5 (from pytest==9.1.1->-r requirements-ci.txt (line 35))
+  Using cached pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+Collecting pygments>=2.7.2 (from pytest==9.1.1->-r requirements-ci.txt (line 35))
+  Using cached pygments-2.21.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting six (from rfc3339-validator==0.1.4->-r requirements-ci.txt (line 42))
+  Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+Collecting cfgv>=2.0.0 (from pre-commit)
+  Using cached cfgv-3.5.0-py2.py3-none-any.whl.metadata (8.9 kB)
+Collecting identify>=1.0.0 (from pre-commit)
+  Using cached identify-2.6.19-py2.py3-none-any.whl.metadata (4.4 kB)
+Collecting nodeenv>=0.11.1 (from pre-commit)
+  Using cached nodeenv-1.10.0-py2.py3-none-any.whl.metadata (24 kB)
+Collecting virtualenv>=20.10.0 (from pre-commit)
+  Using cached virtualenv-21.7.8-py3-none-any.whl.metadata (3.5 kB)
+Collecting distlib<1,>=0.3.7 (from virtualenv>=20.10.0->pre-commit)
+  Using cached distlib-0.4.3-py2.py3-none-any.whl.metadata (5.3 kB)
+Collecting filelock<4,>=3.24.2 (from virtualenv>=20.10.0->pre-commit)
+  Using cached filelock-3.32.5-py3-none-any.whl.metadata (2.0 kB)
+Collecting platformdirs<5,>=3.9.1 (from virtualenv>=20.10.0->pre-commit)
+  Using cached platformdirs-4.11.7-py3-none-any.whl.metadata (5.5 kB)
+Collecting python-discovery>=1.6 (from virtualenv>=20.10.0->pre-commit)
+  Using cached python_discovery-1.6.0-py3-none-any.whl.metadata (5.1 kB)
+Using cached jsonschema-4.26.0-py3-none-any.whl (90 kB)
+Using cached referencing-0.37.0-py3-none-any.whl (26 kB)
+Using cached pyyaml-6.0.3-cp312-cp312-macosx_11_0_arm64.whl (173 kB)
+Using cached ruff-0.16.4-py3-none-macosx_11_0_arm64.whl (9.8 MB)
+Using cached mypy-2.3.1-cp312-cp312-macosx_11_0_arm64.whl (14.0 MB)
+Using cached types_pyyaml-6.0.12.20260724-py3-none-any.whl (20 kB)
+Using cached types_jsonschema-4.26.0.20260518-py3-none-any.whl (16 kB)
+Using cached pytest-9.1.1-py3-none-any.whl (386 kB)
+Using cached rfc3339_validator-0.1.4-py2.py3-none-any.whl (3.5 kB)
+Using cached ast_serialize-0.10.0-cp39-abi3-macosx_11_0_arm64.whl (1.2 MB)
+Using cached pluggy-1.6.0-py3-none-any.whl (20 kB)
+Using cached pre_commit-4.6.2-py2.py3-none-any.whl (226 kB)
+Using cached attrs-26.1.0-py3-none-any.whl (67 kB)
+Using cached cfgv-3.5.0-py2.py3-none-any.whl (7.4 kB)
+Using cached identify-2.6.19-py2.py3-none-any.whl (99 kB)
+Using cached iniconfig-2.3.0-py3-none-any.whl (7.5 kB)
+Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)
+Using cached librt-0.15.0-cp312-cp312-macosx_11_0_arm64.whl (155 kB)
+Using cached mypy_extensions-1.1.0-py3-none-any.whl (5.0 kB)
+Using cached nodeenv-1.10.0-py2.py3-none-any.whl (23 kB)
+Using cached packaging-26.3-py3-none-any.whl (129 kB)
+Using cached pathspec-1.1.1-py3-none-any.whl (57 kB)
+Using cached pygments-2.21.0-py3-none-any.whl (1.3 MB)
+Using cached rpds_py-2026.6.3-cp312-cp312-macosx_11_0_arm64.whl (338 kB)
+Using cached typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Using cached virtualenv-21.7.8-py3-none-any.whl (5.3 MB)
+Using cached distlib-0.4.3-py2.py3-none-any.whl (470 kB)
+Using cached filelock-3.32.5-py3-none-any.whl (100 kB)
+Using cached platformdirs-4.11.7-py3-none-any.whl (23 kB)
+Using cached python_discovery-1.6.0-py3-none-any.whl (38 kB)
+Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+Installing collected packages: distlib, typing-extensions, types-PyYAML, six, ruff, rpds-py, PyYAML, pygments, pluggy, platformdirs, pathspec, packaging, nodeenv, mypy_extensions, librt, iniconfig, identify, filelock, cfgv, attrs, ast-serialize, rfc3339-validator, referencing, python-discovery, pytest, mypy, virtualenv, types-jsonschema, jsonschema-specifications, pre-commit, jsonschema
+
+
+Successfully installed PyYAML-6.0.3 ast-serialize-0.10.0 attrs-26.1.0 cfgv-3.5.0 distlib-0.4.3 filelock-3.32.5 identify-2.6.19 iniconfig-2.3.0 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 librt-0.15.0 mypy-2.3.1 mypy_extensions-1.1.0 nodeenv-1.10.0 packaging-26.3 pathspec-1.1.1 platformdirs-4.11.7 pluggy-1.6.0 pre-commit-4.6.2 pygments-2.21.0 pytest-9.1.1 python-discovery-1.6.0 referencing-0.37.0 rfc3339-validator-0.1.4 rpds-py-2026.6.3 ruff-0.16.4 six-1.17.0 types-PyYAML-6.0.12.20260724 types-jsonschema-4.26.0.20260518 typing-extensions-4.16.0 virtualenv-21.7.8
+/Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/.venv/bin/pre-commit run --all-files
+ruff (legacy alias).......................................................Passed
+ruff format...............................................................Passed
+yamllint (infra profile)..................................................Passed
+yamllint (data profile)...................................................Passed
+biome check (format + lint + organize imports)............................Passed
+governance documents parse as strict JSON.................................Passed
+uses refs are SHA-pinned and Core pin is consistent.......................Passed
+zizmor workflow security audit............................................Passed
+/Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/.venv/bin/python -m mypy l9_ci
+Success: no issues found in 89 source files
+/Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/.venv/bin/python -m pytest -q 
+........................................................................ [ 14%]
+........................................................................ [ 28%]
+........................................................................ [ 42%]
+........................................................................ [ 57%]
+........................................................................ [ 71%]
+........................................................................ [ 85%]
+........................................................................ [ 99%]
+.                                                                        [100%]
+505 passed in 24.30s
+/Users/ib-mac/.l9/worktrees/l9-ci-sdk-health-main/.venv/bin/python -m compileall -q l9_ci tests lint

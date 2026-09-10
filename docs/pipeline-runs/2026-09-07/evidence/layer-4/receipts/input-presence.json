@@ -1,0 +1,43 @@
+{
+  "inputs": {
+    "repo_health": {
+      "path": "artifacts/organism/01-repo-health.json",
+      "exists": true
+    },
+    "seam_tests": {
+      "path": "artifacts/organism/02-seam-tests.json",
+      "exists": true
+    },
+    "corridor_tests": {
+      "path": "artifacts/organism/03-corridor-tests.json",
+      "exists": true
+    }
+  },
+  "also_inspected": {
+    "layer_2_receipts_dir": {
+      "path": "artifacts/organism/layer-2/receipts",
+      "exists": true
+    },
+    "layer_3_receipts_dir": {
+      "path": "artifacts/organism/layer-3/receipts",
+      "exists": true
+    },
+    "layer_2_inactive_by_design": {
+      "path": "artifacts/organism/layer-2/inactive-by-design.json",
+      "exists": true
+    },
+    "layer_3_non_live_corridors": {
+      "path": "artifacts/organism/layer-3/non-live-corridors.json",
+      "exists": true
+    },
+    "repo_state_dir": {
+      "path": "artifacts/organism/repo-state",
+      "exists": true
+    }
+  },
+  "notes": [
+    "All three input layers have been executed and their receipts are present.",
+    "Layer 4 aggregates them and creates no evidence of its own."
+  ],
+  "status": "pass"
+}

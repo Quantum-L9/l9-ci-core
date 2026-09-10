@@ -1,0 +1,57 @@
+[
+  {
+    "event": "payload_ingested",
+    "fields": {
+      "autofix_candidates": 1,
+      "manual_review_required": 1,
+      "pr_number": 123,
+      "schema_version": "1.0.0"
+    },
+    "seq": 1
+  },
+  {
+    "event": "findings_routed",
+    "fields": {
+      "autofix": 1,
+      "manual": 1
+    },
+    "seq": 2
+  },
+  {
+    "event": "pipeline_routing",
+    "fields": {
+      "autofix": 1,
+      "manual": 1,
+      "pr_number": 123
+    },
+    "seq": 3
+  },
+  {
+    "event": "llm_proposals_complete",
+    "fields": {
+      "actionable": 0,
+      "eligible": 1,
+      "skipped_protected": 0
+    },
+    "seq": 4
+  },
+  {
+    "event": "pr_pipeline_complete",
+    "fields": {
+      "execution_status": "not_executed",
+      "mode": "dry_run",
+      "plan_id": "d079e93b-c7cd-4e95-904e-fc250fe6d52a",
+      "pr_number": 123
+    },
+    "seq": 5
+  },
+  {
+    "event": "autofix_telemetry_emitted",
+    "fields": {
+      "false_positive_rules": [],
+      "pr_number": 123,
+      "promotion_candidates": []
+    },
+    "seq": 6
+  }
+]

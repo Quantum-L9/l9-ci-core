@@ -1,0 +1,106 @@
+{
+  "layer": "seam_tests",
+  "status": "partial",
+  "tested_at": "2026-09-08T00:16:39Z",
+  "repo_health_input": "artifacts/organism/01-repo-health.json",
+  "summary": {
+    "pass": 6,
+    "partial": 1,
+    "fail": 0,
+    "note": "Layer 2/3 rerun 2026-09-08: pr_repair_standalone moved partial -> PASS after live GraphQL ingest-review succeeded. intelligence_to_lsp remains partial (PublicationGateError; corpus maturity). Passing seams from the original run are restated, not re-forced. No seam was forced with a hand-authored artifact."
+  },
+  "seams": {
+    "core_to_sdk": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/core_to_sdk.json"
+    },
+    "sdk_to_assurance": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/sdk_to_assurance.json"
+    },
+    "resolver_to_intelligence": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/resolver_to_intelligence.json"
+    },
+    "intelligence_to_lsp": {
+      "status": "partial",
+      "receipt": "artifacts/organism/layer-2/receipts/intelligence_to_lsp.json",
+      "blocker_code": "PublicationGateError"
+    },
+    "harness_to_assurance": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/harness_to_assurance.json"
+    },
+    "pr_repair_standalone": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/pr_repair_standalone.json"
+    },
+    "observability_contracts": {
+      "status": "pass",
+      "receipt": "artifacts/organism/layer-2/receipts/observability_contracts.json"
+    }
+  },
+  "inactive_by_design": "artifacts/organism/layer-2/inactive-by-design.json",
+  "negative_tests_run": {
+    "assurance_rejects_unknown_artifact_field": "pass",
+    "assurance_rejects_untrusted_or_out_of_range_sdk_version": "pass",
+    "assurance_rejects_tampered_observation": "pass",
+    "intelligence_rejects_privacy_leak": "pass",
+    "intelligence_quarantines_unknown_or_planned_producer": "pass",
+    "intelligence_duplicate_idempotency_safe": "pass",
+    "lsp_rejects_bad_defense_pack_protocol": "pass",
+    "lsp_rejects_bad_sdk_contract_version": "pass",
+    "harness_does_not_pass_when_assurance_missing": "pass",
+    "harness_non_authoritative": "pass",
+    "pr_repair_rejects_missing_expected_block": "pass",
+    "pr_repair_rejects_stale_expected_block": "pass",
+    "pr_repair_push_disabled_by_default": "pass",
+    "observability_rejects_malformed_event": "pass",
+    "observability_has_no_control_authority": "pass"
+  },
+  "provenance": {
+    "real_producer_output": "The FindingBundle at the head of this run came from a real semgrep 1.176.1 scan of Quantum-L9/l9-pr-repair @ f5773d4 (94 files) using the SDK's packaged L9 ruleset, normalised by SDK code, invoked through l9-ci-core's own invoke-sdk action. Every downstream artifact descends from it.",
+    "zero_findings_caveat": "The original Core-driven SDK scan of packaged L9 rules returned 0 findings. A later finding-bearing resolver revision (2410fae, finding_count=1) plus resolver feedback produced snapshot record_count=2. That is enough for the compiler to emit candidates (candidate_count=2) but not enough for promotion (promotion_eligible_count=0: one producer, one scope). Do not read this as a 0-finding corpus.",
+    "no_fixture_used_as_seam_proof": true,
+    "remote_mutation": "none - no push, branch, merge or PR against any organism repository.",
+    "layer_2_3_rerun": {
+      "inventory_declared_before": "artifacts/organism/layer-2/seam-inventory.rerun-2026-09-07.json",
+      "reran": [
+        "intelligence_to_lsp",
+        "pr_repair_standalone"
+      ],
+      "negatives_reran": [
+        "intelligence_quarantines_unknown_or_planned_producer",
+        "lsp_rejects_bad_defense_pack_protocol",
+        "lsp_rejects_bad_sdk_contract_version",
+        "pr_repair_rejects_missing_expected_block",
+        "pr_repair_rejects_stale_expected_block"
+      ],
+      "no_fixture_used_as_seam_proof": true
+    }
+  },
+  "workspace_residue": [
+    "l9-pr-repair: runtime/pr_repair/ (88K, untracked) written by the pr-repair dry-run; removal DENIED by the operator permission gate. Still present.",
+    "Four repos retain a harness-added pip tree under their gitignored .venv from the Layer 1 v2 in-place run; removal DENIED. This no longer affects any result: Layer 1 v3 tests `git archive` extractions that contain no .venv at all, which is what turned l9-ci-debt-intelligence from a reported failure into a clean pass."
+  ],
+  "failures": [
+    {
+      "seam": "intelligence_to_lsp",
+      "producer": "l9-ci-debt-intelligence",
+      "consumer": "l9-ci-debt-lsp",
+      "phase": "emit",
+      "error_code": "PublicationGateError",
+      "summary": "The full producer chain ran, but no candidate is promotion-eligible, so the publication gate fail-closed. Correct behaviour; the seam is unproven for lack of corpus maturity, not for lack of a working path. Per the seam receipt: record_count=2, candidate_count=2, promotion_eligible_count=0 — one producer and one scope, so the recurrence threshold cannot be met by construction.",
+      "log": null,
+      "superseded_summary": "Earlier text said '1 record from a real 0-finding SDK bundle'. That was true before the resolver feedback event was ingested; the corpus then held 2 records."
+    }
+  ],
+  "credential_finding": {
+    "claim_retracted": "This surface DOES hold a working GitHub credential. GH_TOKEN/GITHUB_TOKEN are a 14-character sentinel, yet REST calls carrying them return 200 because the agent proxy supplies real authentication out of band - exactly as CANONICAL_LAW's surface-transport section records.",
+    "consequence": "Two of the three Layer 2 non-pass results were originally attributed to missing credentials. The resolver attribution was a repo defect (fixed). The GraphQL 403 on pr_repair_standalone does not reproduce on this rerun: live ingest-review succeeded with a bound token. intelligence_to_lsp remains a corpus-maturity gate, not a credential failure.",
+    "github_actions_secrets": "Repository/organization Actions secrets are NOT readable from any session: the API is write-only by GitHub's design, and this proxy additionally returns 403 for /actions/secrets. A secret 'wired into the repo' can only be consumed by a workflow run, never handed to a local tool."
+  },
+  "milestone": {
+    "first_non_zero_finding": "Revision 2410fae622bb of l9-ci-debt-resolver yields finding_count=1 - the first non-zero finding to traverse the organism in this run. Every prior scan (654 files organism-wide, plus semgrep's p/python registry ruleset) returned 0, which is what had kept the finding-carrying path proven only structurally."
+  }
+}
