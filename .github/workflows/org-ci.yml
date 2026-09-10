@@ -326,7 +326,7 @@ jobs:
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: ${{ steps.runtime.outputs['sdk-revision'] || '4ceb240935b595ca719fc72dcaa83ea227e31957' }}
+          sdk-revision: ${{ steps.runtime.outputs['sdk-revision'] || 'bc678190582694f6efee08b6b7ea39be7e09bd5c' }}
 
       - id: language
         name: Detect repository language (SDK)
