@@ -338,6 +338,13 @@ jobs:
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
           root: .
 
+      - id: repository_verify
+        name: Run repository verification contract
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@63428872c2fc010f79d319f499b9ce844b181063
+        with:
+          workspace: .
+
       - name: Install Semgrep (exact central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         env:
@@ -482,6 +489,7 @@ jobs:
           MODE: ${{ steps.gov.outputs.mode }}
           SDK_REVISION: ${{ steps.sdk.outputs['sdk-revision'] }}
           LANGUAGE: ${{ steps.language.outputs.language }}
+          REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status || steps.repository_verify.outcome }}
           GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
           ARTIFACT_NAME: ${{ steps.names.outputs['artifact-name'] }}
         run: |
@@ -493,9 +501,24 @@ jobs:
             echo "- Mode: \`${MODE:-unknown}\`"
             echo "- SDK revision: \`${SDK_REVISION:-unknown}\`"
             echo "- Detected language: \`${LANGUAGE:-unknown}\`"
+            echo "- Repository verification: \`${REPOSITORY_VERIFY:-unavailable}\`"
             echo "- Technical gate: \`${GATE_STATUS:-unavailable}\`"
             echo "- Artifact set: \`${ARTIFACT_NAME:-unavailable}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce repository verification
+        if: always() && (steps.runtime.outputs.profile == 'pr_fast' || steps.runtime.outputs.profile == 'merge')
+        env:
+          REPOSITORY_VERIFY_STATUS: ${{ steps.repository_verify.outputs.status }}
+        run: |
+          set -euo pipefail
+          case "${REPOSITORY_VERIFY_STATUS}" in
+            pass|not_applicable) ;;
+            *)
+              echo "Blocking profile: repository verification did not pass (${REPOSITORY_VERIFY_STATUS:-unavailable})" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Enforce central mode on SDK technical gate
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'

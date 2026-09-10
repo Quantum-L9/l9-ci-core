@@ -1,0 +1,21 @@
+name: Run repository verification
+description: >
+  Runs the canonical repository-execution contract with immutable Core runtime
+  code. Consumer workflow/runtime code is never imported as execution authority.
+inputs:
+  workspace:
+    required: false
+    default: .
+outputs:
+  present:
+    value: ${{ steps.verify.outputs.present }}
+  status:
+    value: ${{ steps.verify.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - id: verify
+      shell: bash
+      env:
+        L9_REPOSITORY_WORKSPACE: ${{ inputs.workspace }}
+      run: python3 "${{ github.action_path }}/run.py"
