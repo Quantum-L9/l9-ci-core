@@ -9,7 +9,7 @@ execution start, verified after fetch).
 - Role (per `.l9/architecture.yaml`): `thin-control-plane` — GitHub Actions
   orchestration and immutable SDK provisioning for the Quantum-L9 CI platform.
 - Generation 2, phase 4 (all four clean-room phases implemented).
-- SDK: `Quantum-L9/l9-ci-sdk`, pinned `4ceb240935b595ca719fc72dcaa83ea227e31957`
+- SDK: `Quantum-L9/l9-ci-sdk`, pinned `bc678190582694f6efee08b6b7ea39be7e09bd5c`
   (`.l9/sdk-compatibility.yaml` default; two retained rollback revisions).
 - Dependency direction: `l9-ci-core -> l9-ci-sdk` only.
 
