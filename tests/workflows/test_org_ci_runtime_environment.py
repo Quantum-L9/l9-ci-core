@@ -1,15 +1,20 @@
-"""The central gate's execution environment does not move on its own.
+"""The central gate's Core-selected toolchain does not move on its own.
 
 ``org-ci.yml`` is the organization-required workflow: every governed
-pull_request and merge_group evaluation runs it. Its behavior must therefore
-change only when a Core revision changes. The 2026-09-13 workflow audit
+pull_request and merge_group evaluation runs it. The 2026-09-13 workflow audit
 (F-005) recorded two moving inputs: a ``-latest`` runner label and an inline
 ``pip install --upgrade pip semgrep==X`` that pinned one package while letting
 pip resolve the rest of the closure against whatever the runner image offered.
 
-These assertions keep the runner image explicit, the interpreter pinned, and
-the Semgrep install routed through the hash-locked ``install-semgrep`` action
-that ships its lock inside the pinned Core revision.
+What Core controls, and what these assertions lock, is the toolchain it
+selects: an explicit Ubuntu release family (never ``-latest``), the
+setup-python action by full SHA, the interpreter by exact major.minor.patch
+version (a ``3.N`` selector resolves to whichever patch the current runner
+image preinstalls, which changes without a Core revision), and the Semgrep
+install routed through the hash-locked ``install-semgrep`` action that ships
+its lock inside the pinned Core revision. The GitHub-hosted runner image build
+within that Ubuntu family is GitHub's to roll and is deliberately not claimed
+here.
 """
 
 from __future__ import annotations
@@ -33,18 +38,29 @@ def load() -> dict:
     return yaml.safe_load(ORG_CI.read_text(encoding="utf-8"))
 
 
-class RunnerImageTests(unittest.TestCase):
-    def test_analyze_job_names_an_explicit_ubuntu_image(self) -> None:
+class RunnerFamilyTests(unittest.TestCase):
+    """An explicit Ubuntu release family is selected; the image build is not."""
+
+    def test_analyze_job_names_an_explicit_ubuntu_release_family(self) -> None:
         job = load()["jobs"]["analyze"]
-        self.assertRegex(
+        self.assertEqual(
+            "ubuntu-24.04",
             str(job["runs-on"]),
-            r"^ubuntu-[0-9]{2}\.[0-9]{2}$",
-            "the central gate must name an explicit image version, never -latest",
+            "the central gate must name an explicit Ubuntu release family; "
+            "-latest would let a family jump re-base the fleet's evaluation",
         )
 
     def test_no_floating_runner_label_anywhere_in_the_entrypoint(self) -> None:
         text = ORG_CI.read_text(encoding="utf-8")
         self.assertNotRegex(text, r"(?m)^\s*runs-on:\s*\S+-latest\b")
+
+    def test_entrypoint_does_not_claim_a_fixed_runner_image_build(self) -> None:
+        """GitHub rolls hosted image builds within a family; Core must say so."""
+        text = ORG_CI.read_text(encoding="utf-8")
+        runs_on = text.index("runs-on: ubuntu-24.04")
+        comment = text[max(0, runs_on - 800) : runs_on]
+        self.assertIn("GitHub still rolls hosted image builds", comment)
+        self.assertNotRegex(text, r"(?i)immutable (runner )?image")
 
 
 class ToolchainLockTests(unittest.TestCase):
@@ -81,7 +97,14 @@ class ToolchainLockTests(unittest.TestCase):
         self.assertLess(python, semgrep)
         step = self.steps[python]
         self.assertRegex(str(step["uses"]), r"^actions/setup-python@[0-9a-f]{40}$")
-        self.assertRegex(str(step["with"]["python-version"]), r"^3\.[0-9]+$")
+        selected = str(step["with"]["python-version"])
+        self.assertRegex(
+            selected,
+            r"^3\.[0-9]+\.[0-9]+$",
+            "python-version must be an exact major.minor.patch; a 3.N selector "
+            "lets setup-python float to a newer patch without a Core revision",
+        )
+        self.assertEqual("3.12.14", selected)
 
     def test_default_central_semgrep_version_has_a_lock(self) -> None:
         document = load()

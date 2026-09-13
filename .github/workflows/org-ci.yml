@@ -150,10 +150,13 @@ jobs:
       github.event_name != 'push'
       || inputs.event != ''
       || github.ref_name == github.event.repository.default_branch
-    # An explicit image version, never `-latest`: this is the organization-
-    # required gate, and its behavior must change only when a Core revision
-    # changes. A floating label re-bases the whole fleet's evaluation on a
-    # runner rollout nobody reviewed (workflow audit 2026-09-13, F-005).
+    # An explicit Ubuntu release family, never `-latest`. `ubuntu-24.04` fixes
+    # the OS family so a `-latest` family jump cannot re-base the fleet's
+    # evaluation; GitHub still rolls hosted image builds within that family on
+    # its own schedule, which Core does not control. What Core does control is
+    # the toolchain below: the setup-python action SHA, the exact Python
+    # version, the exact Semgrep version, and the hash-locked Semgrep
+    # dependency bytes (workflow audit 2026-09-13, F-005).
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -349,17 +352,19 @@ jobs:
         with:
           workspace: .
 
-      # The provider toolchain is a locked contract, not a resolution: the
-      # interpreter is an explicit version and Semgrep is installed from a
-      # hash-locked closure that ships inside the pinned Core action, so the
-      # central gate cannot change behavior without a Core revision changing
-      # (workflow audit 2026-09-13, F-005). The SDK venv provisioned above is
-      # untouched; only the provider install rides this interpreter.
+      # The provider toolchain is a locked contract, not a resolution. Core
+      # selects the setup-python action by full SHA, the interpreter by exact
+      # version (major.minor.patch, so a patch release cannot float in), the
+      # Semgrep version exactly, and the Semgrep dependency closure by digest
+      # inside the pinned Core action. Those selections change only with a
+      # Core revision; the hosted runner image underneath them is GitHub's,
+      # not Core's (workflow audit 2026-09-13, F-005). The SDK venv provisioned
+      # above is untouched; only the provider install rides this interpreter.
       - name: Set up locked Python for the central toolchain
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.12.14"
 
       - name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
