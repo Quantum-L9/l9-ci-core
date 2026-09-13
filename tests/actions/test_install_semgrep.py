@@ -10,9 +10,11 @@ keep the installer fail-closed without ever running pip.
 
 from __future__ import annotations
 
+import importlib.util
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,7 +25,18 @@ ROOT = Path(__file__).resolve().parents[2]
 ACTION = ROOT / ".github" / "actions" / "install-semgrep"
 INSTALL = ACTION / "install.sh"
 LOCKS = ACTION / "locks"
+GENERATOR = ACTION / "lock_semgrep.py"
 ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
+
+
+def load_generator():
+    spec = importlib.util.spec_from_file_location("lock_semgrep", GENERATOR)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
 
 REQUIREMENT = re.compile(r"^([a-z0-9][a-z0-9-]*)==(\S+) \\$")
 HASH = re.compile(r"^    --hash=sha256:[0-9a-f]{64}( \\)?$")
@@ -86,6 +99,51 @@ class LockContractTests(unittest.TestCase):
                 for project, (pinned, digests) in pins.items():
                     self.assertRegex(pinned, r"^[0-9A-Za-z.!+-]+$", project)
                     self.assertGreaterEqual(digests, 1, f"{project} has no digest")
+
+
+class GeneratorTests(unittest.TestCase):
+    """The lock's "regenerate with that script" promise has a real script."""
+
+    def setUp(self) -> None:
+        self.module = load_generator()
+
+    def test_every_lock_names_the_shipped_generator(self) -> None:
+        self.assertTrue(GENERATOR.is_file())
+        for lock in sorted(LOCKS.glob("semgrep-*.txt")):
+            with self.subTest(lock=lock.name):
+                header = lock.read_text(encoding="utf-8").split("\n\n", 1)[0]
+                self.assertIn("lock_semgrep.py", header)
+
+    def test_rendered_lock_round_trips_through_the_installer_parser(self) -> None:
+        text = self.module.render(
+            "1.2.3",
+            "3.12",
+            [
+                ("pip", "26.2.1", ["a" * 64]),
+                ("semgrep", "1.2.3", ["b" * 64, "c" * 64]),
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / "semgrep-1.2.3.txt"
+            lock.write_text(text, encoding="utf-8")
+            pins = parse_lock(lock)
+        self.assertEqual({"pip": ("26.2.1", 1), "semgrep": ("1.2.3", 2)}, pins)
+        self.assertNotIn("sdist", text)
+
+    def test_project_names_are_canonicalised(self) -> None:
+        self.assertEqual("annotated-types", self.module.canonical("Annotated_Types"))
+        self.assertEqual("ruamel-yaml", self.module.canonical("ruamel.yaml"))
+
+    def test_generator_refuses_inexact_versions_before_any_network(self) -> None:
+        for argv in (["--version", "1.171"], ["--version", "latest"]):
+            with self.subTest(argv=argv):
+                self.assertEqual(2, self.module.main(argv))
+        self.assertEqual(2, self.module.main(["--version", "1.0.0", "--python", "312"]))
+
+    def test_generator_platforms_match_the_central_runner_class(self) -> None:
+        """org-ci.yml runs on manylinux x86_64; the lock must resolve for it."""
+        self.assertTrue(all(p.endswith("x86_64") for p in self.module.PLATFORMS))
+        self.assertIn("manylinux_2_34_x86_64", self.module.PLATFORMS)
 
 
 class InstallerTests(unittest.TestCase):
