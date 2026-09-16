@@ -38,8 +38,7 @@
     "protected_branches": [
       "main"
     ],
-    "require_pull_request": true,
-    "default_branch": "main"
+    "require_pull_request": true
   },
   "commands": {
     "setup": [
@@ -95,6 +94,23 @@
         "--verbose"
       ]
     ]
+  },
+  "push": {
+    "run_check": true,
+    "require_clean_worktree": true,
+    "reject_force_push": true,
+    "reject_protected_branch": true,
+    "set_upstream": true,
+    "lockfile_command": [
+      "uv",
+      "lock",
+      "--check"
+    ],
+    "rebase_before_push": false
+  },
+  "pull_request": {
+    "base": "main",
+    "draft_by_default": false
   },
   "clean_paths": [
     ".pytest_cache",

@@ -264,33 +264,23 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowError, "safe simple file name"):
             validate_config_data(data)
 
-    def test_default_branch_must_be_protected(self) -> None:
-        """``repository.default_branch`` is the comparison ref, not PR policy.
+    def test_safety_flags_cannot_be_disabled(self) -> None:
+        data = self.load_config()
+        data["push"]["reject_protected_branch"] = False  # type: ignore[index]
+        with self.assertRaisesRegex(WorkflowError, "must be true"):
+            validate_config_data(data)
 
-        It replaces the deleted ``pull_request.base`` as the diff base for
-        change-policy, agent-check, and status. Binding it to
-        ``protected_branches`` keeps that list meaningful now that publication
-        is owned by Cursor-Governance.
-        """
-        config = self.load_config()
-        config["repository"]["default_branch"] = "develop"  # type: ignore[index]
+    def test_lockfile_command_rejects_unallowlisted_executable(self) -> None:
+        data = self.load_config()
+        data["push"]["lockfile_command"] = ["arbitrary-script"]
+        with self.assertRaisesRegex(WorkflowError, "argv-only allowlist"):
+            validate_config_data(data)
+
+    def test_pull_request_base_must_be_protected(self) -> None:
+        data = self.load_config()
+        data["pull_request"]["base"] = "develop"  # type: ignore[index]
         with self.assertRaisesRegex(WorkflowError, "configured protected branch"):
-            validate_config_data(config)
-
-    def test_default_branch_is_required(self) -> None:
-        config = self.load_config()
-        del config["repository"]["default_branch"]  # type: ignore[index]
-        with self.assertRaisesRegex(WorkflowError, "missing keys"):
-            validate_config_data(config)
-
-    def test_publication_config_is_rejected(self) -> None:
-        """Publication policy must not reappear in the repository contract."""
-        for block in ("push", "pull_request"):
-            with self.subTest(block=block):
-                config = self.load_config()
-                config[block] = {}
-                with self.assertRaisesRegex(WorkflowError, "unsupported keys"):
-                    validate_config_data(config)
+            validate_config_data(data)
 
     def test_companion_rule_requires_at_least_one_requirement(self) -> None:
         data = self.load_config()

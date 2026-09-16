@@ -189,6 +189,8 @@ def validate_config_data(data: object) -> dict[str, Any]:
         "authority",
         "repository",
         "commands",
+        "push",
+        "pull_request",
         "clean_paths",
         "workspace",
         "automation",
@@ -273,7 +275,7 @@ def validate_config_data(data: object) -> dict[str, Any]:
     _validate_keys(
         repository,
         "repository",
-        required={"protected_branches", "require_pull_request", "default_branch"},
+        required={"protected_branches", "require_pull_request"},
     )
     protected = _validate_strings(
         repository["protected_branches"], "repository.protected_branches"
@@ -283,22 +285,58 @@ def validate_config_data(data: object) -> dict[str, Any]:
         "repository.require_pull_request",
         expected=True,
     )
-    # `default_branch` is a repository fact, not publication policy: it is the
-    # comparison ref for change-policy, agent-check, and status. Binding it to
-    # `protected_branches` keeps that list meaningful now that publication --
-    # and with it the former `pull_request.base` membership check -- is owned
-    # by Cursor-Governance rather than this runtime.
-    default_branch = _require_string(
-        repository["default_branch"], "repository.default_branch"
-    )
-    if default_branch not in protected:
-        _fail("repository.default_branch must be a configured protected branch")
 
     commands = _require_dict(root["commands"], "commands")
     command_names = {"setup", "validate", "check", "test"}
     _validate_keys(commands, "commands", required=command_names)
     for name in sorted(command_names):
         _validate_argv_command(commands[name], f"commands.{name}")
+
+    # `push` and `pull_request` are DEPRECATED and no longer drive behaviour:
+    # this runtime owns no publication, and `pull_request.base` survives only as
+    # the comparison ref below. They stay declared, and stay validated, because
+    # the contract's SHAPE is co-versioned with the Core runtime pinned by
+    # `.github/workflows/org-ci.yml` (`run-repository-verification@<sha>`), which
+    # still requires both keys. Removing them here fails organization CI against
+    # the current pin. Removal trigger: a Core release whose runtime tolerates
+    # their absence is pinned in `org-ci.yml`; then drop these blocks and replace
+    # `pull_request.base` with `repository.default_branch`.
+    push = _require_dict(root["push"], "push")
+    push_keys = {
+        "run_check",
+        "require_clean_worktree",
+        "reject_force_push",
+        "reject_protected_branch",
+        "set_upstream",
+        "lockfile_command",
+        "rebase_before_push",
+    }
+    _validate_keys(push, "push", required=push_keys)
+    for key in (
+        "run_check",
+        "require_clean_worktree",
+        "reject_force_push",
+        "reject_protected_branch",
+    ):
+        _require_bool(push[key], f"push.{key}", expected=True)
+    _require_bool(push["set_upstream"], "push.set_upstream")
+    _require_bool(push["rebase_before_push"], "push.rebase_before_push")
+    lockfile_command = _validate_argv(
+        push["lockfile_command"], "push.lockfile_command", allow_empty=True
+    )
+    if lockfile_command:
+        _require_allowlisted_executable(lockfile_command, "push.lockfile_command", 0)
+
+    pull_request = _require_dict(root["pull_request"], "pull_request")
+    _validate_keys(
+        pull_request,
+        "pull_request",
+        required={"base", "draft_by_default"},
+    )
+    base = _require_string(pull_request["base"], "pull_request.base")
+    if base not in protected:
+        _fail("pull_request.base must be a configured protected branch")
+    _require_bool(pull_request["draft_by_default"], "pull_request.draft_by_default")
 
     clean_paths = _validate_strings(root["clean_paths"], "clean_paths", non_empty=False)
     for index, item in enumerate(clean_paths):
@@ -670,7 +708,11 @@ class RepositoryWorkflow:
     def _comparison_ref(self, base_ref: str | None = None) -> str:
         if base_ref:
             return base_ref
-        return f"origin/{self.config()['repository']['default_branch']}"
+        # DEPRECATED COUPLING: this is a repository fact (the comparison ref
+        # for change-policy, agent-check, and status), not publication policy.
+        # It stays on `pull_request.base` only because the contract shape is
+        # pinned by org-ci.yml; see the note in validate_config_data.
+        return f"origin/{self.config()['pull_request']['base']}"
 
     def _resolve_changes(
         self,
@@ -1031,7 +1073,7 @@ class RepositoryWorkflow:
         candidate_refs = []
         if branch:
             candidate_refs.append(f"origin/{branch}")
-        candidate_refs.append(f"origin/{config['repository']['default_branch']}")
+        candidate_refs.append(f"origin/{config['pull_request']['base']}")
         comparison_ref = next(
             (ref for ref in candidate_refs if self._ref_exists(ref)), None
         )

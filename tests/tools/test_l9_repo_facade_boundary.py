@@ -82,20 +82,43 @@ class FacadeHoldsNoPublicationAuthority(unittest.TestCase):
     def test_push_preflight_module_is_gone(self) -> None:
         self.assertFalse((ROOT / "tools" / "l9_repo" / "push_preflight.py").exists())
 
-    def test_contract_declares_no_publication_policy(self) -> None:
+    def test_publication_config_survives_only_as_deprecated_shape(self) -> None:
+        """The contract shape is co-versioned with the pinned Core runtime.
+
+        ``push`` and ``pull_request`` drive no behaviour any more, but they
+        stay declared because ``org-ci.yml`` pins
+        ``run-repository-verification@<sha>`` to a Core checkout whose
+        validator still requires both keys. Dropping them here fails
+        organization CI against the current pin. Removing them, and replacing
+        ``pull_request.base`` with ``repository.default_branch``, is a
+        follow-up once a tolerant Core runtime is pinned.
+
+        This test exists so that removal is a deliberate act with a failing
+        assertion attached, rather than something that silently regresses.
+        """
         config = json.loads(CONFIG.read_text(encoding="utf-8"))
         schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
         for block in ("push", "pull_request"):
             with self.subTest(block=block):
-                self.assertNotIn(block, config)
-                self.assertNotIn(block, schema["properties"])
-                self.assertNotIn(block, schema["required"])
+                self.assertIn(block, config)
+                self.assertIn(block, schema["properties"])
 
-    def test_contract_declares_a_default_branch(self) -> None:
-        config = json.loads(CONFIG.read_text(encoding="utf-8"))
-        repository = config["repository"]
-        self.assertIn("default_branch", repository)
-        self.assertIn(repository["default_branch"], repository["protected_branches"])
+    def test_runtime_reads_no_publication_policy_beyond_the_comparison_ref(
+        self,
+    ) -> None:
+        """Only ``pull_request.base`` may still be read, and only as a ref.
+
+        Every other publication key is declared-but-dead. If the runtime starts
+        reading one again, publication logic has crept back in.
+        """
+        source = (ROOT / "tools" / "l9_repo" / "__main__.py").read_text(
+            encoding="utf-8"
+        )
+        # Both quote styles: plain subscripts and f-string subscripts.
+        reads = set(
+            re.findall(r"""\[['"](push|pull_request)['"]\]\[['"](\w+)['"]\]""", source)
+        )
+        self.assertEqual(reads, {("pull_request", "base")}, sorted(reads))
 
 
 class FacadeRoutesToTheRightOwner(unittest.TestCase):

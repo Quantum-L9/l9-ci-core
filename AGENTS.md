@@ -282,6 +282,16 @@ no `pr` target and no `push` target. `include Repo.mk` is mandatory: if it is
 missing, recover with `python3 -m tools.l9_repo reconcile`, which bypasses
 `make`.
 
+### The contract shape is pinned
+
+`.l9/repo-workflow.json` still declares `push` and `pull_request`. No code path
+reads them except `pull_request.base`, which survives as the comparison ref.
+They stay because `org-ci.yml` pins `run-repository-verification@<sha>` to a
+Core checkout whose validator requires them and rejects an unknown
+`repository.default_branch`. **Do not remove them, and do not add
+`default_branch`, until that pin advances** — either change fails organization
+CI. See `docs/repository-execution-runtime.md` for the removal trigger.
+
 ## 12. Release plane
 
 Contract: `.l9/release-plane.yaml` (`l9.release-plane/v1`), asserted by

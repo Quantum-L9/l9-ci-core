@@ -104,14 +104,33 @@ executable is rejected fail-closed at configuration load, so a repository
 contract can never smuggle arbitrary commands through the runner. Command
 arguments are passed literally and are never evaluated by a shell.
 
-## Comparison ref
+## Comparison ref, and the deprecated publication keys
 
-`repository.default_branch` is the repository fact this runtime compares
-against: it is the diff base for `change-policy` and `agent-check`, and the
-fallback comparison ref for `status`. It is validated as a member of
-`repository.protected_branches`. It is not publication policy, and it replaced
-`pull_request.base`, which carried that comparison responsibility alongside
-pull-request creation before publication moved to Cursor-Governance.
+`pull_request.base` is still read, in exactly one place and for one reason: it
+names the branch this runtime compares against — the diff base for
+`change-policy` and `agent-check`, and the fallback comparison ref for
+`status`. That is a repository fact wearing a publication-shaped name.
+
+Every other key in `push` and `pull_request` is **deprecated and dead**: no
+code path reads it. They are still declared, and still validated, because the
+contract's *shape* is co-versioned with the Core runtime pinned by
+`.github/workflows/org-ci.yml`:
+
+```yaml
+uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@<sha>
+```
+
+That pinned checkout parses this repository's `.l9/repo-workflow.json` with
+*its own* validator, which still requires `push` and `pull_request` and rejects
+an unknown `repository.default_branch`. Removing the blocks, or adding
+`default_branch`, therefore fails organization CI against the current pin —
+a self-hosting bootstrap constraint, not a design preference.
+
+**Removal trigger:** once a Core release whose runtime tolerates their absence
+is pinned in `org-ci.yml`, drop both blocks and replace `pull_request.base`
+with `repository.default_branch`. `tests/tools/test_l9_repo_facade_boundary.py`
+asserts the current state, so that removal fails a test rather than happening
+silently.
 
 ## Invariants
 
