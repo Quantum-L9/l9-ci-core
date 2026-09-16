@@ -245,17 +245,42 @@ Before declaring a Core change complete:
 4. `python3 -m unittest discover tests`
 5. `make agent-check`
 
-Preserve:
+The repo-local runtime preserves:
 
-- protected-branch refusal;
-- clean-tree requirements;
-- no-force policy;
-- single-flight locking;
 - evidence emission;
 - argv-only command execution;
+- deterministic change-policy behavior;
+- non-mutation of the worktree during validation;
+- single-flight locking (`reconcile` is the one remaining mutating target);
+- generated-facade parity between `Makefile` and `tools/l9_repo/Makefile.template`;
 - the Core → SDK dependency boundary.
 
+Cursor-Governance owns, and this runtime must not reimplement:
+
+- branch publication policy;
+- protected-branch publication denial;
+- push semantics;
+- pull-request creation and reuse;
+- publication single-flight and overlap policy;
+- publication remediation.
+
 A change duplicating SDK behavior is invalid even if functional tests pass.
+A change reintroducing publication into this runtime is invalid for the same
+reason: it would recreate a second publication authority.
+
+### The two-file facade
+
+The root `Makefile` is generated from `tools/l9_repo/Makefile.template` and owns
+the portable operator vocabulary only. Repository verbs (`make setup`,
+`make validate`, `make check`, `make test`, `make clean`, `make doctor`) route
+to the `repo-*` leaves in `Repo.mk`. Governance verbs (`make start`, `make pr`,
+`make workspace-clean`, `make wiring-check`) route to the `l9` dispatcher.
+
+`Repo.mk` is repository-owned implementation. It may add repository
+capabilities; it may not implement organization governance, and it must define
+no `pr` target and no `push` target. `include Repo.mk` is mandatory: if it is
+missing, recover with `python3 -m tools.l9_repo reconcile`, which bypasses
+`make`.
 
 ## 12. Release plane
 

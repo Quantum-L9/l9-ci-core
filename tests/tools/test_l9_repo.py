@@ -16,7 +16,7 @@ from unittest import mock
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from l9_repo import locking, push_preflight  # noqa: E402
+from l9_repo import locking  # noqa: E402
 from l9_repo.authority import AuthorityError, validate_authority  # noqa: E402
 from l9_repo.__main__ import (  # noqa: E402
     MANIFEST_CHECK_ENV,
@@ -218,12 +218,6 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowError, "unsupported keys"):
             validate_config_data(data)
 
-    def test_safety_flags_cannot_be_disabled(self) -> None:
-        data = self.load_config()
-        data["push"]["reject_protected_branch"] = False  # type: ignore[index]
-        with self.assertRaisesRegex(WorkflowError, "must be true"):
-            validate_config_data(data)
-
     def test_empty_command_matrix_is_rejected(self) -> None:
         data = self.load_config()
         data["commands"]["test"] = []  # type: ignore[index]
@@ -258,12 +252,6 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowError, "argv-only allowlist"):
             validate_config_data(data)
 
-    def test_lockfile_command_rejects_unallowlisted_executable(self) -> None:
-        data = self.load_config()
-        data["push"]["lockfile_command"] = ["arbitrary-script"]
-        with self.assertRaisesRegex(WorkflowError, "argv-only allowlist"):
-            validate_config_data(data)
-
     def test_unsafe_clean_path_is_rejected(self) -> None:
         data = self.load_config()
         data["clean_paths"] = ["../escape"]
@@ -276,11 +264,33 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowError, "safe simple file name"):
             validate_config_data(data)
 
-    def test_pull_request_base_must_be_protected(self) -> None:
-        data = self.load_config()
-        data["pull_request"]["base"] = "develop"  # type: ignore[index]
+    def test_default_branch_must_be_protected(self) -> None:
+        """``repository.default_branch`` is the comparison ref, not PR policy.
+
+        It replaces the deleted ``pull_request.base`` as the diff base for
+        change-policy, agent-check, and status. Binding it to
+        ``protected_branches`` keeps that list meaningful now that publication
+        is owned by Cursor-Governance.
+        """
+        config = self.load_config()
+        config["repository"]["default_branch"] = "develop"  # type: ignore[index]
         with self.assertRaisesRegex(WorkflowError, "configured protected branch"):
-            validate_config_data(data)
+            validate_config_data(config)
+
+    def test_default_branch_is_required(self) -> None:
+        config = self.load_config()
+        del config["repository"]["default_branch"]  # type: ignore[index]
+        with self.assertRaisesRegex(WorkflowError, "missing keys"):
+            validate_config_data(config)
+
+    def test_publication_config_is_rejected(self) -> None:
+        """Publication policy must not reappear in the repository contract."""
+        for block in ("push", "pull_request"):
+            with self.subTest(block=block):
+                config = self.load_config()
+                config[block] = {}
+                with self.assertRaisesRegex(WorkflowError, "unsupported keys"):
+                    validate_config_data(config)
 
     def test_companion_rule_requires_at_least_one_requirement(self) -> None:
         data = self.load_config()
@@ -537,89 +547,6 @@ class WorkflowTests(unittest.TestCase):
         workflow.agent_check(explicit=["MANIFEST.sha256"])
         self.assertEqual(run_git(root, "status", "--porcelain").stdout.strip(), "")
 
-    def test_protected_branch_is_refused_before_fetch(self) -> None:
-        with (
-            mock.patch.object(self.workflow, "_ensure_repository_root"),
-            mock.patch.object(self.workflow, "branch", return_value="main"),
-            mock.patch.object(self.workflow, "git") as git,
-        ):
-            with self.assertRaisesRegex(WorkflowError, "protected branch"):
-                self.workflow._push_unlocked()
-        git.assert_not_called()
-
-    def test_detached_head_is_refused_before_fetch(self) -> None:
-        with (
-            mock.patch.object(self.workflow, "_ensure_repository_root"),
-            mock.patch.object(self.workflow, "branch", return_value=""),
-            mock.patch.object(self.workflow, "git") as git,
-        ):
-            with self.assertRaisesRegex(WorkflowError, "detached HEAD"):
-                self.workflow._push_unlocked()
-        git.assert_not_called()
-
-    def test_remote_ahead_refuses_when_rebase_disabled(self) -> None:
-        config = self.workflow.config()
-        completed = subprocess.CompletedProcess(["git"], 0, "", "")
-        remote = subprocess.CompletedProcess(["git"], 0, "remote\n", "")
-        behind = subprocess.CompletedProcess(["git"], 0, "1 2\n", "")
-
-        def fake_git(*args: str, **_: object) -> subprocess.CompletedProcess[str]:
-            if args[:2] == ("rev-parse", "--verify"):
-                return remote
-            if args[:3] == ("rev-list", "--left-right", "--count"):
-                return behind
-            return completed
-
-        with (
-            mock.patch.object(self.workflow, "_ensure_repository_root"),
-            mock.patch.object(self.workflow, "config", return_value=config),
-            mock.patch.object(
-                self.workflow, "_assert_push_state", return_value="feature"
-            ),
-            mock.patch.object(self.workflow, "git", side_effect=fake_git),
-        ):
-            with self.assertRaisesRegex(WorkflowError, "remote branch has commits"):
-                self.workflow._push_unlocked()
-
-    def test_rebase_happens_before_agent_check(self) -> None:
-        config = self.workflow.config()
-        config["push"]["rebase_before_push"] = True
-        completed = subprocess.CompletedProcess(["git"], 0, "", "")
-        remote = subprocess.CompletedProcess(["git"], 0, "remote\n", "")
-        behind = subprocess.CompletedProcess(["git"], 0, "1 2\n", "")
-        no_upstream = subprocess.CompletedProcess(["git"], 1, "", "")
-        head = subprocess.CompletedProcess(["git"], 0, "abc123\n", "")
-        events: list[str] = []
-
-        def fake_git(*args: str, **_: object) -> subprocess.CompletedProcess[str]:
-            if args[:2] == ("rev-parse", "--verify"):
-                return remote
-            if args[:3] == ("rev-list", "--left-right", "--count"):
-                return behind
-            if args[:3] == ("rev-parse", "--abbrev-ref", "--symbolic-full-name"):
-                return no_upstream
-            if args == ("rev-parse", "HEAD"):
-                return head
-            if args and args[0] == "rebase":
-                events.append("rebase")
-            return completed
-
-        with (
-            mock.patch.object(self.workflow, "_ensure_repository_root"),
-            mock.patch.object(self.workflow, "config", return_value=config),
-            mock.patch.object(
-                self.workflow, "_assert_push_state", return_value="feature"
-            ),
-            mock.patch.object(self.workflow, "git", side_effect=fake_git),
-            mock.patch.object(
-                self.workflow,
-                "_run_push_gates",
-                side_effect=lambda _: events.append("gates"),
-            ),
-        ):
-            self.workflow._push_unlocked()
-        self.assertEqual(events, ["rebase", "gates"])
-
     def test_status_reports_live_divergence(self) -> None:
         config = self.workflow.config()
 
@@ -722,29 +649,6 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(check["classification"], "infrastructure")
         self.assertIn("worktree content changed", check["stderr"])
 
-    def test_push_refuses_when_validation_dirties_worktree(self) -> None:
-        config = self.workflow.config()
-        completed = subprocess.CompletedProcess(["git"], 0, "", "")
-        missing_remote = subprocess.CompletedProcess(["git"], 1, "", "")
-        with (
-            mock.patch.object(self.workflow, "_ensure_repository_root"),
-            mock.patch.object(self.workflow, "config", return_value=config),
-            mock.patch.object(
-                self.workflow, "_assert_push_state", return_value="feature"
-            ),
-            mock.patch.object(self.workflow, "_run_push_gates"),
-            mock.patch.object(
-                self.workflow, "status_porcelain", return_value=" M generated.txt"
-            ),
-            mock.patch.object(
-                self.workflow, "git", side_effect=[completed, missing_remote]
-            ),
-        ):
-            with self.assertRaisesRegex(
-                WorkflowError, "validation changed the worktree"
-            ):
-                self.workflow._push_unlocked()
-
     def test_structural_validation_applies_json_schema(self) -> None:
         temporary, root = make_git_fixture()
         self.addCleanup(temporary.cleanup)
@@ -838,20 +742,6 @@ class WorkflowTests(unittest.TestCase):
 
 
 class PrimitiveTests(unittest.TestCase):
-    def test_unmerged_paths_block(self) -> None:
-        result = mock.Mock(stdout="bad.py\n", returncode=0)
-        with mock.patch.object(push_preflight, "run", return_value=result):
-            with self.assertRaises(push_preflight.PreflightError):
-                push_preflight.verify_no_unmerged(pathlib.Path("."))
-
-    def test_lockfile_failure_blocks(self) -> None:
-        result = mock.Mock(stdout="", stderr="stale", returncode=1)
-        with mock.patch.object(push_preflight, "run", return_value=result):
-            with self.assertRaises(push_preflight.PreflightError):
-                push_preflight.verify_lockfile(
-                    pathlib.Path("."), ["uv", "lock", "--check"]
-                )
-
     def test_lock_is_single_flight(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = pathlib.Path(temporary) / "operation.lock"
@@ -924,10 +814,18 @@ class PrimitiveTests(unittest.TestCase):
         temporary, root = make_git_fixture()
         self.addCleanup(temporary.cleanup)
         derived = root / "docs/repository-execution-runtime.md"
-        derived.write_text(
-            derived.read_text(encoding="utf-8").replace("4.3.1", "9.9.9"),
-            encoding="utf-8",
+        # Read the version from the contract rather than hard-coding it: a
+        # literal here silently stops testing anything the moment
+        # metadata.artifact_version is bumped, because the replace becomes a
+        # no-op and no drift is introduced.
+        version = json.loads(
+            (root / ".l9/repo-workflow.json").read_text(encoding="utf-8")
+        )["metadata"]["artifact_version"]
+        text = derived.read_text(encoding="utf-8")
+        self.assertIn(
+            version, text, "derived document must declare the contract version"
         )
+        derived.write_text(text.replace(version, "9.9.9"), encoding="utf-8")
         regenerate_manifest(root)
         with self.assertRaisesRegex(WorkflowError, "authoritative token"):
             RepositoryWorkflow(root).structural_validate()

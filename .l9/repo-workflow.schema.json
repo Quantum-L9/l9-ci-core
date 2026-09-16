@@ -10,8 +10,6 @@
     "authority",
     "repository",
     "commands",
-    "push",
-    "pull_request",
     "clean_paths",
     "workspace",
     "automation",
@@ -32,7 +30,8 @@
       "additionalProperties": false,
       "required": [
         "protected_branches",
-        "require_pull_request"
+        "require_pull_request",
+        "default_branch"
       ],
       "properties": {
         "protected_branches": {
@@ -40,6 +39,9 @@
         },
         "require_pull_request": {
           "const": true
+        },
+        "default_branch": {
+          "$ref": "#/$defs/nonEmptyString"
         }
       }
     },
@@ -64,58 +66,6 @@
         },
         "test": {
           "$ref": "#/$defs/argvMatrix"
-        }
-      }
-    },
-    "push": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "run_check",
-        "require_clean_worktree",
-        "reject_force_push",
-        "reject_protected_branch",
-        "set_upstream",
-        "lockfile_command",
-        "rebase_before_push"
-      ],
-      "properties": {
-        "run_check": {
-          "const": true
-        },
-        "require_clean_worktree": {
-          "const": true
-        },
-        "reject_force_push": {
-          "const": true
-        },
-        "reject_protected_branch": {
-          "const": true
-        },
-        "set_upstream": {
-          "type": "boolean"
-        },
-        "lockfile_command": {
-          "$ref": "#/$defs/argv"
-        },
-        "rebase_before_push": {
-          "type": "boolean"
-        }
-      }
-    },
-    "pull_request": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "base",
-        "draft_by_default"
-      ],
-      "properties": {
-        "base": {
-          "$ref": "#/$defs/nonEmptyString"
-        },
-        "draft_by_default": {
-          "type": "boolean"
         }
       }
     },

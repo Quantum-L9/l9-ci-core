@@ -22,7 +22,6 @@ from .change_policy import (
 )
 from .contract_wiring import ContractWiringError, validate_contract_wiring
 from .locking import LockBusy, single_flight
-from .push_preflight import PreflightError, verify as verify_push_preflight
 from .reporting import StepEvidence, redact_text, write_reports
 
 COMMANDS = (
@@ -33,8 +32,6 @@ COMMANDS = (
     "validate",
     "check",
     "test",
-    "push",
-    "pr",
     "status",
     "clean",
     "reconcile",
@@ -192,8 +189,6 @@ def validate_config_data(data: object) -> dict[str, Any]:
         "authority",
         "repository",
         "commands",
-        "push",
-        "pull_request",
         "clean_paths",
         "workspace",
         "automation",
@@ -278,7 +273,7 @@ def validate_config_data(data: object) -> dict[str, Any]:
     _validate_keys(
         repository,
         "repository",
-        required={"protected_branches", "require_pull_request"},
+        required={"protected_branches", "require_pull_request", "default_branch"},
     )
     protected = _validate_strings(
         repository["protected_branches"], "repository.protected_branches"
@@ -288,49 +283,22 @@ def validate_config_data(data: object) -> dict[str, Any]:
         "repository.require_pull_request",
         expected=True,
     )
+    # `default_branch` is a repository fact, not publication policy: it is the
+    # comparison ref for change-policy, agent-check, and status. Binding it to
+    # `protected_branches` keeps that list meaningful now that publication --
+    # and with it the former `pull_request.base` membership check -- is owned
+    # by Cursor-Governance rather than this runtime.
+    default_branch = _require_string(
+        repository["default_branch"], "repository.default_branch"
+    )
+    if default_branch not in protected:
+        _fail("repository.default_branch must be a configured protected branch")
 
     commands = _require_dict(root["commands"], "commands")
     command_names = {"setup", "validate", "check", "test"}
     _validate_keys(commands, "commands", required=command_names)
     for name in sorted(command_names):
         _validate_argv_command(commands[name], f"commands.{name}")
-
-    push = _require_dict(root["push"], "push")
-    push_keys = {
-        "run_check",
-        "require_clean_worktree",
-        "reject_force_push",
-        "reject_protected_branch",
-        "set_upstream",
-        "lockfile_command",
-        "rebase_before_push",
-    }
-    _validate_keys(push, "push", required=push_keys)
-    for key in (
-        "run_check",
-        "require_clean_worktree",
-        "reject_force_push",
-        "reject_protected_branch",
-    ):
-        _require_bool(push[key], f"push.{key}", expected=True)
-    _require_bool(push["set_upstream"], "push.set_upstream")
-    _require_bool(push["rebase_before_push"], "push.rebase_before_push")
-    lockfile_command = _validate_argv(
-        push["lockfile_command"], "push.lockfile_command", allow_empty=True
-    )
-    if lockfile_command:
-        _require_allowlisted_executable(lockfile_command, "push.lockfile_command", 0)
-
-    pull_request = _require_dict(root["pull_request"], "pull_request")
-    _validate_keys(
-        pull_request,
-        "pull_request",
-        required={"base", "draft_by_default"},
-    )
-    base = _require_string(pull_request["base"], "pull_request.base")
-    if base not in protected:
-        _fail("pull_request.base must be a configured protected branch")
-    _require_bool(pull_request["draft_by_default"], "pull_request.draft_by_default")
 
     clean_paths = _validate_strings(root["clean_paths"], "clean_paths", non_empty=False)
     for index, item in enumerate(clean_paths):
@@ -702,7 +670,7 @@ class RepositoryWorkflow:
     def _comparison_ref(self, base_ref: str | None = None) -> str:
         if base_ref:
             return base_ref
-        return f"origin/{self.config()['pull_request']['base']}"
+        return f"origin/{self.config()['repository']['default_branch']}"
 
     def _resolve_changes(
         self,
@@ -721,7 +689,10 @@ class RepositoryWorkflow:
     def doctor(self) -> None:
         self._ensure_repository_root()
         config = self.config()
-        required_tools = {"git", "gh"}
+        # This runtime owns local execution only. GitHub reachability and
+        # credential state are publication concerns owned by Cursor-Governance,
+        # so `gh` is neither required nor probed here.
+        required_tools = {"git"}
         for name in ("setup", "validate", "check", "test"):
             required_tools.update(
                 argv[0] for argv in config["commands"][name] if argv[0] != "@python"
@@ -730,13 +701,9 @@ class RepositoryWorkflow:
             required_tools.update(
                 argv[0] for argv in gate["commands"] if argv[0] != "@python"
             )
-        lockfile = config["push"]["lockfile_command"]
-        if lockfile:
-            required_tools.add(lockfile[0])
         missing = sorted(tool for tool in required_tools if not shutil.which(tool))
         if missing:
             _fail("missing tools: " + ", ".join(missing))
-        self.run(["gh", "auth", "status"])
         print("doctor: PASS")
 
     def change_policy(
@@ -1035,110 +1002,6 @@ class RepositoryWorkflow:
             elif path.exists():
                 path.unlink()
 
-    def _assert_push_state(self, protected: set[str]) -> str:
-        branch = self.branch()
-        if not branch:
-            _fail("detached HEAD: push refused")
-        if branch in protected:
-            _fail(f"protected branch {branch}: push refused")
-        for marker in (
-            "MERGE_HEAD",
-            "CHERRY_PICK_HEAD",
-            "REVERT_HEAD",
-            "BISECT_LOG",
-            "sequencer",
-            "rebase-merge",
-            "rebase-apply",
-        ):
-            if self.git_path(marker).exists():
-                _fail("merge/rebase in progress: push refused")
-        if self.status_porcelain():
-            _fail("dirty worktree: push refused")
-        return branch
-
-    def _run_push_gates(self, config: dict[str, Any]) -> None:
-        self.agent_check()
-        verify_push_preflight(self.root, config["push"]["lockfile_command"])
-
-    def _push_unlocked(self) -> dict[str, str]:
-        self._ensure_repository_root()
-        config = self.config()
-        protected = set(config["repository"]["protected_branches"])
-        branch = self._assert_push_state(protected)
-        self.git("fetch", "--prune", "origin")
-        remote = self.git(
-            "rev-parse",
-            "--verify",
-            f"origin/{branch}",
-            capture=True,
-            check=False,
-        )
-        if remote.returncode == 0:
-            counts = self.git(
-                "rev-list",
-                "--left-right",
-                "--count",
-                f"origin/{branch}...HEAD",
-                capture=True,
-            ).stdout.split()
-            behind = int(counts[0]) if counts else 0
-            if behind:
-                if not config["push"]["rebase_before_push"]:
-                    _fail("remote branch has commits not in local HEAD: push refused")
-                self.git("rebase", f"origin/{branch}")
-                self._assert_push_state(protected)
-
-        self._run_push_gates(config)
-        if self.status_porcelain():
-            _fail("validation changed the worktree: push refused")
-        upstream = self.git(
-            "rev-parse",
-            "--abbrev-ref",
-            "--symbolic-full-name",
-            "@{u}",
-            capture=True,
-            check=False,
-        )
-        if upstream.returncode == 0:
-            self.git("push")
-        elif config["push"]["set_upstream"]:
-            self.git("push", "--set-upstream", "origin", branch)
-        else:
-            self.git("push", "origin", branch)
-        sha = self.git("rev-parse", "HEAD", capture=True).stdout.strip()
-        payload = {"branch": branch, "sha": sha, "remote": f"origin/{branch}"}
-        print(json.dumps(payload, sort_keys=True))
-        return payload
-
-    def push(self) -> None:
-        path, stale_after = self._lock_settings()
-        try:
-            with single_flight(path, stale_after=stale_after):
-                self._push_unlocked()
-        except (LockBusy, PreflightError) as error:
-            _fail(str(error))
-
-    def pr(self) -> None:
-        path, stale_after = self._lock_settings()
-        try:
-            with single_flight(path, stale_after=stale_after):
-                self._push_unlocked()
-                config = self.config()["pull_request"]
-                existing = self.run(
-                    ["gh", "pr", "view", "--json", "url"],
-                    capture=True,
-                    check=False,
-                )
-                if existing.returncode == 0:
-                    print(existing.stdout.strip())
-                    return
-                command = ["gh", "pr", "create", "--fill", "--base", config["base"]]
-                if config["draft_by_default"]:
-                    command.append("--draft")
-                self.run(command)
-        except (LockBusy, PreflightError) as error:
-            _fail(str(error))
-
     def _ref_exists(self, ref: str) -> bool:
         return (
             self.git("rev-parse", "--verify", ref, capture=True, check=False).returncode
@@ -1168,7 +1031,7 @@ class RepositoryWorkflow:
         candidate_refs = []
         if branch:
             candidate_refs.append(f"origin/{branch}")
-        candidate_refs.append(f"origin/{config['pull_request']['base']}")
+        candidate_refs.append(f"origin/{config['repository']['default_branch']}")
         comparison_ref = next(
             (ref for ref in candidate_refs if self._ref_exists(ref)), None
         )
@@ -1189,20 +1052,9 @@ class RepositoryWorkflow:
                     behind = int(values[0])
                     ahead = int(values[1])
 
-        try:
-            pull_request = self.run(
-                ["gh", "pr", "view", "--json", "url,state,statusCheckRollup"],
-                capture=True,
-                check=False,
-            )
-            pr_payload = (
-                json.loads(pull_request.stdout)
-                if pull_request.returncode == 0
-                else None
-            )
-        except (OSError, json.JSONDecodeError):
-            pr_payload = None
-
+        # Status is repository-local. Pull-request state lives on the
+        # publication plane; aggregating the two belongs to Cursor-Governance,
+        # not to this runtime.
         payload: dict[str, object] = {
             "branch": branch,
             "sha": sha,
@@ -1221,7 +1073,6 @@ class RepositoryWorkflow:
                 if fetch_result is None or fetch_result.returncode == 0
                 else (fetch_result.stderr.strip() or "fetch failed")
             ),
-            "pr": pr_payload,
         }
         print(json.dumps(payload, indent=2, sort_keys=True))
 
