@@ -1,4 +1,19 @@
-# L9 analysis caller (TEMPLATE — copy into your repo at .github/workflows/l9-analysis.yml)
+# DEPRECATED — legacy copy-first L9 Analysis caller (frozen; no new features).
+#
+# Organization CI is required centrally: the Quantum-L9 organization ruleset
+# requires Quantum-L9/l9-ci-core/.github/workflows/org-ci.yml directly, and
+# consumer repositories do not copy L9 workflows, governance packs, Core pins,
+# SDK pins, or enforcement modes. Do not copy this file into a new consumer.
+# An existing copy is a duplicate, separately pinned analysis lane beside the
+# required check and is scheduled for removal once central coverage is proven
+# (presets/LEGACY.md, docs/templates/LEGACY.md, AGENTS.md §7).
+#
+# If a copy must stay alive meanwhile, every job that `uses:` a Core workflow
+# must grant every permission that workflow declares — `security-events:
+# write` included wherever publish-analysis.yml is reached — or GitHub rejects
+# the run at startup with zero jobs (workflow audit 2026-09-13, F-001).
+#
+# L9 analysis caller (legacy template; formerly copied to .github/workflows/l9-analysis.yml)
 #
 # Thin stub into Core's analyze-semgrep.yml kernel. Works for Python AND
 # Node.js: set the `language:` value below (python or typescript) — it must be

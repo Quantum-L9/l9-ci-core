@@ -1,7 +1,21 @@
-# L9 Governed Analysis Pipeline — TypeScript Preset (LOCKED)
+# DEPRECATED — legacy copy-first L9 Analysis caller (frozen; no new features).
+#
+# Organization CI is required centrally: the Quantum-L9 organization ruleset
+# requires Quantum-L9/l9-ci-core/.github/workflows/org-ci.yml directly, and
+# consumer repositories do not copy L9 workflows, governance packs, Core pins,
+# SDK pins, or enforcement modes. Do not copy this file into a new consumer.
+# An existing copy is a duplicate, separately pinned analysis lane beside the
+# required check and is scheduled for removal once central coverage is proven
+# (presets/LEGACY.md, AGENTS.md §7).
+#
+# If a copy must stay alive meanwhile, its calling job must grant every
+# permission the pinned Core kernel declares — `security-events: write`
+# included, for the nested publication workflow — or GitHub rejects the run
+# at startup with zero jobs (workflow audit 2026-09-13, F-001).
+#
+# L9 Governed Analysis Pipeline — TypeScript Preset
 #
 # DO NOT EDIT — this file is managed by l9-ci-core presets/typescript.
-# To update, pull the latest preset from Quantum-L9/l9-ci-core.
 #
 # Thin caller into Core analyze-semgrep.yml (SDK semgrep run → gate →
 # publish + SARIF). Language is locked to typescript.
