@@ -173,7 +173,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
       - id: publish
         name: Publish GitHub check
-        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@402b604c7893ff5bf30e251beaf49d5cf230b63d
+        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@2a7354ed590008cd59d254df08f10d6207933366
         with:
           token: ${{ github.token }}
           repository: ${{ github.repository }}
