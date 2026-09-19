@@ -81,7 +81,7 @@ jobs:
   analyze:
     name: Analyze (semgrep nightly)
     # CORE_ACTIONS_PIN
-    uses: Quantum-L9/l9-ci-core/.github/workflows/analyze-semgrep.yml@01f5b16b3520ce75c168c5720864dfeddd5423a9
+    uses: Quantum-L9/l9-ci-core/.github/workflows/analyze-semgrep.yml@2a7354ed590008cd59d254df08f10d6207933366
     # This job's grant is the ceiling for the whole nested chain: the pinned
     # analyze-semgrep.yml nests publish-analysis.yml, which declares
     # security-events: write for the SARIF upload. A called workflow cannot
@@ -93,7 +93,6 @@ jobs:
       checks: write
       contents: read
       security-events: write
-    secrets: inherit
     with:
       profile: nightly
       matrix-id: nightly-semgrep
