@@ -23,9 +23,12 @@ class WorkflowPermissionTests(unittest.TestCase):
     #                           workflow_call-only, gated by the caller.
     #   analyze-semgrep.yml     checks:write + security-events:write for its
     #                           nested publication workflow. workflow_call-only.
-    #   nightly.yml             checks:write on the job that calls
-    #                           analyze-semgrep.yml so publication inherits
-    #                           write. workflow_call-only; advisory profile.
+    #   nightly.yml             checks:write + security-events:write on the
+    #                           job that calls analyze-semgrep.yml: that grant
+    #                           is the ceiling for the nested publication
+    #                           workflow, which cannot elevate it (a caller
+    #                           that omits a scope fails at startup with zero
+    #                           jobs). workflow_call-only; advisory profile.
     #   self-analysis.yml       audited self-only dogfood caller that grants
     #                           the reusable publication scopes.
     #
@@ -34,7 +37,7 @@ class WorkflowPermissionTests(unittest.TestCase):
     WRITE_EXCEPTIONS = {
         "publish-analysis.yml": ["checks", "security-events"],
         "analyze-semgrep.yml": ["checks", "security-events"],
-        "nightly.yml": ["checks"],
+        "nightly.yml": ["checks", "security-events"],
         "self-analysis.yml": ["checks", "security-events"],
     }
 

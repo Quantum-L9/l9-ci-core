@@ -150,7 +150,14 @@ jobs:
       github.event_name != 'push'
       || inputs.event != ''
       || github.ref_name == github.event.repository.default_branch
-    runs-on: ubuntu-latest
+    # An explicit Ubuntu release family, never `-latest`. `ubuntu-24.04` fixes
+    # the OS family so a `-latest` family jump cannot re-base the fleet's
+    # evaluation; GitHub still rolls hosted image builds within that family on
+    # its own schedule, which Core does not control. What Core does control is
+    # the toolchain below: the setup-python action SHA, the exact Python
+    # version, the exact Semgrep version, and the hash-locked Semgrep
+    # dependency bytes (workflow audit 2026-09-13, F-005).
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -345,13 +352,26 @@ jobs:
         with:
           workspace: .
 
-      - name: Install Semgrep (exact central pin)
+      # The provider toolchain is a locked contract, not a resolution. Core
+      # selects the setup-python action by full SHA, the interpreter by exact
+      # version (major.minor.patch, so a patch release cannot float in), the
+      # Semgrep version exactly, and the Semgrep dependency closure by digest
+      # inside the pinned Core action. Those selections change only with a
+      # Core revision; the hosted runner image underneath them is GitHub's,
+      # not Core's (workflow audit 2026-09-13, F-005). The SDK venv provisioned
+      # above is untouched; only the provider install rides this interpreter.
+      - name: Set up locked Python for the central toolchain
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          L9_SEMGREP_VERSION: ${{ steps.runtime.outputs['semgrep-version'] }}
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip "semgrep==${L9_SEMGREP_VERSION}"
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.14"
+
+      - name: Install Semgrep (hash-locked central pin)
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        # CORE_ACTIONS_PIN — install-semgrep first-commit SHA
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@673a3e4c82021809af32baac7571fde5e1059d3b
+        with:
+          semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'

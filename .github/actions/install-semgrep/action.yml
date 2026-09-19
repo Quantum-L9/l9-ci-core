@@ -1,0 +1,23 @@
+name: Install Semgrep (hash-locked)
+description: >
+  Install the centrally selected Semgrep provider from a hash-locked contract
+  that ships inside this pinned Core action. Organization CI runs in the
+  consumer checkout, so the lock cannot be a Core repository file; it travels
+  with the action revision the central workflow pins. An exact `semgrep==X`
+  alone lets pip re-resolve the rest of the closure on every run; the lock
+  pins every package version and refuses unlisted bytes, so the Semgrep
+  dependency closure cannot silently re-resolve to different versions or
+  digests. It governs that closure only: it does not freeze the GitHub-hosted
+  runner image or any other software on it.
+inputs:
+  semgrep-version:
+    description: Exact x.y.z Semgrep version. A version without a lock fails closed.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install locked Semgrep closure
+      shell: bash
+      env:
+        L9_SEMGREP_VERSION: ${{ inputs.semgrep-version }}
+      run: bash "${{ github.action_path }}/install.sh"

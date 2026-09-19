@@ -35,6 +35,15 @@ on:
         type: string
         required: false
         default: ""
+# Caller contract. GitHub validates a reusable-workflow graph before it
+# schedules any job, and a called workflow can only keep or reduce the token
+# permissions its caller granted — never elevate them. Every job that `uses:`
+# this workflow (directly, or through analyze-semgrep.yml / nightly.yml, whose
+# grants are the ceiling for the whole nested chain) must therefore grant at
+# least the block below, `security-events: write` included. A caller that omits
+# a scope does not get a degraded run: the run ends `startup_failure` with zero
+# jobs and nothing executes (workflow audit 2026-09-13, F-001; enforced by
+# tests/workflows/test_reusable_workflow_permission_chain.py).
 permissions:
   actions: read
   checks: write

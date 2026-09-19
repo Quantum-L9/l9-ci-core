@@ -36,6 +36,20 @@ production:
     sdk_revision_selection_allowed: false
     moving_release_tag_required: false
     update_pull_requests_required: false
+  admission_freshness:
+    strict_required_status_checks_policy: true
+    merge_queue_rule_satisfies: true
+    note: >-
+      A green required check is admission evidence only if it evaluated the
+      head against the current base. The organization ruleset's
+      required_status_checks rule must therefore run in strict mode
+      (strict_required_status_checks_policy), or an active merge_queue rule
+      must make the queue the final admission mechanism, since the queue
+      evaluates the merged result itself. Observed 2026-09-13 on ruleset
+      21895545 ("L9 canonical CI required"): the policy was false and no
+      merge_queue rule was active, so a passing "Analyze (central Core)" did
+      not prove the head was current. Attested by tools/verify_control_plane.py;
+      do not loosen this block to make the attestation PASS.
 
 core_release:
   purpose:
@@ -136,6 +150,7 @@ attestation:
       - organization_required_workflow_binding
       - core_main_protection
       - immutable_releases
+      - required_status_freshness
     unknown_is_pass: false
     note: >-
       Read-only. It compares live GitHub state against this contract and never

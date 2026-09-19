@@ -38,7 +38,7 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
     def test_repository_verification_result_channel_preserves_semgrep(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         verify = text.index("id: repository_verify")
-        semgrep = text.index("name: Install Semgrep (exact central pin)")
+        semgrep = text.index("name: Install Semgrep (hash-locked central pin)")
         self.assertLess(verify, semgrep)
         self.assertNotIn("continue-on-error", text[verify:semgrep])
         runner = RUNNER.read_text(encoding="utf-8")
