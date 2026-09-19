@@ -47,6 +47,16 @@ class NightlyKernelTests(unittest.TestCase):
         self.assertRegex(analyze, re.compile(r"(?m)^\s+checks:\s+write\s*$"))
         self.assertRegex(analyze, re.compile(r"(?m)^\s+contents:\s+read\s*$"))
 
+    def test_analyze_job_does_not_inherit_all_secrets(self) -> None:
+        """Callee declares no secrets; GITHUB_TOKEN is the job token.
+
+        ``secrets: inherit`` would grant the nested kernel every repository
+        secret (CWE-250). self-analysis.yml already calls the same workflow
+        without inherit.
+        """
+        analyze = self.text.split("nightly:", 1)[0]
+        self.assertNotIn("secrets: inherit", analyze)
+
     def test_workflow_level_contents_stay_read(self) -> None:
         header = self.text.split("jobs:", 1)[0]
         self.assertRegex(header, re.compile(r"(?m)^\s*contents:\s+read\s*$"))
