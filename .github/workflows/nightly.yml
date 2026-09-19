@@ -82,10 +82,17 @@ jobs:
     name: Analyze (semgrep nightly)
     # CORE_ACTIONS_PIN
     uses: Quantum-L9/l9-ci-core/.github/workflows/analyze-semgrep.yml@2a7354ed590008cd59d254df08f10d6207933366
+    # This job's grant is the ceiling for the whole nested chain: the pinned
+    # analyze-semgrep.yml nests publish-analysis.yml, which declares
+    # security-events: write for the SARIF upload. A called workflow cannot
+    # elevate permissions, so omitting that scope here makes GitHub reject the
+    # run at startup with zero jobs — the failure shape recorded for the copied
+    # consumer caller in the 2026-09-13 workflow audit (F-001) and in #133.
     permissions:
       actions: read
       checks: write
       contents: read
+      security-events: write
     secrets: inherit
     with:
       profile: nightly

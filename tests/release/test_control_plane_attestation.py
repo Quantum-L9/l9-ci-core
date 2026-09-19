@@ -78,17 +78,36 @@ def workflows_rule(
     }
 
 
-def status_checks_rule(contexts: int = 1) -> dict:
+def status_checks_rule(
+    contexts: int = 1,
+    *,
+    strict: object = True,
+    source_type: str = "Organization",
+    source: str = "Quantum-L9",
+) -> dict:
+    parameters: dict = {
+        "required_status_checks": [
+            {"context": f"check-{index}"} for index in range(contexts)
+        ]
+    }
+    if strict is not None:
+        parameters["strict_required_status_checks_policy"] = strict
     return {
         "type": "required_status_checks",
         "ruleset_id": RULESET_ID,
-        "ruleset_source_type": "Organization",
-        "ruleset_source": "Quantum-L9",
-        "parameters": {
-            "required_status_checks": [
-                {"context": f"check-{index}"} for index in range(contexts)
-            ]
-        },
+        "ruleset_source_type": source_type,
+        "ruleset_source": source,
+        "parameters": parameters,
+    }
+
+
+def merge_queue_rule() -> dict:
+    return {
+        "type": "merge_queue",
+        "ruleset_id": 77,
+        "ruleset_source_type": "Repository",
+        "ruleset_source": REPOSITORY,
+        "parameters": {"merge_method": "MERGE"},
     }
 
 
@@ -145,6 +164,8 @@ class ExpectedContractTests(unittest.TestCase):
         self.assertIn("pull_request", expected.required_rule_types)
         self.assertIn("required_status_checks", expected.required_rule_types)
         self.assertGreaterEqual(expected.minimum_bound_contexts, 1)
+        self.assertTrue(expected.strict_status_checks)
+        self.assertTrue(expected.merge_queue_satisfies)
 
     def test_release_plane_and_org_runtime_contract_agree(self) -> None:
         import yaml
@@ -215,9 +236,19 @@ class ContractDeclaredPathTests(unittest.TestCase):
                 "organization_required_workflow_binding",
                 "core_main_protection",
                 "immutable_releases",
+                "required_status_freshness",
             ],
             attestation["checks"],
         )
+
+    def test_admission_freshness_is_declared_and_not_loosened(self) -> None:
+        freshness = self.plane["production"]["admission_freshness"]
+        self.assertTrue(
+            freshness["strict_required_status_checks_policy"],
+            "the loose policy observed on ruleset 21895545 is the finding; "
+            "the contract must not be relaxed to match it",
+        )
+        self.assertIsInstance(freshness["merge_queue_rule_satisfies"], bool)
 
     def test_every_declared_contract_test_exists(self) -> None:
         for relative in self.plane["validation"]["contract_tests"]:
@@ -289,6 +320,7 @@ class AttestationTests(unittest.TestCase):
             MODULE.BINDING_CHECK,
             MODULE.PROTECTION_CHECK,
             MODULE.IMMUTABLE_CHECK,
+            MODULE.FRESHNESS_CHECK,
         ):
             self.assertEqual(MODULE.PASS, self.status(name), name)
         self.assertEqual(0, MODULE.exit_code(self.results))
@@ -421,6 +453,71 @@ class AttestationTests(unittest.TestCase):
             self.assertEqual(MODULE.UNKNOWN, result.status, result.name)
         self.assertNotEqual(0, MODULE.exit_code(results))
 
+    # -- required status-check freshness -----------------------------------
+
+    def test_loose_required_status_check_fails(self) -> None:
+        """The exact shape recorded on ruleset 21895545 (2026-09-13, F-004)."""
+        self.run_checks(
+            rules=[
+                workflows_rule(),
+                status_checks_rule(strict=False),
+                pull_request_rule(),
+            ]
+        )
+        self.assertEqual(MODULE.FAIL, self.status(MODULE.FRESHNESS_CHECK))
+        result = self.by_name[MODULE.FRESHNESS_CHECK]
+        self.assertIn("strict_required_status_checks_policy=False", result.actual)
+        self.assertIn("stale base", result.reason)
+        self.assertEqual(2, MODULE.exit_code(self.results))
+
+    def test_absent_strict_policy_field_is_not_strict(self) -> None:
+        self.run_checks(
+            rules=[
+                workflows_rule(),
+                status_checks_rule(strict=None),
+                pull_request_rule(),
+            ]
+        )
+        self.assertEqual(MODULE.FAIL, self.status(MODULE.FRESHNESS_CHECK))
+        self.assertIn("=None", self.by_name[MODULE.FRESHNESS_CHECK].actual)
+
+    def test_active_merge_queue_satisfies_freshness(self) -> None:
+        self.run_checks(
+            rules=[
+                workflows_rule(),
+                status_checks_rule(strict=False),
+                pull_request_rule(),
+                merge_queue_rule(),
+            ]
+        )
+        self.assertEqual(MODULE.PASS, self.status(MODULE.FRESHNESS_CHECK))
+        self.assertIn("merge_queue", self.by_name[MODULE.FRESHNESS_CHECK].actual)
+
+    def test_strict_policy_on_a_repository_ruleset_is_not_the_organization_rule(
+        self,
+    ) -> None:
+        """Only the organization's rule governs the fleet; a repo rule does not."""
+        self.run_checks(
+            rules=[
+                workflows_rule(),
+                status_checks_rule(
+                    strict=True, source_type="Repository", source=REPOSITORY
+                ),
+                pull_request_rule(),
+            ]
+        )
+        self.assertEqual(MODULE.FAIL, self.status(MODULE.FRESHNESS_CHECK))
+        self.assertIn("no organization", self.by_name[MODULE.FRESHNESS_CHECK].actual)
+
+    def test_unreadable_branch_rules_leave_freshness_unknown(self) -> None:
+        recorded = responses()
+        recorded[f"repos/{REPOSITORY}/rules/branches/{BRANCH}"] = MODULE.ApiResult(
+            403, error="HTTP 403: Resource not accessible by integration"
+        )
+        results = MODULE.verify(FakeReader(recorded), self.expected)
+        freshness = next(r for r in results if r.name == MODULE.FRESHNESS_CHECK)
+        self.assertEqual(MODULE.UNKNOWN, freshness.status)
+
     # -- immutable releases ------------------------------------------------
 
     def test_immutable_releases_disabled_fails(self) -> None:
@@ -474,7 +571,7 @@ class CredentialTests(unittest.TestCase):
 
     def test_absent_credentials_produce_unknown_for_every_check(self) -> None:
         results = MODULE.unverifiable(self.expected, "no credential")
-        self.assertEqual(3, len(results))
+        self.assertEqual(4, len(results))
         for result in results:
             self.assertEqual(MODULE.UNKNOWN, result.status)
         self.assertEqual(3, MODULE.exit_code(results))

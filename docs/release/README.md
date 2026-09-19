@@ -113,7 +113,7 @@ make attest-control-plane          # or: python3 tools/verify_control_plane.py
 python3 tools/verify_control_plane.py --json
 ```
 
-It compares live GitHub state against `.l9/release-plane.yaml` on three
+It compares live GitHub state against `.l9/release-plane.yaml` on four
 points, and every request is a `GET` — it never creates or edits a ruleset,
 branch, repository setting, release, or tag:
 
@@ -122,6 +122,15 @@ branch, repository setting, release, or tag:
 | organization required-workflow binding | the rule active on Core `main` resolves to this repository's own id, `refs/heads/main`, and `.github/workflows/org-ci.yml`, from an **organization** ruleset in `active` enforcement |
 | Core `main` protection | the rules declared under `core_main_protection` are active on `main`, with code-owner review required and at least one bound status check |
 | immutable releases | `GET /repos/{owner}/{repo}/immutable-releases` reports `enabled: true` |
+| required status-check freshness | the organization `required_status_checks` rule has `strict_required_status_checks_policy: true`, or an active `merge_queue` rule makes the queue the final admission mechanism (`production.admission_freshness`) |
+
+A green required check only proves freshness if it evaluated the head
+against the current base. On 2026-09-13 ruleset 21895545 (`L9 canonical CI
+required`) was observed with `strict_required_status_checks_policy: false`
+and no merge-queue rule, so a passing `Analyze (central Core)` did not prove
+the head was current. The remedy is a control-plane change — enable strict
+status checks on that ruleset, or bind an active merge queue — never a
+loosening of the contract to match the observation.
 
 The source repository is matched by numeric id, not by name, so a workflow
 with the same filename in another repository or on another branch is a
