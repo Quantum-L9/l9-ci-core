@@ -93,7 +93,6 @@ jobs:
       checks: write
       contents: read
       security-events: write
-    secrets: inherit
     with:
       profile: nightly
       matrix-id: nightly-semgrep
