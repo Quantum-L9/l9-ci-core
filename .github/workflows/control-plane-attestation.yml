@@ -1,7 +1,8 @@
 # Read-only attestation of the live GitHub control plane against
 # .l9/release-plane.yaml: the organization required-workflow binding, Core main
-# protection, and immutable releases. Nothing here mutates a ruleset, branch,
-# repository setting, release, or tag.
+# protection, immutable releases, and required status-check freshness (strict
+# required checks or an active merge queue). Nothing here mutates a ruleset,
+# branch, repository setting, release, or tag.
 #
 # This is Core governance/release assurance and runs in this repository only.
 # No governed downstream repository runs it and none needs organization-admin

@@ -12,7 +12,11 @@ verifier closes that gap by comparing live GitHub state against
 ``Core main protection``
     the production branch carries the protection the contract declares;
 ``immutable releases``
-    GitHub immutable-release protection is enabled for the repository.
+    GitHub immutable-release protection is enabled for the repository;
+``required status-check freshness``
+    the organization ruleset's required status check runs in strict mode (the
+    head must be current with the base), or an active merge-queue rule makes
+    the queue the final admission mechanism.
 
 It is attestation only. Every request is a ``GET``; nothing here creates or
 edits a ruleset, branch, repository setting, release, or tag.
@@ -60,6 +64,7 @@ UNKNOWN = "UNKNOWN"
 BINDING_CHECK = "organization required-workflow binding"
 PROTECTION_CHECK = "Core main protection"
 IMMUTABLE_CHECK = "immutable releases"
+FRESHNESS_CHECK = "required status-check freshness"
 
 #: Ruleset enforcement states. Only ``active`` enforces; ``evaluate`` reports
 #: without blocking and ``disabled`` does nothing, so neither is a PASS.
@@ -82,6 +87,8 @@ class Expected:
     require_code_owner_review: bool
     minimum_bound_contexts: int
     immutable_releases: bool
+    strict_status_checks: bool
+    merge_queue_satisfies: bool
 
     @property
     def organization(self) -> str:
@@ -211,6 +218,15 @@ def load_expected(root: Path) -> Expected:
     if not isinstance(immutable, bool):
         raise ContractError("core_release.immutable must be a boolean")
 
+    freshness = _mapping(document, "production", "admission_freshness")
+    strict = freshness.get("strict_required_status_checks_policy")
+    merge_queue = freshness.get("merge_queue_rule_satisfies")
+    if not isinstance(strict, bool) or not isinstance(merge_queue, bool):
+        raise ContractError(
+            "production.admission_freshness needs boolean "
+            "strict_required_status_checks_policy and merge_queue_rule_satisfies"
+        )
+
     _require_agreeing_binding(root, repository, branch, workflow)
 
     return Expected(
@@ -222,6 +238,8 @@ def load_expected(root: Path) -> Expected:
         require_code_owner_review=bool(pull_request.get("require_code_owner_review")),
         minimum_bound_contexts=minimum,
         immutable_releases=immutable,
+        strict_status_checks=strict,
+        merge_queue_satisfies=merge_queue,
     )
 
 
@@ -579,11 +597,114 @@ def check_immutable_releases(reader: GitHubReader, expected: Expected) -> CheckR
     )
 
 
+def check_required_status_freshness(
+    reader: GitHubReader, expected: Expected
+) -> CheckResult:
+    """Prove a stale head cannot be admitted on an old green check.
+
+    ``strict_required_status_checks_policy`` on the organization ruleset's
+    ``required_status_checks`` rule requires the head to be current with the
+    base before the check counts. An active ``merge_queue`` rule satisfies the
+    same need differently: the queue evaluates the merged result itself, so it
+    is the final admission mechanism. With neither, a required check that
+    passed against a since-moved base still admits the pull request — the
+    loose configuration observed on ruleset 21895545 (workflow audit
+    2026-09-13, F-004). No policy is invented here: both expectations are read
+    from ``production.admission_freshness`` in the contract.
+    """
+    if not expected.strict_status_checks:
+        return CheckResult(
+            name=FRESHNESS_CHECK,
+            status=PASS,
+            expected=(
+                "production.admission_freshness.strict_required_status_checks_policy "
+                "is false; nothing to attest"
+            ),
+        )
+    label = (
+        "strict_required_status_checks_policy=true on the organization "
+        "required_status_checks rule"
+    )
+    if expected.merge_queue_satisfies:
+        label += ", or an active merge_queue rule"
+
+    rules = reader.get(f"repos/{expected.repository}/rules/branches/{expected.branch}")
+    if not rules.ok:
+        return _unknown(
+            FRESHNESS_CHECK,
+            label,
+            f"cannot read branch rules for {expected.branch}: {rules.describe()}",
+        )
+    if not isinstance(rules.body, list):
+        return _unknown(FRESHNESS_CHECK, label, "branch rules response was not a list")
+
+    if expected.merge_queue_satisfies:
+        queue = _rules_for(rules, "merge_queue")
+        if queue:
+            ids = ", ".join(str(rule.get("ruleset_id")) for rule in queue)
+            return CheckResult(
+                name=FRESHNESS_CHECK,
+                status=PASS,
+                expected=label,
+                actual=f"merge_queue rule active (ruleset {ids})",
+            )
+
+    organization_rules = [
+        rule
+        for rule in _rules_for(rules, "required_status_checks")
+        if str(rule.get("ruleset_source_type", "")) == "Organization"
+        and str(rule.get("ruleset_source", "")) == expected.organization
+    ]
+    if not organization_rules:
+        return CheckResult(
+            name=FRESHNESS_CHECK,
+            status=FAIL,
+            expected=label,
+            actual=(
+                "no organization required_status_checks rule applies to "
+                f"{expected.branch}"
+            ),
+            reason="freshness cannot be enforced by a rule that is not active",
+        )
+
+    observed: list[str] = []
+    for rule in organization_rules:
+        parameters = rule.get("parameters")
+        value = (
+            parameters.get("strict_required_status_checks_policy")
+            if isinstance(parameters, dict)
+            else None
+        )
+        observed.append(
+            f"ruleset {rule.get('ruleset_id')} "
+            f"strict_required_status_checks_policy={value!r}"
+        )
+        if value is True:
+            return CheckResult(
+                name=FRESHNESS_CHECK,
+                status=PASS,
+                expected=label,
+                actual="; ".join(observed),
+            )
+    return CheckResult(
+        name=FRESHNESS_CHECK,
+        status=FAIL,
+        expected=label,
+        actual="; ".join(observed),
+        reason=(
+            "a loose required check admits a head whose last evaluation ran "
+            "against a stale base; enable strict status checks on the ruleset "
+            "or bind an active merge queue"
+        ),
+    )
+
+
 def verify(reader: GitHubReader, expected: Expected) -> list[CheckResult]:
     return [
         check_required_workflow_binding(reader, expected),
         check_core_main_protection(reader, expected),
         check_immutable_releases(reader, expected),
+        check_required_status_freshness(reader, expected),
     ]
 
 
@@ -592,6 +713,7 @@ def unverifiable(expected: Expected, reason: str) -> list[CheckResult]:
         _unknown(BINDING_CHECK, expected.workflow, reason),
         _unknown(PROTECTION_CHECK, expected.protection_branch, reason),
         _unknown(IMMUTABLE_CHECK, expected.repository, reason),
+        _unknown(FRESHNESS_CHECK, expected.branch, reason),
     ]
 
 
@@ -619,6 +741,8 @@ def as_json(results: list[CheckResult], expected: Expected) -> dict[str, Any]:
             "require_code_owner_review": expected.require_code_owner_review,
             "minimum_bound_contexts": expected.minimum_bound_contexts,
             "immutable_releases": expected.immutable_releases,
+            "strict_required_status_checks_policy": expected.strict_status_checks,
+            "merge_queue_rule_satisfies": expected.merge_queue_satisfies,
         },
         "conclusion": (
             PASS

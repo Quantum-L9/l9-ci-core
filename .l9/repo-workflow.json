@@ -3,7 +3,7 @@
   "schema_version": 1,
   "metadata": {
     "artifact_id": "l9-ci-core-repository-execution-runtime",
-    "artifact_version": "4.3.1",
+    "artifact_version": "5.0.0",
     "contract_status": "authoritative",
     "beneficiary": "Quantum-L9/l9-ci-core",
     "authority_scope": "repository-execution"
