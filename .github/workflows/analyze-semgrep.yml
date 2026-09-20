@@ -186,13 +186,18 @@ jobs:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision || 'bc678190582694f6efee08b6b7ea39be7e09bd5c' }}
-      - name: Install semgrep (exact pin)
+      - name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true'
-        env:
-          L9_SEMGREP_VERSION: ${{ inputs.semgrep-version }}
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip --only-binary :all: "semgrep==${L9_SEMGREP_VERSION}"
+        # CORE_ACTIONS_PIN — install-semgrep first-commit SHA.
+        # `semgrep==X` alone pins one package and lets pip re-resolve the rest
+        # of the closure against whatever PyPI and the runner image offer that
+        # day, which is how this analysis could change behaviour without a Core
+        # source revision changing. The action ships a hash-locked closure and
+        # fails closed on a version it has no lock for. org-ci.yml already
+        # installs Semgrep this way; this is the same mechanism, not a second.
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@673a3e4c82021809af32baac7571fde5e1059d3b
+        with:
+          semgrep-version: ${{ inputs.semgrep-version }}
       - name: Run + normalize semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN

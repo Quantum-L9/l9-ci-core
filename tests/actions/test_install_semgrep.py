@@ -78,6 +78,70 @@ def parse_lock(path: Path) -> dict[str, tuple[str, int]]:
     return pins
 
 
+class SoleInstallPathTests(unittest.TestCase):
+    """This action is the only way Semgrep enters a runner.
+
+    The action exists because `semgrep==X` pins one package and lets pip
+    re-resolve the rest of the closure on every run — the failure its own
+    install.sh header describes. A workflow that installs Semgrep with raw pip
+    reintroduces exactly that, and does so invisibly: Semgrep is then executed
+    as a PATH-resolved subprocess of the SDK, so it never appears as a bare
+    name in any YAML while still being an unlocked dependency at runtime.
+    """
+
+    WORKFLOWS = ROOT / ".github" / "workflows"
+    LOCKED_ACTION = (
+        "Quantum-L9/l9-ci-core/.github/actions/install-semgrep@"
+        "673a3e4c82021809af32baac7571fde5e1059d3b"
+    )
+
+    def _sources(self) -> list[Path]:
+        return sorted([*self.WORKFLOWS.glob("*.yml"), *self.WORKFLOWS.glob("*.yaml")])
+
+    def test_no_workflow_installs_semgrep_with_raw_pip(self) -> None:
+        offenders: list[str] = []
+        pattern = re.compile(r"pip\s+install[^\n]*semgrep\s*==")
+        for path in self._sources():
+            for number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
+                if line.lstrip().startswith("#"):
+                    continue
+                if pattern.search(line):
+                    offenders.append(f"{path.name}:{number}: {line.strip()}")
+        self.assertEqual(
+            [],
+            offenders,
+            "install Semgrep through the hash-locked action; a bare "
+            "`pip install semgrep==X` re-resolves the closure per run",
+        )
+
+    def test_every_semgrep_installing_workflow_uses_the_locked_action(self) -> None:
+        """Both installers must be the same pinned revision, not two mechanisms."""
+        referencing = {
+            path.name
+            for path in self._sources()
+            if "install-semgrep@" in path.read_text(encoding="utf-8")
+        }
+        self.assertIn("org-ci.yml", referencing)
+        self.assertIn("analyze-semgrep.yml", referencing)
+        for name in referencing:
+            with self.subTest(workflow=name):
+                text = (self.WORKFLOWS / name).read_text(encoding="utf-8")
+                self.assertIn(
+                    self.LOCKED_ACTION,
+                    text,
+                    f"{name} must pin install-semgrep at its first-commit SHA "
+                    "(AGENTS.md section 8 keeps it off @v1)",
+                )
+                self.assertNotRegex(
+                    text,
+                    r"install-semgrep@v\d",
+                    f"{name}: install-semgrep is a first-commit pin, not a "
+                    "moving-major reference",
+                )
+
+
 class LockContractTests(unittest.TestCase):
     def test_default_central_version_has_a_lock(self) -> None:
         version = central_semgrep_version()
