@@ -78,7 +78,13 @@ def _distribution_location(name: str) -> pathlib.Path | None:
         # Public API. `_path` is a private attribute that silently disappears
         # on a stdlib rename, degrading every diagnostic with nothing failing.
         located = distribution.locate_file("")
-    except Exception:  # noqa: BLE001 - diagnostics must not mask a violation
+    except (AttributeError, NotImplementedError, TypeError, ValueError, OSError):
+        # A Distribution is free not to implement `locate_file`, and a custom
+        # finder may return something unusable. Those are the readings this
+        # helper can legitimately fail to make, and None is reported as
+        # "not installed" by the caller. Anything else is a bug in this
+        # process, and a preflight gate should die on it rather than hand
+        # back a quiet None that reads as a clean resolution.
         return None
     try:
         return pathlib.Path(str(located)).resolve()
