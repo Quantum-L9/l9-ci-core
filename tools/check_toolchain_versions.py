@@ -16,10 +16,13 @@ what it actually has:
     importlib.metadata.version("ruff")   # what this interpreter will import
     toolchain-lock.json                  # what the repository pinned
 
-Both readings happen in the same process that ``-m ruff`` will run in, so the
-comparison discriminates the real property. A check that shelled out to
-``ruff --version`` would be a different invocation with its own resolution,
-and could agree while the gate disagreed.
+Reading metadata is necessary but not sufficient. The gate runs ``-m <tool>``
+with the repository root at the front of ``sys.path``; this module runs as a
+script from ``tools/``, so metadata proves what is *installed*, not what ``-m``
+would *import*. A plain ``ruff/`` package at the repository root wins for the
+gate and is invisible to metadata — the same shadowing defect, moved from
+``PATH`` to ``sys.path``. So each module is also resolved under the gate's own
+search path and confirmed to belong to the pinned distribution.
 
 The lock is read, never written. ``toolchain-lock.json`` is the canonical
 owner of tool versions (``tests/actions/test_install_consumer_ci.py`` binds
@@ -40,7 +43,9 @@ read.
 from __future__ import annotations
 
 import argparse
+import importlib
 import importlib.metadata
+import importlib.util
 import json
 import pathlib
 import sys
@@ -63,14 +68,65 @@ class ToolchainError(RuntimeError):
     """The lock could not be read, so conformance is undeterminable."""
 
 
-def _distribution_location(name: str) -> str:
-    """Where the running interpreter imports ``name`` from, for the report."""
+def _distribution_location(name: str) -> pathlib.Path | None:
+    """Where the installed distribution lives, or None when absent."""
     try:
         distribution = importlib.metadata.distribution(name)
     except importlib.metadata.PackageNotFoundError:
-        return "not installed"
-    base = getattr(distribution, "_path", None)
-    return str(base) if base is not None else "unknown location"
+        return None
+    try:
+        # Public API. `_path` is a private attribute that silently disappears
+        # on a stdlib rename, degrading every diagnostic with nothing failing.
+        located = distribution.locate_file("")
+    except Exception:  # noqa: BLE001 - diagnostics must not mask a violation
+        return None
+    try:
+        return pathlib.Path(str(located)).resolve()
+    except OSError:
+        return None
+
+
+def _shadowing_module(name: str, gate_cwd: pathlib.Path) -> str | None:
+    """Return the path `-m <name>` would import, when it is not the pinned one.
+
+    The gate runs `@python -m <tool>` with cwd at the repository root, and
+    `-m` puts that cwd at the front of `sys.path`. This module runs as a
+    script, so its own `sys.path[0]` is `tools/` — a different search path.
+    Reading distribution metadata alone therefore proves what is *installed*,
+    not what `-m` will *import*: a plain `ruff/` package at the repository
+    root wins for the gate and is invisible here.
+
+    That is the same defect this check exists to prevent, moved from PATH to
+    sys.path, so resolve the module under the gate's search path and confirm
+    it belongs to the pinned distribution.
+    """
+    distribution_root = _distribution_location(name)
+    if distribution_root is None:
+        return None  # absence is reported by the version comparison
+
+    original = list(sys.path)
+    try:
+        sys.path.insert(0, str(gate_cwd))
+        importlib.invalidate_caches()
+        try:
+            spec = importlib.util.find_spec(name)
+        except (ImportError, ValueError):
+            return f"{name} is not importable under the gate's sys.path"
+        if spec is None:
+            return f"{name} is not importable under the gate's sys.path"
+        origin = spec.origin
+        if origin in (None, "built-in", "frozen"):
+            search = list(getattr(spec, "submodule_search_locations", ()) or ())
+            if not search:
+                return None
+            origin = search[0]
+        resolved = pathlib.Path(origin).resolve()
+        if distribution_root in resolved.parents or resolved == distribution_root:
+            return None
+        return str(resolved)
+    finally:
+        sys.path[:] = original
+        importlib.invalidate_caches()
 
 
 def load_lock(root: pathlib.Path, relative: pathlib.Path = LOCK) -> dict[str, str]:
@@ -107,7 +163,17 @@ def check(root: pathlib.Path) -> tuple[list[str], list[dict[str, Any]]]:
     violations: list[str] = []
     report: list[dict[str, Any]] = []
     for name, expected in sorted(pins.items()):
-        location = _distribution_location(name)
+        installed_at = _distribution_location(name)
+        location = str(installed_at) if installed_at is not None else "not installed"
+
+        # What `-m <name>` would actually import, under the gate's sys.path.
+        shadow = _shadowing_module(name, root)
+        if shadow is not None:
+            violations.append(
+                f"{name}: `-m {name}` would import {shadow}, which is not part "
+                f"of the installed distribution at {location}. The gate would "
+                f"run that instead of the pinned {expected}."
+            )
         try:
             observed: str | None = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:

@@ -44,12 +44,19 @@ jobs:
           python -m pip install --upgrade --only-binary :all: pip
           pip install --only-binary :all: -r requirements-ci.txt
           pip install --only-binary :all: -r requirements-repo-runtime.txt
+      # Resolve through the interpreter, not PATH, and assert what it resolved
+      # before any gate runs — the same contract `.l9/repo-workflow.json`
+      # applies to `make check`. Installing the pins is not the same as
+      # executing them: a tool earlier on PATH decides which code runs, and a
+      # nearby ruff minor passes cleanly while checking a different file set.
+      - name: toolchain conformance
+        run: python tools/check_toolchain_versions.py
       - name: ruff check
-        run: ruff check . --output-format=github
+        run: python -m ruff check . --output-format=github
       - name: ruff format --check
-        run: ruff format --check .
+        run: python -m ruff format --check .
       - name: mypy
-        run: mypy --show-error-codes --pretty
+        run: python -m mypy --show-error-codes --pretty
   validate:
     name: Unit tests
     runs-on: ubuntu-latest

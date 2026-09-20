@@ -119,5 +119,59 @@ class SemgrepInstallPathTests(unittest.TestCase):
                 )
 
 
+class GateResolutionTests(unittest.TestCase):
+    """The resolution contract must not be revertible in silence.
+
+    Restoring `commands.check` to `["ruff", "check", "."]` is schema-valid and
+    passes the executable allowlist, so without this nothing would notice the
+    guarantee disappearing. The same applies to the CI lint job, which is the
+    step that actually gates a merge.
+    """
+
+    CONTRACT = ROOT / ".l9" / "repo-workflow.json"
+    SELF_CI = WORKFLOWS / "self-ci.yml"
+    PREFLIGHT = ["@python", "tools/check_toolchain_versions.py"]
+
+    def test_check_runs_the_preflight_first(self) -> None:
+        commands = json.loads(self.CONTRACT.read_text(encoding="utf-8"))["commands"]
+        self.assertEqual(
+            self.PREFLIGHT,
+            commands["check"][0],
+            "the toolchain preflight must run before any gate it protects",
+        )
+
+    def test_every_check_command_resolves_through_the_interpreter(self) -> None:
+        commands = json.loads(self.CONTRACT.read_text(encoding="utf-8"))["commands"]
+        for argv in commands["check"]:
+            with self.subTest(argv=argv):
+                self.assertEqual(
+                    "@python",
+                    argv[0],
+                    "a bare executable lets PATH decide which code the gate "
+                    "runs; resolve through the interpreter instead",
+                )
+
+    def test_ci_lint_job_does_not_invoke_bare_tools(self) -> None:
+        bare = re.compile(r"^\s*run:\s*(ruff|mypy)\b")
+        offenders = [
+            f"self-ci.yml:{number}: {line.strip()}"
+            for number, line in significant_lines(self.SELF_CI)
+            if bare.search(line)
+        ]
+        self.assertEqual(
+            [],
+            offenders,
+            "the lint job gates merges; a bare name there reintroduces the "
+            "PATH ambiguity the check contract removes",
+        )
+
+    def test_ci_lint_job_runs_the_preflight(self) -> None:
+        self.assertIn(
+            "python tools/check_toolchain_versions.py",
+            self.SELF_CI.read_text(encoding="utf-8"),
+            "the merge-gating lint job must assert its toolchain too",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -123,15 +123,24 @@ they simply land later on `PATH` than the shadow. Provisioning and resolution
 are different problems, and only resolution decides what runs. Routing through
 `@python` settles it: the interpreter, not `PATH`, selects the code.
 
-One residue remains. The interpreter itself may have been provisioned from
-something other than the pin files. `tools/check_toolchain_versions.py` runs
-first in `commands.check` and closes that gap, comparing
-`importlib.metadata.version()` for ruff and mypy against
-`.github/actions/install-consumer-ci/toolchain-lock.json`. Both readings
-happen in the process that will import those tools, so the check discriminates
-the property the gate depends on; a check that shelled out to `ruff --version`
-would be a separate invocation with its own resolution and could agree while
-the gate disagreed.
+Two residues remain, and `tools/check_toolchain_versions.py` — the first entry
+in `commands.check`, and the first step of the CI lint job — closes both.
+
+The interpreter itself may have been provisioned from something other than the
+pin files, so the check compares `importlib.metadata.version()` for ruff and
+mypy against `.github/actions/install-consumer-ci/toolchain-lock.json`.
+
+Metadata alone is not enough, because it proves what is *installed* rather
+than what `-m` will *import*. `-m` puts the working directory at the front of
+`sys.path`, so a plain `ruff/` package at the repository root would win for
+the gate while metadata still reported the pinned version — the same shadowing
+defect, moved from `PATH` to `sys.path`. The check therefore also resolves
+each module under the gate's own search path and confirms it belongs to the
+pinned distribution.
+
+The same contract applies in CI: `self-ci.yml`'s lint job runs the preflight
+first and invokes `python -m ruff` / `python -m mypy`. Installing the pins and
+executing them are different things, and the lint job is what gates a merge.
 
 The lock is the canonical owner of tool versions. The preflight reads it and
 never declares a version, and `tests/actions/test_install_consumer_ci.py`

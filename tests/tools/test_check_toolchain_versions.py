@@ -15,6 +15,7 @@ because both readings happen in this same interpreter.
 from __future__ import annotations
 
 import importlib.metadata
+import contextlib
 import json
 import pathlib
 import sys
@@ -43,6 +44,48 @@ def _write_lock(root: pathlib.Path, pins: dict[str, str]) -> pathlib.Path:
     return path
 
 
+@contextlib.contextmanager
+def _interpreter_reporting(versions: dict[str, str]):
+    """Pretend the running interpreter resolves exactly ``versions``.
+
+    Most of these cases are about the comparison, not about this machine.
+    Reading the real installed ruff/mypy to build a *matching* lock made them
+    depend on the lint toolchain being present, which the stdlib-only unit-test
+    job deliberately does not install — so they errored there while passing
+    locally. Faking the reading keeps each case testing the logic it names.
+    """
+
+    def fake_version(name: str) -> str:
+        try:
+            return versions[name]
+        except KeyError:
+            raise importlib.metadata.PackageNotFoundError(name) from None
+
+    with mock.patch.object(importlib.metadata, "version", fake_version):
+        yield
+
+
+def _toolchain_installed() -> bool:
+    try:
+        for name in GATE_DISTRIBUTIONS:
+            importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return False
+    return True
+
+
+# A real ruff/mypy must be importable for the two cases below to mean anything.
+# The stdlib-only unit-test job installs neither; the lint job and `make check`
+# both do, and `make check` runs this very module as its first command, so the
+# property stays enforced unconditionally there. Remove this guard if the
+# unit-test job ever installs requirements-repo-runtime.txt.
+REQUIRES_REAL_TOOLCHAIN = unittest.skipUnless(
+    _toolchain_installed(),
+    "ruff/mypy are not installed in this interpreter; "
+    "`make check` enforces this property where they are",
+)
+
+
 class ToolchainMismatchTests(unittest.TestCase):
     """The cases that must fail. These are the reason the check exists."""
 
@@ -62,23 +105,16 @@ class ToolchainMismatchTests(unittest.TestCase):
 
     def test_partial_mismatch_still_fails(self) -> None:
         """One correct tool must not mask a wrong one."""
-        import importlib.metadata
-
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
-            _write_lock(
-                root,
-                {
-                    "ruff": importlib.metadata.version("ruff"),
-                    "mypy": "0.0.2-wrong",
-                },
-            )
+            _write_lock(root, {"ruff": "1.2.3", "mypy": "0.0.2-wrong"})
 
-            violations, _ = check(root)
+            with _interpreter_reporting({"ruff": "1.2.3", "mypy": "9.9.9"}):
+                violations, _ = check(root)
+                self.assertEqual(2, main(["--root", str(root)]))
 
             self.assertEqual(1, len(violations), violations)
             self.assertIn("mypy", violations[0])
-            self.assertEqual(2, main(["--root", str(root)]))
 
     def test_near_miss_version_is_refused(self) -> None:
         """A longer string that merely starts with the pin is not the pin.
@@ -86,18 +122,16 @@ class ToolchainMismatchTests(unittest.TestCase):
         Guards the comparison against a substring or prefix match, which would
         accept 0.16.10 for a 0.16.1 pin.
         """
-        import importlib.metadata
-
-        installed = importlib.metadata.version("ruff")
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
-            _write_lock(root, {"ruff": f"{installed}0", "mypy": "0.0.2"})
+            _write_lock(root, {"ruff": "0.16.10", "mypy": "2.3.0"})
 
-            violations, _ = check(root)
+            with _interpreter_reporting({"ruff": "0.16.1", "mypy": "2.3.0"}):
+                violations, _ = check(root)
 
             self.assertTrue(
                 any("ruff" in violation for violation in violations),
-                f"{installed}0 must not satisfy a pin of {installed}",
+                "0.16.1 must not satisfy a pin of 0.16.10",
             )
 
     def test_distribution_absent_from_this_interpreter_is_refused(self) -> None:
@@ -135,6 +169,28 @@ class ToolchainMismatchTests(unittest.TestCase):
         and `main()` exited 0, so the gate would have kept reporting success
         while verifying nothing at all.
         """
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            _write_lock(root, {name: "1.2.3" for name in GATE_DISTRIBUTIONS})
+            with mock.patch.object(check_toolchain_versions, "GATE_DISTRIBUTIONS", ()):
+                with self.assertRaisesRegex(ToolchainError, "asserts nothing"):
+                    check(root)
+                self.assertEqual(3, main(["--root", str(root)]))
+
+    @REQUIRES_REAL_TOOLCHAIN
+    def test_module_shadowed_under_the_gate_search_path_is_refused(self) -> None:
+        """Metadata alone proves what is installed, not what `-m` imports.
+
+        The gate runs `@python -m <tool>` with the repository root at the front
+        of sys.path; this check runs as a script from tools/, a different
+        search path. A plain `ruff/` package at the root therefore wins for the
+        gate while distribution metadata still reports the pinned version.
+
+        That is this check's own defect class — a shadow silently changing what
+        runs — relocated from PATH to sys.path. Before the resolution step was
+        added, this exact layout reported `ok ruff 0.16.1` and exited 0 while
+        `-m ruff` executed the shadow.
+        """
         import importlib.metadata
 
         with tempfile.TemporaryDirectory() as temporary:
@@ -143,10 +199,31 @@ class ToolchainMismatchTests(unittest.TestCase):
                 root,
                 {name: importlib.metadata.version(name) for name in GATE_DISTRIBUTIONS},
             )
-            with mock.patch.object(check_toolchain_versions, "GATE_DISTRIBUTIONS", ()):
-                with self.assertRaisesRegex(ToolchainError, "asserts nothing"):
-                    check(root)
-                self.assertEqual(3, main(["--root", str(root)]))
+            shadow = root / "ruff"
+            shadow.mkdir()
+            (shadow / "__init__.py").write_text("", encoding="utf-8")
+
+            violations, _ = check(root)
+
+            self.assertTrue(violations, "a shadowing module must not pass")
+            joined = "\n".join(violations)
+            self.assertIn("-m ruff", joined)
+            self.assertIn(str(shadow), joined)
+            self.assertEqual(2, main(["--root", str(root)]))
+
+    @REQUIRES_REAL_TOOLCHAIN
+    def test_unshadowed_tree_is_not_falsely_refused(self) -> None:
+        """The shadow check must not fire on a normal repository."""
+        import importlib.metadata
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            _write_lock(
+                root,
+                {name: importlib.metadata.version(name) for name in GATE_DISTRIBUTIONS},
+            )
+            violations, _ = check(root)
+            self.assertEqual([], violations)
 
     def test_missing_lock_is_exit_three_not_a_pass(self) -> None:
         """An undeterminable expectation is blocking, not permissive."""
@@ -179,21 +256,19 @@ class ToolchainConformanceTests(unittest.TestCase):
     """The positive cases, meaningful only because the negatives above fail."""
 
     def test_matching_lock_passes(self) -> None:
-        import importlib.metadata
-
+        pins = {name: "1.2.3" for name in GATE_DISTRIBUTIONS}
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
-            _write_lock(
-                root,
-                {name: importlib.metadata.version(name) for name in GATE_DISTRIBUTIONS},
-            )
+            _write_lock(root, pins)
 
-            violations, report = check(root)
+            with _interpreter_reporting(pins):
+                violations, report = check(root)
+                self.assertEqual(0, main(["--root", str(root)]))
 
             self.assertEqual([], violations)
             self.assertTrue(all(entry["conforming"] for entry in report))
-            self.assertEqual(0, main(["--root", str(root)]))
 
+    @REQUIRES_REAL_TOOLCHAIN
     def test_shipped_tree_conforms(self) -> None:
         """The real repository must satisfy its own gate.
 
@@ -203,6 +278,7 @@ class ToolchainConformanceTests(unittest.TestCase):
         violations, _ = check(ROOT)
         self.assertEqual([], violations, "\n".join(violations))
 
+    @REQUIRES_REAL_TOOLCHAIN
     def test_reported_versions_are_what_the_gate_will_import(self) -> None:
         """The check and the gate must resolve identically.
 
