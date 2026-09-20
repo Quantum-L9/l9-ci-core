@@ -1,7 +1,8 @@
 name: Resolve Core governance
 description: >
   Resolves the centrally owned execution profile, provider mode, requiredness,
-  SDK policy selection, and applicable waivers without reading canonical findings.
+  SDK policy selection, staged Semgrep identity maps, and applicable waivers without
+  reading canonical findings.
   The default governance bundle is shipped with this pinned Core action and never
   depends on files copied into the consumer repository.
 inputs:
@@ -38,6 +39,8 @@ outputs:
     value: ${{ steps.resolve.outputs.required-provider }}
   sdk-policy:
     value: ${{ steps.resolve.outputs.sdk-policy }}
+  identity-map-directory:
+    value: ${{ steps.resolve.outputs.identity-map-directory }}
   waiver-ids:
     value: ${{ steps.resolve.outputs.waiver-ids }}
   governance-digest:

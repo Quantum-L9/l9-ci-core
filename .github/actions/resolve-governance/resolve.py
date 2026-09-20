@@ -23,6 +23,7 @@ EXPECTED_SCHEMAS = {
 ALLOWED_MODES = {"blocking", "advisory", "shadow", "disabled"}
 ALLOWED_SDK_PROFILES = {"ci_fast", "ci_deep"}
 CORE_DEFAULTS_SENTINEL = "@core-defaults"
+IDENTITY_MAP_FILENAMES = ("python.yaml", "typescript.yaml")
 
 
 class GovernanceError(RuntimeError):
@@ -59,6 +60,13 @@ def core_defaults_path() -> Path:
     path = Path(__file__).resolve().parent / "defaults"
     if not path.is_dir():
         raise GovernanceError("Core bundled governance defaults missing")
+    return path
+
+
+def core_identity_maps_path() -> Path:
+    path = Path(__file__).resolve().parent / "identity-maps"
+    if not path.is_dir():
+        raise GovernanceError("Core bundled Semgrep identity maps missing")
     return path
 
 
@@ -235,6 +243,61 @@ def resolve_policy(
     return dest.relative_to(workspace).as_posix()
 
 
+def _validate_identity_map(path: Path) -> None:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise GovernanceError(f"invalid Core identity map {path}: {error}") from error
+    if not isinstance(document, dict) or document.get("schema") != "l9.identity-map/v1":
+        raise GovernanceError(f"Core identity map has unsupported schema: {path}")
+    metadata = document.get("metadata")
+    rules = document.get("rules")
+    if (
+        not isinstance(metadata, dict)
+        or metadata.get("provider_id") != "semgrep"
+        or not isinstance(rules, dict)
+        or not rules
+    ):
+        raise GovernanceError(f"Core identity map is malformed: {path}")
+    for provider_rule_id, entry in rules.items():
+        if (
+            not isinstance(provider_rule_id, str)
+            or not provider_rule_id
+            or not isinstance(entry, dict)
+            or not isinstance(entry.get("canonical_rule_id"), str)
+            or not entry["canonical_rule_id"]
+        ):
+            raise GovernanceError(f"Core identity map has invalid rule entry: {path}")
+
+
+def stage_identity_maps() -> str:
+    """Stage Core-reviewed Semgrep identity maps inside the caller workspace.
+
+    The SDK remains the identity-resolution authority. Core only transports the
+    reviewed maps selected by the workflow's already bounded language input.
+    Both maps are staged before language detection so a single governance pass
+    can serve Python and TypeScript callers without reopening consumer policy.
+    """
+    source_root = core_identity_maps_path()
+    source_paths = [source_root / filename for filename in IDENTITY_MAP_FILENAMES]
+    for source in source_paths:
+        if not source.is_file():
+            raise GovernanceError(f"Core identity map missing: {source}")
+        _validate_identity_map(source)
+
+    workspace_raw = os.environ.get("GITHUB_WORKSPACE", "").strip()
+    if not workspace_raw:
+        return source_root.resolve().as_posix()
+    workspace = Path(workspace_raw).resolve()
+    destination = (
+        workspace / ".l9" / "runtime" / "org-governance" / "semgrep-identity-maps"
+    )
+    destination.mkdir(parents=True, exist_ok=True)
+    for source in source_paths:
+        (destination / source.name).write_bytes(source.read_bytes())
+    return destination.relative_to(workspace).as_posix()
+
+
 def applicable_waivers(
     documents: dict[str, Any],
     *,
@@ -340,6 +403,7 @@ def main() -> int:
         mode = resolve_mode(documents, profile_name, provider, profile["default_mode"])
         required = resolve_requiredness(documents, profile_name, provider)
         policy = resolve_policy(documents, profile_name, governance_root)
+        identity_map_directory = stage_identity_maps()
         waivers = applicable_waivers(
             documents,
             profile=profile_name,
@@ -357,6 +421,7 @@ def main() -> int:
         emit("strict", str(profile["strict"]).lower())
         emit("required-provider", str(required).lower())
         emit("sdk-policy", policy)
+        emit("identity-map-directory", identity_map_directory)
         emit("waiver-ids", ",".join(waivers))
         emit("governance-digest", canonical_digest(governance_root))
         return 0
