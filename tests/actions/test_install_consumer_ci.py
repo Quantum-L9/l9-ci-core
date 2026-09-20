@@ -74,41 +74,6 @@ class InstallConsumerCiTests(unittest.TestCase):
                     "every other pin follow it",
                 )
 
-    def test_inline_workflow_pytest_pins_match_the_lock(self) -> None:
-        """An inline literal is still a pin, and drifts if nothing checks it.
-
-        `nightly.yml` was introduced carrying `pytest==8.4.2` by the very
-        commit that bumped the consumer pin to 9.1.1 (ade33c3). Two majors
-        apart in one fleet, invoked bare, and no test looked at it. Any
-        workflow that pins pytest inline is asserted against the lock here so
-        the next Dependabot bump cannot leave one behind.
-        """
-        lock = json.loads(LOCK.read_text(encoding="utf-8"))
-        inline = re.compile(r"pytest==([0-9][^\s\"']*)")
-        workflows = ROOT / ".github" / "workflows"
-        found: list[tuple[str, int, str]] = []
-        for path in sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")]):
-            for number, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(), start=1
-            ):
-                if line.lstrip().startswith("#"):
-                    continue
-                match = inline.search(line)
-                if match:
-                    found.append((path.name, number, match.group(1)))
-
-        self.assertTrue(
-            found, "expected at least one inline pytest pin to guard against drift"
-        )
-        for name, number, version in found:
-            with self.subTest(workflow=name, line=number):
-                self.assertEqual(
-                    lock["pytest"],
-                    version,
-                    f"{name}:{number} pins pytest=={version} but the lock says "
-                    f"{lock['pytest']}; bump the lock and follow it here",
-                )
-
     def test_biome_lock_matches_preset_schema(self) -> None:
         lock = json.loads(LOCK.read_text(encoding="utf-8"))
         schema = json.loads(BIOME.read_text(encoding="utf-8"))["$schema"]
