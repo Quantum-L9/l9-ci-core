@@ -58,30 +58,7 @@ class NightlyKernelTests(unittest.TestCase):
         callee_secret_refs = re.findall(
             r"secrets\.[A-Z0-9_]+", analyze_yml + "\n" + publish_yml
         )
-        inherit_present = bool(re.search(r"(?m)^\s+secrets:\s+inherit\s*$", analyze))
-        # #region agent log
-        import json
-        import time
-
-        payload = {
-            "sessionId": "f6ca56",
-            "runId": "post-fix",
-            "hypothesisId": "H3",
-            "location": "test_nightly_kernel.py:secrets_inherit",
-            "message": "nightly analyze job secrets contract",
-            "data": {
-                "inherit_present": inherit_present,
-                "callee_secret_refs": callee_secret_refs,
-                "analyze_has_workflow_call_secrets": "secrets:"
-                in analyze_yml.split("jobs:", 1)[0],
-            },
-            "timestamp": int(time.time() * 1000),
-        }
-        log = Path("/Users/ib-mac/Cursor-Governance/.cursor/debug-f6ca56.log")
-        with log.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload) + "\n")
-        # #endregion
-        self.assertFalse(inherit_present)
+        self.assertIsNone(re.search(r"(?m)^\s+secrets:\s+inherit\s*$", analyze))
         self.assertEqual([], callee_secret_refs)
 
     def test_workflow_level_contents_stay_read(self) -> None:
