@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
 ACTION_PATH = ROOT / ".github" / "actions" / "resolve-governance" / "action.yml"
 DEFAULTS_ROOT = ROOT / ".github" / "actions" / "resolve-governance" / "defaults"
+IDENTITY_MAPS_ROOT = (
+    ROOT / ".github" / "actions" / "resolve-governance" / "identity-maps"
+)
 CONTRACT_PATH = ROOT / ".l9" / "org-runtime-contract.yaml"
 
 spec = importlib.util.spec_from_file_location("resolve_governance", MODULE_PATH)
@@ -39,6 +42,15 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
     def test_defaults_are_exactly_the_six_known_files(self) -> None:
         entries = {path.name for path in DEFAULTS_ROOT.iterdir() if path.is_file()}
         self.assertEqual(KNOWN_GOVERNANCE_FILES, entries)
+
+    def test_central_semgrep_identity_maps_are_bundled_and_valid(self) -> None:
+        self.assertEqual(
+            set(module.IDENTITY_MAP_FILENAMES),
+            {path.name for path in IDENTITY_MAPS_ROOT.iterdir() if path.is_file()},
+        )
+        for filename in module.IDENTITY_MAP_FILENAMES:
+            with self.subTest(filename=filename):
+                module._validate_identity_map(IDENTITY_MAPS_ROOT / filename)
 
     def test_every_default_document_loads_with_canonical_schema(self) -> None:
         self.assertEqual(KNOWN_GOVERNANCE_FILES, set(self.documents))
@@ -120,6 +132,8 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
         text = ACTION_PATH.read_text(encoding="utf-8")
         self.assertIn('default: "@core-defaults"', text)
         self.assertNotIn("default: .github/governance", text)
+        self.assertIn("identity-map-directory:", text)
+        self.assertIn("steps.resolve.outputs.identity-map-directory", text)
 
     def test_defaults_resolve_end_to_end_via_resolver_main(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -143,6 +157,10 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
         self.assertIn("mode=blocking", output)
         self.assertIn(
             "sdk-policy=.l9/runtime/org-governance/semgrep-policy.yaml",
+            output,
+        )
+        self.assertIn(
+            "identity-map-directory=.l9/runtime/org-governance/semgrep-identity-maps",
             output,
         )
         self.assertIn("governance-digest=", output)
@@ -170,6 +188,88 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
             payload = dest.read_text(encoding="utf-8")
             self.assertIn("l9.finding-policy/v1", payload)
             self.assertIn('"mode": "advisory"', payload)
+
+    def test_identity_maps_stage_inside_the_consumer_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp)
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"GITHUB_WORKSPACE": str(workspace)},
+                clear=False,
+            ):
+                staged = module.stage_identity_maps()
+            destination = workspace / staged
+            self.assertEqual(
+                ".l9/runtime/org-governance/semgrep-identity-maps",
+                staged,
+            )
+            self.assertEqual(
+                set(module.IDENTITY_MAP_FILENAMES),
+                {path.name for path in destination.iterdir() if path.is_file()},
+            )
+            for filename in module.IDENTITY_MAP_FILENAMES:
+                self.assertEqual(
+                    (IDENTITY_MAPS_ROOT / filename).read_bytes(),
+                    (destination / filename).read_bytes(),
+                )
+
+    def test_identity_maps_reject_a_symlinked_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp) / "workspace"
+            outside = Path(temp) / "outside"
+            workspace.mkdir()
+            outside.mkdir()
+            destination_parent = workspace / ".l9" / "runtime" / "org-governance"
+            destination_parent.mkdir(parents=True)
+            (destination_parent / "semgrep-identity-maps").symlink_to(
+                outside,
+                target_is_directory=True,
+            )
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"GITHUB_WORKSPACE": str(workspace)},
+                clear=False,
+            ):
+                with self.assertRaises(module.GovernanceError):
+                    module.stage_identity_maps()
+            self.assertEqual([], list(outside.iterdir()))
+
+    def test_identity_maps_reject_a_symlinked_target_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp) / "workspace"
+            outside = Path(temp) / "outside.yaml"
+            workspace.mkdir()
+            destination = (
+                workspace
+                / ".l9"
+                / "runtime"
+                / "org-governance"
+                / "semgrep-identity-maps"
+            )
+            destination.mkdir(parents=True)
+            (destination / "python.yaml").symlink_to(outside)
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"GITHUB_WORKSPACE": str(workspace)},
+                clear=False,
+            ):
+                with self.assertRaises(module.GovernanceError):
+                    module.stage_identity_maps()
+            self.assertFalse(outside.exists())
+
+    def test_governance_digest_binds_the_bundled_identity_map_bytes(self) -> None:
+        baseline = module.canonical_digest(DEFAULTS_ROOT)
+        with tempfile.TemporaryDirectory() as temp:
+            maps_root = Path(temp)
+            for filename in module.IDENTITY_MAP_FILENAMES:
+                source = IDENTITY_MAPS_ROOT / filename
+                (maps_root / filename).write_bytes(source.read_bytes())
+            modified = maps_root / module.IDENTITY_MAP_FILENAMES[0]
+            modified.write_bytes(modified.read_bytes() + b"\n")
+            self.assertNotEqual(
+                baseline,
+                module.canonical_digest(DEFAULTS_ROOT, maps_root),
+            )
 
     def test_workspace_override_cannot_escape_consumer_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

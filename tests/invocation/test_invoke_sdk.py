@@ -148,6 +148,44 @@ class InvokeSDKTests(unittest.TestCase):
         self.assertNotIn("--config", command)
         self.assertNotIn("--provider-version", command)
 
+    def test_semgrep_run_passes_a_workspace_identity_map_to_the_sdk(self) -> None:
+        identity_map = self.workspace / "identity-map.yaml"
+        identity_map.write_text("{}\n", encoding="utf-8")
+        with patch.dict(
+            os.environ,
+            self.environment(
+                L9_OPERATION="semgrep-run",
+                L9_LANGUAGE="python",
+                L9_OUTPUT=str(self.workspace / "bundle.json"),
+                L9_IDENTITY_MAP=str(identity_map),
+            ),
+            clear=True,
+        ):
+            command = module.build_command(self.executable)
+        self.assertEqual(
+            str(identity_map),
+            command[command.index("--identity-map") + 1],
+        )
+
+    def test_semgrep_run_rejects_identity_map_path_escape(self) -> None:
+        outside = self.workspace.parent / "outside-identity-map.yaml"
+        outside.write_text("{}\n", encoding="utf-8")
+        try:
+            with patch.dict(
+                os.environ,
+                self.environment(
+                    L9_OPERATION="semgrep-run",
+                    L9_LANGUAGE="python",
+                    L9_OUTPUT=str(self.workspace / "bundle.json"),
+                    L9_IDENTITY_MAP=str(outside),
+                ),
+                clear=True,
+            ):
+                with self.assertRaises(module.InvocationError):
+                    module.build_command(self.executable)
+        finally:
+            outside.unlink(missing_ok=True)
+
     def test_semgrep_run_rejects_unsupported_language(self) -> None:
         with patch.dict(
             os.environ,

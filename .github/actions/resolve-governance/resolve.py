@@ -23,6 +23,7 @@ EXPECTED_SCHEMAS = {
 ALLOWED_MODES = {"blocking", "advisory", "shadow", "disabled"}
 ALLOWED_SDK_PROFILES = {"ci_fast", "ci_deep"}
 CORE_DEFAULTS_SENTINEL = "@core-defaults"
+IDENTITY_MAP_FILENAMES = ("python.yaml", "typescript.yaml")
 
 
 class GovernanceError(RuntimeError):
@@ -55,10 +56,40 @@ def workspace_path(value: str, *, must_exist: bool = True) -> Path:
     return path
 
 
+def workspace_directory(workspace: Path, relative: Path) -> Path:
+    """Create a workspace-contained directory without following symlinks."""
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise GovernanceError("staging directory must be a non-empty relative path")
+    destination = workspace
+    for component in relative.parts:
+        destination = destination / component
+        if destination.is_symlink():
+            raise GovernanceError("staging directory must not contain a symlink")
+        if destination.exists():
+            if not destination.is_dir():
+                raise GovernanceError("staging directory component is not a directory")
+        else:
+            destination.mkdir()
+        try:
+            destination.resolve().relative_to(workspace)
+        except ValueError as error:
+            raise GovernanceError(
+                "staging directory must remain inside GITHUB_WORKSPACE"
+            ) from error
+    return destination
+
+
 def core_defaults_path() -> Path:
     path = Path(__file__).resolve().parent / "defaults"
     if not path.is_dir():
         raise GovernanceError("Core bundled governance defaults missing")
+    return path
+
+
+def core_identity_maps_path() -> Path:
+    path = Path(__file__).resolve().parent / "identity-maps"
+    if not path.is_dir():
+        raise GovernanceError("Core bundled Semgrep identity maps missing")
     return path
 
 
@@ -235,6 +266,68 @@ def resolve_policy(
     return dest.relative_to(workspace).as_posix()
 
 
+def _validate_identity_map(path: Path) -> None:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise GovernanceError(f"invalid Core identity map {path}: {error}") from error
+    if not isinstance(document, dict) or document.get("schema") != "l9.identity-map/v1":
+        raise GovernanceError(f"Core identity map has unsupported schema: {path}")
+    metadata = document.get("metadata")
+    rules = document.get("rules")
+    if (
+        not isinstance(metadata, dict)
+        or metadata.get("provider_id") != "semgrep"
+        or not isinstance(rules, dict)
+        or not rules
+    ):
+        raise GovernanceError(f"Core identity map is malformed: {path}")
+    for provider_rule_id, entry in rules.items():
+        if (
+            not isinstance(provider_rule_id, str)
+            or not provider_rule_id
+            or not isinstance(entry, dict)
+            or not isinstance(entry.get("canonical_rule_id"), str)
+            or not entry["canonical_rule_id"]
+        ):
+            raise GovernanceError(f"Core identity map has invalid rule entry: {path}")
+
+
+def stage_identity_maps() -> str:
+    """Stage Core-reviewed Semgrep identity maps inside the caller workspace.
+
+    The SDK remains the identity-resolution authority. Core only transports the
+    reviewed maps selected by the workflow's already bounded language input.
+    Both maps are staged before language detection so a single governance pass
+    can serve Python and TypeScript callers without reopening consumer policy.
+    """
+    source_root = core_identity_maps_path()
+    source_paths = [source_root / filename for filename in IDENTITY_MAP_FILENAMES]
+    for source in source_paths:
+        if not source.is_file():
+            raise GovernanceError(f"Core identity map missing: {source}")
+        _validate_identity_map(source)
+
+    workspace_raw = os.environ.get("GITHUB_WORKSPACE", "").strip()
+    if not workspace_raw:
+        return source_root.resolve().as_posix()
+    workspace = Path(workspace_raw).resolve()
+    destination = workspace_directory(
+        workspace,
+        Path(".l9/runtime/org-governance/semgrep-identity-maps"),
+    )
+    for source in source_paths:
+        target = destination / source.name
+        if target.is_symlink():
+            raise GovernanceError("identity-map destination must not be a symlink")
+        if target.exists():
+            if not target.is_file():
+                raise GovernanceError("identity-map destination is not a file")
+            target.unlink()
+        target.write_bytes(source.read_bytes())
+    return destination.relative_to(workspace).as_posix()
+
+
 def applicable_waivers(
     documents: dict[str, Any],
     *,
@@ -307,11 +400,21 @@ def applicable_waivers(
     return sorted(active)
 
 
-def canonical_digest(root: Path) -> str:
+def canonical_digest(root: Path, identity_maps_root: Path | None = None) -> str:
     digest = hashlib.sha256()
     for filename in sorted(EXPECTED_SCHEMAS):
         path = root / filename
         digest.update(filename.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    maps_root = identity_maps_root or core_identity_maps_path()
+    for filename in IDENTITY_MAP_FILENAMES:
+        path = maps_root / filename
+        if not path.is_file():
+            raise GovernanceError(f"Core identity map missing: {path}")
+        _validate_identity_map(path)
+        digest.update(f"identity-maps/{filename}".encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
@@ -340,6 +443,7 @@ def main() -> int:
         mode = resolve_mode(documents, profile_name, provider, profile["default_mode"])
         required = resolve_requiredness(documents, profile_name, provider)
         policy = resolve_policy(documents, profile_name, governance_root)
+        identity_map_directory = stage_identity_maps()
         waivers = applicable_waivers(
             documents,
             profile=profile_name,
@@ -357,6 +461,7 @@ def main() -> int:
         emit("strict", str(profile["strict"]).lower())
         emit("required-provider", str(required).lower())
         emit("sdk-policy", policy)
+        emit("identity-map-directory", identity_map_directory)
         emit("waiver-ids", ",".join(waivers))
         emit("governance-digest", canonical_digest(governance_root))
         return 0
