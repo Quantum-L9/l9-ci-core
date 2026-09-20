@@ -622,11 +622,17 @@ def reseal_checksum_manifest(
             errors.append(f"{relative}:{line_number}: malformed checksum entry")
             continue
         entries += 1
-        name = raw[_MANIFEST_PATH_OFFSET:]
+        digest, name = raw[:_SHA256_HEX_LENGTH], raw[_MANIFEST_PATH_OFFSET:]
         if name in seen:
             errors.append(f"{relative}:{line_number}: duplicate path {name}")
             continue
         seen.add(name)
+        # Mirror the verifier: a 64-character field that is not hexadecimal is a
+        # corrupt entry, not a stale one. Resealing it would overwrite the
+        # evidence of corruption with a freshly computed digest.
+        if any(ch not in "0123456789abcdef" for ch in digest):
+            errors.append(f"{relative}:{line_number}: invalid sha256 digest")
+            continue
         candidate = pathlib.PurePosixPath(name)
         if candidate.is_absolute() or ".." in candidate.parts or name in {"", "."}:
             errors.append(f"{relative}:{line_number}: unsafe path {name!r}")
