@@ -186,6 +186,19 @@ jobs:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision || 'bc678190582694f6efee08b6b7ea39be7e09bd5c' }}
+      # The lock resolves its closure for one exact interpreter, so the
+      # interpreter has to be selected as deliberately as the packages are.
+      # Without this the runner's default `python` decides which
+      # marker-selected wheels the digests are checked against, and
+      # `--require-hashes --only-binary` turns that drift into a hard failure.
+      # The previous raw `pip install` tolerated it by re-resolving silently;
+      # adopting the locked closure without its precondition would trade a
+      # silent defect for an availability one. Mirrors org-ci.yml.
+      - name: Set up locked Python for the central toolchain
+        if: steps.gov.outputs.enabled == 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.14"
       - name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — install-semgrep first-commit SHA.

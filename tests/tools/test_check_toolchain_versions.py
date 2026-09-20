@@ -7,9 +7,11 @@ a staged mismatch, an absent distribution, an unreadable lock — and assert
 that each one is refused and *named*. The positive case is last, because on
 its own it would prove nothing.
 
-The property under test is the one the gate depends on: the versions reported
-here are the versions ``@python -m ruff`` and ``@python -m mypy`` will import,
-because both readings happen in this same interpreter.
+The property under test is the one the gate depends on: that what
+``@python -m ruff`` and ``@python -m mypy`` will *import* is the pinned
+distribution. Matching metadata is not sufficient evidence of that — ``-m``
+searches a different ``sys.path`` than this script does — so the shadowing
+case has its own test.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
-from unittest import mock
+import unittest.mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -61,7 +63,7 @@ def _interpreter_reporting(versions: dict[str, str]):
         except KeyError:
             raise importlib.metadata.PackageNotFoundError(name) from None
 
-    with mock.patch.object(importlib.metadata, "version", fake_version):
+    with unittest.mock.patch.object(importlib.metadata, "version", fake_version):
         yield
 
 
@@ -149,7 +151,7 @@ class ToolchainMismatchTests(unittest.TestCase):
             root = pathlib.Path(temporary)
             _write_lock(root, {absent: "1.0.0"})
 
-            with mock.patch.object(
+            with unittest.mock.patch.object(
                 check_toolchain_versions, "GATE_DISTRIBUTIONS", (absent,)
             ):
                 violations, report = check(root)
@@ -172,7 +174,9 @@ class ToolchainMismatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
             _write_lock(root, {name: "1.2.3" for name in GATE_DISTRIBUTIONS})
-            with mock.patch.object(check_toolchain_versions, "GATE_DISTRIBUTIONS", ()):
+            with unittest.mock.patch.object(
+                check_toolchain_versions, "GATE_DISTRIBUTIONS", ()
+            ):
                 with self.assertRaisesRegex(ToolchainError, "asserts nothing"):
                     check(root)
                 self.assertEqual(3, main(["--root", str(root)]))
@@ -191,8 +195,6 @@ class ToolchainMismatchTests(unittest.TestCase):
         added, this exact layout reported `ok ruff 0.16.1` and exited 0 while
         `-m ruff` executed the shadow.
         """
-        import importlib.metadata
-
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
             _write_lock(
@@ -214,8 +216,6 @@ class ToolchainMismatchTests(unittest.TestCase):
     @REQUIRES_REAL_TOOLCHAIN
     def test_unshadowed_tree_is_not_falsely_refused(self) -> None:
         """The shadow check must not fire on a normal repository."""
-        import importlib.metadata
-
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
             _write_lock(
@@ -287,7 +287,6 @@ class ToolchainConformanceTests(unittest.TestCase):
         would be checking a different toolchain than the one being gated —
         the exact tautology this module was written to avoid.
         """
-        import importlib.metadata
         import subprocess
 
         for name in GATE_DISTRIBUTIONS:
