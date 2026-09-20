@@ -25,6 +25,13 @@ def _governance_event_expression(document: dict) -> str:
     raise AssertionError("analyze-semgrep.yml has no governance resolver step")
 
 
+def _semgrep_run_step(document: dict) -> dict:
+    for step in document["jobs"]["analyze"]["steps"]:
+        if step.get("with", {}).get("operation") == "semgrep-run":
+            return step
+    raise AssertionError("analyze-semgrep.yml has no SDK Semgrep run step")
+
+
 def test_reusable_kernel_accepts_an_explicit_governance_event_class() -> None:
     document = _workflow()
     event_input = document["on"]["workflow_call"]["inputs"]["event"]
@@ -47,3 +54,10 @@ def test_explicit_event_precedes_the_manual_nightly_fallback() -> None:
     explicit = expression.index("inputs.event != ''")
     fallback = expression.index("github.event_name == 'workflow_dispatch'")
     assert explicit < fallback
+
+
+def test_semgrep_run_uses_the_core_staged_map_for_its_bounded_language() -> None:
+    step = _semgrep_run_step(_workflow())
+    assert step["with"]["identity-map"] == (
+        "${{ steps.gov.outputs['identity-map-directory'] }}/${{ inputs.language }}.yaml"
+    )

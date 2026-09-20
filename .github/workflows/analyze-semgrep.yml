@@ -212,6 +212,7 @@ jobs:
           strict: ${{ steps.gov.outputs.strict }}
           required: ${{ steps.gov.outputs['required-provider'] }}
           policy: ${{ steps.gov.outputs['sdk-policy'] }}
+          identity-map: ${{ steps.gov.outputs['identity-map-directory'] }}/${{ inputs.language }}.yaml
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN

@@ -56,6 +56,29 @@ def workspace_path(value: str, *, must_exist: bool = True) -> Path:
     return path
 
 
+def workspace_directory(workspace: Path, relative: Path) -> Path:
+    """Create a workspace-contained directory without following symlinks."""
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise GovernanceError("staging directory must be a non-empty relative path")
+    destination = workspace
+    for component in relative.parts:
+        destination = destination / component
+        if destination.is_symlink():
+            raise GovernanceError("staging directory must not contain a symlink")
+        if destination.exists():
+            if not destination.is_dir():
+                raise GovernanceError("staging directory component is not a directory")
+        else:
+            destination.mkdir()
+        try:
+            destination.resolve().relative_to(workspace)
+        except ValueError as error:
+            raise GovernanceError(
+                "staging directory must remain inside GITHUB_WORKSPACE"
+            ) from error
+    return destination
+
+
 def core_defaults_path() -> Path:
     path = Path(__file__).resolve().parent / "defaults"
     if not path.is_dir():
@@ -289,12 +312,19 @@ def stage_identity_maps() -> str:
     if not workspace_raw:
         return source_root.resolve().as_posix()
     workspace = Path(workspace_raw).resolve()
-    destination = (
-        workspace / ".l9" / "runtime" / "org-governance" / "semgrep-identity-maps"
+    destination = workspace_directory(
+        workspace,
+        Path(".l9/runtime/org-governance/semgrep-identity-maps"),
     )
-    destination.mkdir(parents=True, exist_ok=True)
     for source in source_paths:
-        (destination / source.name).write_bytes(source.read_bytes())
+        target = destination / source.name
+        if target.is_symlink():
+            raise GovernanceError("identity-map destination must not be a symlink")
+        if target.exists():
+            if not target.is_file():
+                raise GovernanceError("identity-map destination is not a file")
+            target.unlink()
+        target.write_bytes(source.read_bytes())
     return destination.relative_to(workspace).as_posix()
 
 
@@ -370,11 +400,21 @@ def applicable_waivers(
     return sorted(active)
 
 
-def canonical_digest(root: Path) -> str:
+def canonical_digest(root: Path, identity_maps_root: Path | None = None) -> str:
     digest = hashlib.sha256()
     for filename in sorted(EXPECTED_SCHEMAS):
         path = root / filename
         digest.update(filename.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    maps_root = identity_maps_root or core_identity_maps_path()
+    for filename in IDENTITY_MAP_FILENAMES:
+        path = maps_root / filename
+        if not path.is_file():
+            raise GovernanceError(f"Core identity map missing: {path}")
+        _validate_identity_map(path)
+        digest.update(f"identity-maps/{filename}".encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
