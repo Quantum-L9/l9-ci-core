@@ -1,0 +1,62 @@
+# Dependabot-only MANIFEST.sha256 reseal.
+#
+# Dependabot bumps third-party action SHAs in workflow YAML but never rewrites
+# MANIFEST.sha256. Unit tests then fail checksum mismatch. This job reseals
+# listed digests and pushes onto the already-open Dependabot PR branch when
+# the file actually changes. A second run is a no-op (the digest already
+# matches, so nothing is staged and the job exits before committing).
+#
+# SINGLE WRITER PER BRANCH. `push` is the only trigger, deliberately.
+# Dependabot updates a pull request by pushing its `dependabot/**` branch, so
+# `push` already observes every update this job exists to react to. Adding
+# `pull_request` would observe the same update a second time under a different
+# `github.ref` (`refs/pull/N/merge` rather than `refs/heads/dependabot/...`),
+# which lands the two runs in two different concurrency groups and races two
+# writers onto one branch. One event family keeps the concurrency key, the
+# checkout ref, and the push target all equal to the same branch.
+#
+# Audited contents:write exception. Does not inherit secrets. Never uses
+# pull_request_target, so no pull-request-controlled code executes under the
+# write token. Third-party checkout stays SHA-pinned.
+name: Manifest reseal
+on:
+  push:
+    branches:
+      - "dependabot/**"
+permissions:
+  contents: read
+concurrency:
+  # github.ref_name is the branch this job writes to. Keying on the write
+  # target is what serializes concurrent reseals of the same branch.
+  group: manifest-reseal-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  reseal:
+    name: Reseal MANIFEST.sha256
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          # Same expression as the concurrency key and the push target below:
+          # this job reads, reseals, and writes exactly one branch.
+          ref: ${{ github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Reseal listed checksums
+        env:
+          RESEAL_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 -m tools.l9_repo reseal-manifest
+          git add -- MANIFEST.sha256
+          if git diff --cached --quiet -- MANIFEST.sha256; then
+            echo "MANIFEST.sha256 already matches the worktree"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: reseal MANIFEST.sha256 after Dependabot workflow bump"
+          git push origin "HEAD:${RESEAL_BRANCH}"

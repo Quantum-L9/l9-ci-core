@@ -156,20 +156,34 @@ needs organization-admin credentials to be governed.
 
 ## Who may write a release tag
 
-Two tag namespaces exist and must never be conflated
+Three tag namespaces exist and must never be conflated
 (`.l9/release-plane.yaml` → `release_writers`):
 
 | Namespace | Meaning | The only authorized writer |
 |---|---|---|
 | `vMAJOR.MINOR.PATCH` | immutable Core release identity | `docs/release/tag-and-release.sh` |
+| `v1` | moving Core self-reference compatibility tag | `tools/publish_consumer_ci_tag.sh` |
 | `v2` | mutable installer and bounded optional integration compatibility tag | `tools/publish_consumer_ci_tag.sh` |
+
+Immutability, not the major number, is what separates them. Both moving tags
+share one writer on purpose: they are the same act — force-move a mutable
+pointer onto an already-reviewed `main` commit — so a second script for it
+would be duplicate ownership, not separation of concerns. Creating an
+immutable audit identity is a different act and is owned separately.
+
+That writer refuses a target which is not an ancestor of `origin/main`, and
+for `v1` also refuses one missing any of the seven Core self-reference
+actions. Making a pull request green is not a reason to move a moving tag;
+merging it is. See `docs/v1-compatibility.md` for the promotion sequence and
+the control-plane steps it cannot perform.
 
 `tools/check_release_writers.py` (`make check-release-writers`, and part of
 the `unittest` suite the release gate runs) proves that exactly one
-executable surface can create, move, or push each namespace, and that neither
-writer can reach into the other's. The invariant is namespace ownership, not
-the absence of tagging commands: "only one `git tag` in the repository" would
-either forbid the transitional lane or bless a second release writer.
+executable surface can create, move, or push each namespace, and that no
+writer can reach into a namespace it does not own. The invariant is namespace
+ownership, not the absence of tagging commands: "only one `git tag` in the
+repository" would either forbid the compatibility lanes or bless a second
+release writer.
 
 Scope is executable mutation only. Shell, YAML, and Python comments,
 docstrings, printed instructions (`echo "… git push origin v2"`), Markdown,

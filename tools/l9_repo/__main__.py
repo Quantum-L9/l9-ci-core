@@ -35,6 +35,7 @@ COMMANDS = (
     "status",
     "clean",
     "reconcile",
+    "reseal-manifest",
     "help",
 )
 CONFIG_PATH = pathlib.Path(".l9/repo-workflow.json")
@@ -591,6 +592,75 @@ def verify_checksum_manifest(
         _fail("checksum manifest validation failed: " + "; ".join(errors))
 
 
+def reseal_checksum_manifest(
+    root: pathlib.Path, relative: str = "MANIFEST.sha256"
+) -> bool:
+    """Rewrite listed MANIFEST.sha256 digests from current file bytes.
+
+    Returns True when the file content changed. Does not add or remove paths.
+    Fail-closed on a missing, unsafe, or malformed entry — the same shape
+    ``verify_checksum_manifest`` uses — so Dependabot cannot paper over a
+    broken manifest by resealing around it.
+    """
+    manifest = root / relative
+    if manifest.is_symlink() or not manifest.is_file():
+        _fail(f"missing checksum manifest: {manifest}")
+    errors: list[str] = []
+    rewritten: list[str] = []
+    seen: set[str] = set()
+    entries = 0
+    original = manifest.read_text(encoding="utf-8")
+    for line_number, raw in enumerate(original.splitlines(), start=1):
+        if not raw.strip():
+            rewritten.append(raw)
+            continue
+        if (
+            len(raw) < _MANIFEST_MIN_LINE_LENGTH
+            or raw[_SHA256_HEX_LENGTH:_MANIFEST_PATH_OFFSET]
+            != _MANIFEST_FIELD_SEPARATOR
+        ):
+            errors.append(f"{relative}:{line_number}: malformed checksum entry")
+            continue
+        entries += 1
+        digest, name = raw[:_SHA256_HEX_LENGTH], raw[_MANIFEST_PATH_OFFSET:]
+        if name in seen:
+            errors.append(f"{relative}:{line_number}: duplicate path {name}")
+            continue
+        seen.add(name)
+        # Mirror the verifier: a 64-character field that is not hexadecimal is a
+        # corrupt entry, not a stale one. Resealing it would overwrite the
+        # evidence of corruption with a freshly computed digest.
+        if any(ch not in "0123456789abcdef" for ch in digest):
+            errors.append(f"{relative}:{line_number}: invalid sha256 digest")
+            continue
+        candidate = pathlib.PurePosixPath(name)
+        if candidate.is_absolute() or ".." in candidate.parts or name in {"", "."}:
+            errors.append(f"{relative}:{line_number}: unsafe path {name!r}")
+            continue
+        path = root / candidate
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError:
+            resolved = path.resolve()
+        if path.is_symlink() or root.resolve() not in resolved.parents:
+            errors.append(f"{relative}:{line_number}: unsafe or symlinked file {name}")
+            continue
+        if not path.is_file():
+            errors.append(f"{relative}:{line_number}: missing file {name}")
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        rewritten.append(f"{digest}{_MANIFEST_FIELD_SEPARATOR}{name}")
+    if entries == 0:
+        errors.append(f"{relative}: checksum manifest is empty")
+    if errors:
+        _fail("checksum manifest reseal failed: " + "; ".join(errors))
+    new_text = "\n".join(rewritten) + "\n"
+    if new_text == original:
+        return False
+    manifest.write_text(new_text, encoding="utf-8")
+    return True
+
+
 class RepositoryWorkflow:
     def __init__(self, root: pathlib.Path) -> None:
         self.root = root.resolve()
@@ -1128,6 +1198,20 @@ class RepositoryWorkflow:
                     _fail(f"missing {source}")
                 (self.root / "Makefile").write_bytes(source.read_bytes())
                 print("Makefile reconciled")
+        except LockBusy as error:
+            _fail(str(error))
+
+    def reseal_manifest(self) -> None:
+        self._ensure_repository_root()
+        path, stale_after = self._lock_settings()
+        try:
+            with single_flight(path, stale_after=stale_after):
+                changed = reseal_checksum_manifest(self.root)
+                print(
+                    "MANIFEST.sha256 resealed"
+                    if changed
+                    else "MANIFEST.sha256 unchanged"
+                )
         except LockBusy as error:
             _fail(str(error))
 

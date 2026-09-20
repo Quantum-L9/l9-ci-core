@@ -31,6 +31,14 @@ class WorkflowPermissionTests(unittest.TestCase):
     #                           jobs). workflow_call-only; advisory profile.
     #   self-analysis.yml       audited self-only dogfood caller that grants
     #                           the reusable publication scopes.
+    #   manifest-reseal.yml     contents:write on Dependabot branches so a
+    #                           workflow byte bump can commit the matching
+    #                           MANIFEST.sha256 onto the already-open branch.
+    #                           Actor-gated to dependabot[bot]; no secrets
+    #                           inherit. push-triggered only, so it is NOT an
+    #                           audited pull_request caller and is held to the
+    #                           same no-pull_request rule as every other
+    #                           write-scoped workflow below.
     #
     # `org-ci.yml` is intentionally absent. The organization required workflow
     # runs on untrusted pull_request events and must remain contents:read only.
@@ -39,6 +47,7 @@ class WorkflowPermissionTests(unittest.TestCase):
         "analyze-semgrep.yml": ["checks", "security-events"],
         "nightly.yml": ["checks", "security-events"],
         "self-analysis.yml": ["checks", "security-events"],
+        "manifest-reseal.yml": ["contents"],
     }
 
     def test_only_authorized_workflows_request_write(self) -> None:

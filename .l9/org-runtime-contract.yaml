@@ -182,7 +182,7 @@ pinning:
     source_branch: main
     moving_major_alias_used: false
   core_internal_actions:
-    policy: full-40-char-sha
+    policy: moving-major-v1
     floating_references_allowed: false
   sdk_revision:
     policy: per .l9/sdk-compatibility.yaml

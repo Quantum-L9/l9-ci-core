@@ -147,7 +147,7 @@ class OrgRuntimeContractTests(unittest.TestCase):
         self.assertNotIn(".github/org-governance-defaults", text)
         self.assertIn('governance-root: "@core-defaults"', text)
 
-    def test_entrypoint_composes_only_full_sha_core_primitives(self) -> None:
+    def test_entrypoint_composes_only_v1_core_primitives(self) -> None:
         text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
         actions = (
             "resolve-consumer-metadata",
@@ -161,13 +161,13 @@ class OrgRuntimeContractTests(unittest.TestCase):
         pins: set[str] = set()
         for action in actions:
             match = re.search(
-                rf"Quantum-L9/l9-ci-core/\.github/actions/{re.escape(action)}@([0-9a-f]{{40}})",
+                rf"Quantum-L9/l9-ci-core/\.github/actions/{re.escape(action)}@(v1|[0-9a-f]{{40}})",
                 text,
             )
             self.assertIsNotNone(match, action)
             assert match is not None
             pins.add(match.group(1))
-        self.assertEqual(1, len(pins), pins)
+        self.assertEqual({"v1"}, pins)
         detect = re.search(
             r"Quantum-L9/l9-ci-core/\.github/actions/detect-language@([0-9a-f]{40})",
             text,
@@ -241,7 +241,7 @@ class OrgRuntimeContractTests(unittest.TestCase):
     def test_internal_and_sdk_pinning_fail_closed(self) -> None:
         contract = load_contract()
         self.assertEqual(
-            "full-40-char-sha",
+            "moving-major-v1",
             contract["pinning"]["core_internal_actions"]["policy"],
         )
         self.assertFalse(

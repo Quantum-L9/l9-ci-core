@@ -113,17 +113,33 @@ core_release:
 
 release_writers:
   principle: >-
-    Two deliberately distinct tag namespaces exist and must never be
-    conflated. Exactly one executable surface may create, move, or push each,
-    and neither authorized writer may mutate the other's namespace. The
-    invariant is namespace ownership, not the absence of tagging commands:
-    "only one git tag in the repository" is the wrong rule.
+    Deliberately distinct tag namespaces exist and must never be conflated.
+    Exactly one executable surface may create, move, or push each, and no
+    authorized writer may mutate another namespace. The invariant is namespace
+    ownership, not the absence of tagging commands: "only one git tag in the
+    repository" is the wrong rule.
+
+    Immutability is what separates the namespaces, not the major number. One
+    writer owns every moving compatibility tag because they share a single
+    lifecycle -- force-move a mutable pointer onto an already-reviewed main
+    commit -- and a second publication subsystem for the same lifecycle would
+    be duplicate ownership, not separation of concerns. The exact-release
+    namespace is owned separately because creating an immutable audit identity
+    is a different act with different safety rules.
   namespaces:
     exact_core_release:
       pattern: '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
       authorized_writer: docs/release/tag-and-release.sh
       description: >-
         Immutable Core release identity. Audit, provenance, and rollback only.
+    core_self_reference_compatibility:
+      pattern: '^v1$'
+      authorized_writer: tools/publish_consumer_ci_tag.sh
+      description: >-
+        The moving major compatibility tag that every Core workflow uses to
+        reference Core's own composite actions and kernel workflows, and that
+        the v1 org-starter consumers resolve. It is never a Core release
+        identity and never a consumer-selected revision.
     transitional_consumer_installer:
       pattern: '^v2$'
       authorized_writer: tools/publish_consumer_ci_tag.sh
@@ -131,6 +147,38 @@ release_writers:
         The mutable compatibility tag for install-consumer-ci@v2 and the
         bounded optional integration channel declared above. It is never a Core
         production-runtime release mechanism.
+  moving_tag_promotion:
+    writer: tools/publish_consumer_ci_tag.sh
+    target_must_be_ancestor_of: main
+    note: >-
+      A moving compatibility tag points at reviewed mainline code. Advancing
+      one to an unmerged feature head would let a pull request grant itself the
+      Core revision it is asking to be reviewed, so the writer refuses a target
+      that is not an ancestor of origin/main. Making a pull request green is
+      not a reason to move the tag; merging it is.
+    core_self_reference_primitives:
+      applies_to: core_self_reference_compatibility
+      note: >-
+        Core workflows resolve these composite actions through the moving tag.
+        A promotion target missing any of them fails Core CI at setup with an
+        unresolvable action reference, which is the observed v1 bootstrap
+        defect. The writer verifies them at the target commit before tagging.
+      required:
+        - .github/actions/resolve-consumer-metadata
+        - .github/actions/resolve-governance
+        - .github/actions/provision-sdk
+        - .github/actions/invoke-sdk
+        - .github/actions/validate-bundle
+        - .github/actions/route-artifacts
+        - .github/actions/build-artifact-manifest
+    protection:
+      status: human_control_plane
+      note: >-
+        Restricting who may move a moving tag (tag ruleset, no deletion,
+        updates only from the authorized writer) is a GitHub control-plane act
+        outside repository authority. It is tracked in docs/v1-compatibility.md
+        and is not satisfied by any check in this repository. Do not weaken
+        Core self-references to work around it.
   validator: tools/check_release_writers.py
 
 core_main_protection:

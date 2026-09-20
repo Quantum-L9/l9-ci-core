@@ -6,8 +6,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 USES = re.compile(r"^\s*uses:\s*([^#\s]+)", re.MULTILINE)
 FULL_SHA_REF = re.compile(r"^[^@]+@[0-9a-fA-F]{40}$")
-# Toolchain installer is the only floating Core ref. Analysis/SDK stay SHA-pinned.
+# Toolchain installer is the only floating Core ref besides the moving major.
 INSTALLER_V2 = "Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@v2"
+CORE_V1 = re.compile(
+    r"^Quantum-L9/l9-ci-core/\.github/(?:actions|workflows)/[^@\s]+@v1$"
+)
 
 
 class ExternalActionPinTests(unittest.TestCase):
@@ -19,6 +22,8 @@ class ExternalActionPinTests(unittest.TestCase):
                 if reference.startswith("./"):
                     continue
                 if reference == INSTALLER_V2:
+                    continue
+                if CORE_V1.fullmatch(reference):
                     continue
                 if not FULL_SHA_REF.fullmatch(reference):
                     violations.append(f"{workflow.relative_to(ROOT)}:{reference}")

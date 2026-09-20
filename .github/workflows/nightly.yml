@@ -7,9 +7,8 @@
 #
 # Nested analyze-semgrep.yml must be fully qualified. This reusable executes
 # in the CALLER checkout, so `uses: ./…` would resolve against the consumer.
-# The pin is CORE_ACTIONS_PIN — the same Core commit already duplicated on
-# every action line inside analyze-semgrep.yml (grep: CORE_ACTIONS_PIN).
-# Bump them together.
+# The pin is CORE_ACTIONS_PIN — Core's moving major `@v1`, the same ref
+# duplicated on every Core self-ref inside analyze-semgrep.yml.
 #
 # workflow_call inputs stay a superset of the v1 / org-starter contract
 # (python-version, run-extended-tests, …). language is additive and optional.
@@ -81,7 +80,7 @@ jobs:
   analyze:
     name: Analyze (semgrep nightly)
     # CORE_ACTIONS_PIN
-    uses: Quantum-L9/l9-ci-core/.github/workflows/analyze-semgrep.yml@01f5b16b3520ce75c168c5720864dfeddd5423a9
+    uses: Quantum-L9/l9-ci-core/.github/workflows/analyze-semgrep.yml@v1  # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag
     # This job's grant is the ceiling for the whole nested chain: the pinned
     # analyze-semgrep.yml nests publish-analysis.yml, which declares
     # security-events: write for the SARIF upload. A called workflow cannot
@@ -93,7 +92,8 @@ jobs:
       checks: write
       contents: read
       security-events: write
-    secrets: inherit
+    # analyze-semgrep.yml / publish-analysis.yml declare no workflow_call
+    # secrets and read none (`github.token` only). Do not `secrets: inherit`.
     with:
       profile: nightly
       matrix-id: nightly-semgrep

@@ -200,12 +200,15 @@ A ruleset-required workflow executes against a consumer repository checkout.
 Therefore:
 
 - Core composite actions referenced from the central workflow use fully
-  qualified immutable Core SHAs.
+  qualified moving-major `@v1` (the CORE_ACTIONS_PIN set). First-commit
+  pins (`detect-language`, `install-semgrep`, `run-repository-verification`)
+  stay at their introducing SHAs. `install-consumer-ci@v2` stays the
+  installer alias.
 - Never assume a Core repository file exists in `GITHUB_WORKSPACE`.
 - Data that is part of Core policy must ship inside the pinned Core action or
   be produced by Core itself.
 - Consumer-relative paths must remain inside `GITHUB_WORKSPACE`.
-- External actions are SHA-pinned.
+- External (third-party) actions are SHA-pinned.
 - Never use floating `@main` references.
 
 ## 9. Publication and failure semantics
@@ -226,7 +229,10 @@ publication solely because a scanner process was allowed to exit zero.
 
 `MANIFEST.sha256` records SHA-256 digests for tracked contract/runtime files.
 Regenerate entries for every changed listed file and remove entries for deleted
-files.
+files. Production rewrite is `python3 -m tools.l9_repo reseal-manifest` (does
+not add or remove paths). Dependabot PRs that change workflow bytes are resealed
+by `.github/workflows/manifest-reseal.yml` onto the already-open branch when
+the digest actually changes.
 
 Both `make validate` and `tests/tools/test_manifest_integrity.py` verify the
 manifest. `L9_MANIFEST_CHECK=0` exists only for a bounded salvage/bisect command;
@@ -251,7 +257,7 @@ The repo-local runtime preserves:
 - argv-only command execution;
 - deterministic change-policy behavior;
 - non-mutation of the worktree during validation;
-- single-flight locking (`reconcile` is the one remaining mutating target);
+- single-flight locking (`reconcile` and `reseal-manifest` are the mutating targets);
 - generated-facade parity between `Makefile` and `tools/l9_repo/Makefile.template`;
 - the Core → SDK dependency boundary.
 
@@ -322,11 +328,22 @@ Contract: `.l9/release-plane.yaml` (`l9.release-plane/v1`), asserted by
   proposal. It is organization law only once Cursor-Governance records it.
 - **One writer per tag namespace.** `release_writers` in the contract names
   the single authorized writer for exact `vX.Y.Z` releases
-  (`docs/release/tag-and-release.sh`) and for the transitional `v2` installer
-  tag (`tools/publish_consumer_ci_tag.sh`); neither may mutate the other's
-  namespace. `tools/check_release_writers.py` (`make check-release-writers`,
-  and part of the `unittest` suite) proves it. Do not add a second executable
-  surface that creates, moves, or pushes either namespace.
+  (`docs/release/tag-and-release.sh`) and for both moving compatibility tags,
+  `v1` (Core self-references) and `v2` (installer and the bounded integration
+  channel), which share `tools/publish_consumer_ci_tag.sh`. Immutability, not
+  the major number, separates the namespaces: the two moving tags share one
+  writer because they are one act — force-move a mutable pointer onto reviewed
+  mainline code — while minting an immutable audit identity is a different act
+  owned separately. No writer may mutate a namespace it does not own.
+  `tools/check_release_writers.py` (`make check-release-writers`, and part of
+  the `unittest` suite) proves it. Do not add a second executable
+  surface that creates, moves, or pushes any of these namespaces.
+- **A moving tag is promoted to merged `main`, never to a PR head.** The
+  writer refuses a target that is not an ancestor of `origin/main`, and for
+  `v1` also one missing any of the seven Core self-reference actions. Making a
+  pull request green is not a reason to move a moving tag; merging it is.
+  Pushing the moved tag is a control-plane act outside repository authority —
+  see `docs/v1-compatibility.md`.
 - **Live GitHub state is attested, never assumed.**
   `tools/verify_control_plane.py` (`make attest-control-plane`, workflow
   `.github/workflows/control-plane-attestation.yml`) compares GitHub against

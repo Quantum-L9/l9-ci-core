@@ -204,20 +204,19 @@ class CallerProfileEventCompatibilityTests(unittest.TestCase):
                     )
 
     def test_copy_first_callers_pin_one_consistent_core_revision(self) -> None:
-        """A caller's `uses:` SHA and its `L9_CORE_REF` note must agree.
+        """A caller's `uses:` pin and its `L9_CORE_REF` note must agree.
 
-        `uses:` cannot interpolate, so the SHA is duplicated literally and the
-        env var exists only as the human-readable mirror. They drift silently
-        unless compared. All copy-first callers also pin the *same* revision —
-        a split pin means some consumers run a kernel that others do not.
+        `uses:` cannot interpolate, so the ref is duplicated literally and the
+        env var exists only as the human-readable mirror. Core self-refs share
+        the moving major `@v1`.
         """
         pins: set[str] = set()
         for pattern in CALLER_GLOBS[1:]:
             for path in sorted(ROOT.glob(pattern)):
                 label = path.relative_to(ROOT).as_posix()
                 text = path.read_text(encoding="utf-8")
-                used = re.search(r"analyze-semgrep\.yml@([0-9a-f]{40})", text)
-                noted = re.search(r'L9_CORE_REF:\s*"([0-9a-f]{40})"', text)
+                used = re.search(r"analyze-semgrep\.yml@(v1|[0-9a-f]{40})", text)
+                noted = re.search(r'L9_CORE_REF:\s*"(v1|[0-9a-f]{40})"', text)
                 with self.subTest(workflow=label):
                     self.assertIsNotNone(used, f"{label} has no pinned kernel")
                     self.assertIsNotNone(noted, f"{label} has no L9_CORE_REF")
@@ -228,7 +227,7 @@ class CallerProfileEventCompatibilityTests(unittest.TestCase):
                         f"{label}: uses: pin and L9_CORE_REF disagree",
                     )
                     pins.add(used.group(1))
-        self.assertEqual(1, len(pins), f"copy-first callers pin split pins: {pins}")
+        self.assertEqual({"v1"}, pins, f"copy-first callers pin split pins: {pins}")
 
     def test_self_analysis_maps_events_the_way_org_ci_does(self) -> None:
         """The dogfood caller and the organization surface must agree.

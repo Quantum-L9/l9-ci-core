@@ -76,6 +76,10 @@ organization governance, and it defines no `pr` target and no `push` target.
   and remote freshness. It reports no pull-request state: that lives on the
   publication plane, and aggregating the two belongs to Cursor-Governance.
 - `make reconcile`: regenerate the root Makefile from the canonical template.
+- `python3 -m tools.l9_repo reseal-manifest`: rewrite listed `MANIFEST.sha256`
+  digests from current file bytes. Does not add or remove paths. Dependabot
+  PRs run `.github/workflows/manifest-reseal.yml` to commit the rewrite when
+  it changes.
 - `make wiring-check`, `make start`, `make workspace-clean`, `make pr`: delegate
   to Cursor-Governance through the `l9` dispatcher.
 
@@ -142,16 +146,20 @@ silently.
 - Configured commands are allowlisted (`@python`, `ruff`, `mypy`, `uv`) and
   executed argv-only.
 - Shell-string command execution and hidden bypasses are prohibited.
-- Single-flight locking guards `reconcile`, the one remaining mutating target.
+- Single-flight locking guards `reconcile` and `reseal-manifest`, the remaining
+  mutating targets.
 - The generated facade holds no Git publication logic and no GitHub API logic.
 - `MANIFEST.sha256` must be regenerated for every tracked change.
+  `python3 -m tools.l9_repo reseal-manifest` is the production writer.
 - Two surfaces verify it: `make validate` via the repository facade, and
   `tests/tools/test_manifest_integrity.py` on the pull-request path, because
   `self-ci.yml` and `governance-ci.yml` run `unittest discover` and never
   invoke the facade. Without the test, a dependency bump or docs edit that
   skipped the manifest merged green and only failed later on someone's local
   `make validate` or in Phase 4 release validation — which is how #81 and #82
-  left `main` unable to pass `make validate`.
+  left `main` unable to pass `make validate`. A workflow-byte change without
+  reseal still fails that test. Dependabot PRs are resealed by
+  `manifest-reseal.yml`.
 - `L9_MANIFEST_CHECK=0` disables both, for bisects and salvage work on a
   knowingly drifted tree. While disabled the manifest is recorded but
   unverified and provides no tamper-detection, so keep the window to the single
