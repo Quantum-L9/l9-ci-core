@@ -328,11 +328,22 @@ Contract: `.l9/release-plane.yaml` (`l9.release-plane/v1`), asserted by
   proposal. It is organization law only once Cursor-Governance records it.
 - **One writer per tag namespace.** `release_writers` in the contract names
   the single authorized writer for exact `vX.Y.Z` releases
-  (`docs/release/tag-and-release.sh`) and for the transitional `v2` installer
-  tag (`tools/publish_consumer_ci_tag.sh`); neither may mutate the other's
-  namespace. `tools/check_release_writers.py` (`make check-release-writers`,
-  and part of the `unittest` suite) proves it. Do not add a second executable
-  surface that creates, moves, or pushes either namespace.
+  (`docs/release/tag-and-release.sh`) and for both moving compatibility tags,
+  `v1` (Core self-references) and `v2` (installer and the bounded integration
+  channel), which share `tools/publish_consumer_ci_tag.sh`. Immutability, not
+  the major number, separates the namespaces: the two moving tags share one
+  writer because they are one act — force-move a mutable pointer onto reviewed
+  mainline code — while minting an immutable audit identity is a different act
+  owned separately. No writer may mutate a namespace it does not own.
+  `tools/check_release_writers.py` (`make check-release-writers`, and part of
+  the `unittest` suite) proves it. Do not add a second executable
+  surface that creates, moves, or pushes any of these namespaces.
+- **A moving tag is promoted to merged `main`, never to a PR head.** The
+  writer refuses a target that is not an ancestor of `origin/main`, and for
+  `v1` also one missing any of the seven Core self-reference actions. Making a
+  pull request green is not a reason to move a moving tag; merging it is.
+  Pushing the moved tag is a control-plane act outside repository authority —
+  see `docs/v1-compatibility.md`.
 - **Live GitHub state is attested, never assumed.**
   `tools/verify_control_plane.py` (`make attest-control-plane`, workflow
   `.github/workflows/control-plane-attestation.yml`) compares GitHub against

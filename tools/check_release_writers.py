@@ -1,22 +1,35 @@
 #!/usr/bin/env python3
 """Namespace-aware release-writer uniqueness for ``Quantum-L9/l9-ci-core``.
 
-Two tag namespaces exist in this repository and must never be conflated
+Three tag namespaces exist in this repository and must never be conflated
 (``.l9/release-plane.yaml`` → ``release_writers``):
 
 ``vMAJOR.MINOR.PATCH``
     Immutable Core release identity. Audit, provenance, rollback.
     Authorized writer: ``docs/release/tag-and-release.sh``.
 
-``v2``
-    The transitional ``install-consumer-ci@v2`` toolchain installer tag.
+``v1``
+    The moving major compatibility tag Core workflows use to reference Core's
+    own composite actions and kernel workflows.
     Authorized writer: ``tools/publish_consumer_ci_tag.sh``.
+
+``v2``
+    The ``install-consumer-ci@v2`` toolchain installer tag and the bounded
+    optional consumer integration channel.
+    Authorized writer: ``tools/publish_consumer_ci_tag.sh``.
+
+Immutability, not the major number, is what separates them. Both moving tags
+share one writer deliberately: they share one lifecycle — force-move a mutable
+pointer onto an already-reviewed main commit — so a second script for the same
+act would be duplicate ownership rather than separation of concerns. Creating
+an immutable audit identity is a different act and is owned separately.
 
 The invariant is *namespace ownership*, not the absence of tagging commands:
 "only one ``git tag`` may exist in the repository" is the wrong rule and would
-either forbid the transitional lane or bless a second exact-release writer.
+either forbid the compatibility lanes or bless a second exact-release writer.
 What this checks is that exactly one executable surface can mutate each
-namespace, and that neither authorized writer can reach into the other's.
+namespace, and that no authorized writer can reach into a namespace it does
+not own.
 
 Scope is executable release/tag mutation only. Prose that mentions ``git tag``
 is not a writer: shell comments, YAML comments, Python comments and

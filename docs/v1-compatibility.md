@@ -34,6 +34,33 @@ The kernels never fail because a language toolchain is absent: each gate runs on
 
 L9-ORG-008 treats `@v1` as an `approved_signed_release_tag` only when GitHub restricts who may move it (tag ruleset or equivalent protection: no deletion, signed updates from the authorized release writer). As of this change the repository has branch rulesets only; classic tag protection and a tag-target ruleset are not set. That is a HUMAN/ops leftover — do not weaken Core self-refs to `@main` to work around it.
 
+## Who may move `v1`
+
+`tools/publish_consumer_ci_tag.sh` is the single authorized writer for every moving compatibility tag (`.l9/release-plane.yaml` → `release_writers`), validated by `tools/check_release_writers.py` and asserted by `tests/release/test_release_writers.py`. It owns `v1` and `v2` because both are the same act — force-move a mutable pointer onto reviewed mainline code. `docs/release/tag-and-release.sh` owns the immutable `vMAJOR.MINOR.PATCH` namespace and never moves an alias; neither writer may reach into the other's namespace.
+
+Adding a second script that moves `v1` is a contract violation, not a convenience.
+
+## Advancing `v1` (bootstrap and promotion)
+
+The writer refuses two classes of bad target before it creates any tag:
+
+1. **A target that is not an ancestor of `origin/main`.** A moving compatibility tag points at reviewed mainline code. Advancing it to an unmerged feature head would let a pull request grant itself the Core revision it is still asking to be reviewed. *Making a pull request green is not a reason to move the tag; merging it is.*
+2. **A target missing any Core self-reference action.** Core workflows resolve these seven composite actions through the tag, so a target lacking one fails Organization CI at setup with an unresolvable action reference:
+
+   `resolve-consumer-metadata`, `resolve-governance`, `provision-sdk`, `invoke-sdk`, `validate-bundle`, `route-artifacts`, `build-artifact-manifest`
+
+   This is not hypothetical. The `v1` ref inherited from the pre-rewrite history carried six of the seven; the one it lacked, `resolve-consumer-metadata`, is exactly what Organization CI reported as unresolvable. A commit being on `main` does not by itself make it a compatible `v1` target.
+
+```bash
+git fetch origin main
+# Target must be a merged main commit. Record the previous SHA in the PR body.
+tools/publish_consumer_ci_tag.sh v1 <main-commit-sha>
+git push origin v1 --force      # HUMAN: requires tag-write authority
+git ls-remote --tags origin v1  # verify the ref resolves to the intended commit
+```
+
+The local tag move is repository tooling; **pushing it is a control-plane act**. Tag protection and who holds tag-write authority are GitHub settings outside this repository, so the final two steps are operator work that no check here can perform or attest. Until the remote `v1` actually resolves to a compatible commit, Core workflows pinned to `@v1` will fail at setup — that is a tag-lifecycle state, not evidence against moving tags.
+
 ## Consumer guidance
 
 Existing org-starter callers (`uses: Quantum-L9/l9-ci-core/.github/workflows/<kernel>.yml@v1`) now resolve without modification. New consumers should prefer the v2 presets under `presets/` for governed analysis and treat the v1 kernels as baseline hygiene gates. If a kernel input you pass is rejected, you are pinned to a pre-compat ref; move to `@v1` or a post-compat SHA.

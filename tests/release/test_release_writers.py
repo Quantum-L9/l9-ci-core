@@ -1,15 +1,21 @@
 """Namespace-aware release-writer uniqueness (``tools/check_release_writers.py``).
 
-Two tag namespaces exist and must not be conflated: exact ``vMAJOR.MINOR.PATCH``
-Core releases, written only by ``docs/release/tag-and-release.sh``, and the
-transitional ``v2`` installer tag, written only by
-``tools/publish_consumer_ci_tag.sh``. The rule under test is namespace
-ownership — "only one ``git tag`` may exist in the repository" is the wrong
-rule, and these tests fail if the checker ever degrades into it.
+Three tag namespaces exist and must not be conflated: exact
+``vMAJOR.MINOR.PATCH`` Core releases, written only by
+``docs/release/tag-and-release.sh``; and the two moving compatibility tags
+``v1`` (Core self-references) and ``v2`` (installer and bounded integration
+channel), both written only by ``tools/publish_consumer_ci_tag.sh``. The rule
+under test is namespace ownership — "only one ``git tag`` may exist in the
+repository" is the wrong rule, and these tests fail if the checker ever
+degrades into it.
 
 Synthetic repository roots keep each assertion to one behaviour; the real tree
 is asserted separately so the contract is proved against the shipped scripts,
 not only against fixtures.
+
+:class:`MovingTagPromotionTests` covers the other half of the lifecycle: who
+may move a moving tag is namespace ownership, but *what it may be moved onto*
+is the promotion gate, and both must hold for the tag to be trustworthy.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -332,6 +339,221 @@ class RealTreeReleaseWriterTests(unittest.TestCase):
         self.assertIsNone(transitional.fullmatch("v2.0.0"))
         self.assertIsNotNone(exact.fullmatch("v2.0.0"))
         self.assertIsNotNone(transitional.fullmatch("v2"))
+
+    def test_moving_tag_namespaces_never_collide_with_exact_releases(self) -> None:
+        """`v1` is a pointer; `v1.0.0` is an audit identity. Never the same ref."""
+        exact = self.namespaces["exact_core_release"].pattern
+        moving = self.namespaces["core_self_reference_compatibility"].pattern
+        self.assertIsNotNone(moving.fullmatch("v1"))
+        self.assertIsNone(moving.fullmatch("v1.0.0"))
+        self.assertIsNone(exact.fullmatch("v1"))
+        self.assertIsNotNone(exact.fullmatch("v1.0.0"))
+        self.assertIsNone(
+            self.namespaces["transitional_consumer_installer"].pattern.fullmatch("v1")
+        )
+
+    def test_both_moving_tags_share_one_writer(self) -> None:
+        """One lifecycle, one writer.
+
+        A second script force-moving a mutable Core pointer would be duplicate
+        ownership of the same act, which is what the release-writer invariant
+        exists to prevent -- not two separate concerns.
+        """
+        self.assertEqual(
+            TRANSITIONAL_WRITER,
+            self.namespaces["core_self_reference_compatibility"].authorized_writer,
+        )
+        self.assertEqual(
+            TRANSITIONAL_WRITER,
+            self.namespaces["transitional_consumer_installer"].authorized_writer,
+        )
+
+
+class MovingTagPromotionTests(unittest.TestCase):
+    """The authorized writer's promotion gates, exercised against real git.
+
+    These build a throwaway repository so a real `git tag` is harmless, and
+    run the shipped script rather than a re-implementation of it.
+    """
+
+    WRITER = ROOT / TRANSITIONAL_WRITER
+    ACTIONS = (
+        "resolve-consumer-metadata",
+        "resolve-governance",
+        "provision-sdk",
+        "invoke-sdk",
+        "validate-bundle",
+        "route-artifacts",
+        "build-artifact-manifest",
+    )
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.repo = self.tmp / "repo"
+        (self.repo / "tools").mkdir(parents=True)
+        shutil.copy(self.WRITER, self.repo / TRANSITIONAL_WRITER)
+        (self.repo / TRANSITIONAL_WRITER).chmod(0o755)
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.email", "test@example.invalid")
+        self.git("config", "user.name", "test")
+
+    def git(self, *args: str) -> str:
+        return subprocess.run(
+            ["git", *args],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def commit(self, message: str) -> str:
+        self.git("add", "-A")
+        self.git("commit", "-q", "--no-verify", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def add_core_actions(self, *names: str) -> None:
+        for name in names:
+            action = self.repo / ".github" / "actions" / name
+            action.mkdir(parents=True, exist_ok=True)
+            (action / "action.yml").write_text(
+                f"name: {name}\nruns:\n  using: composite\n", encoding="utf-8"
+            )
+
+    def set_main(self, sha: str) -> None:
+        """Publish `sha` as the reviewed mainline the writer checks against."""
+        self.git("branch", "-f", "--no-track", "origin-main-source", sha)
+        self.git("fetch", ".", "refs/heads/origin-main-source:refs/remotes/origin/main")
+
+    def run_writer(self, *args: str):
+        return subprocess.run(
+            [str(self.repo / TRANSITIONAL_WRITER), *args],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+        )
+
+    def tag_target(self, tag: str) -> str | None:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", f"refs/tags/{tag}"],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    # -- the reviewed-mainline gate ---------------------------------------
+
+    def test_promotion_to_a_mainline_commit_succeeds(self) -> None:
+        self.add_core_actions(*self.ACTIONS)
+        main_sha = self.commit("core actions")
+        self.set_main(main_sha)
+
+        result = self.run_writer("v1", main_sha)
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(main_sha, self.tag_target("v1"))
+
+    def test_promotion_to_an_unmerged_head_is_refused(self) -> None:
+        """A pull request must not hand itself the Core revision under review.
+
+        This is the gate that keeps "move the tag to make CI green" from
+        being available as a remedy.
+        """
+        self.add_core_actions(*self.ACTIONS)
+        main_sha = self.commit("core actions")
+        self.set_main(main_sha)
+        (self.repo / "feature.txt").write_text("unmerged\n", encoding="utf-8")
+        feature_sha = self.commit("unmerged feature")
+
+        result = self.run_writer("v1", feature_sha)
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("not an ancestor of origin/main", result.stderr)
+        self.assertIsNone(
+            self.tag_target("v1"), "no tag may be created on a refused promotion"
+        )
+
+    def test_refusal_leaves_an_existing_tag_untouched(self) -> None:
+        self.add_core_actions(*self.ACTIONS)
+        main_sha = self.commit("core actions")
+        self.set_main(main_sha)
+        self.git("tag", "-f", "v1", main_sha)
+        (self.repo / "feature.txt").write_text("unmerged\n", encoding="utf-8")
+        feature_sha = self.commit("unmerged feature")
+
+        self.assertEqual(2, self.run_writer("v1", feature_sha).returncode)
+        self.assertEqual(main_sha, self.tag_target("v1"))
+
+    # -- the v1 compatibility gate ----------------------------------------
+
+    def test_v1_refuses_a_target_missing_a_core_primitive(self) -> None:
+        """The observed v1 bootstrap defect, as a regression test.
+
+        Stale `v1` resolved to a commit carrying six of the seven Core
+        actions. The one it lacked, `resolve-consumer-metadata`, is exactly
+        what Organization CI reported as unresolvable at setup. A target that
+        is on main is still not automatically a compatible target.
+        """
+        incomplete = [
+            name for name in self.ACTIONS if name != "resolve-consumer-metadata"
+        ]
+        self.add_core_actions(*incomplete)
+        main_sha = self.commit("six of seven core actions")
+        self.set_main(main_sha)
+
+        result = self.run_writer("v1", main_sha)
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("not a compatible v1 target", result.stderr)
+        self.assertIn("resolve-consumer-metadata", result.stderr)
+        self.assertIsNone(self.tag_target("v1"))
+
+    def test_v1_requires_every_declared_primitive(self) -> None:
+        for omitted in self.ACTIONS:
+            with self.subTest(missing=omitted):
+                self.setUp()
+                self.add_core_actions(*[n for n in self.ACTIONS if n != omitted])
+                main_sha = self.commit("incomplete core actions")
+                self.set_main(main_sha)
+                result = self.run_writer("v1", main_sha)
+                self.assertEqual(2, result.returncode)
+                self.assertIn(omitted, result.stderr)
+
+    def test_v2_does_not_require_core_self_reference_primitives(self) -> None:
+        """The installer channel is not the Core self-reference surface."""
+        (self.repo / "readme.txt").write_text("installer\n", encoding="utf-8")
+        main_sha = self.commit("no core actions")
+        self.set_main(main_sha)
+
+        result = self.run_writer("v2", main_sha)
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(main_sha, self.tag_target("v2"))
+
+    # -- namespace containment --------------------------------------------
+
+    def test_writer_refuses_a_ref_outside_its_namespaces(self) -> None:
+        self.add_core_actions(*self.ACTIONS)
+        main_sha = self.commit("core actions")
+        self.set_main(main_sha)
+        for outside in ("v3", "v1.0.0", "main", "latest"):
+            with self.subTest(ref=outside):
+                result = self.run_writer(outside, main_sha)
+                self.assertEqual(2, result.returncode)
+                self.assertIn("not a moving compatibility tag", result.stderr)
+                self.assertIsNone(self.tag_target(outside))
+
+    def test_writer_refuses_when_mainline_is_unknown(self) -> None:
+        """Undeterminable mainline is not a pass."""
+        self.add_core_actions(*self.ACTIONS)
+        sha = self.commit("core actions")
+
+        result = self.run_writer("v1", sha)
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("origin/main", result.stderr)
+        self.assertIsNone(self.tag_target("v1"))
 
 
 if __name__ == "__main__":
