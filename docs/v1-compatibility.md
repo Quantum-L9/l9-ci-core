@@ -24,13 +24,15 @@ The kernels are **contract-superset, language-aware shims**. Each one declares e
 Two deliberate deviations from the v0.1.0 behavior follow from Core's v2 invariants, which are enforced by self-CI on every push:
 
 1. **Least-privilege write.** Core forbids workflow-level write on these kernels (`tests/workflows/test_workflow_permissions.py`). Scorecard therefore does not publish to the code-scanning feed (`publish_results: false`, artifact output instead), and `release-publish.yml` validates and stages artifacts rather than publishing to PyPI/npm. Unattended publication belongs in a repo-owned workflow using trusted publishing. `nightly.yml` is the audited exception: its analyze job grants `checks: write` so the nested `analyze-semgrep.yml` publication can emit a GitHub check. Findings stay advisory on the nightly profile and are not a required merge check.
-2. **Everything is SHA-pinned.** All external actions and nested Core workflows are pinned to full 40-character commit SHAs (`tests/architecture/test_external_action_pins.py`), and the gitleaks CLI is a version-pinned, checksum-verified binary rather than the gitleaks-action (which requires a license key on organization repositories).
+2. **Third-party actions are SHA-pinned; Core self-refs use `@v1`.** Nested Core workflows and the CORE_ACTIONS_PIN composite set pin to Core's moving major `v1`. Third-party actions stay on full 40-character commit SHAs (`tests/architecture/test_external_action_pins.py`). The gitleaks CLI is a version-pinned, checksum-verified binary rather than the gitleaks-action (which requires a license key on organization repositories). `v2` remains `install-consumer-ci@v2` only.
 
 The kernels never fail because a language toolchain is absent: each gate runs only when it applies to the repository, and inapplicable gates emit a `::notice` and pass. PR/push Semgrep stays on `analyze-semgrep.yml` via the v2 presets (`presets/*/.github/workflows/l9-analysis.yml`). Nightly deep analysis (`ci_deep`, advisory) is no longer a second product: it is the `nightly.yml` kernel at `profile: nightly`.
 
 ## Tag policy
 
 `v1` is a **moving compatibility tag**: it points at the newest main-branch commit that preserves the eight kernel contracts, and it may be advanced (never deleted) when the kernels receive backward-compatible fixes. Immutable point-in-time tags (`v1.0.0`, `v1.0.1`, ...) accompany each advancement. Callers that require bit-for-bit stability should pin the kernel by commit SHA, exactly as the v2 preset does for composite actions.
+
+L9-ORG-008 treats `@v1` as an `approved_signed_release_tag` only when GitHub restricts who may move it (tag ruleset or equivalent protection: no deletion, signed updates from the authorized release writer). As of this change the repository has branch rulesets only; classic tag protection and a tag-target ruleset are not set. That is a HUMAN/ops leftover — do not weaken Core self-refs to `@main` to work around it.
 
 ## Consumer guidance
 

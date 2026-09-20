@@ -33,9 +33,8 @@
 # resolve against the consumer repo (which does not vendor Core's actions)
 # and fail. The nested `publish-analysis.yml` call uses the local `./` form,
 # which GitHub resolves against the same commit of THIS repository.
-# `uses:` does not support expression interpolation, so the Core SHA is
-# duplicated literally on every pinned line — update all together when
-# bumping (grep: CORE_ACTIONS_PIN).
+# Core self-refs share the moving major `@v1` (grep: CORE_ACTIONS_PIN).
+# Third-party actions stay SHA-pinned. `uses:` does not interpolate.
 name: Analyze (semgrep)
 on:
   workflow_call:
@@ -147,7 +146,7 @@ jobs:
       - id: gov
         name: Resolve governance (Core)
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@402b604c7893ff5bf30e251beaf49d5cf230b63d
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@v1  # nosemgrep
         with:
           profile: ${{ inputs.profile }}
           provider: semgrep
@@ -180,7 +179,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@402b604c7893ff5bf30e251beaf49d5cf230b63d
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@v1  # nosemgrep
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -199,7 +198,7 @@ jobs:
         # community registry ruleset for the language plus the SDK's
         # packaged L9 ruleset, then normalizes into a canonical bundle —
         # one SDK-owned process. Gating is the separate gate step.
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@402b604c7893ff5bf30e251beaf49d5cf230b63d
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@v1  # nosemgrep
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -215,7 +214,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@402b604c7893ff5bf30e251beaf49d5cf230b63d
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@v1  # nosemgrep
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
@@ -261,7 +260,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@402b604c7893ff5bf30e251beaf49d5cf230b63d
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@v1  # nosemgrep
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -271,7 +270,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@402b604c7893ff5bf30e251beaf49d5cf230b63d
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@v1  # nosemgrep
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           # The SDK deterministically projects the canonical bundle to SARIF;
@@ -284,7 +283,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@402b604c7893ff5bf30e251beaf49d5cf230b63d
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@v1  # nosemgrep
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
@@ -304,7 +303,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@402b604c7893ff5bf30e251beaf49d5cf230b63d
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@v1  # nosemgrep
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}

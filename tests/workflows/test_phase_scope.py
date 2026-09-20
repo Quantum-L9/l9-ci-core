@@ -15,6 +15,7 @@ class PhaseScopeTests(unittest.TestCase):
             "normalize-semgrep-report.yml",
             "analyze-semgrep.yml",
             "governance-ci.yml",
+            "manifest-reseal.yml",
             "profile-normalize-semgrep.yml",
             "publish-analysis.yml",
             "release-validation.yml",

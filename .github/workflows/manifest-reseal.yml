@@ -1,0 +1,49 @@
+# Dependabot-only MANIFEST.sha256 reseal.
+#
+# Dependabot bumps third-party action SHAs in workflow YAML but never rewrites
+# MANIFEST.sha256. Unit tests then fail checksum mismatch. This job reseals
+# listed digests and pushes onto the already-open Dependabot PR branch when
+# the file actually changes. A second run is a no-op (actor is no longer
+# dependabot[bot], or the digest already matches).
+#
+# Audited pull_request + contents:write exception. Does not inherit secrets.
+# Never uses pull_request_target. Third-party checkout stays SHA-pinned.
+name: Manifest reseal
+on:
+  pull_request:
+  push:
+    branches:
+      - "dependabot/**"
+permissions:
+  contents: read
+concurrency:
+  group: manifest-reseal-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  reseal:
+    name: Reseal MANIFEST.sha256
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Reseal listed checksums
+        env:
+          PR_HEAD: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 -m tools.l9_repo reseal-manifest
+          git add -- MANIFEST.sha256
+          if git diff --cached --quiet -- MANIFEST.sha256; then
+            echo "MANIFEST.sha256 already matches the worktree"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: reseal MANIFEST.sha256 after Dependabot workflow bump"
+          git push origin "HEAD:${PR_HEAD}"

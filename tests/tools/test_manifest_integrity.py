@@ -21,8 +21,10 @@ without regenerating the manifest.
 
 from __future__ import annotations
 
+import hashlib
 import pathlib
 import sys
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -32,6 +34,7 @@ from l9_repo.__main__ import (  # noqa: E402
     MANIFEST_CHECK_ENV,
     WorkflowError,
     manifest_check_enabled,
+    reseal_checksum_manifest,
     verify_checksum_manifest,
 )
 
@@ -50,6 +53,33 @@ class ManifestIntegrityTests(unittest.TestCase):
                 "file you changed — see AGENTS.md and "
                 "docs/repository-execution-runtime.md."
             )
+
+    def test_reseal_rewrites_listed_digests_from_current_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            listed = root / "org-ci.yml"
+            listed.write_text("name: before\n", encoding="utf-8")
+            stale = "0" * 64
+            (root / "MANIFEST.sha256").write_text(
+                f"{stale}  org-ci.yml\n", encoding="utf-8"
+            )
+            self.assertTrue(reseal_checksum_manifest(root))
+            verify_checksum_manifest(root)
+            self.assertFalse(reseal_checksum_manifest(root))
+
+    def test_workflow_byte_change_without_reseal_still_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            listed = root / "org-ci.yml"
+            listed.write_text("name: before\n", encoding="utf-8")
+            digest = hashlib.sha256(b"name: before\n").hexdigest()
+            (root / "MANIFEST.sha256").write_text(
+                f"{digest}  org-ci.yml\n", encoding="utf-8"
+            )
+            verify_checksum_manifest(root)
+            listed.write_text("name: after\n", encoding="utf-8")
+            with self.assertRaisesRegex(WorkflowError, "checksum mismatch"):
+                verify_checksum_manifest(root)
 
 
 if __name__ == "__main__":

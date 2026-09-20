@@ -21,13 +21,13 @@ runs:
     # committed Core SHA carrying an identical invoke-sdk; keep it on a released
     # commit when bumping.
     - name: Validate bundle
-      uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@98f012f05b92e8fd9a5149215f8a1a28abc155d7
+      uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@v1  # nosemgrep
       with:
         executable: ${{ inputs.executable }}
         operation: bundle-validate
         input: ${{ inputs.bundle }}
     - name: Verify compatibility
-      uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@98f012f05b92e8fd9a5149215f8a1a28abc155d7
+      uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@v1  # nosemgrep
       with:
         executable: ${{ inputs.executable }}
         operation: compatibility-check

@@ -31,6 +31,10 @@ class WorkflowPermissionTests(unittest.TestCase):
     #                           jobs). workflow_call-only; advisory profile.
     #   self-analysis.yml       audited self-only dogfood caller that grants
     #                           the reusable publication scopes.
+    #   manifest-reseal.yml     contents:write on Dependabot PRs so a workflow
+    #                           byte bump can commit the matching
+    #                           MANIFEST.sha256 onto the already-open branch.
+    #                           Actor-gated to dependabot[bot]; no secrets inherit.
     #
     # `org-ci.yml` is intentionally absent. The organization required workflow
     # runs on untrusted pull_request events and must remain contents:read only.
@@ -39,6 +43,7 @@ class WorkflowPermissionTests(unittest.TestCase):
         "analyze-semgrep.yml": ["checks", "security-events"],
         "nightly.yml": ["checks", "security-events"],
         "self-analysis.yml": ["checks", "security-events"],
+        "manifest-reseal.yml": ["contents"],
     }
 
     def test_only_authorized_workflows_request_write(self) -> None:
@@ -89,7 +94,7 @@ class WorkflowPermissionTests(unittest.TestCase):
     def test_write_scoped_workflows_are_not_pull_request_triggered(self) -> None:
         trigger_pattern = re.compile(r"(?m)^\s*(pull_request|pull_request_target):")
         reusable = {"publish-analysis.yml", "analyze-semgrep.yml", "nightly.yml"}
-        audited_pr_callers = {"self-analysis.yml"}
+        audited_pr_callers = {"self-analysis.yml", "manifest-reseal.yml"}
         for name in self.WRITE_EXCEPTIONS:
             workflow = WORKFLOWS / name
             if name in reusable or name in audited_pr_callers:

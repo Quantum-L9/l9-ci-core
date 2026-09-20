@@ -12,9 +12,9 @@ NIGHTLY = ROOT / ".github/workflows/nightly.yml"
 PROFILES = ROOT / ".github/governance/execution-profiles.yaml"
 ANALYZE_PIN = re.compile(
     r"uses:\s*Quantum-L9/l9-ci-core/\.github/workflows/"
-    r"analyze-semgrep\.yml@[0-9a-f]{40}"
+    r"analyze-semgrep\.yml@v1"
 )
-CORE_ACTIONS_PIN = "01f5b16b3520ce75c168c5720864dfeddd5423a9"
+CORE_ACTIONS_PIN = "v1"
 JOB_ID = re.compile(r"(?m)^  ([A-Za-z][A-Za-z0-9_-]*):")
 
 
@@ -42,10 +42,47 @@ class NightlyKernelTests(unittest.TestCase):
         )
 
     def test_analyze_job_grants_publication_permissions(self) -> None:
-        analyze = self.text.split("nightly:", 1)[0]
+        analyze = self.text.split("  nightly:", 1)[0]
         self.assertRegex(analyze, re.compile(r"(?m)^\s+actions:\s+read\s*$"))
         self.assertRegex(analyze, re.compile(r"(?m)^\s+checks:\s+write\s*$"))
         self.assertRegex(analyze, re.compile(r"(?m)^\s+contents:\s+read\s*$"))
+
+    def test_analyze_job_does_not_inherit_all_secrets(self) -> None:
+        analyze = self.text.split("  nightly:", 1)[0]
+        analyze_yml = (ROOT / ".github/workflows/analyze-semgrep.yml").read_text(
+            encoding="utf-8"
+        )
+        publish_yml = (ROOT / ".github/workflows/publish-analysis.yml").read_text(
+            encoding="utf-8"
+        )
+        callee_secret_refs = re.findall(
+            r"secrets\.[A-Z0-9_]+", analyze_yml + "\n" + publish_yml
+        )
+        inherit_present = bool(re.search(r"(?m)^\s+secrets:\s+inherit\s*$", analyze))
+        # #region agent log
+        import json
+        import time
+
+        payload = {
+            "sessionId": "f6ca56",
+            "runId": "post-fix",
+            "hypothesisId": "H3",
+            "location": "test_nightly_kernel.py:secrets_inherit",
+            "message": "nightly analyze job secrets contract",
+            "data": {
+                "inherit_present": inherit_present,
+                "callee_secret_refs": callee_secret_refs,
+                "analyze_has_workflow_call_secrets": "secrets:"
+                in analyze_yml.split("jobs:", 1)[0],
+            },
+            "timestamp": int(time.time() * 1000),
+        }
+        log = Path("/Users/ib-mac/Cursor-Governance/.cursor/debug-f6ca56.log")
+        with log.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload) + "\n")
+        # #endregion
+        self.assertFalse(inherit_present)
+        self.assertEqual([], callee_secret_refs)
 
     def test_workflow_level_contents_stay_read(self) -> None:
         header = self.text.split("jobs:", 1)[0]

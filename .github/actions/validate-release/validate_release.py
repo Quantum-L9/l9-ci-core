@@ -23,6 +23,11 @@ from pathlib import Path
 # reads only one extension therefore leaves the other free to carry an unpinned
 # external action into a release.
 GITHUB_YAML_SUFFIXES = ("*.yml", "*.yaml")
+INSTALLER_V2 = "Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@v2"
+CORE_V1 = re.compile(
+    r"^Quantum-L9/l9-ci-core/\.github/(?:actions|workflows)/[^@\s]+@v1$"
+)
+FULL_SHA_REF = re.compile(r"^[^@\s]+@[0-9a-fA-F]{40}$")
 SEMVER = re.compile(
     r"^v?(0|[1-9][0-9]*)\."
     r"(0|[1-9][0-9]*)\."
@@ -142,7 +147,11 @@ def validate_external_action_pins(root: Path) -> None:
             reference = stripped.removeprefix("uses:").split("#", 1)[0].strip()
             if reference.startswith("./"):
                 continue
-            if not re.fullmatch(r"[^@\s]+@[0-9a-fA-F]{40}", reference):
+            if reference == INSTALLER_V2:
+                continue
+            if CORE_V1.fullmatch(reference):
+                continue
+            if not FULL_SHA_REF.fullmatch(reference):
                 invalid.append(
                     f"{workflow.relative_to(root)}:{line_number}:{reference}"
                 )

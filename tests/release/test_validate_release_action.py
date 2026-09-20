@@ -134,6 +134,16 @@ class ValidateReleaseTests(unittest.TestCase):
         )
         self.module.validate_external_action_pins(self.tmp)
 
+    def test_core_moving_major_v1_is_accepted(self) -> None:
+        workflows = self.tmp / ".github" / "workflows"
+        workflows.mkdir(parents=True)
+        (workflows / "core.yml").write_text(
+            "jobs:\n  j:\n    steps:\n"
+            "      - uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@v1\n",
+            encoding="utf-8",
+        )
+        self.module.validate_external_action_pins(self.tmp)
+
 
 class GitHubYamlSurfaceDiscoveryTests(unittest.TestCase):
     """``.yml`` and ``.yaml`` are the same executable surface to GitHub.

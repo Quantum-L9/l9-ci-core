@@ -38,7 +38,7 @@ LEGACY_CALLERS = (
     "docs/templates/l9-analysis.yml",
 )
 CORE_REF = re.compile(
-    r"^Quantum-L9/l9-ci-core/(\.github/workflows/[A-Za-z0-9._-]+\.yml)@([0-9a-f]{40})$"
+    r"^Quantum-L9/l9-ci-core/(\.github/workflows/[A-Za-z0-9._-]+\.yml)@(v1|[0-9a-f]{40})$"
 )
 LEVELS = {"none": 0, "read": 1, "write": 2}
 
