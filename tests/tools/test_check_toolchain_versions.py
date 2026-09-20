@@ -127,6 +127,27 @@ class ToolchainMismatchTests(unittest.TestCase):
             self.assertIsNone(report[0]["observed"])
             self.assertFalse(report[0]["conforming"])
 
+    def test_asserting_nothing_is_not_a_passing_check(self) -> None:
+        """A check with an empty subject list must refuse, not pass vacuously.
+
+        Found by probing the fail-closed claim rather than by reading the
+        code: with no distributions declared, `check()` returned no violations
+        and `main()` exited 0, so the gate would have kept reporting success
+        while verifying nothing at all.
+        """
+        import importlib.metadata
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            _write_lock(
+                root,
+                {name: importlib.metadata.version(name) for name in GATE_DISTRIBUTIONS},
+            )
+            with mock.patch.object(check_toolchain_versions, "GATE_DISTRIBUTIONS", ()):
+                with self.assertRaisesRegex(ToolchainError, "asserts nothing"):
+                    check(root)
+                self.assertEqual(3, main(["--root", str(root)]))
+
     def test_missing_lock_is_exit_three_not_a_pass(self) -> None:
         """An undeterminable expectation is blocking, not permissive."""
         with tempfile.TemporaryDirectory() as temporary:

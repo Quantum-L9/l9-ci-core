@@ -74,6 +74,15 @@ def _distribution_location(name: str) -> str:
 
 
 def load_lock(root: pathlib.Path, relative: pathlib.Path = LOCK) -> dict[str, str]:
+    # A check with nothing to assert passes vacuously, which is the same
+    # failure as a check that cannot fail. If this ever becomes empty the gate
+    # would silently stop verifying anything, so refuse rather than return an
+    # empty conformance.
+    if not GATE_DISTRIBUTIONS:
+        raise ToolchainError(
+            "no gate distributions are declared; a check that asserts nothing "
+            "is not a passing check"
+        )
     path = root / relative
     if path.is_symlink() or not path.is_file():
         raise ToolchainError(f"missing toolchain lock: {relative}")
