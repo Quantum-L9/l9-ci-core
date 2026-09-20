@@ -67,9 +67,28 @@ core_release:
     note: >-
       No Core release moves a major alias. The refs/tags/v2 ref is not a
       release alias and is not a governed organization-enforcement consumption
-      path; it exists only as the transitional consumer toolchain installer
-      tag documented in docs/consumer-lint-test.md and moved only by
+      path. It is a mutable compatibility tag for the bounded optional
+      consumer integration channel and toolchain installer, moved only by
       tools/publish_consumer_ci_tag.sh after a human pin-file PR.
+  optional_integration_channel:
+    enabled: true
+    tag: v2
+    purpose: >-
+      Provides a reviewed compatibility channel for the named Cognitive Runtime
+      release workflow. It is neither a Core release nor the organization CI
+      runtime, and it does not authorize general consumer Core revision choice.
+    consumers:
+      - repository: Quantum-L9/l9-cognitive-runtime
+        workflow: .github/workflows/release-staging.yml
+        permitted_surfaces:
+          - .github/workflows/analyze-semgrep.yml
+          - .github/actions/container-release
+    safeguards:
+      - human_reviewed_core_pin_file_change_before_retag
+      - reviewed_consumer_change_before_use
+      - source_revision_and_image_digest_are_release_evidence
+      - never_organization_required_workflow
+      - never_exact_core_release_alias
   validation:
     workflow: .github/workflows/release-validation.yml
     action: .github/actions/validate-release
@@ -109,9 +128,9 @@ release_writers:
       pattern: '^v2$'
       authorized_writer: tools/publish_consumer_ci_tag.sh
       description: >-
-        The install-consumer-ci@v2 toolchain installer tag documented in
-        docs/consumer-lint-test.md. A transitional compatibility lane, never a
-        Core production-runtime release mechanism.
+        The mutable compatibility tag for install-consumer-ci@v2 and the
+        bounded optional integration channel declared above. It is never a Core
+        production-runtime release mechanism.
   validator: tools/check_release_writers.py
 
 core_main_protection:

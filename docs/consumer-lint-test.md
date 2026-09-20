@@ -8,12 +8,14 @@ bump those packages.
 - uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@v2
 ```
 
-`@v2` is a floating major tag moved only after a human Core pin-file PR, by
-`tools/publish_consumer_ci_tag.sh`. It is the consumer toolchain installer
-tag only: it is **not** a Core release alias (Core releases never move it,
-see `.l9/release-plane.yaml`) and it is **not** a governed
-organization-enforcement path (that is Core `main` via the organization
-ruleset). Analysis / SDK invoke stays SHA-pinned. Never `@main`.
+`@v2` is a floating compatibility tag moved only after a human Core pin-file
+PR, by `tools/publish_consumer_ci_tag.sh`. It is **not** a Core release alias
+(Core releases never move it, see `.l9/release-plane.yaml`) and it is **not**
+a governed organization-enforcement path (that is Core `main` via the
+organization ruleset). Its normal consumer use is the installer; the sole
+additional use is the named Cognitive Runtime release integration recorded in
+[`docs/release/consumer-integration-channel.md`](release/consumer-integration-channel.md).
+Never `@main`.
 
 Authority files in Core:
 
@@ -51,5 +53,7 @@ language produces a diff that churns on every save.
 
 ## Pairing with the analysis pipeline
 
-Pin Core analysis workflows by immutable SHA (never `@main`). The installer
-tag `@v2` is independent of that SHA.
+Pin Core analysis workflows by immutable SHA (never `@main`) unless the
+repository and workflow exactly match the bounded optional integration channel
+in `.l9/release-plane.yaml`. The installer tag `@v2` is otherwise independent
+of the analysis SHA.
