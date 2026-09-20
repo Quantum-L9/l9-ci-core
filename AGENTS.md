@@ -249,6 +249,13 @@ The repo-local runtime preserves:
 
 - evidence emission;
 - argv-only command execution;
+- toolchain resolution through the workspace interpreter: `commands.check`
+  runs ruff and mypy as `@python -m <tool>` so `PATH` cannot decide which code
+  the gate executes, and `tools/check_toolchain_versions.py` runs first to
+  assert the resolved versions against `toolchain-lock.json`, the canonical
+  version owner. `make setup` alone does not remediate a shadowed `PATH` —
+  installing the pin and resolving it are different problems. See
+  `docs/repository-execution-runtime.md`;
 - deterministic change-policy behavior;
 - non-mutation of the worktree during validation;
 - single-flight locking (`reconcile` is the one remaining mutating target);
