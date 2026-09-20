@@ -146,8 +146,9 @@ jobs:
           git checkout --detach FETCH_HEAD
       - id: gov
         name: Resolve governance (Core)
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@402b604c7893ff5bf30e251beaf49d5cf230b63d
+        # CORE_ACTIONS_PIN; this revision exports identity-map-directory and
+        # includes the bundled map bytes in governance-digest.
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@94e5debc412a7fd0618fc7968ecf3e622b68ad98
         with:
           profile: ${{ inputs.profile }}
           provider: semgrep

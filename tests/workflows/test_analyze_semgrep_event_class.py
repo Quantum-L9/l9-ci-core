@@ -8,6 +8,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "analyze-semgrep.yml"
+GOVERNANCE_RESOLVER_PIN = "94e5debc412a7fd0618fc7968ecf3e622b68ad98"
 
 
 def _workflow() -> dict:
@@ -30,6 +31,13 @@ def _semgrep_run_step(document: dict) -> dict:
         if step.get("with", {}).get("operation") == "semgrep-run":
             return step
     raise AssertionError("analyze-semgrep.yml has no SDK Semgrep run step")
+
+
+def _governance_step(document: dict) -> dict:
+    for step in document["jobs"]["analyze"]["steps"]:
+        if step.get("id") == "gov":
+            return step
+    raise AssertionError("analyze-semgrep.yml has no governance resolver step")
 
 
 def test_reusable_kernel_accepts_an_explicit_governance_event_class() -> None:
@@ -60,4 +68,12 @@ def test_semgrep_run_uses_the_core_staged_map_for_its_bounded_language() -> None
     step = _semgrep_run_step(_workflow())
     assert step["with"]["identity-map"] == (
         "${{ steps.gov.outputs['identity-map-directory'] }}/${{ inputs.language }}.yaml"
+    )
+
+
+def test_governance_resolver_pin_exports_the_identity_map_output() -> None:
+    step = _governance_step(_workflow())
+    assert step["uses"] == (
+        "Quantum-L9/l9-ci-core/.github/actions/resolve-governance"
+        f"@{GOVERNANCE_RESOLVER_PIN}"
     )
