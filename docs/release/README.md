@@ -22,11 +22,12 @@ it records which exact `main` commit was known-good at that point.
 
 - **No moving major alias.** Core releases do not create or move `v2`. The
   `refs/tags/v2` ref is not a release alias and is not a governed
-  organization-enforcement consumption path. It survives only as the
-  transitional consumer toolchain installer tag
-  (`install-consumer-ci@v2`, see [`docs/consumer-lint-test.md`](../consumer-lint-test.md)),
-  moved solely by `tools/publish_consumer_ci_tag.sh` after a human pin-file
-  PR. The release script never touches it.
+  organization-enforcement consumption path. It is the mutable compatibility
+  tag for the installer and the narrowly declared Cognitive Runtime release
+  integration; see
+  [`consumer-integration-channel.md`](consumer-integration-channel.md). It is
+  moved solely by `tools/publish_consumer_ci_tag.sh` after a human pin-file PR.
+  The release script never touches it.
 - **No consumer Core pin.** Consumers do not `uses: Quantum-L9/l9-ci-core/...@vX`
   for organization CI. Historical guidance that offered `@v2.0.0` / `@v2` /
   SHA pins for the org path is retired.
@@ -161,7 +162,7 @@ Two tag namespaces exist and must never be conflated
 | Namespace | Meaning | The only authorized writer |
 |---|---|---|
 | `vMAJOR.MINOR.PATCH` | immutable Core release identity | `docs/release/tag-and-release.sh` |
-| `v2` | transitional `install-consumer-ci@v2` installer tag | `tools/publish_consumer_ci_tag.sh` |
+| `v2` | mutable installer and bounded optional integration compatibility tag | `tools/publish_consumer_ci_tag.sh` |
 
 `tools/check_release_writers.py` (`make check-release-writers`, and part of
 the `unittest` suite the release gate runs) proves that exactly one

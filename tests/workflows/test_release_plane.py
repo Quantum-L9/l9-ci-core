@@ -26,6 +26,9 @@ ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
 RELEASE_VALIDATION = ROOT / ".github" / "workflows" / "release-validation.yml"
 VALIDATE_RELEASE_ACTION = ROOT / ".github" / "actions" / "validate-release"
 RELEASE_README = ROOT / "docs" / "release" / "README.md"
+OPTIONAL_INTEGRATION_GUIDE = (
+    ROOT / "docs" / "release" / "consumer-integration-channel.md"
+)
 RELEASE_SCRIPT = ROOT / "docs" / "release" / "tag-and-release.sh"
 AGENTS = ROOT / "AGENTS.md"
 
@@ -97,6 +100,27 @@ class ReleasePlaneContractTests(unittest.TestCase):
         self.assertFalse(release["moving_major_alias"]["enabled"])
         for purpose in ("audit", "provenance", "rollback_identity", "release_notes"):
             self.assertIn(purpose, release["purpose"])
+
+    def test_optional_v2_integration_is_named_and_non_authoritative(self) -> None:
+        channel = self.plane["core_release"]["optional_integration_channel"]
+        self.assertTrue(channel["enabled"])
+        self.assertEqual("v2", channel["tag"])
+        self.assertEqual(
+            [
+                {
+                    "repository": "Quantum-L9/l9-cognitive-runtime",
+                    "workflow": ".github/workflows/release-staging.yml",
+                    "permitted_surfaces": [
+                        ".github/workflows/analyze-semgrep.yml",
+                        ".github/actions/container-release",
+                    ],
+                }
+            ],
+            channel["consumers"],
+        )
+        safeguards = set(channel["safeguards"])
+        self.assertIn("never_organization_required_workflow", safeguards)
+        self.assertIn("never_exact_core_release_alias", safeguards)
 
     def test_ruleset_events_exclude_push_and_fanout_is_not_claimed(self) -> None:
         events = self.plane["events"]
@@ -305,9 +329,10 @@ class ReleaseDocumentationTests(unittest.TestCase):
         self.assertIn("L9-ORG-008", text)
         self.assertIn("L9-ORG-007", text)
         self.assertNotIn("moving major alias**", text)
-        # No consumer Core pin guidance for the organization path.
-        self.assertNotRegex(text, r"Consumers may pin")
-        self.assertNotRegex(text, r"`@v2`, or a full commit SHA")
+        self.assertIn("consumer-integration-channel.md", text)
+        guide = OPTIONAL_INTEGRATION_GUIDE.read_text(encoding="utf-8")
+        self.assertIn("Quantum-L9/l9-cognitive-runtime", guide)
+        self.assertIn("never an organization required workflow", guide)
 
     def test_agents_md_points_at_the_release_plane(self) -> None:
         text = AGENTS.read_text(encoding="utf-8")

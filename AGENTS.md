@@ -306,8 +306,10 @@ Contract: `.l9/release-plane.yaml` (`l9.release-plane/v1`), asserted by
   provenance, rollback identity, release notes. They carry no runtime
   authority and distribute nothing.
 - **No moving major release alias.** Core releases never create or move
-  `v2`. `refs/tags/v2` is only the transitional consumer installer tag
-  (`install-consumer-ci@v2`), moved by `tools/publish_consumer_ci_tag.sh`.
+  `v2`. `refs/tags/v2` is a mutable compatibility tag, not a Core release;
+  it serves `install-consumer-ci@v2` and the narrowly declared optional
+  Cognitive Runtime release integration, and is moved only by
+  `tools/publish_consumer_ci_tag.sh` after review.
 - **The release gate reads the version from `.l9/repo-spec.yaml`.** Do not
   hard-code a release number in `release-validation.yml`.
 - **Ruleset events are `pull_request` and `merge_group` only.** Core's
