@@ -140,7 +140,10 @@ jobs:
           elif [ -f "pyproject.toml" ]; then
             pip install -e ".[dev]" || pip install -e .
           fi
-          pip install "pytest==8.4.2"
+          # Must equal toolchain-lock.json; tests/actions/test_install_consumer_ci.py
+          # asserts it. This literal was born at 8.4.2 in the same commit that
+          # bumped the consumer pin to 9.1.1, and nothing caught the divergence.
+          pip install "pytest==9.1.1"
           if [ -n "$L9_CI_INSTALL_COMMAND" ]; then
             bash -c "$L9_CI_INSTALL_COMMAND" || echo "::notice::l9-ci install command failed; continuing"
           fi
