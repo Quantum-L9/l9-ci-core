@@ -36,7 +36,9 @@ class MakeCompilerTests(unittest.TestCase):
                     "schema": "l9.make-capability-plan/v1",
                     "bindings": [
                         {"target": target, "command": command}
-                        for target, command in reversed(tuple(STANDARD_BINDINGS.items()))
+                        for target, command in reversed(
+                            tuple(STANDARD_BINDINGS.items())
+                        )
                     ],
                 }
             ),
@@ -45,7 +47,9 @@ class MakeCompilerTests(unittest.TestCase):
 
     def test_load_plan_normalizes_binding_order(self) -> None:
         plan = load_plan(self.plan_path)
-        self.assertEqual(list(STANDARD_BINDINGS), [entry["target"] for entry in plan["bindings"]])
+        self.assertEqual(
+            list(STANDARD_BINDINGS), [entry["target"] for entry in plan["bindings"]]
+        )
         self.assertEqual(
             "3e347d477591620d6fb803acca60af491f959099bcd75330ba4a52aaf7e3f6cc",
             plan_digest(plan),
@@ -80,9 +84,13 @@ class MakeCompilerTests(unittest.TestCase):
         with self.assertRaisesRegex(CompilerError, "duplicate"):
             load_plan(self.plan_path)
 
-    def test_local_extensions_cannot_override_generated_or_governance_targets(self) -> None:
+    def test_local_extensions_cannot_override_generated_or_governance_targets(
+        self,
+    ) -> None:
         self.local_path.write_text("repo-check:\n\t@true\n", encoding="utf-8")
-        with self.assertRaisesRegex(CompilerError, "overrides protected target 'repo-check'"):
+        with self.assertRaisesRegex(
+            CompilerError, "overrides protected target 'repo-check'"
+        ):
             validate_local_extensions(self.local_path, STANDARD_BINDINGS)
 
         self.local_path.write_text("pr:\n\t@true\n", encoding="utf-8")
@@ -90,8 +98,17 @@ class MakeCompilerTests(unittest.TestCase):
             validate_local_extensions(self.local_path, STANDARD_BINDINGS)
 
     def test_renderer_is_closed_and_shell_free(self) -> None:
-        source = (ROOT / "tools" / "l9_make" / "__main__.py").read_text(encoding="utf-8")
-        for forbidden in ("subprocess", "os.system", "shell=True", "eval(", "git push", "gh pr"):
+        source = (ROOT / "tools" / "l9_make" / "__main__.py").read_text(
+            encoding="utf-8"
+        )
+        for forbidden in (
+            "subprocess",
+            "os.system",
+            "shell=True",
+            "eval(",
+            "git push",
+            "gh pr",
+        ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, source)
         plan = load_plan(self.plan_path)
@@ -100,12 +117,28 @@ class MakeCompilerTests(unittest.TestCase):
     def test_cli_returns_nonzero_for_drift(self) -> None:
         self.assertEqual(
             0,
-            main(["render", "--plan", str(self.plan_path), "--output", str(self.output_path)]),
+            main(
+                [
+                    "render",
+                    "--plan",
+                    str(self.plan_path),
+                    "--output",
+                    str(self.output_path),
+                ]
+            ),
         )
         self.output_path.write_text("drift\n", encoding="utf-8")
         self.assertEqual(
             2,
-            main(["check", "--plan", str(self.plan_path), "--output", str(self.output_path)]),
+            main(
+                [
+                    "check",
+                    "--plan",
+                    str(self.plan_path),
+                    "--output",
+                    str(self.output_path),
+                ]
+            ),
         )
 
 

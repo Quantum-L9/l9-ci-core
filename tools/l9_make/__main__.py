@@ -6,6 +6,7 @@ approved plan and does not inspect the repository, infer capabilities, invoke
 provider tooling, or implement publication. SDK-fed plan provenance is a later,
 separately approved integration contract.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -86,14 +87,18 @@ def load_plan(path: pathlib.Path) -> dict[str, Any]:
         target = _require_string(binding["target"], f"plan.bindings[{index}].target")
         command = _require_string(binding["command"], f"plan.bindings[{index}].command")
         if not TARGET_PATTERN.fullmatch(target):
-            raise CompilerError(f"plan.bindings[{index}].target is not a safe Make target")
+            raise CompilerError(
+                f"plan.bindings[{index}].target is not a safe Make target"
+            )
         if target in RESERVED_TARGETS:
             raise CompilerError(f"plan.bindings[{index}].target is reserved: {target}")
         if target in observed:
             raise CompilerError(f"plan.bindings contains duplicate target: {target}")
         expected = STANDARD_BINDINGS.get(target)
         if expected is None:
-            raise CompilerError(f"plan.bindings[{index}].target is not an approved Core binding")
+            raise CompilerError(
+                f"plan.bindings[{index}].target is not an approved Core binding"
+            )
         if command != expected:
             raise CompilerError(
                 f"plan.bindings[{index}].command must be {expected!r} for {target}"
@@ -109,7 +114,10 @@ def load_plan(path: pathlib.Path) -> dict[str, Any]:
             details.append("missing " + ", ".join(missing))
         if extra:
             details.append("unapproved " + ", ".join(extra))
-        raise CompilerError("plan.bindings must define the exact Core binding set: " + "; ".join(details))
+        raise CompilerError(
+            "plan.bindings must define the exact Core binding set: "
+            + "; ".join(details)
+        )
 
     return {
         "schema": PLAN_SCHEMA,
@@ -126,14 +134,18 @@ def plan_digest(plan: Mapping[str, object]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def validate_local_extensions(path: pathlib.Path, generated_targets: Sequence[str]) -> None:
+def validate_local_extensions(
+    path: pathlib.Path, generated_targets: Sequence[str]
+) -> None:
     """Reject local target declarations that override generated or reserved names."""
     if not path.exists():
         return
     if not path.is_file():
         raise CompilerError(f"Repo.local.mk must be a regular file: {path}")
     forbidden = set(generated_targets) | set(RESERVED_TARGETS)
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
         match = MAKE_TARGET_PATTERN.match(line)
         if match and match.group(1) in forbidden:
             raise CompilerError(
@@ -173,7 +185,9 @@ def _write_output(path: pathlib.Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def render(plan_path: pathlib.Path, output: pathlib.Path, local: pathlib.Path | None) -> None:
+def render(
+    plan_path: pathlib.Path, output: pathlib.Path, local: pathlib.Path | None
+) -> None:
     plan = load_plan(plan_path)
     generated_targets = [str(binding["target"]) for binding in plan["bindings"]]
     if local is not None:
@@ -182,7 +196,9 @@ def render(plan_path: pathlib.Path, output: pathlib.Path, local: pathlib.Path | 
     print(f"rendered {output}")
 
 
-def check(plan_path: pathlib.Path, output: pathlib.Path, local: pathlib.Path | None) -> None:
+def check(
+    plan_path: pathlib.Path, output: pathlib.Path, local: pathlib.Path | None
+) -> None:
     plan = load_plan(plan_path)
     generated_targets = [str(binding["target"]) for binding in plan["bindings"]]
     if local is not None:
