@@ -278,19 +278,23 @@ A change duplicating SDK behavior is invalid even if functional tests pass.
 A change reintroducing publication into this runtime is invalid for the same
 reason: it would recreate a second publication authority.
 
-### The two-file facade
+### The generated adapter and local extension layers
 
-The root `Makefile` is generated from `tools/l9_repo/Makefile.template` and owns
-the portable operator vocabulary only. Repository verbs (`make setup`,
-`make validate`, `make check`, `make test`, `make clean`, `make doctor`) route
-to the `repo-*` leaves in `Repo.mk`. Governance verbs (`make start`, `make pr`,
-`make workspace-clean`, `make wiring-check`) route to the `l9` dispatcher.
+The root `Makefile` is generated from `tools/l9_repo/Makefile.template` and
+owns only the stable bootstrap vocabulary and Governance delegation. Standard
+repository verbs (`make setup`, `make validate`, `make check`, `make test`,
+`make clean`, `make doctor`) route through generated `Repo.mk`, which is
+rendered by `tools/l9_make` from Core's closed capability plan. Core-specific
+leaves are repository-owned in `Repo.local.mk`. Governance verbs (`make start`,
+`make pr`, `make workspace-clean`, `make wiring-check`) route to the `l9`
+dispatcher.
 
-`Repo.mk` is repository-owned implementation. It may add repository
-capabilities; it may not implement organization governance, and it must define
-no `pr` target and no `push` target. `include Repo.mk` is mandatory: if it is
-missing, recover with `python3 -m tools.l9_repo reconcile`, which bypasses
-`make`.
+`Repo.mk` is generated and must never be hand-edited. `Repo.local.mk` may add
+Core-native capabilities but may not override a generated target, a reserved
+Governance target, `pr`, or `push`. Neither layer may implement organization
+governance. Both includes are mandatory: if the root bootstrap is missing,
+recover with `python3 -m tools.l9_repo reconcile`; if `Repo.mk` drifts, use
+`make make-render`; verify both layers with `make make-check`.
 
 ### The contract shape is pinned
 

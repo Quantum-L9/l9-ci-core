@@ -33,6 +33,7 @@ from l9_repo.__main__ import COMMANDS  # noqa: E402
 MAKEFILE = ROOT / "Makefile"
 TEMPLATE = ROOT / "tools" / "l9_repo" / "Makefile.template"
 REPO_MK = ROOT / "Repo.mk"
+REPO_LOCAL = ROOT / "Repo.local.mk"
 SCHEMA = ROOT / ".l9" / "repo-workflow.schema.json"
 CONFIG = ROOT / ".l9" / "repo-workflow.json"
 
@@ -41,7 +42,7 @@ GIT_PUBLICATION = re.compile(r"git\s+push|gh\s+pr\b")
 
 class FacadeHoldsNoPublicationAuthority(unittest.TestCase):
     def test_facade_invokes_no_git_or_github_publication(self) -> None:
-        for path in (MAKEFILE, TEMPLATE, REPO_MK):
+        for path in (MAKEFILE, TEMPLATE, REPO_MK, REPO_LOCAL):
             with self.subTest(path=path.name):
                 self.assertIsNone(
                     GIT_PUBLICATION.search(path.read_text(encoding="utf-8")),
@@ -69,11 +70,13 @@ class FacadeHoldsNoPublicationAuthority(unittest.TestCase):
                 ]
                 self.assertNotIn("tools.l9_repo", "\n".join(directives))
 
-    def test_implementation_boundary_fails_closed(self) -> None:
-        """``include``, not ``-include``: a missing Repo.mk is an error."""
+    def test_implementation_boundaries_fail_closed(self) -> None:
+        """Both layers use ``include`` so a missing boundary cannot silently degrade."""
         text = TEMPLATE.read_text(encoding="utf-8")
         self.assertRegex(text, r"(?m)^include Repo\.mk$")
+        self.assertRegex(text, r"(?m)^include Repo\.local\.mk$")
         self.assertNotRegex(text, r"(?m)^-include Repo\.mk$")
+        self.assertNotRegex(text, r"(?m)^-include Repo\.local\.mk$")
 
     def test_runtime_exposes_no_publication_command(self) -> None:
         self.assertNotIn("push", COMMANDS)

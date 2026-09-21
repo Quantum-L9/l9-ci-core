@@ -1,0 +1,11 @@
+{
+  "schema": "l9.make-capability-plan/v1",
+  "bindings": [
+    {"target": "repo-setup", "command": "setup"},
+    {"target": "repo-validate", "command": "validate"},
+    {"target": "repo-check", "command": "check"},
+    {"target": "repo-test", "command": "test"},
+    {"target": "repo-clean", "command": "clean"},
+    {"target": "repo-doctor", "command": "doctor"}
+  ]
+}

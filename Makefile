@@ -1,21 +1,21 @@
-# GENERATED - Quantum-L9 repository Make facade.
+# GENERATED - Quantum-L9 repository Make bootstrap.
 #
-# This file is the portable operator vocabulary. It owns no implementation.
-#   - Repository capabilities are implemented in Repo.mk as repo-* leaves.
-#   - Cross-repository governance is delegated to the `l9` dispatcher, which
-#     resolves CONSUMER_SAFE targets against the Cursor-Governance Makefile.
+# This stable root file owns only operator vocabulary and governance delegation.
+#   - Core-approved repository bindings are generated into Repo.mk.
+#   - Repository-native extensions live in Repo.local.mk.
+#   - Cross-repository governance is delegated to the l9 dispatcher.
 #
 # Do not place product logic, Git publication logic, or GitHub API logic here.
-# Run `make reconcile` to restore canonical form. If this file is unparseable,
-# recover with: python3 -m tools.l9_repo reconcile
+# Recover this bootstrap with: python3 -m tools.l9_repo reconcile
 .DEFAULT_GOAL := help
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -eu -o pipefail -c
 L9 ?= l9
 
-# Required repository-owned implementation boundary. This is `include`, not
-# `-include`: a missing Repo.mk is a broken repository, not a silent degrade.
+# Both layers are required. A missing generated adapter or repository-native
+# extension is a broken repository boundary, not a silent degrade.
 include Repo.mk
+include Repo.local.mk
 
 .PHONY: \
 	help \
@@ -38,7 +38,7 @@ help: ## Show repository commands
 		}' $(MAKEFILE_LIST)
 
 # ---------------------------------------------------------------------------
-# Repository-local capabilities - implemented by Repo.mk
+# Standard repository bindings - implemented by generated Repo.mk
 # ---------------------------------------------------------------------------
 setup: repo-setup ## Install/bootstrap repository dependencies
 validate: repo-validate ## Run the repository canonical validation
@@ -48,7 +48,7 @@ clean: repo-clean ## Remove repository-local disposable outputs
 doctor: repo-doctor ## Verify the local execution toolchain
 
 # ---------------------------------------------------------------------------
-# Cross-repository governance - this facade owns no implementation here
+# Cross-repository governance - this bootstrap owns no implementation here
 # ---------------------------------------------------------------------------
 wiring-check: ## Verify Governance wiring for this repository
 	@$(L9) wiring-check
