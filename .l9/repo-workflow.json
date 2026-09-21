@@ -67,17 +67,27 @@
     ],
     "check": [
       [
+        "@python",
+        "tools/check_toolchain_versions.py"
+      ],
+      [
+        "@python",
+        "-m",
         "ruff",
         "check",
         "."
       ],
       [
+        "@python",
+        "-m",
         "ruff",
         "format",
         "--check",
         "."
       ],
       [
+        "@python",
+        "-m",
         "mypy"
       ]
     ],

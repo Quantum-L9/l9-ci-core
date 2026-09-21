@@ -104,6 +104,50 @@ executable is rejected fail-closed at configuration load, so a repository
 contract can never smuggle arbitrary commands through the runner. Command
 arguments are passed literally and are never evaluated by a shell.
 
+## The check gate resolves its toolchain, then proves it
+
+`commands.check` runs ruff and mypy as `@python -m <tool>`, not as bare names.
+That is deliberate. A bare name is resolved by `PATH`, and `PATH` is not the
+repository's to control: a contributor with a `uv`- or `pipx`-installed ruff
+gets that one, silently, because the pin describes what was *installed* and
+`PATH` decides what *executes*.
+
+The failure mode is not always loud. A shadowing mypy of the wrong major
+reports missing stubs and someone investigates; a shadowing ruff of a nearby
+minor passes cleanly while checking a different file set — this repository
+measured 83 files under a shadowed `ruff 0.15.8` against 122 under the pinned
+`0.16.1`, both reporting success.
+
+**`make setup` does not fix this.** It installs the pinned versions correctly;
+they simply land later on `PATH` than the shadow. Provisioning and resolution
+are different problems, and only resolution decides what runs. Routing through
+`@python` settles it: the interpreter, not `PATH`, selects the code.
+
+Two residues remain, and `tools/check_toolchain_versions.py` — the first entry
+in `commands.check`, and the first step of the CI lint job — closes both.
+
+The interpreter itself may have been provisioned from something other than the
+pin files, so the check compares `importlib.metadata.version()` for ruff and
+mypy against `.github/actions/install-consumer-ci/toolchain-lock.json`.
+
+Metadata alone is not enough, because it proves what is *installed* rather
+than what `-m` will *import*. `-m` puts the working directory at the front of
+`sys.path`, so a plain `ruff/` package at the repository root would win for
+the gate while metadata still reported the pinned version — the same shadowing
+defect, moved from `PATH` to `sys.path`. The check therefore also resolves
+each module under the gate's own search path and confirms it belongs to the
+pinned distribution.
+
+The same contract applies in CI: `self-ci.yml`'s lint job runs the preflight
+first and invokes `python -m ruff` / `python -m mypy`. Installing the pins and
+executing them are different things, and the lint job is what gates a merge.
+
+The lock is the canonical owner of tool versions. The preflight reads it and
+never declares a version, and `tests/actions/test_install_consumer_ci.py`
+binds every other copy — the installer pins, `requirements-repo-runtime.txt`,
+the pre-commit `rev`, the Biome schema, and inline workflow `pytest` literals
+— back to it. Bump the lock, and every other pin must follow.
+
 ## Comparison ref, and the deprecated publication keys
 
 `pull_request.base` is still read, in exactly one place and for one reason: it
@@ -141,6 +185,9 @@ silently.
   worktree, and untracked-file set.
 - Configured commands are allowlisted (`@python`, `ruff`, `mypy`, `uv`) and
   executed argv-only.
+- The check gate resolves ruff and mypy through `@python -m`, so `PATH` cannot
+  decide which code it runs, and asserts the resolved versions against the
+  canonical lock before any of them execute.
 - Shell-string command execution and hidden bypasses are prohibited.
 - Single-flight locking guards `reconcile`, the one remaining mutating target.
 - The generated facade holds no Git publication logic and no GitHub API logic.

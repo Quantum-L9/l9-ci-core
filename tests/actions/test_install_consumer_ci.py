@@ -20,6 +20,7 @@ INSTALL = ACTION / "install.sh"
 PRECOMMIT = ROOT / ".pre-commit-config.yaml"
 BIOME = ROOT / "presets" / "typescript" / "biome.json"
 ROOT_INCLUDE = ROOT / "requirements-consumer-ci.txt"
+REPO_RUNTIME = ROOT / "requirements-repo-runtime.txt"
 
 PIN_RE = re.compile(r"^(ruff|mypy|pytest)==([0-9][^\s]+)$", re.M)
 
@@ -39,6 +40,39 @@ class InstallConsumerCiTests(unittest.TestCase):
         self.assertEqual(lock["ruff"], pins["ruff"])
         self.assertEqual(lock["mypy"], pins["mypy"])
         self.assertEqual(lock["pytest"], pins["pytest"])
+
+    def test_repo_runtime_pins_match_the_lock(self) -> None:
+        """Core's own gate toolchain must come from the same canonical owner.
+
+        ``requirements-repo-runtime.txt`` provisions the interpreter that
+        ``.l9/repo-workflow.json`` runs ruff and mypy through, and
+        ``tools/check_toolchain_versions.py`` asserts that interpreter against
+        ``toolchain-lock.json``. If this file could drift from the lock, the
+        preflight would fail for a repository that had correctly installed
+        what its own requirements declared — the pin files would disagree and
+        the gate would blame the environment.
+
+        Every other copy of these versions is already bound to the lock
+        (installer pins, pre-commit rev, Biome schema). This closes the last
+        one, so the lock is the single place a version is decided.
+        """
+        lock = json.loads(LOCK.read_text(encoding="utf-8"))
+        runtime = dict(PIN_RE.findall(REPO_RUNTIME.read_text(encoding="utf-8")))
+        self.assertEqual(
+            {"ruff", "mypy"},
+            set(runtime),
+            "requirements-repo-runtime.txt must pin exactly ruff and mypy; "
+            "the gate imports those two through `@python -m`",
+        )
+        for tool in ("ruff", "mypy"):
+            with self.subTest(tool=tool):
+                self.assertEqual(
+                    lock[tool],
+                    runtime[tool],
+                    f"{tool} differs between toolchain-lock.json and "
+                    "requirements-repo-runtime.txt; bump the lock and let "
+                    "every other pin follow it",
+                )
 
     def test_biome_lock_matches_preset_schema(self) -> None:
         lock = json.loads(LOCK.read_text(encoding="utf-8"))

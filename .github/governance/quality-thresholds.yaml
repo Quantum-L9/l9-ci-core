@@ -2,20 +2,20 @@
   "schema": "l9.quality-threshold-selection/v1",
   "profiles": {
     "pr_fast": {
-      "sdk_policy": ""
+      "sdk_policy": "semgrep-policy.yaml"
     },
     "merge": {
-      "sdk_policy": ""
+      "sdk_policy": "semgrep-policy.yaml"
     },
     "nightly": {
-      "sdk_policy": ""
+      "sdk_policy": "semgrep-policy.yaml"
     },
     "release": {
-      "sdk_policy": ""
+      "sdk_policy": "semgrep-policy.yaml"
     },
     "supply_chain": {
-      "sdk_policy": ""
+      "sdk_policy": "semgrep-policy.yaml"
     }
   },
-  "note": "Core selects an SDK policy file but never evaluates finding thresholds itself."
+  "note": "Core selects an SDK policy file but never evaluates finding thresholds itself. Every profile in this dogfood pack runs strict (execution-profiles.yaml), and strict without a policy fails closed on the first finding of any severity - which is what self-analysis did on one INFO-level advisory finding while the central path passed the same tree. semgrep-policy.yaml is the sibling this selects; it is the same advisory default resolve-governance bundles for the organization."
 }
