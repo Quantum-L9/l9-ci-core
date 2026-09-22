@@ -51,6 +51,12 @@ from repository-native leaves:
   remain in the bootstrap and delegate to the `l9` dispatcher, which resolves
   `CONSUMER_SAFE` targets against Cursor-Governance.
 
+The generated adapter does not encode a publication policy, a Governance path,
+or a second target allowlist.  `make pr` invokes only `l9 pr`; the dispatcher
+then consults the Cursor-Governance SSOT Makefile and delegates with the
+consumer workspace as `WS`.  Core never replaces that handoff with `git`,
+`gh`, a `PR_*` policy setting, or a local publication implementation.
+
 Both includes are mandatory, not `-include`: a missing generated adapter or
 local extension is a broken repository boundary, not a silent degrade. Because
 that makes the whole Makefile unparseable, the bootstrap recovery path bypasses
