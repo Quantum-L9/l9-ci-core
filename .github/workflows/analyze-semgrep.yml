@@ -91,6 +91,9 @@ on:
       artifact-name:
         description: Uploaded analysis artifact set name.
         value: ${{ jobs.analyze.outputs.artifact-name }}
+      artifact-handoff:
+        description: Canonical cross-run artifact handoff descriptor JSON.
+        value: ${{ jobs.analyze.outputs.artifact-handoff }}
       gate-status:
         description: SDK gate verdict (pass, fail, incomplete).
         value: ${{ jobs.analyze.outputs.gate-status }}
@@ -128,6 +131,7 @@ jobs:
       language: ${{ steps.language.outputs.language }}
       governance-digest: ${{ steps.gov.outputs['governance-digest'] }}
       artifact-name: ${{ steps.names.outputs['artifact-name'] }}
+      artifact-handoff: ${{ steps.handoff.outputs.descriptor }}
       sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
       gate-status: ${{ steps.gate.outputs['gate-status'] }}
       gate-exit-code: ${{ steps.gate.outputs['gate-exit-code'] }}
@@ -198,7 +202,7 @@ jobs:
         name: Resolve governance (Core)
         # CORE_ACTIONS_PIN; this revision exports identity-map-directory and
         # includes the bundled map bytes in governance-digest.
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@d1a9689bb70958f078e567412e3171f3fa95b965
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@05e842683d54a54ad074d9f4f9105813c42b6954
         with:
           profile: ${{ steps.contract.outputs.profile }}
           provider: semgrep
@@ -221,7 +225,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@05e842683d54a54ad074d9f4f9105813c42b6954
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -283,7 +287,7 @@ jobs:
         # CORE_ACTIONS_PIN
         # `l9-ci semgrep run` (via invoke-sdk) runs Semgrep with the SDK's
         # packaged ruleset while Core passes the one verified provider binary.
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@05e842683d54a54ad074d9f4f9105813c42b6954
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -301,7 +305,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@05e842683d54a54ad074d9f4f9105813c42b6954
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
@@ -347,7 +351,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@05e842683d54a54ad074d9f4f9105813c42b6954
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -357,7 +361,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@05e842683d54a54ad074d9f4f9105813c42b6954
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           # The SDK deterministically projects the canonical bundle to SARIF;
@@ -370,7 +374,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@05e842683d54a54ad074d9f4f9105813c42b6954
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
@@ -390,7 +394,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@05e842683d54a54ad074d9f4f9105813c42b6954
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
@@ -404,7 +408,8 @@ jobs:
           raw-directory: ${{ steps.route.outputs['raw-directory'] }}
           routing-record: ${{ steps.route.outputs['routing-record'] }}
           output: artifacts/metadata/${{ inputs.matrix-id }}/artifact-index.json
-      - name: Upload analysis artifact set
+      - id: upload
+        name: Upload analysis artifact set
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
@@ -415,6 +420,21 @@ jobs:
             artifacts/metadata/${{ inputs.matrix-id }}/
           if-no-files-found: error
           retention-days: ${{ inputs.artifact-retention-days }}
+      - id: handoff
+        name: Create artifact handoff descriptor
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@05e842683d54a54ad074d9f4f9105813c42b6954
+        with:
+          artifact-id: ${{ steps.upload.outputs.artifact-id }}
+          artifact-name: ${{ steps.names.outputs['artifact-name'] }}
+          artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+          provider: semgrep
+          matrix-id: ${{ inputs.matrix-id }}
+          repository: ${{ github.repository }}
+          repository-revision: ${{ github.sha }}
+          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+          output: .l9/runtime/handoffs/${{ inputs.matrix-id }}.json
       - name: Enforce SDK gate verdict
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         env:

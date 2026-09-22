@@ -157,6 +157,7 @@ class OrgRuntimeContractTests(unittest.TestCase):
             "validate-bundle",
             "route-artifacts",
             "build-artifact-manifest",
+            "create-artifact-handoff",
         )
         pins: set[str] = set()
         for action in actions:

@@ -37,6 +37,7 @@ class Phase2WorkflowTests(unittest.TestCase):
             "Revalidate routed canonical bundle",
             "Build artifact manifest",
             "Upload Phase 2 artifact set",
+            "Create artifact handoff descriptor",
         ]
         positions = [text.index(marker) for marker in markers]
         self.assertEqual(sorted(positions), positions)
@@ -56,10 +57,11 @@ class Phase2WorkflowTests(unittest.TestCase):
         )
 
         references = CORE_ACTION.findall(text)
-        self.assertEqual(7, len(references))
+        self.assertEqual(8, len(references))
         self.assertEqual(
             {
                 ".github/actions/build-artifact-manifest",
+                ".github/actions/create-artifact-handoff",
                 ".github/actions/invoke-sdk",
                 ".github/actions/provision-sdk",
                 ".github/actions/route-artifacts",
@@ -91,6 +93,25 @@ class Phase2WorkflowTests(unittest.TestCase):
         )
         self.assertIn("artifact-index.json", index_block)
         self.assertNotIn("artifact-manifest.json", index_block)
+
+    def test_handoff_is_additive_and_created_only_from_upload_outputs(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        upload = text.index("name: Upload Phase 2 artifact set")
+        handoff = text.index("name: Create artifact handoff descriptor")
+        self.assertLess(upload, handoff)
+        block = text[handoff:]
+        self.assertIn("artifact-id: ${{ steps.upload.outputs.artifact-id }}", block)
+        self.assertIn(
+            "artifact-digest: ${{ steps.upload.outputs.artifact-digest }}", block
+        )
+        self.assertIn("repository: ${{ github.repository }}", block)
+        self.assertIn("repository-revision: ${{ github.sha }}", block)
+        self.assertIn(
+            "output: .l9/runtime/handoffs/${{ inputs.matrix-id }}.json", block
+        )
+        header = text[: text.index("permissions:")]
+        self.assertIn("artifact-handoff:", header)
+        self.assertIn("value: ${{ jobs.normalize.outputs.artifact-handoff }}", header)
 
     def test_retrieval_is_not_faked_inside_the_producer_workflow(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

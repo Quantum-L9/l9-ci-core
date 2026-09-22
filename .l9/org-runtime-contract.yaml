@@ -118,6 +118,11 @@ consumer_metadata:
 
 outputs:
   artifact_name: string
+  artifact_handoff:
+    type: string
+    schema: l9.core-artifact-handoff/v1
+    required_for_consumers: false
+    emitted_after: successful_artifact_upload
   technical_gate_status: [pass, fail, incomplete]
   mode: [blocking, advisory, shadow, disabled]
   sdk_revision: string
