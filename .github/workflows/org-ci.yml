@@ -173,20 +173,6 @@ jobs:
       gate-status: ${{ steps.gate.outputs['gate-status'] }}
       language: ${{ steps.language.outputs.language }}
     steps:
-      - name: Checkout immutable event revision
-        env:
-          REPOSITORY: ${{ github.repository }}
-          REVISION: ${{ github.sha }}
-          TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git init .
-          git remote add origin \
-            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
-          git checkout --detach FETCH_HEAD
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
-
       - id: runtime
         name: Resolve central runtime class
         env:
@@ -207,25 +193,38 @@ jobs:
           requested_event = os.environ.get("INPUT_EVENT", "").strip()
           requested_profile = os.environ.get("INPUT_PROFILE", "").strip()
 
-          if gh_event == "pull_request":
-              event_class, profile = "pull_request", "pr_fast"
-          elif gh_event == "merge_group":
-              event_class, profile = "merge", "merge"
-          elif gh_event == "push":
-              event_class, profile = "push", "merge"
-          elif gh_event == "workflow_dispatch":
+          allowed = {"pull_request", "push", "merge", "nightly", "release", "supply_chain"}
+          fixed = {"pull_request": "pr_fast", "push": "merge", "merge": "merge"}
+          native = {
+              "pull_request": ("pull_request", "pr_fast"),
+              "merge_group": ("merge", "merge"),
+              "push": ("push", "merge"),
+          }
+
+          if gh_event == "workflow_dispatch":
               event_class = requested_event or "nightly"
               profile = requested_profile or event_class
-          elif gh_event == "workflow_call":
-              if not requested_event:
-                  raise SystemExit("workflow_call requires event")
+          elif requested_event:
+              # Reusable workflows retain the caller's event_name, so the
+              # required event input—not `workflow_call`—identifies this path.
               event_class = requested_event
-              fixed = {"pull_request": "pr_fast", "push": "merge", "merge": "merge"}
-              profile = fixed.get(event_class, requested_profile or event_class)
+              if event_class not in allowed:
+                  raise SystemExit(f"unsupported event class: {event_class}")
+              expected_profile = fixed.get(event_class, event_class)
+              profile = requested_profile or expected_profile
+              if profile != expected_profile:
+                  raise SystemExit(
+                      "reusable profile claim "
+                      f"{profile!r} does not match event {event_class!r}; "
+                      f"expected {expected_profile!r}"
+                  )
+          elif gh_event in native:
+              event_class, profile = native[gh_event]
+          elif gh_event == "workflow_call":
+              raise SystemExit("workflow_call requires event")
           else:
               raise SystemExit(f"unsupported trigger: {gh_event}")
 
-          allowed = {"pull_request", "push", "merge", "nightly", "release", "supply_chain"}
           if event_class not in allowed:
               raise SystemExit(f"unsupported event class: {event_class}")
           matrix_id = os.environ.get("INPUT_MATRIX_ID", "org-semgrep")
@@ -253,6 +252,20 @@ jobs:
               for key, value in outputs.items():
                   stream.write(f"{key}={value}\n")
           PY
+
+      - name: Checkout immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${REPOSITORY}.git"
 
       - name: Validate native push event context
         if: github.event_name == 'push'
@@ -288,12 +301,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@def55c54ff4ba654c2ebea088dde71db0b5f7135
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -329,7 +342,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -367,17 +380,18 @@ jobs:
         with:
           python-version: "3.12.14"
 
-      - name: Install Semgrep (hash-locked central pin)
+      - id: semgrep
+        name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN — install-semgrep first-commit SHA
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@673a3e4c82021809af32baac7571fde5e1059d3b
+        # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -387,6 +401,7 @@ jobs:
           root: .
           snapshot-id: ${{ github.sha }}
           revision: ${{ github.sha }}
+          provider-executable: ${{ steps.semgrep.outputs.executable }}
           strict: ${{ steps.gov.outputs.strict }}
           required: ${{ steps.gov.outputs['required-provider'] }}
           policy: ${{ steps.gov.outputs['sdk-policy'] }}
@@ -394,7 +409,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -435,7 +450,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -446,7 +461,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -458,7 +473,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -480,15 +495,20 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
+          artifact-name: ${{ steps.names.outputs['artifact-name'] }}
+          repository: ${{ github.repository }}
+          repository-revision: ${{ github.sha }}
           sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+          artifact-root: artifacts
           bundle: ${{ steps.route.outputs.bundle }}
           agent-payload: ${{ steps.route.outputs['agent-payload'] }}
           raw-directory: ${{ steps.route.outputs['raw-directory'] }}
-          output: artifacts/metadata/${{ steps.runtime.outputs['matrix-id'] }}/artifact-manifest.json
+          routing-record: ${{ steps.route.outputs['routing-record'] }}
+          output: artifacts/metadata/${{ steps.runtime.outputs['matrix-id'] }}/artifact-index.json
 
       - name: Upload analysis artifact set
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
@@ -531,12 +551,13 @@ jobs:
         if: always() && (steps.runtime.outputs.profile == 'pr_fast' || steps.runtime.outputs.profile == 'merge')
         env:
           REPOSITORY_VERIFY_STATUS: ${{ steps.repository_verify.outputs.status }}
+          REPOSITORY_VERIFY_MODE: ${{ steps.repository_verify.outputs.contract-mode }}
         run: |
           set -euo pipefail
-          case "${REPOSITORY_VERIFY_STATUS}" in
-            pass|not_applicable) ;;
+          case "${REPOSITORY_VERIFY_MODE}:${REPOSITORY_VERIFY_STATUS}" in
+            migration:pass|migration:legacy_not_applicable|required:pass) ;;
             *)
-              echo "Blocking profile: repository verification did not pass (${REPOSITORY_VERIFY_STATUS:-unavailable})" >&2
+              echo "Blocking profile: repository verification did not pass for contract mode ${REPOSITORY_VERIFY_MODE:-unavailable} (${REPOSITORY_VERIFY_STATUS:-unavailable})" >&2
               exit 1
               ;;
           esac

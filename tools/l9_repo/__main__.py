@@ -185,7 +185,21 @@ def _contract_kind(data: Mapping[str, object]) -> str:
         return "v2"
     if data.get("schema_version") == 1:
         return "v1"
-    _fail("unsupported repository execution contract; expected V2 or supported V1")
+    raise WorkflowError(
+        "unsupported repository execution contract; expected V2 or supported V1"
+    )
+
+
+def classify_make_phase_returncode(returncode: int) -> str:
+    """Classify a canonical Make phase without overloading GNU Make exit codes.
+
+    GNU Make conventionally returns ``2`` for an underlying recipe failure, so a
+    completed canonical phase returning nonzero is evidence of a repository
+    finding. Infrastructure is reserved for failures of the runner, structural
+    validation, or worktree integrity that are observed separately.
+    """
+
+    return "pass" if returncode == 0 else "finding"
 
 
 def _legacy_matrix(data: Mapping[str, object], phase: str) -> list[list[str]]:
@@ -815,13 +829,8 @@ class CoreRepositoryWorkflow(RepositoryWorkflow):
             infrastructure += infra if gate.blocking else 0
         for phase in ("validate", "check", "test"):
             result = self.run(["make", phase], capture=True, check=False)
-            classification = (
-                "pass"
-                if result.returncode == 0
-                else ("infrastructure" if result.returncode == 2 else "finding")
-            )
+            classification = classify_make_phase_returncode(result.returncode)
             findings += int(classification == "finding")
-            infrastructure += int(classification == "infrastructure")
             steps.append(
                 StepEvidence(
                     f"make:{phase}",

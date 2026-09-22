@@ -17,6 +17,7 @@ from l9_repo.__main__ import (  # noqa: E402
     V2_SCHEMA_NAME,
     RepositoryWorkflow,
     WorkflowError,
+    classify_make_phase_returncode,
     validate_config_data,
 )
 
@@ -62,6 +63,13 @@ def fixture(root: pathlib.Path, *, style: str = "python") -> None:
     run_git(root, "init", "-b", "main")
     run_git(root, "config", "user.email", "tests@example.com")
     run_git(root, "config", "user.name", "Tests")
+    # Git may launch maintenance after a fixture commit. That worker can still
+    # write below .git while TemporaryDirectory removes the fixture, producing
+    # an intermittent CI-only cleanup failure. Fixtures are short-lived and
+    # isolated, so neither automatic garbage collection nor maintenance is
+    # useful here; disable both before their first commit.
+    run_git(root, "config", "gc.auto", "0")
+    run_git(root, "config", "maintenance.auto", "false")
     run_git(root, "add", ".")
     run_git(root, "commit", "-m", "fixture")
 
@@ -130,6 +138,16 @@ class CompilerAndFacadeTests(unittest.TestCase):
                 (ROOT / "tools/l9_repo/Makefile.template").read_bytes(),
                 (root / "Makefile").read_bytes(),
             )
+
+    def test_failing_make_recipe_exit_two_is_a_repository_finding(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            (root / "Makefile").write_text("check:\n\tfalse\n", encoding="utf-8")
+            result = subprocess.run(
+                ["make", "check"], cwd=root, capture_output=True, text=True, check=False
+            )
+        self.assertEqual(2, result.returncode)
+        self.assertEqual("finding", classify_make_phase_returncode(result.returncode))
 
     def test_verify_generated_detects_drift_without_mutating_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

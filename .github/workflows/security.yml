@@ -1,10 +1,11 @@
 # L9 v1 compatibility kernel — Security scan (secrets + dependency audit).
 # Restores the `security.yml@v1` reusable-workflow contract deleted in the v2
 # rewrite (54a2f2f) so org-starter callers resolve again. Language-aware:
-# Python gates run only when a Python project is detected, Node gates only
-# when package.json is present. Gates that do not apply emit a notice and pass.
-# Contract: superset of the v0.1.0 inputs plus every input passed by the
-# Quantum-L9/.github org-starter callers (run-npm-audit).
+# Python gates run only when a Python project is detected. npm audit runs only
+# when explicitly requested and fails if the Node project has no package-lock.
+# Gates that do not apply emit a notice and pass. Contract: superset of the
+# v0.1.0 inputs plus every input passed by the Quantum-L9/.github org-starter
+# callers (run-npm-audit).
 name: L9 Security
 on:
   workflow_call:
@@ -22,15 +23,27 @@ on:
         required: false
         default: ""
       run-npm-audit:
+        description: >
+          Whether to run npm audit for a detected Node project. false always
+          skips npm audit, even when package-lock.json exists. true requires a
+          package-lock.json and runs npm audit at high severity.
         type: boolean
         required: false
         default: false
+      working-directory:
+        description: Working directory containing the project to scan.
+        type: string
+        required: false
+        default: "."
 permissions:
   contents: read
 jobs:
   security:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         with:
@@ -97,14 +110,14 @@ jobs:
             --exclude ./venv,./.venv,./tests,./build,./dist \
             || echo "::notice::Bandit warnings are non-blocking"
       - name: Node dependency audit (npm audit)
-        if: steps.detect.outputs.node == 'true' && (inputs.run-npm-audit || hashFiles('package-lock.json') != '')
+        if: steps.detect.outputs.node == 'true' && inputs.run-npm-audit
         run: |
           set -euo pipefail
-          if [ -f "package-lock.json" ]; then
-            npm audit --audit-level=high
-          else
-            echo "::notice::No package-lock.json; skipping npm audit"
+          if [ ! -f "package-lock.json" ]; then
+            echo "::error::run-npm-audit=true requires package-lock.json in the working directory"
+            exit 1
           fi
+          npm audit --audit-level=high
       - name: Non-applicable gates
         if: steps.detect.outputs.python != 'true' && steps.detect.outputs.node != 'true'
         run: echo "::notice::No Python or Node project detected; only the secret scan ran"

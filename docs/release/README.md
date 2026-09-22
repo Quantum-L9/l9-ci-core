@@ -180,10 +180,18 @@ namespace is a failure, not a pass.
 ## What the release gate checks
 
 Pushing a `vX.Y.Z` tag (or dispatching `release-validation.yml` with a tag)
-checks out that revision and runs `validate-release`. It fails closed unless
-**all** hold:
+first resolves the exact `refs/tags/vX.Y.Z` ref from the remote, requires its
+object to be an annotated tag that points directly to a commit, and checks out
+the peeled commit. A tag-push run additionally requires `github.sha` to equal
+that peeled commit; a manual run derives both identities from the same remote
+ref rather than validating the branch selected in the Actions UI. Only then
+does it run `validate-release`. It fails closed unless **all** hold:
 
 - The tag is an exact semantic version. A moving alias is rejected.
+- The remote ref is an annotated tag object, not a lightweight or nested tag,
+  and its direct target is the commit checked out for validation.
+- On a tag push, the event SHA equals the peeled commit; on manual dispatch,
+  the requested tag resolves through the identical read-only path.
 - The tag equals `metadata.version` in `.l9/repo-spec.yaml`.
 - `.l9/repo-spec.yaml` declares `phase_4: … status: implemented`.
 - `.l9/architecture.yaml` is `authoritative`, role `central-ci-orchestrator`,
@@ -198,6 +206,15 @@ checks out that revision and runs `validate-release`. It fails closed unless
 - The full `unittest` suite passes — which includes the release-writer
   uniqueness invariant above, so a release cannot be cut while a second
   writer for either tag namespace exists.
+
+Resolution holds only `contents: read`, fetches one exact tag ref, and performs
+no GitHub mutation. It does not create, move, force-update, push, or delete a
+tag or Release, so `docs/release/tag-and-release.sh` remains the sole writer for
+the exact release namespace. The shared validator permits the tag-object and
+peeled-commit inputs to be absent only when the release script's direct
+validator invocation explicitly selects preflight mode, where the tag
+deliberately does not exist yet. The composite action disables preflight mode
+and requires both inputs at its boundary.
 
 ## Cutting a release
 

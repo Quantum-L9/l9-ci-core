@@ -70,6 +70,7 @@ def main() -> int:
             f"repository verification: INFRASTRUCTURE_FAILURE ({exc})", file=sys.stderr
         )
         return 0
+    _write_output("contract-mode", mode)
 
     if not contract.is_file():
         if mode == MIGRATION_MODE:

@@ -13,10 +13,24 @@ inputs:
   semgrep-version:
     description: Exact x.y.z Semgrep version. A version without a lock fails closed.
     required: true
+outputs:
+  executable:
+    description: Absolute path to the verified Core-installed Semgrep executable.
+    value: ${{ steps.install.outputs.executable }}
+  provider-version:
+    description: Verified Semgrep version selected by Core.
+    value: ${{ steps.install.outputs.provider-version }}
+  lock-file:
+    description: Action-relative identity of the hash-locked install contract.
+    value: ${{ steps.install.outputs.lock-file }}
+  lock-sha256:
+    description: SHA-256 digest of the hash-locked install contract.
+    value: ${{ steps.install.outputs.lock-sha256 }}
 runs:
   using: composite
   steps:
-    - name: Install locked Semgrep closure
+    - id: install
+      name: Install locked Semgrep closure
       shell: bash
       env:
         L9_SEMGREP_VERSION: ${{ inputs.semgrep-version }}

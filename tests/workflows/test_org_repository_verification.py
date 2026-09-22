@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 import unittest.mock
@@ -68,6 +69,7 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
             text = Path(output.name).read_text(encoding="utf-8")
             self.assertIn("status=legacy_not_applicable", text)
             self.assertIn("contract-version=absent", text)
+            self.assertIn("contract-mode=migration", text)
 
     def test_required_mode_absent_contract_fails_closed(self) -> None:
         runner = _load_runner()
@@ -88,6 +90,53 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
             text = Path(output.name).read_text(encoding="utf-8")
             self.assertIn("status=missing_repository_contract", text)
             self.assertIn("failure-kind=contract", text)
+            self.assertIn("contract-mode=required", text)
+
+    def test_org_gate_allows_only_mode_appropriate_statuses(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "migration:pass|migration:legacy_not_applicable|required:pass", text
+        )
+        self.assertNotIn("pass|not_applicable", text)
+        self.assertIn("REPOSITORY_VERIFY_MODE", text)
+
+    def test_v2_phase_failure_is_a_typed_technical_failure(self) -> None:
+        runner = _load_runner()
+
+        class FailingWorkflow:
+            def __init__(self, workspace: Path) -> None:
+                self.workspace = workspace
+
+            def contract_version(self) -> str:
+                return "v2"
+
+            def verify_generated(self) -> None:
+                return None
+
+            def execute_phase(self, phase: str) -> None:
+                raise subprocess.CalledProcessError(2, ["make", phase])
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.NamedTemporaryFile() as output,
+        ):
+            root = Path(tmp)
+            (root / ".l9").mkdir()
+            (root / ".l9/repo-workflow.json").write_text(v2(), encoding="utf-8")
+            with (
+                unittest.mock.patch.dict(
+                    os.environ,
+                    {"L9_REPOSITORY_WORKSPACE": tmp, "GITHUB_OUTPUT": output.name},
+                    clear=False,
+                ),
+                unittest.mock.patch.object(
+                    runner, "RepositoryWorkflow", FailingWorkflow
+                ),
+            ):
+                self.assertEqual(0, runner.main())
+            text = Path(output.name).read_text(encoding="utf-8")
+            self.assertIn("status=technical_failure", text)
+            self.assertIn("failure-kind=technical", text)
 
     def test_v2_executes_make_abi_in_exact_order(self) -> None:
         runner = _load_runner()
