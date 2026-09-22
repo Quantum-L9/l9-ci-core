@@ -52,6 +52,16 @@ def analyze_steps() -> list[dict]:
     return load_workflow()["jobs"]["analyze"]["steps"]
 
 
+def step_index(*, step_id: str | None = None, name: str | None = None) -> int:
+    for index, step in enumerate(analyze_steps()):
+        if step_id is not None and step.get("id") == step_id:
+            return index
+        if name is not None and step.get("name") == name:
+            return index
+    label = f"id {step_id!r}" if step_id is not None else f"name {name!r}"
+    raise AssertionError(f"no step with {label} in the analyze job")
+
+
 def step_by_id(step_id: str) -> dict:
     for step in analyze_steps():
         if step.get("id") == step_id:
@@ -169,8 +179,8 @@ def resolve(
         )
 
 
-class NativePushEventClassTests(unittest.TestCase):
-    """The four mappings the canonical analysis engine must honor."""
+class EventClassResolutionTests(unittest.TestCase):
+    """Native, reusable, and manual mappings the analysis engine must honor."""
 
     def test_pull_request_resolves_to_pr_fast(self) -> None:
         outputs = resolve(event_name="pull_request")
@@ -190,15 +200,15 @@ class NativePushEventClassTests(unittest.TestCase):
         self.assertEqual("push", outputs["event-class"])
         self.assertEqual("merge", outputs["profile"])
 
-    def test_workflow_call_push_resolves_identically_to_native_push(self) -> None:
+    def test_reusable_push_resolves_identically_to_native_push(self) -> None:
         """A called `push` and a native `push` are the same evaluation.
 
-        The compatibility path pins `push` to `merge` through its `fixed`
-        table; the native path pins it in the trigger branch. Both must land on
-        the same engine, or the same revision would be judged differently
-        depending on how CI was reached.
+        GitHub preserves the caller's event name inside a called workflow, so a
+        reusable push has GH_EVENT=push plus the required event input. Both
+        paths must land on the same engine, or the same revision would be
+        judged differently depending on how CI was reached.
         """
-        called = resolve(event_name="workflow_call", inputs={"event": "push"})
+        called = resolve(event_name="push", inputs={"event": "push"})
         native = resolve(event_name="push")
         assert isinstance(called, dict), called
         assert isinstance(native, dict), native
@@ -209,19 +219,64 @@ class NativePushEventClassTests(unittest.TestCase):
             (called["event-class"], called["profile"]),
         )
 
-    def test_a_caller_cannot_override_the_push_profile(self) -> None:
-        """`fixed` wins over a caller-supplied profile for `push`.
+    def test_workflow_dispatch_behavior_is_preserved(self) -> None:
+        default = resolve(event_name="workflow_dispatch")
+        explicit = resolve(
+            event_name="workflow_dispatch",
+            inputs={"event": "release", "profile": "release"},
+        )
+        assert isinstance(default, dict), default
+        assert isinstance(explicit, dict), explicit
+        self.assertEqual(
+            ("nightly", "nightly"),
+            (default["event-class"], default["profile"]),
+        )
+        self.assertEqual(
+            ("release", "release"),
+            (explicit["event-class"], explicit["profile"]),
+        )
+
+    def test_reusable_profile_claim_cannot_override_the_event_mapping(self) -> None:
+        """A reusable input cannot pair an event with another event's profile.
 
         Profile selection is central governance. A caller that asks for `push`
         analysis under `nightly` (advisory) would otherwise downgrade a
-        blocking evaluation by naming a different profile.
+        blocking evaluation by naming a different profile. The resolver must
+        reject the claim itself instead of relying on post-checkout governance.
         """
-        outputs = resolve(
-            event_name="workflow_call",
+        result = resolve(
+            event_name="push",
             inputs={"event": "push", "profile": "nightly"},
         )
+        self.assertIsInstance(result, str)
+        assert isinstance(result, str)
+        self.assertIn("reusable profile claim 'nightly'", result)
+        self.assertIn("expected 'merge'", result)
+
+    def test_every_reusable_event_rejects_a_noncanonical_profile(self) -> None:
+        for event_class in (
+            "pull_request",
+            "push",
+            "merge",
+            "nightly",
+            "release",
+            "supply_chain",
+        ):
+            with self.subTest(event=event_class):
+                result = resolve(
+                    event_name="workflow_call",
+                    inputs={"event": event_class, "profile": "not-canonical"},
+                )
+                self.assertIsInstance(result, str)
+                assert isinstance(result, str)
+                self.assertIn("reusable profile claim 'not-canonical'", result)
+                self.assertIn(f"event '{event_class}'", result)
+
+    def test_reusable_non_native_callers_retain_the_compatibility_mapping(self) -> None:
+        outputs = resolve(event_name="workflow_call", inputs={"event": "release"})
         assert isinstance(outputs, dict), outputs
-        self.assertEqual("merge", outputs["profile"])
+        self.assertEqual("release", outputs["event-class"])
+        self.assertEqual("release", outputs["profile"])
 
     def test_push_class_is_allowed_by_the_profile_it_resolves_to(self) -> None:
         outputs = resolve(event_name="push")
@@ -244,11 +299,20 @@ class PushTargetProvenanceTests(unittest.TestCase):
     """The push target comes only from the GitHub event context."""
 
     def test_checkout_pins_the_immutable_event_revision(self) -> None:
-        checkout = analyze_steps()[0]
+        checkout = analyze_steps()[step_index(name="Checkout immutable event revision")]
         self.assertEqual("Checkout immutable event revision", checkout["name"])
         self.assertEqual("${{ github.repository }}", checkout["env"]["REPOSITORY"])
         self.assertEqual("${{ github.sha }}", checkout["env"]["REVISION"])
         self.assertIn("git checkout --detach FETCH_HEAD", checkout["run"])
+
+    def test_reusable_claims_fail_before_checkout_and_provider_work(self) -> None:
+        runtime = step_index(step_id="runtime")
+        checkout = step_index(name="Checkout immutable event revision")
+        governance = step_index(step_id="gov")
+        provider = step_index(name="Run + normalize Semgrep (SDK)")
+        self.assertLess(runtime, checkout)
+        self.assertLess(runtime, governance)
+        self.assertLess(runtime, provider)
 
     def test_no_input_can_supply_a_repository_ref_or_target_sha(self) -> None:
         """`sdk-revision` pins the SDK, never the repository under analysis.
@@ -287,7 +351,11 @@ class PushTargetProvenanceTests(unittest.TestCase):
         steps = analyze_steps()
         names = [step.get("name") for step in steps]
         guard = names.index("Validate native push event context")
-        self.assertLess(names.index("Resolve central runtime class"), guard)
+        self.assertLess(
+            names.index("Resolve central runtime class"),
+            names.index("Checkout immutable event revision"),
+        )
+        self.assertLess(names.index("Checkout immutable event revision"), guard)
         self.assertLess(guard, names.index("Resolve central governance"))
         step = steps[guard]
         self.assertEqual("github.event_name == 'push'", step["if"])

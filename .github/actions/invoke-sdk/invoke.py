@@ -45,6 +45,22 @@ def validate_executable(value: str) -> Path:
     return path
 
 
+def validate_provider_executable(value: str) -> Path:
+    supplied = Path(require(value, "provider-executable"))
+    if not supplied.is_absolute():
+        raise InvocationError("provider-executable must be an absolute path")
+    path = supplied.resolve()
+    if not path.is_file():
+        raise InvocationError(f"provider executable does not exist: {path}")
+    if not os.access(path, os.X_OK):
+        raise InvocationError(f"provider executable is not executable: {path}")
+    if path.name not in {"semgrep", "semgrep.exe"}:
+        raise InvocationError(
+            f"provider-executable must name the Semgrep executable: {path}"
+        )
+    return path
+
+
 def resolve_workspace_path(
     value: str,
     label: str,
@@ -327,12 +343,28 @@ def main() -> int:
     try:
         executable = validate_executable(env("L9_EXECUTABLE"))
         command = build_command(executable)
+        operation = env("L9_OPERATION")
+        provider = (
+            validate_provider_executable(env("L9_PROVIDER_EXECUTABLE"))
+            if operation == "semgrep-run"
+            else None
+        )
     except InvocationError as error:
         print(f"invoke-sdk: {error}", file=sys.stderr)
         return 2
     printable = " ".join(command)
     print(f"Executing SDK command: {printable}")
-    result = subprocess.run(command, check=False)
+    environment = None
+    if provider is not None:
+        environment = dict(os.environ)
+        # SDK owns provider execution, but Core owns the exact tool selection.
+        # Put the directory containing the verified, hash-locked executable
+        # first while preserving system tools the provider may invoke.
+        environment["PATH"] = os.pathsep.join(
+            [str(provider.parent), environment.get("PATH", "")]
+        ).rstrip(os.pathsep)
+        print(f"Using Core-installed provider executable: {provider}")
+    result = subprocess.run(command, check=False, env=environment)
     emit_output("exit-code", str(result.returncode))
     emit_output("command", printable)
     return result.returncode

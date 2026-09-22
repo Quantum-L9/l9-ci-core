@@ -4,7 +4,6 @@
 from __future__ import annotations
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -19,11 +18,7 @@ EXPECTED_REVISION = "bc678190582694f6efee08b6b7ea39be7e09bd5c"
 # the SDK's own integration-contract.yaml; this constant is used only when no
 # entry-specific contract is available.
 EXPECTED_CONTRACT = "l9.integration-contract/v1"
-# Semgrep runtime floor used only when the pinned SDK checkout declares no
-# `[project.optional-dependencies].semgrep` group of its own. `semgrep run`
-# shells out to the semgrep binary, so the provisioned SDK venv must carry it;
-# the pin travels with the pinned SDK revision whenever the SDK declares it.
-SEMGREP_RUNTIME_FALLBACK = "semgrep>=1.100"
+RUNTIME_DIRECTORY = Path(".l9/runtime/sdk")
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 # Repo-root .l9/sdk-compatibility.yaml, relative to this action file
 # (.github/actions/provision-sdk/provision.py -> parents[3] == repo root).
@@ -204,8 +199,8 @@ def validate_inputs(source: str, repository: str, revision: str) -> None:
 
 def checkout_sdk(repository: str, revision: str, checkout: Path) -> None:
     if checkout.exists():
-        shutil.rmtree(checkout)
-    checkout.mkdir(parents=True)
+        raise ProvisioningError(f"SDK checkout already exists: {checkout}")
+    checkout.mkdir()
     run(["git", "init", "--quiet"], cwd=checkout)
     run(["git", "remote", "add", "origin", repository], cwd=checkout)
     run(
@@ -266,66 +261,6 @@ def verify_contract_file(checkout: Path, entry: dict) -> None:
         )
 
 
-def resolve_semgrep_requirements(checkout: Path) -> list[str]:
-    """Semgrep runtime specifiers sourced from the pinned SDK checkout.
-
-    Prefer the SDK's own ``[project.optional-dependencies].semgrep`` group so the
-    pin travels with the pinned SDK revision. Fall back to the documented
-    provider floor only when the checkout declares no such group. The manifest
-    of record is the SDK the revision resolves to, never a hand-picked version
-    in Core."""
-    pyproject = checkout / "pyproject.toml"
-    if pyproject.is_file():
-        try:
-            import tomllib
-        except ModuleNotFoundError:  # pragma: no cover - py<3.11 runners
-            tomllib = None  # type: ignore[assignment]
-        if tomllib is not None:
-            try:
-                data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-            except tomllib.TOMLDecodeError as error:
-                raise ProvisioningError(
-                    f"SDK pyproject.toml is not valid TOML: {error}"
-                ) from error
-            project = data.get("project")
-            extras = (
-                project.get("optional-dependencies")
-                if isinstance(project, dict)
-                else None
-            )
-            group = extras.get("semgrep") if isinstance(extras, dict) else None
-            if isinstance(group, list):
-                specifiers = [
-                    item.strip()
-                    for item in group
-                    if isinstance(item, str) and item.strip()
-                ]
-                if specifiers:
-                    return specifiers
-    return [SEMGREP_RUNTIME_FALLBACK]
-
-
-def install_semgrep_runtime(checkout: Path, venv_python: Path) -> list[str]:
-    """Install the SDK's optional Semgrep execution runtime into the venv.
-
-    ``semgrep run`` executes the semgrep binary, so a provisioned SDK that only
-    carries the import-time requirements cannot run it. Returns the installed
-    specifiers for evidence."""
-    specifiers = resolve_semgrep_requirements(checkout)
-    run(
-        [
-            str(venv_python),
-            "-m",
-            "pip",
-            "install",
-            "--quiet",
-            "--disable-pip-version-check",
-            *specifiers,
-        ]
-    )
-    return specifiers
-
-
 def create_runtime(checkout: Path, runtime: Path) -> Path:
     venv = runtime / "venv"
     run([sys.executable, "-m", "venv", str(venv)])
@@ -347,17 +282,10 @@ def create_runtime(checkout: Path, runtime: Path) -> Path:
                 str(requirements),
             ]
         )
-    # SDK-owned Semgrep execution (`semgrep run`) needs the semgrep binary in the
-    # provisioned venv; the pin is sourced from the pinned SDK checkout.
-    install_semgrep_runtime(checkout, venv_python)
-    # The shim must put the venv's script directory on PATH, not only PYTHONPATH.
-    # install_semgrep_runtime above places the semgrep binary in the venv, but the
-    # SDK resolves the provider with shutil.which("semgrep") -- a PATH lookup. A
-    # shim that exports PYTHONPATH alone leaves that binary unreachable, so every
-    # `l9-ci semgrep run` under Core provisioning recorded a fatal, required
-    # provider failure of type not_installed while the binary sat in the venv.
-    # Core's own sdk-contract-check.yml drives `semgrep normalize` on a committed
-    # fixture, so its CI never exercised the live provider path.
+    # Core installs provider executables separately. Do not install or prioritize
+    # an SDK-local Semgrep: the generated shim inherits the caller's PATH so
+    # `l9-ci semgrep run` resolves the one hash-locked provider selected by Core.
+    # The venv remains an isolated home for SDK import-time dependencies only.
     if os.name == "nt":
         scripts = venv / "Scripts"
         python = scripts / "python.exe"
@@ -365,7 +293,6 @@ def create_runtime(checkout: Path, runtime: Path) -> Path:
         executable.write_text(
             "@echo off\r\n"
             f'set "PYTHONPATH={checkout};%PYTHONPATH%"\r\n'
-            f'set "PATH={scripts};%PATH%"\r\n'
             f'"{python}" -m l9_ci %*\r\n',
             encoding="utf-8",
         )
@@ -378,12 +305,49 @@ def create_runtime(checkout: Path, runtime: Path) -> Path:
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
             f'export PYTHONPATH="{checkout}${{PYTHONPATH:+:$PYTHONPATH}}"\n'
-            f'export PATH="{bin_directory}${{PATH:+:$PATH}}"\n'
             f'exec "{python}" -m l9_ci "$@"\n',
             encoding="utf-8",
         )
         executable.chmod(0o755)
     return executable.resolve()
+
+
+def resolve_runtime_directory(workspace: Path, runtime_input: str) -> Path:
+    """Resolve the sole action-owned runtime without following workspace links.
+
+    ``runtime-directory`` remains as a compatibility input, but accepting an
+    arbitrary workspace-relative value would let a caller select unrelated
+    content. Provisioning is create-only, so even this fixed location must not
+    exist and none of its path components may be a symlink.
+    """
+    requested = Path(runtime_input)
+    if requested.is_absolute() or requested != RUNTIME_DIRECTORY:
+        raise ProvisioningError(
+            f"runtime-directory must be exactly {RUNTIME_DIRECTORY.as_posix()}"
+        )
+    runtime = workspace / RUNTIME_DIRECTORY
+    current = workspace
+    for part in RUNTIME_DIRECTORY.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ProvisioningError(
+                f"runtime-directory must not traverse a symlink: {current}"
+            )
+    if runtime.exists():
+        raise ProvisioningError(
+            f"runtime-directory already exists; provisioning is create-only: {runtime}"
+        )
+    return runtime
+
+
+def create_runtime_directory(runtime: Path) -> None:
+    """Create a new runtime tree without deleting or replacing existing paths."""
+    try:
+        runtime.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as error:
+        raise ProvisioningError(
+            f"runtime-directory already exists; provisioning is create-only: {runtime}"
+        ) from error
 
 
 def probe_cli(executable: Path, required_cli_paths: list[str]) -> None:
@@ -438,23 +402,15 @@ def main() -> int:
         ).lower()
         runtime_input = require_environment(
             "INPUT_RUNTIME_DIRECTORY",
-            ".l9/runtime/sdk",
+            RUNTIME_DIRECTORY.as_posix(),
         )
         validate_inputs(source, repository, revision)
         entry = select_manifest_entry(revision)
         contract = entry["integration_contract"].strip()
         required_cli_paths = [path.strip() for path in entry["required_cli_paths"]]
         workspace = Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd())).resolve()
-        runtime = (workspace / runtime_input).resolve()
-        try:
-            runtime.relative_to(workspace)
-        except ValueError as error:
-            raise ProvisioningError(
-                "runtime-directory must remain inside GITHUB_WORKSPACE"
-            ) from error
-        if runtime.exists():
-            shutil.rmtree(runtime)
-        runtime.mkdir(parents=True)
+        runtime = resolve_runtime_directory(workspace, runtime_input)
+        create_runtime_directory(runtime)
         checkout = runtime / "source"
         checkout_sdk(repository, revision, checkout)
         verify_contract_file(checkout, entry)

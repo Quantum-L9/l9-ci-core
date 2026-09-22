@@ -1,19 +1,8 @@
-"""The generated l9-ci shim must expose the provisioned venv's binaries on PATH.
+"""The SDK shim must not install or shadow Core's provider executable.
 
-``install_semgrep_runtime`` deliberately installs the Semgrep runtime into the
-provisioned venv because, in its own words, "a provisioned SDK that only carries
-the import-time requirements cannot run it". The SDK then resolves the provider
-with ``shutil.which("semgrep")`` -- a PATH lookup.
-
-The shim used to export ``PYTHONPATH`` only. So Core installed the binary and
-then made it unreachable: every ``l9-ci semgrep run`` under Core provisioning
-produced a canonical bundle recording a fatal, required provider failure of type
-``not_installed``, with the binary sitting unused in ``venv/bin``.
-
-Core's own ``sdk-contract-check.yml`` cannot catch this. Its end-to-end smoke
-drives ``semgrep normalize`` against a committed report precisely so that "no
-live semgrep binary is required", which means the one command that needs PATH is
-the one command CI never runs. Hence these tests.
+Core owns the exact tool pin and installs Semgrep through one hash-locked
+provider action. The SDK venv contains SDK import dependencies only, while the
+shim inherits the caller's PATH so the SDK resolves Core's selected provider.
 """
 
 from __future__ import annotations
@@ -53,21 +42,15 @@ class RuntimeShimTests(unittest.TestCase):
 
     def _build_shim(self) -> Path:
         """Create the runtime with venv creation and pip installs stubbed out."""
-        with (
-            patch.object(module, "run", lambda command, **kwargs: None),
-            patch.object(
-                module, "install_semgrep_runtime", lambda checkout, python: []
-            ),
-        ):
+        with patch.object(module, "run", lambda command, **kwargs: None):
             return module.create_runtime(self.checkout, self.runtime)
 
     @unittest.skipIf(os.name == "nt", "POSIX shim")
-    def test_shim_prepends_the_venv_bin_directory_to_path(self) -> None:
+    def test_shim_does_not_override_the_callers_path(self) -> None:
         executable = self._build_shim()
         body = executable.read_text(encoding="utf-8")
-        expected = str(self.runtime / "venv" / "bin")
 
-        self.assertIn(f'export PATH="{expected}${{PATH:+:$PATH}}"', body)
+        self.assertNotIn("export PATH=", body)
 
     @unittest.skipIf(os.name == "nt", "POSIX shim")
     def test_shim_still_exports_pythonpath_for_the_source_checkout(self) -> None:
@@ -83,24 +66,21 @@ class RuntimeShimTests(unittest.TestCase):
         self.assertTrue(executable.stat().st_mode & stat.S_IXUSR)
 
     @unittest.skipIf(os.name == "nt", "POSIX shim")
-    def test_shim_resolves_semgrep_from_the_provisioned_venv(self) -> None:
-        """End-to-end on the shim itself: run it and let it resolve a binary.
-
-        A stub ``semgrep`` is placed in the venv's bin directory and the shim is
-        pointed at a stub interpreter that reports what ``shutil.which`` finds.
-        This is the behaviour the SDK depends on, exercised through the real
-        generated shim rather than asserted from its text alone.
-        """
+    def test_shim_resolves_semgrep_from_the_callers_path(self) -> None:
         executable = self._build_shim()
         bin_directory = self.runtime / "venv" / "bin"
         bin_directory.mkdir(parents=True, exist_ok=True)
 
-        semgrep = bin_directory / "semgrep"
-        semgrep.write_text("#!/usr/bin/env bash\necho stub-semgrep\n", encoding="utf-8")
-        semgrep.chmod(0o755)
+        sdk_semgrep = bin_directory / "semgrep"
+        sdk_semgrep.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
+        sdk_semgrep.chmod(0o755)
 
-        # create_runtime writes `exec "<venv>/bin/python" -m l9_ci "$@"`. Supply a
-        # stub at that exact path which prints the resolved semgrep location.
+        core_bin = self.runtime.parent / "core-bin"
+        core_bin.mkdir()
+        core_semgrep = core_bin / "semgrep"
+        core_semgrep.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        core_semgrep.chmod(0o755)
+
         python = bin_directory / "python"
         python.write_text(
             '#!/usr/bin/env bash\ncommand -v semgrep || echo "NOT-ON-PATH"\n',
@@ -115,11 +95,27 @@ class RuntimeShimTests(unittest.TestCase):
             check=False,
             text=True,
             capture_output=True,
-            env={"PATH": "/usr/bin:/bin"},
+            env={"PATH": f"{core_bin}:/usr/bin:/bin"},
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), str(semgrep))
+        self.assertEqual(result.stdout.strip(), str(core_semgrep))
+
+    def test_runtime_creation_never_installs_semgrep(self) -> None:
+        requirements = self.checkout / "requirements.txt"
+        requirements.write_text("PyYAML==6.0.3\n", encoding="utf-8")
+        calls: list[list[str]] = []
+
+        def record(command: list[str], **kwargs) -> None:
+            calls.append(command)
+
+        with patch.object(module, "run", record):
+            module.create_runtime(self.checkout, self.runtime)
+
+        pip_commands = [command for command in calls if "pip" in command]
+        self.assertEqual(1, len(pip_commands))
+        self.assertIn(str(requirements), pip_commands[0])
+        self.assertNotIn("semgrep", " ".join(pip_commands[0]).lower())
 
 
 if __name__ == "__main__":  # pragma: no cover

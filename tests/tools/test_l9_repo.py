@@ -185,6 +185,13 @@ def make_git_fixture() -> tuple[tempfile.TemporaryDirectory[str], pathlib.Path]:
     run_git(root, "init", "-b", "main")
     run_git(root, "config", "user.email", "tests@example.com")
     run_git(root, "config", "user.name", "Tests")
+    # Git may launch maintenance after a fixture commit. That worker can still
+    # write below .git while TemporaryDirectory removes the fixture, producing
+    # an intermittent CI-only cleanup failure. Fixtures are short-lived and
+    # isolated, so neither automatic garbage collection nor maintenance is
+    # useful here; disable both before their first commit.
+    run_git(root, "config", "gc.auto", "0")
+    run_git(root, "config", "maintenance.auto", "false")
     run_git(root, "add", ".")
     run_git(root, "commit", "-m", "base")
     run_git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
@@ -360,6 +367,13 @@ class GitFixtureIsolationTests(unittest.TestCase):
 
     def test_fixture_inherits_no_remote_tracking_refs(self) -> None:
         self.assertEqual({"origin/main"}, self.refs("refs/remotes"))
+
+    def test_fixture_disables_background_git_maintenance(self) -> None:
+        self.assertEqual("0", run_git(self.root, "config", "gc.auto").stdout.strip())
+        self.assertEqual(
+            "false",
+            run_git(self.root, "config", "maintenance.auto").stdout.strip(),
+        )
 
     def test_fixture_contains_no_untracked_or_symlinked_content(self) -> None:
         tracked = {
