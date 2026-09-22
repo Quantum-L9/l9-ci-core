@@ -189,6 +189,111 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
             self.assertIn("l9.finding-policy/v1", payload)
             self.assertIn('"mode": "advisory"', payload)
 
+    def test_resolve_policy_validates_only_the_sdk_policy_envelope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            policy = Path(temp) / "policy.json"
+            payload = b'{"schema":"l9.finding-policy/v1","opaque":42}'
+            policy.write_bytes(payload)
+            self.assertEqual(payload, module._validated_sdk_policy_bytes(policy))
+
+    def test_resolve_policy_rejects_invalid_sdk_policy_envelopes(self) -> None:
+        cases = {
+            "invalid SDK policy JSON": b"not-json",
+            "must contain an object": b"[]",
+            "unsupported schema": b'{"schema":"l9.finding-policy/v2"}',
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            policy = Path(temp) / "policy.json"
+            for message, payload in cases.items():
+                with self.subTest(message=message):
+                    policy.write_bytes(payload)
+                    with self.assertRaisesRegex(module.GovernanceError, message):
+                        module._validated_sdk_policy_bytes(policy)
+
+    def test_resolve_policy_rejects_a_symlinked_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "governance"
+            root.mkdir()
+            outside = Path(temp) / "outside.json"
+            outside.write_text(
+                '{"schema":"l9.finding-policy/v1"}',
+                encoding="utf-8",
+            )
+            (root / "policy.json").symlink_to(outside)
+            with self.assertRaisesRegex(module.GovernanceError, "source"):
+                module._bundled_policy_path(root, "policy.json")
+
+    def test_resolve_policy_rejects_a_symlinked_staging_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp) / "workspace"
+            outside = Path(temp) / "outside"
+            workspace.mkdir()
+            outside.mkdir()
+            (workspace / ".l9").symlink_to(outside, target_is_directory=True)
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"GITHUB_WORKSPACE": str(workspace)},
+                clear=False,
+            ):
+                with self.assertRaisesRegex(module.GovernanceError, "symlink"):
+                    module.resolve_policy(
+                        self.documents,
+                        "pr_fast",
+                        DEFAULTS_ROOT,
+                    )
+            self.assertEqual([], list(outside.iterdir()))
+
+    def test_resolve_policy_rejects_a_symlinked_target_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp) / "workspace"
+            outside = Path(temp) / "outside.json"
+            destination = workspace / ".l9" / "runtime" / "org-governance"
+            destination.mkdir(parents=True)
+            (destination / "semgrep-policy.yaml").symlink_to(outside)
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"GITHUB_WORKSPACE": str(workspace)},
+                clear=False,
+            ):
+                with self.assertRaisesRegex(module.GovernanceError, "symlink"):
+                    module.resolve_policy(
+                        self.documents,
+                        "pr_fast",
+                        DEFAULTS_ROOT,
+                    )
+            self.assertFalse(outside.exists())
+
+    def test_resolve_policy_replaces_the_target_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp) / "workspace"
+            destination = workspace / ".l9" / "runtime" / "org-governance"
+            destination.mkdir(parents=True)
+            target = destination / "semgrep-policy.yaml"
+            target.write_bytes(b"previous policy")
+            with (
+                unittest.mock.patch.dict(
+                    os.environ,
+                    {"GITHUB_WORKSPACE": str(workspace)},
+                    clear=False,
+                ),
+                unittest.mock.patch.object(
+                    module.os,
+                    "replace",
+                    side_effect=OSError("replace failed"),
+                ),
+            ):
+                with self.assertRaisesRegex(module.GovernanceError, "replace failed"):
+                    module.resolve_policy(
+                        self.documents,
+                        "pr_fast",
+                        DEFAULTS_ROOT,
+                    )
+            self.assertEqual(b"previous policy", target.read_bytes())
+            self.assertEqual(
+                [target],
+                list(destination.iterdir()),
+            )
+
     def test_identity_maps_stage_inside_the_consumer_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             workspace = Path(temp)

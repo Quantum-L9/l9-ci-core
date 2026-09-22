@@ -173,20 +173,6 @@ jobs:
       gate-status: ${{ steps.gate.outputs['gate-status'] }}
       language: ${{ steps.language.outputs.language }}
     steps:
-      - name: Checkout immutable event revision
-        env:
-          REPOSITORY: ${{ github.repository }}
-          REVISION: ${{ github.sha }}
-          TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git init .
-          git remote add origin \
-            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
-          git checkout --detach FETCH_HEAD
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
-
       - id: runtime
         name: Resolve central runtime class
         env:
@@ -207,25 +193,38 @@ jobs:
           requested_event = os.environ.get("INPUT_EVENT", "").strip()
           requested_profile = os.environ.get("INPUT_PROFILE", "").strip()
 
-          if gh_event == "pull_request":
-              event_class, profile = "pull_request", "pr_fast"
-          elif gh_event == "merge_group":
-              event_class, profile = "merge", "merge"
-          elif gh_event == "push":
-              event_class, profile = "push", "merge"
-          elif gh_event == "workflow_dispatch":
+          allowed = {"pull_request", "push", "merge", "nightly", "release", "supply_chain"}
+          fixed = {"pull_request": "pr_fast", "push": "merge", "merge": "merge"}
+          native = {
+              "pull_request": ("pull_request", "pr_fast"),
+              "merge_group": ("merge", "merge"),
+              "push": ("push", "merge"),
+          }
+
+          if gh_event == "workflow_dispatch":
               event_class = requested_event or "nightly"
               profile = requested_profile or event_class
-          elif gh_event == "workflow_call":
-              if not requested_event:
-                  raise SystemExit("workflow_call requires event")
+          elif requested_event:
+              # Reusable workflows retain the caller's event_name, so the
+              # required event input—not `workflow_call`—identifies this path.
               event_class = requested_event
-              fixed = {"pull_request": "pr_fast", "push": "merge", "merge": "merge"}
-              profile = fixed.get(event_class, requested_profile or event_class)
+              if event_class not in allowed:
+                  raise SystemExit(f"unsupported event class: {event_class}")
+              expected_profile = fixed.get(event_class, event_class)
+              profile = requested_profile or expected_profile
+              if profile != expected_profile:
+                  raise SystemExit(
+                      "reusable profile claim "
+                      f"{profile!r} does not match event {event_class!r}; "
+                      f"expected {expected_profile!r}"
+                  )
+          elif gh_event in native:
+              event_class, profile = native[gh_event]
+          elif gh_event == "workflow_call":
+              raise SystemExit("workflow_call requires event")
           else:
               raise SystemExit(f"unsupported trigger: {gh_event}")
 
-          allowed = {"pull_request", "push", "merge", "nightly", "release", "supply_chain"}
           if event_class not in allowed:
               raise SystemExit(f"unsupported event class: {event_class}")
           matrix_id = os.environ.get("INPUT_MATRIX_ID", "org-semgrep")
@@ -253,6 +252,20 @@ jobs:
               for key, value in outputs.items():
                   stream.write(f"{key}={value}\n")
           PY
+
+      - name: Checkout immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${REPOSITORY}.git"
 
       - name: Validate native push event context
         if: github.event_name == 'push'

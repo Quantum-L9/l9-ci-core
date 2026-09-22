@@ -4,7 +4,9 @@
 # the repo's own lint/typecheck/test toolchain (ESLint, tsc, Vitest/Jest via
 # package.json scripts with sensible fallbacks). Gates that do not apply emit a
 # notice and pass. Contract: superset of the v0.1.0 inputs plus every input
-# passed by the org-starter callers (run-security, working-directory).
+# passed by the org-starter callers (run-security, working-directory). Legacy
+# inputs with no supported implementation accept only their neutral value and
+# otherwise fail in the preflight job instead of silently doing nothing.
 name: L9 PR Pipeline
 on:
   workflow_call:
@@ -30,6 +32,10 @@ on:
         required: false
         default: ""
       enable-pydantic-strict:
+        description: >
+          Compatibility-only input. false is the supported neutral value; true
+          fails explicitly because Pydantic behavior belongs in the repository's
+          mypy configuration.
         type: boolean
         required: false
         default: false
@@ -47,18 +53,32 @@ on:
         required: false
         default: ""
       changed-files:
+        description: >
+          Compatibility-only input. The empty string is accepted; a non-empty
+          value fails explicitly because this workflow does not implement
+          changed-file routing.
         type: string
         required: false
         default: ""
       pr-labels:
+        description: >
+          Compatibility-only input. The empty string is accepted; a non-empty
+          value fails explicitly because this workflow does not implement label
+          routing.
         type: string
         required: false
         default: ""
       labels-known:
+        description: >
+          Compatibility-only input. false is the supported neutral value; true
+          fails explicitly because this workflow does not consume PR labels.
         type: boolean
         required: false
         default: false
       run-security:
+        description: >
+          Run the v1 security compatibility workflow. true runs secret and
+          language-aware dependency/static-security gates; false skips them.
         type: boolean
         required: false
         default: false
@@ -70,7 +90,40 @@ permissions:
   contents: read
   packages: read
 jobs:
+  validate-compatibility-inputs:
+    name: Validate compatibility inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Reject unsupported non-neutral legacy inputs
+        env:
+          ENABLE_PYDANTIC_STRICT: ${{ inputs.enable-pydantic-strict }}
+          CHANGED_FILES: ${{ inputs.changed-files }}
+          PR_LABELS: ${{ inputs.pr-labels }}
+          LABELS_KNOWN: ${{ inputs.labels-known }}
+        run: |
+          set -euo pipefail
+          unsupported=()
+          if [ "$ENABLE_PYDANTIC_STRICT" != "false" ]; then
+            unsupported+=("enable-pydantic-strict=true")
+          fi
+          if [ -n "$CHANGED_FILES" ]; then
+            unsupported+=("changed-files=<non-empty>")
+          fi
+          if [ -n "$PR_LABELS" ]; then
+            unsupported+=("pr-labels=<non-empty>")
+          fi
+          if [ "$LABELS_KNOWN" != "false" ]; then
+            unsupported+=("labels-known=true")
+          fi
+          if [ "${#unsupported[@]}" -ne 0 ]; then
+            printf '::error::Unsupported pr-pipeline compatibility input: %s\n' "${unsupported[@]}"
+            echo "Only neutral legacy values are accepted; these inputs have no implementation in the v1 shim."
+            exit 1
+          fi
   validate:
+    needs: validate-compatibility-inputs
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -219,3 +272,16 @@ jobs:
       - name: Non-applicable pipeline
         if: steps.detect.outputs.python != 'true' && steps.detect.outputs.node != 'true'
         run: echo "::notice::No Python or Node project detected; nothing to validate"
+  security:
+    name: Security compatibility gates
+    needs: validate-compatibility-inputs
+    if: inputs.run-security
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+    with:
+      python-version: ${{ inputs.python-version }}
+      source-dir: ${{ inputs.source-dir }}
+      l9-ci-install-command: ${{ inputs.l9-ci-install-command }}
+      run-npm-audit: ${{ inputs.run-security }}
+      working-directory: ${{ inputs.working-directory }}
