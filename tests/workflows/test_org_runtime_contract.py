@@ -145,7 +145,7 @@ class OrgRuntimeContractTests(unittest.TestCase):
         self.assertNotRegex(header, r"(?m)^\s{6}language:\s*$")
         self.assertNotIn(".github/governance", text)
         self.assertNotIn(".github/org-governance-defaults", text)
-        self.assertIn('governance-root: "@core-defaults"', text)
+        self.assertNotIn("governance-root", text)
 
     def test_entrypoint_composes_only_full_sha_core_primitives(self) -> None:
         text = ENTRYPOINT_PATH.read_text(encoding="utf-8")

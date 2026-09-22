@@ -83,13 +83,6 @@ on:
         type: string
         required: false
         default: ""
-      governance-root:
-        description: >
-          Compatibility-only governance source. Omit to use the immutable
-          governance bundle shipped by Core.
-        type: string
-        required: false
-        default: "@core-defaults"
       artifact-retention-days:
         type: number
         required: false
@@ -212,7 +205,6 @@ jobs:
           event-name: ${{ steps.contract.outputs.event }}
           repository: ${{ github.repository }}
           ref: ${{ github.ref }}
-          governance-root: ${{ inputs.governance-root }}
       - id: names
         name: Resolve artifact name
         env:

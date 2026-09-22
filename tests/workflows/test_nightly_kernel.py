@@ -7,6 +7,8 @@ import re
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 NIGHTLY = ROOT / ".github/workflows/nightly.yml"
 PROFILES = ROOT / ".github/governance/execution-profiles.yaml"
@@ -69,6 +71,15 @@ class NightlyKernelTests(unittest.TestCase):
             self.text,
             re.compile(r"(?m)^\s+language:\s+\$\{\{\s*inputs\.language\s*\}\}\s*$"),
         )
+
+    def test_language_defaults_to_an_empty_optional_assertion(self) -> None:
+        document = yaml.safe_load(self.text)
+        trigger = document[True] if True in document else document["on"]
+        language = trigger["workflow_call"]["inputs"]["language"]
+        self.assertFalse(language["required"])
+        self.assertEqual("", language["default"])
+        self.assertIn("Optional compatibility assertion", language["description"])
+        self.assertIn("language: ${{ inputs.language }}", self.text)
 
     def test_jobs_are_analyze_tests_and_summary_only(self) -> None:
         jobs_block = self.text.split("jobs:", 1)[1]

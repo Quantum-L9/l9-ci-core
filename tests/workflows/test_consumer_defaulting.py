@@ -24,8 +24,7 @@ class ConsumerDefaultingTests(unittest.TestCase):
         self.assertEqual("", inputs["profile"]["default"])
         self.assertFalse(inputs["matrix-id"]["required"])
         self.assertEqual("pr-semgrep", inputs["matrix-id"]["default"])
-        self.assertFalse(inputs["governance-root"]["required"])
-        self.assertEqual("@core-defaults", inputs["governance-root"]["default"])
+        self.assertNotIn("governance-root", inputs)
         self.assertFalse(inputs["language"]["required"])
         self.assertEqual("", inputs["language"]["default"])
 
@@ -51,9 +50,9 @@ class ConsumerDefaultingTests(unittest.TestCase):
 
     def test_governance_resolution_uses_bundled_core_defaults(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("governance-root: ${{ inputs.governance-root }}", text)
+        self.assertNotIn("governance-root", text)
         self.assertNotIn("default: .github/governance", text)
-        self.assertIn("Compatibility-only governance source", text)
+        self.assertIn("Resolve governance (Core)", text)
 
     def test_sdk_detects_language_instead_of_requiring_a_consumer_choice(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

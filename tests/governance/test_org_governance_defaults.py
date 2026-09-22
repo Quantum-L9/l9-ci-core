@@ -116,7 +116,7 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
                 if mode == "disabled":
                     self.assertFalse(required)
 
-    def test_core_defaults_token_ignores_consumer_workspace(self) -> None:
+    def test_core_defaults_ignore_consumer_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             with unittest.mock.patch.dict(
                 os.environ,
@@ -125,14 +125,13 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
             ):
                 self.assertEqual(
                     DEFAULTS_ROOT.resolve(),
-                    module.governance_path(module.CORE_DEFAULTS_SENTINEL),
+                    module.core_defaults_path(),
                 )
 
-    def test_action_defaults_to_core_bundle(self) -> None:
+    def test_action_exposes_no_governance_root(self) -> None:
         text = ACTION_PATH.read_text(encoding="utf-8")
-        self.assertIn('default: "@core-defaults"', text)
-        self.assertNotIn("default: .github/governance", text)
-        self.assertIn("Callers normally omit this input.", text)
+        self.assertNotIn("governance-root", text)
+        self.assertNotIn("L9_GOVERNANCE_ROOT", text)
         self.assertIn("identity-map-directory:", text)
         self.assertIn("steps.resolve.outputs.identity-map-directory", text)
 
@@ -144,7 +143,6 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
                 "L9_EVENT_NAME": "pull_request",
                 "L9_REPOSITORY": "Quantum-L9/example",
                 "L9_REF": "refs/heads/main",
-                "L9_GOVERNANCE_ROOT": module.CORE_DEFAULTS_SENTINEL,
                 "GITHUB_WORKSPACE": temp,
             }
             captured = io.StringIO()
@@ -165,7 +163,15 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
             output,
         )
         self.assertIn("governance-digest=", output)
-        self.assertEqual(64, len(module.canonical_digest(DEFAULTS_ROOT)))
+        selected_policy = module.select_policy(
+            self.documents,
+            "pr_fast",
+            DEFAULTS_ROOT,
+        )
+        self.assertEqual(
+            64,
+            len(module.canonical_digest(DEFAULTS_ROOT, selected_policy)),
+        )
 
     def test_resolve_policy_stages_bundled_file_into_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -364,7 +370,12 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
             self.assertFalse(outside.exists())
 
     def test_governance_digest_binds_the_bundled_identity_map_bytes(self) -> None:
-        baseline = module.canonical_digest(DEFAULTS_ROOT)
+        selected_policy = module.select_policy(
+            self.documents,
+            "pr_fast",
+            DEFAULTS_ROOT,
+        )
+        baseline = module.canonical_digest(DEFAULTS_ROOT, selected_policy)
         with tempfile.TemporaryDirectory() as temp:
             maps_root = Path(temp)
             for filename in module.IDENTITY_MAP_FILENAMES:
@@ -374,18 +385,32 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
             modified.write_bytes(modified.read_bytes() + b"\n")
             self.assertNotEqual(
                 baseline,
-                module.canonical_digest(DEFAULTS_ROOT, maps_root),
+                module.canonical_digest(
+                    DEFAULTS_ROOT,
+                    selected_policy,
+                    maps_root,
+                ),
             )
 
-    def test_workspace_override_cannot_escape_consumer_workspace(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            with unittest.mock.patch.dict(
-                os.environ,
-                {"GITHUB_WORKSPACE": temp},
-                clear=False,
-            ):
-                with self.assertRaises(module.GovernanceError):
-                    module.governance_path("../outside")
+    def test_governance_digest_binds_selected_policy_filename_and_raw_bytes(
+        self,
+    ) -> None:
+        selected_policy = module.select_policy(
+            self.documents,
+            "pr_fast",
+            DEFAULTS_ROOT,
+        )
+        assert selected_policy is not None
+        filename, payload = selected_policy
+        baseline = module.canonical_digest(DEFAULTS_ROOT, selected_policy)
+        self.assertNotEqual(
+            baseline,
+            module.canonical_digest(DEFAULTS_ROOT, (f"copy-{filename}", payload)),
+        )
+        self.assertNotEqual(
+            baseline,
+            module.canonical_digest(DEFAULTS_ROOT, (filename, payload + b"\n")),
+        )
 
 
 if __name__ == "__main__":

@@ -313,7 +313,6 @@ jobs:
           event-name: ${{ steps.runtime.outputs['event-class'] }}
           repository: ${{ github.repository }}
           ref: ${{ github.ref }}
-          governance-root: "@core-defaults"
 
       - name: Validate consumer waiver pointers
         env:

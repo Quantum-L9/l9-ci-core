@@ -70,10 +70,12 @@ on:
         required: false
         default: false
       language:
-        description: SDK semgrep language ruleset ("python" or "typescript").
+        description: >
+          Optional compatibility assertion (python or typescript). Empty leaves
+          SDK capability detection authoritative.
         type: string
         required: false
-        default: python
+        default: ""
 permissions:
   contents: read
   packages: read
