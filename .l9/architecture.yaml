@@ -56,6 +56,7 @@ owned_by_core:
   - exact CI tool-version selection
   - consumer metadata validation
   - artifact routing and retention
+  - artifact transport handoff descriptors and verified retrieval
   - technical gate enforcement
   - GitHub check publication
   - workflow summaries and annotations

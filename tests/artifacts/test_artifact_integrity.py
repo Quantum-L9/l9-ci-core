@@ -248,6 +248,12 @@ class ArtifactIntegrityTests(unittest.TestCase):
             environment = {
                 "GITHUB_WORKSPACE": str(workspace),
                 "L9_DESTINATION": "download",
+                "L9_ARTIFACT_NAME": ARTIFACT_NAME,
+                "L9_MATRIX_ID": "python-3.12",
+                "L9_PROVIDER": "semgrep",
+                "L9_REPOSITORY": "Quantum-L9/example",
+                "L9_REPOSITORY_REVISION": REVISION,
+                "L9_SDK_REVISION": SDK_REVISION,
             }
             with patch.dict(os.environ, environment, clear=True):
                 self.assertEqual(0, prepare.main())

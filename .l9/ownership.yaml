@@ -31,6 +31,8 @@ core_owns:
     - fail-closed consistency checks against SDK detection
   publication:
     - artifact retention
+    - artifact transport handoff descriptors
+    - artifact source and byte-integrity verification
     - check publication
     - summaries
     - annotations

@@ -1,0 +1,59 @@
+name: Create artifact handoff descriptor
+description: >
+  Emits a closed, canonical Core transport descriptor from validated identities
+  and the immutable outputs of a successful actions/upload-artifact step.
+inputs:
+  artifact-id:
+    description: Immutable GitHub artifact ID returned by upload-artifact.
+    required: true
+  artifact-name:
+    description: Exact uploaded artifact name.
+    required: true
+  artifact-digest:
+    description: SHA-256 archive digest returned by upload-artifact.
+    required: true
+  provider:
+    required: true
+  matrix-id:
+    required: true
+  repository:
+    description: owner/name identity of the analyzed repository.
+    required: true
+  repository-revision:
+    description: Full immutable revision of the analyzed repository.
+    required: true
+  sdk-revision:
+    description: Full immutable SDK revision used for the analysis.
+    required: true
+  output:
+    description: New workspace-relative destination for the descriptor JSON.
+    required: true
+outputs:
+  descriptor:
+    description: Canonical single-line l9.core-artifact-handoff/v1 JSON.
+    value: ${{ steps.create.outputs.descriptor }}
+  descriptor-path:
+    description: Safe workspace-relative path to the descriptor JSON.
+    value: ${{ steps.create.outputs.descriptor-path }}
+  descriptor-digest:
+    description: SHA-256 digest of the canonical descriptor bytes.
+    value: ${{ steps.create.outputs.descriptor-digest }}
+runs:
+  using: composite
+  steps:
+    - id: create
+      name: Create canonical handoff descriptor
+      shell: bash
+      env:
+        L9_ARTIFACT_ID: ${{ inputs.artifact-id }}
+        L9_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        L9_ARTIFACT_DIGEST: ${{ inputs.artifact-digest }}
+        L9_PROVIDER: ${{ inputs.provider }}
+        L9_MATRIX_ID: ${{ inputs.matrix-id }}
+        L9_REPOSITORY: ${{ inputs.repository }}
+        L9_REPOSITORY_REVISION: ${{ inputs.repository-revision }}
+        L9_SDK_REVISION: ${{ inputs.sdk-revision }}
+        L9_PRODUCER_REPOSITORY: ${{ github.repository }}
+        L9_PRODUCER_RUN_ID: ${{ github.run_id }}
+        L9_HANDOFF_OUTPUT: ${{ inputs.output }}
+      run: python3 "${{ github.action_path }}/handoff.py"
