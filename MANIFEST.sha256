@@ -20,6 +20,7 @@
 08892ad69f9936ac9f727273c3110b4a25fd1aac0e3026aa91e5d964e3e9c629  docs/pipeline-runs/2026-09-07/evidence/repo-state/l9-harness.txt
 08edd67f3cc9a9c944bd27a8e78543c2f70ee4c56177d331a108ba1b94f90e6e  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/core_to_sdk/finding-bundle.json
 08edd67f3cc9a9c944bd27a8e78543c2f70ee4c56177d331a108ba1b94f90e6e  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/sdk_to_assurance/finding-bundle.json
+09c7b3e2492130b063ef90d235930284ac9c7c9eecc671659f4a478ff6f53c5c  .github/workflows/org-ci.yml
 0a15f2aa22225e3287ec51def491f1c1f6d8f42a23a3cf73dd48cd5ffa9c146a  tests/tools/test_l9_repo_change_policy.py
 0a167be4321097161f2753c1a2d48cac38ca898a06bc091a78c528f7f001df62  .github/workflows/pr-pipeline.yml
 0aff39f660924f6bbddee82fc77a9ecdd1bef8d9a408104e9b80182f21712e32  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/sdk_to_assurance/negative/n2-out-of-range-sdk-version/out/admission-report.json
@@ -68,7 +69,6 @@
 23028ff5cc03ea0cc3d4e8438fa8f9bf05f8a5a32dc15cc50d2c68648fd2f66b  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/pr_repair_standalone/runtime-output/learning_report.md
 232201588017953e189e0fb38908c5bb7148cf29cac010b438b69a1ea5136df0  .github/workflows/baseline-ratchet.yml
 2326b15be5ede9dd8ac4a9572adef26daf46106a7e9d9ca5d62de9796f6e3b56  tests/workflows/test_workflow_integrity_clean.py
-242869b3248fbf24ba2218111ce8810fdf05e18ac06e7c7264d766709f436223  .github/workflows/org-ci.yml
 2568b17754765a52b86d5ef4579a981387186cb5146832218b8cf3f7f9205127  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/pr_repair_standalone/runtime-output/repair_plans.yaml
 257f3d30f93ba6447eb01adfd1d235b6d7f04c9961da6e246a7c04391f177209  docs/pipeline-runs/2026-09-07/evidence/layer-3/payloads/editor_advisory/episode-census.json
 2681b5533d5ca188d1daa78dbcdd10ef089b5bed455178bcc6b10afc2ca8471b  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/resolver_to_intelligence/final/resolver-delivery-receipt.json
@@ -81,6 +81,7 @@
 2b1f041cb6f78eda3e92fafd15e52d45fd8e71518651504b7b3a5b36e00ab338  docs/pipeline-runs/2026-09-07/evidence/repo-state/l9-ci-sdk.txt
 2b8396a732ab78fc4f4ef66fc7d767578d76767655f401087364279a4fce68fd  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/resolver_to_intelligence/final/index.json
 2b8546386494b39127e2fc99baaba9848510041d629757fc7add9ec36e7135a8  docs/pipeline-runs/2026-09-07/evidence/layer-4/receipts/input-presence.json
+2c35e938983dfd150ca5749e969bf647764677361183e6356cab1b232c5618d1  tests/workflows/test_org_repository_verification.py
 2cd9c5bc7b45f1896a201e76000c87490f1b7c758b01ea5620c11e766f69d876  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/pr_repair_standalone/runtime-output/findings_merged.json
 2cd9c5bc7b45f1896a201e76000c87490f1b7c758b01ea5620c11e766f69d876  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/pr_repair_standalone/runtime-output/prs/pr_123/findings_classified.json
 2dc65f8530812ae2f7c01ee6d688b128d605f2fe1ea81b3a4e1e40346f5824dc  docs/pipeline-runs/2026-09-07/evidence/layer-3/payloads/ci_evidence/profile-evidence/admission/accepted/ev_1b56c327360036e425c05992f9f3c1466732f34a.json
@@ -338,7 +339,6 @@ a3859901cbebac1d49ff7b334a8635a6db6245fde7de5237d26a2becda32203a  .l9/repo-spec.
 a48510f2413b58e2c5f44d3638e8386564eeffb80e428b58288054f62c9ca172  .github/actions/publish-check/publish.py
 a52c9fc093d4ef2fa25730ff62dadd954f8bfd67a775c1805cbf0fbd273e5e3e  docs/pipeline-runs/2026-09-07/evidence/04-organism-receipt.json
 a604d2fc999303a04316269dfb1141c3fa9c5d4c30426e5a80f91ddfb2f89f63  docs/pipeline-runs/2026-09-07/evidence/layer-4/receipts/version-consistency.json
-a6125b0905c7998ca3162068a250c2ccd9d15dcfd8082a8c9ca78cb5511bf359  tests/workflows/test_org_repository_verification.py
 a65d5542ec26e5509af4cc4b9e9501c3ce51c6caabf4fe005afb764566bcf310  .github/actions/validate-release/action.yml
 a68db0286fec244b4e39e2024381cac68bf28a83e0a27829debd778186fa36eb  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/resolver_to_intelligence/final/intelligence-ingestion-receipt.json
 a701020e01bbc3c21384e4911a18db3b21b687a11455b5ff0d8cac13cac376b9  skills/l9-ci-activation-typescript/SKILL.md
