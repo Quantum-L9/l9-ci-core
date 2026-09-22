@@ -369,16 +369,22 @@ def _write_output(path: pathlib.Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _render_makefile(output: pathlib.Path | None) -> None:
-    if output is None:
-        return
+def _load_makefile_template() -> str:
     try:
-        content = MAKEFILE_TEMPLATE_PATH.read_text(encoding="utf-8")
+        return MAKEFILE_TEMPLATE_PATH.read_text(encoding="utf-8")
     except FileNotFoundError as error:
         raise CompilerError(
             f"Makefile template is missing: {MAKEFILE_TEMPLATE_PATH}"
         ) from error
-    _write_output(output, content)
+
+
+def _render_makefile(*outputs: pathlib.Path | None) -> None:
+    paths = [output for output in outputs if output is not None]
+    if not paths:
+        return
+    content = _load_makefile_template()
+    for output in paths:
+        _write_output(output, content)
 
 
 def render(
@@ -386,6 +392,7 @@ def render(
     output: pathlib.Path,
     local: pathlib.Path | None,
     makefile: pathlib.Path | None = None,
+    legacy_makefile_template: pathlib.Path | None = None,
 ) -> None:
     plan = load_plan(plan_path)
     generated_targets = [
@@ -395,7 +402,7 @@ def render(
     if local is not None:
         validate_local_extensions(local, generated_targets)
     _write_output(output, render_repo_mk(plan))
-    _render_makefile(makefile)
+    _render_makefile(makefile, legacy_makefile_template)
     print(f"rendered {output}")
 
 
@@ -404,6 +411,7 @@ def check(
     output: pathlib.Path,
     local: pathlib.Path | None,
     makefile: pathlib.Path | None = None,
+    legacy_makefile_template: pathlib.Path | None = None,
 ) -> None:
     plan = load_plan(plan_path)
     generated_targets = [
@@ -419,15 +427,19 @@ def check(
         raise CompilerError(f"generated output is missing: {output}") from error
     if actual != expected:
         raise CompilerError(f"generated output drifted: {output}; run make make-render")
-    if makefile is not None:
+    expected_makefile = _load_makefile_template()
+    for makefile_artifact in (makefile, legacy_makefile_template):
+        if makefile_artifact is None:
+            continue
         try:
-            expected_makefile = MAKEFILE_TEMPLATE_PATH.read_text(encoding="utf-8")
-            actual_makefile = makefile.read_text(encoding="utf-8")
+            actual_makefile = makefile_artifact.read_text(encoding="utf-8")
         except FileNotFoundError as error:
-            raise CompilerError(f"generated Makefile is missing: {makefile}") from error
+            raise CompilerError(
+                f"generated Makefile is missing: {makefile_artifact}"
+            ) from error
         if actual_makefile != expected_makefile:
             raise CompilerError(
-                f"generated Makefile drifted: {makefile}; run make reconcile"
+                f"generated Makefile drifted: {makefile_artifact}; run make reconcile"
             )
     print(f"verified {output}")
 
@@ -441,6 +453,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--output", type=pathlib.Path, required=True)
         subparser.add_argument("--local", type=pathlib.Path)
         subparser.add_argument("--makefile", type=pathlib.Path)
+        subparser.add_argument("--legacy-makefile-template", type=pathlib.Path)
     return parser
 
 
@@ -448,9 +461,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "render":
-            render(args.plan, args.output, args.local, args.makefile)
+            render(
+                args.plan,
+                args.output,
+                args.local,
+                args.makefile,
+                args.legacy_makefile_template,
+            )
         else:
-            check(args.plan, args.output, args.local, args.makefile)
+            check(
+                args.plan,
+                args.output,
+                args.local,
+                args.makefile,
+                args.legacy_makefile_template,
+            )
     except CompilerError as error:
         print(f"l9_make: {error}", file=sys.stderr)
         return 2

@@ -33,6 +33,9 @@ class MakeCompilerTests(unittest.TestCase):
         self.plan_path = self.root / "make-plan.json"
         self.output_path = self.root / "Repo.mk"
         self.makefile_path = self.root / "Makefile"
+        self.legacy_template_path = (
+            self.root / "tools" / "l9_repo" / "Makefile.template"
+        )
         self.local_path = self.root / "Repo.local.mk"
         self.local_path.write_text("# repository extension layer\n", encoding="utf-8")
         self.plan_path.write_text(
@@ -96,13 +99,37 @@ class MakeCompilerTests(unittest.TestCase):
         self.assertEqual(plan_digest(plan), plan_digest(load_plan(self.plan_path)))
 
     def test_render_and_check_are_deterministic_and_stateful(self) -> None:
-        render(self.plan_path, self.output_path, self.local_path, self.makefile_path)
+        render(
+            self.plan_path,
+            self.output_path,
+            self.local_path,
+            self.makefile_path,
+            self.legacy_template_path,
+        )
         first = self.output_path.read_text(encoding="utf-8")
         first_makefile = self.makefile_path.read_text(encoding="utf-8")
-        render(self.plan_path, self.output_path, self.local_path, self.makefile_path)
+        first_legacy_template = self.legacy_template_path.read_text(encoding="utf-8")
+        render(
+            self.plan_path,
+            self.output_path,
+            self.local_path,
+            self.makefile_path,
+            self.legacy_template_path,
+        )
         self.assertEqual(first, self.output_path.read_text(encoding="utf-8"))
         self.assertEqual(first_makefile, self.makefile_path.read_text(encoding="utf-8"))
-        check(self.plan_path, self.output_path, self.local_path, self.makefile_path)
+        self.assertEqual(
+            first_legacy_template,
+            self.legacy_template_path.read_text(encoding="utf-8"),
+        )
+        self.assertEqual(first_makefile, first_legacy_template)
+        check(
+            self.plan_path,
+            self.output_path,
+            self.local_path,
+            self.makefile_path,
+            self.legacy_template_path,
+        )
         self.assertIn("repo-capabilities:", first)
         self.assertIn("repo-build:", first)
         self.assertIn("NOT_REQUIRED: build - fixture has no build artifact", first)
@@ -125,6 +152,24 @@ class MakeCompilerTests(unittest.TestCase):
         self.makefile_path.write_text("drift\n", encoding="utf-8")
         with self.assertRaisesRegex(CompilerError, "Makefile drifted"):
             check(self.plan_path, self.output_path, self.local_path, self.makefile_path)
+
+    def test_check_rejects_legacy_compatibility_projection_drift(self) -> None:
+        render(
+            self.plan_path,
+            self.output_path,
+            self.local_path,
+            self.makefile_path,
+            self.legacy_template_path,
+        )
+        self.legacy_template_path.write_text("drift\n", encoding="utf-8")
+        with self.assertRaisesRegex(CompilerError, "Makefile drifted"):
+            check(
+                self.plan_path,
+                self.output_path,
+                self.local_path,
+                self.makefile_path,
+                self.legacy_template_path,
+            )
 
     def test_schema_rejects_missing_or_unapproved_contract_fields(self) -> None:
         data = self.plan_data()

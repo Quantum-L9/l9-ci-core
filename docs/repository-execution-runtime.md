@@ -80,6 +80,13 @@ makes the whole Makefile unparseable, so the bootstrap recovery path bypasses
 python3 -m tools.l9_repo reconcile
 ```
 
+`tools/l9_make/Makefile.template` is the sole source for the generated root
+facade. During the currently pinned Organization CI transition,
+`tools/l9_repo/Makefile.template` is retained only as a byte-identical,
+compiler-generated compatibility projection. The compiler renders and checks
+both paths; no runtime reads that compatibility path as source authority. Remove
+the projection only after the pinned repository-verification action advances.
+
 `Repo.mk` and `Repo.local.mk` may not implement organization governance, and
 neither defines a `pr`, `push`, `release`, or `deploy` target. The compiler does
 not inspect the repository, infer languages, invoke providers, or own SDK

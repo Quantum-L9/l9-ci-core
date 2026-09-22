@@ -26,10 +26,10 @@ reconcile: ## Regenerate both Make artifacts from the authoritative capability p
 	@$(L9_REPO) reconcile
 
 make-render: ## Render generated Makefile and Repo.mk from Core's approved capability plan
-	@$(L9_MAKE) render --plan tools/l9_make/default-capability-plan.json --output Repo.mk --local Repo.local.mk --makefile Makefile
+	@$(L9_MAKE) render --plan tools/l9_make/default-capability-plan.json --output Repo.mk --local Repo.local.mk --makefile Makefile --legacy-makefile-template tools/l9_repo/Makefile.template
 
 make-check: ## Verify generated Make artifacts and local target boundaries
-	@$(L9_MAKE) check --plan tools/l9_make/default-capability-plan.json --output Repo.mk --local Repo.local.mk --makefile Makefile
+	@$(L9_MAKE) check --plan tools/l9_make/default-capability-plan.json --output Repo.mk --local Repo.local.mk --makefile Makefile --legacy-makefile-template tools/l9_repo/Makefile.template
 
 # Read-only attestation of the live GitHub control plane against
 # .l9/release-plane.yaml. Needs a credential in L9_CONTROL_PLANE_TOKEN,

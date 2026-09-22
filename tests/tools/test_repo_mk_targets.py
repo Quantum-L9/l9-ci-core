@@ -101,6 +101,10 @@ class RepoMkTargetTests(unittest.TestCase):
                 self.assertIn(f" {command} ", recipe.group("body"))
                 self.assertIn("--local Repo.local.mk", recipe.group("body"))
                 self.assertIn("--makefile Makefile", recipe.group("body"))
+                self.assertIn(
+                    "--legacy-makefile-template tools/l9_repo/Makefile.template",
+                    recipe.group("body"),
+                )
 
     def test_script_targets_invoke_existing_scripts(self) -> None:
         scripts = set(RECIPE_SCRIPT.findall(REPO_LOCAL.read_text(encoding="utf-8")))

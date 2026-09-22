@@ -286,6 +286,11 @@ vocabulary and Governance delegation.
 `tools/l9_make` validates the authoritative `l9.make-plan/v1` schema and
 renders deterministic `Repo.mk` output from a resolved capability plan.
 
+`tools/l9_repo/Makefile.template` is a byte-identical compiler-generated
+compatibility projection retained only for the currently pinned Organization CI
+action. It is not source authority and must be rendered and checked together
+with `Makefile`; remove it only when the CI pin advances.
+
 Standard capability names are `doctor`, `setup`, `build`, `lint`, `test`,
 `validate`, `package`, `generate`, `benchmark`, `status`, and `clean`; inspect
 their explicit `supported`, `not_required`, or `unsupported` state with

@@ -50,6 +50,7 @@ SCHEMA_PATH = pathlib.Path(".l9/repo-workflow.schema.json")
 MAKE_PLAN_PATH = pathlib.Path("tools/l9_make/default-capability-plan.json")
 REPO_MK_PATH = pathlib.Path("Repo.mk")
 REPO_LOCAL_MK_PATH = pathlib.Path("Repo.local.mk")
+LEGACY_MAKEFILE_TEMPLATE_PATH = pathlib.Path("tools/l9_repo/Makefile.template")
 
 # Semantic version "x.y.z" has exactly three dot-separated components.
 _SEMVER_COMPONENT_COUNT = 3
@@ -1037,6 +1038,7 @@ class RepositoryWorkflow:
                 self.root / REPO_MK_PATH,
                 self.root / REPO_LOCAL_MK_PATH,
                 makefile,
+                self.root / LEGACY_MAKEFILE_TEMPLATE_PATH,
             )
         except MakeCompilerError as error:
             _fail(f"generated Make artifact integrity failure: {error}")
@@ -1143,6 +1145,7 @@ class RepositoryWorkflow:
                         self.root / REPO_MK_PATH,
                         self.root / REPO_LOCAL_MK_PATH,
                         self.root / "Makefile",
+                        self.root / LEGACY_MAKEFILE_TEMPLATE_PATH,
                     )
                 except MakeCompilerError as error:
                     _fail(f"generated Make artifact reconciliation failure: {error}")

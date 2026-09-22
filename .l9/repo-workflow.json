@@ -77,7 +77,9 @@
         "--local",
         "Repo.local.mk",
         "--makefile",
-        "Makefile"
+        "Makefile",
+        "--legacy-makefile-template",
+        "tools/l9_repo/Makefile.template"
       ]
     ],
     "check": [
