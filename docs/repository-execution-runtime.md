@@ -127,8 +127,9 @@ approved producer contract before it can replace the Core-default plan.
 - `make wiring-check`, `make start`, `make workspace-clean`, `make pr`: delegate
   to Cursor-Governance through the `l9` dispatcher.
 
-Repository-specific targets live in `Repo.mk`. The release-assurance helpers are
-not part of the common facade:
+Repository-specific targets live in the optional `Repo.local.mk` extension
+layer. The generated `Repo.mk` contains only the standard capability bindings.
+The release-assurance helpers are not part of the common facade:
 
 - `make check-release-writers`: run `tools/check_release_writers.py`, which
   proves exactly one authorized executable surface can mutate the exact

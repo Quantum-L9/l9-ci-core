@@ -130,6 +130,17 @@ class RepoMkTargetTests(unittest.TestCase):
         for target in ("make-render", "make-check", "capabilities"):
             self.assertIn(f"`make {target}`", runtime)
 
+    def test_runtime_docs_assign_repository_extensions_to_local_layer(self) -> None:
+        runtime = RUNTIME_DOC.read_text(encoding="utf-8")
+        self.assertIn(
+            "Repository-specific targets live in the optional `Repo.local.mk`", runtime
+        )
+        self.assertIn(
+            "generated `Repo.mk` contains only the standard capability bindings",
+            runtime,
+        )
+        self.assertNotIn("Repository-specific targets live in `Repo.mk`", runtime)
+
     def test_compiler_and_release_targets_are_documented_for_agents(self) -> None:
         agents = AGENTS.read_text(encoding="utf-8")
         for target in (
