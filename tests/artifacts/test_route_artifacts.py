@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hashlib
 import importlib.util
+import json
 import os
 import tempfile
 import unittest
@@ -23,6 +24,7 @@ class RouteArtifactTests(unittest.TestCase):
     def test_canonical_files_are_copied_byte_for_byte(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
+            output = workspace / "outputs"
             raw = workspace / "source/raw.json"
             bundle = workspace / "source/bundle.json"
             payload = workspace / "source/payload.json"
@@ -38,6 +40,7 @@ class RouteArtifactTests(unittest.TestCase):
                 "L9_BUNDLE": str(bundle),
                 "L9_AGENT_PAYLOAD": str(payload),
                 "L9_DESTINATION_ROOT": "artifacts",
+                "GITHUB_OUTPUT": str(output),
             }
             with patch.dict(os.environ, environment, clear=True):
                 result = module.main()
@@ -48,6 +51,30 @@ class RouteArtifactTests(unittest.TestCase):
             )
             self.assertEqual(digest(bundle), digest(routed_bundle))
             self.assertEqual(digest(payload), digest(routed_payload))
+            values = dict(
+                line.split("=", 1)
+                for line in output.read_text(encoding="utf-8").splitlines()
+            )
+            self.assertEqual(
+                "artifacts/l9/python-3.12/finding-bundle.json",
+                values["bundle"],
+            )
+            self.assertFalse(Path(values["bundle"]).is_absolute())
+            self.assertEqual(
+                "artifacts/metadata/python-3.12/routing-record.json",
+                values["routing-record"],
+            )
+            record = json.loads(
+                (
+                    workspace / "artifacts/metadata/python-3.12/routing-record.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual("l9.core-routing-record/v2", record["schema"])
+            self.assertEqual(".", record["artifact_root"])
+            self.assertEqual(
+                "l9/python-3.12/finding-bundle.json",
+                record["artifacts"]["bundle"]["path"],
+            )
 
     def test_invalid_matrix_identifier_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -128,6 +155,31 @@ class RouteArtifactTests(unittest.TestCase):
                     self.assertEqual(2, module.main())
             finally:
                 outside.unlink(missing_ok=True)
+
+    def test_symlinked_destination_root_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            environment = self._base_environment(workspace)
+            outside = workspace.parent / f"{workspace.name}-outside"
+            outside.mkdir()
+            (workspace / "artifacts").symlink_to(outside, target_is_directory=True)
+            try:
+                with patch.dict(os.environ, environment, clear=True):
+                    self.assertEqual(2, module.main())
+            finally:
+                (workspace / "artifacts").unlink()
+                outside.rmdir()
+
+    def test_stale_destination_file_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            environment = self._base_environment(workspace)
+            stale = workspace / "artifacts/l9/python-3.12/finding-bundle.json"
+            stale.parent.mkdir(parents=True)
+            stale.write_text("stale\n", encoding="utf-8")
+            with patch.dict(os.environ, environment, clear=True):
+                self.assertEqual(2, module.main())
+            self.assertEqual("stale\n", stale.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

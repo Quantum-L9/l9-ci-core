@@ -1,20 +1,41 @@
-name: Build artifact manifest
+name: Build artifact integrity index
 description: >
-  Creates deterministic Core metadata over already validated artifacts.
+  Creates a deterministic, relocatable Core integrity index over the complete
+  routed artifact tree without interpreting SDK-owned artifact content.
 inputs:
   provider:
     required: true
   matrix-id:
     required: true
+  artifact-name:
+    description: Exact immutable GitHub Actions artifact name used for upload.
+    required: true
+  repository:
+    description: owner/name identity of the analyzed repository.
+    required: true
+  repository-revision:
+    description: Full immutable revision of the analyzed repository.
+    required: true
   sdk-revision:
     required: true
+  artifact-root:
+    description: Root of the complete tree that will be uploaded.
+    required: false
+    default: artifacts
   bundle:
+    description: Routed SDK-produced finding bundle.
     required: true
   agent-payload:
+    description: Routed SDK-produced agent-review projection.
     required: true
   raw-directory:
+    description: Routed provider-native report directory.
+    required: true
+  routing-record:
+    description: Routed Core metadata record.
     required: true
   output:
+    description: Integrity-index path under artifact-root/metadata/{matrix-id}/.
     required: true
 runs:
   using: composite
@@ -23,9 +44,14 @@ runs:
       env:
         L9_PROVIDER: ${{ inputs.provider }}
         L9_MATRIX_ID: ${{ inputs.matrix-id }}
+        L9_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        L9_REPOSITORY: ${{ inputs.repository }}
+        L9_REPOSITORY_REVISION: ${{ inputs.repository-revision }}
         L9_SDK_REVISION: ${{ inputs.sdk-revision }}
+        L9_ARTIFACT_ROOT: ${{ inputs.artifact-root }}
         L9_BUNDLE: ${{ inputs.bundle }}
         L9_AGENT_PAYLOAD: ${{ inputs.agent-payload }}
         L9_RAW_DIRECTORY: ${{ inputs.raw-directory }}
+        L9_ROUTING_RECORD: ${{ inputs.routing-record }}
         L9_MANIFEST_OUTPUT: ${{ inputs.output }}
       run: python3 "${{ github.action_path }}/manifest.py"

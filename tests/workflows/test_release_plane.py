@@ -10,8 +10,12 @@ rather than an archaeology exercise.
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -270,11 +274,197 @@ class ReleasePlaneAgreesWithSiblingContractsTests(unittest.TestCase):
         self.assertIn(".l9/release-plane.yaml", validator)
         self.assertNotIn("version: 2.0.0", validator)
 
+    def test_release_validation_binds_both_triggers_to_annotated_tag_identity(
+        self,
+    ) -> None:
+        identity = self.plane["core_release"]["validation"]["post_tag_identity"]
+        self.assertEqual("exact_refs_tags_name", identity["remote_ref_source"])
+        self.assertEqual("annotated", identity["tag_object_required"])
+        self.assertEqual("direct_commit", identity["target_type"])
+        self.assertEqual("peeled_commit", identity["checkout"])
+        self.assertTrue(identity["push_event_sha_must_equal_peeled_commit"])
+        self.assertTrue(identity["manual_dispatch_resolves_same_remote_ref"])
+        self.assertFalse(identity["mutating"])
+
+        text = RELEASE_VALIDATION.read_text(encoding="utf-8")
+        self.assertRegex(text, r"(?m)^\s+contents:\s+read\s*$")
+        self.assertIn('"refs/tags/${tag}"', text)
+        self.assertIn("fetch --no-tags --depth=1", text)
+        self.assertIn("git cat-file -t FETCH_HEAD", text)
+        self.assertIn('"${direct_type}" == "commit"', text)
+        self.assertIn('"${EVENT_SHA}" != "${commit}"', text)
+        self.assertIn('git checkout --detach "${commit}"', text)
+        self.assertNotRegex(text, r"(?m)^\s+git\s+(?:tag|push)\b")
+        self.assertNotRegex(
+            text,
+            r"(?m)^\s+(?:gh\s+(?:release|api)|curl\s+-X\s+(?:POST|PATCH|PUT|DELETE))\b",
+        )
+
+        action = load(VALIDATE_RELEASE_ACTION / "action.yml")
+        self.assertTrue(action["inputs"]["tag-object"]["required"])
+        self.assertTrue(action["inputs"]["release-commit"]["required"])
+        action_text = (VALIDATE_RELEASE_ACTION / "action.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('L9_RELEASE_PREFLIGHT: "false"', action_text)
+        self.assertIn(
+            "steps.release.outputs.tag-object",
+            text,
+        )
+        self.assertIn("steps.release.outputs.commit", text)
+
     def test_repo_spec_declares_an_exact_release_version(self) -> None:
         version = str(load(REPO_SPEC)["metadata"]["version"])
         self.assertRegex(
             version, r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"
         )
+
+
+class ReleaseIdentityResolutionWorkflowTests(unittest.TestCase):
+    """Execute the workflow's resolver against local Git tag fixtures."""
+
+    ANNOTATED_TAG = "v3.4.5"
+    LIGHTWEIGHT_TAG = "v3.4.6"
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.remote = self.tmp / "remote.git"
+        self.source = self.tmp / "source"
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.git(self.tmp, "init", "--bare", "--quiet", str(self.remote))
+        self.git(self.tmp, "init", "--quiet", str(self.source))
+        self.git(self.source, "config", "user.name", "Release Test")
+        self.git(self.source, "config", "user.email", "release-test@example.com")
+        (self.source / "release.txt").write_text("release\n", encoding="utf-8")
+        self.git(self.source, "add", "release.txt")
+        self.git(self.source, "commit", "--quiet", "-m", "release")
+        self.commit = self.git(self.source, "rev-parse", "HEAD")
+        self.git(
+            self.source,
+            "tag",
+            "-a",
+            self.ANNOTATED_TAG,
+            "-m",
+            self.ANNOTATED_TAG,
+        )
+        self.tag_object = self.git(
+            self.source, "rev-parse", f"refs/tags/{self.ANNOTATED_TAG}"
+        )
+        self.git(self.source, "tag", self.LIGHTWEIGHT_TAG)
+        self.git(self.source, "remote", "add", "origin", str(self.remote))
+        self.git(self.source, "push", "--quiet", "origin", "--tags")
+
+        token_url = (
+            "https://x-access-token:test-token@github.com/Quantum-L9/l9-ci-core.git"
+        )
+        self.git(
+            self.tmp,
+            "config",
+            "--file",
+            str(self.home / ".gitconfig"),
+            f"url.file://{self.remote}.insteadOf",
+            token_url,
+        )
+        workflow = load(RELEASE_VALIDATION)
+        self.resolver = workflow["jobs"]["validate"]["steps"][0]["run"]
+
+    @staticmethod
+    def git(cwd: pathlib.Path, *arguments: str) -> str:
+        result = subprocess.run(
+            ["git", *arguments],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
+    def run_resolver(
+        self,
+        *,
+        event_name: str,
+        tag: str,
+        event_sha: str,
+    ) -> tuple[subprocess.CompletedProcess[str], pathlib.Path, dict[str, str]]:
+        workspace = self.tmp / f"run-{event_name}-{tag}"
+        workspace.mkdir()
+        output = workspace / "github-output"
+        env = os.environ.copy()
+        env.update(
+            {
+                "HOME": str(self.home),
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_ALLOW_PROTOCOL": "file",
+                "EVENT_NAME": event_name,
+                "EVENT_REF": f"refs/tags/{tag}",
+                "EVENT_SHA": event_sha,
+                "REF_NAME": tag,
+                "DISPATCH_TAG": tag,
+                "REPOSITORY": "Quantum-L9/l9-ci-core",
+                "TOKEN": "test-token",
+                "GITHUB_OUTPUT": str(output),
+            }
+        )
+        result = subprocess.run(
+            ["bash", "-c", self.resolver],
+            cwd=workspace,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        outputs: dict[str, str] = {}
+        if output.is_file():
+            outputs = dict(
+                line.split("=", 1)
+                for line in output.read_text(encoding="utf-8").splitlines()
+            )
+        return result, workspace, outputs
+
+    def test_manual_dispatch_checks_out_the_peeled_annotated_commit(self) -> None:
+        result, workspace, outputs = self.run_resolver(
+            event_name="workflow_dispatch",
+            tag=self.ANNOTATED_TAG,
+            event_sha="0" * 40,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(self.ANNOTATED_TAG, outputs["tag"])
+        self.assertEqual(self.tag_object, outputs["tag-object"])
+        self.assertEqual(self.commit, outputs["commit"])
+        self.assertEqual(self.commit, self.git(workspace, "rev-parse", "HEAD"))
+
+    def test_lightweight_remote_tag_is_rejected(self) -> None:
+        result, _, outputs = self.run_resolver(
+            event_name="workflow_dispatch",
+            tag=self.LIGHTWEIGHT_TAG,
+            event_sha="0" * 40,
+        )
+        self.assertEqual(2, result.returncode)
+        self.assertIn("not an annotated tag object", result.stderr)
+        self.assertEqual({}, outputs)
+
+    def test_push_event_accepts_the_matching_peeled_commit(self) -> None:
+        result, workspace, outputs = self.run_resolver(
+            event_name="push",
+            tag=self.ANNOTATED_TAG,
+            event_sha=self.commit,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(self.tag_object, outputs["tag-object"])
+        self.assertEqual(self.commit, outputs["commit"])
+        self.assertEqual(self.commit, self.git(workspace, "rev-parse", "HEAD"))
+
+    def test_push_event_sha_must_equal_the_remote_tags_peeled_commit(self) -> None:
+        result, _, outputs = self.run_resolver(
+            event_name="push",
+            tag=self.ANNOTATED_TAG,
+            event_sha="f" * 40,
+        )
+        self.assertEqual(2, result.returncode)
+        self.assertIn("does not match peeled commit", result.stderr)
+        self.assertEqual({}, outputs)
 
 
 class ReleaseDocumentationTests(unittest.TestCase):
@@ -310,6 +500,9 @@ class ReleaseDocumentationTests(unittest.TestCase):
         self.assertNotIn("git archive", code)
         self.assertIn("GITHUB_WORKSPACE=", code[:validator])
         self.assertIn('L9_RELEASE_TAG="${RELEASE_TAG}"', code[:validator])
+        self.assertIn('L9_RELEASE_TAG_OBJECT=""', code[:validator])
+        self.assertIn('L9_RELEASE_COMMIT=""', code[:validator])
+        self.assertIn('L9_RELEASE_PREFLIGHT="true"', code[:validator])
         for mutation in ("git tag -a", "git push origin", "gh release create"):
             self.assertGreater(code.index(mutation), validator, mutation)
         self.assertRegex(code, r"(?m)^\s*die .*preflight failed")

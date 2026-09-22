@@ -20,11 +20,13 @@ boundary:
     - policy classification
     - canonical bundle validation
     - agent-review payload projection
+    - SARIF projection
     - stable semantic exit codes
 publication_inputs:
   canonical:
     - finding-bundle.json
     - agent-review-payload.json
+    - results.sarif
   core_metadata:
     - execution profile
     - governance mode
@@ -59,6 +61,14 @@ invariants:
   - Pull-request source code is never executed in the publication job.
   - Shadow and disabled modes create no GitHub check.
   - Publication metadata must identify the SDK and governance revisions.
+  - Publication and optional SARIF envelopes are locally preflighted before any
+    remote publication side effect.
+  - SARIF preflight validates only the SDK projection transport envelope; Core
+    never parses findings from SARIF.
+  - GitHub check publication uses a deterministic external identity derived from
+    the workflow run ID and matrix ID, excluding the run-attempt number.
+  - A publication retry updates the matching check run instead of creating a
+    duplicate check for the same external identity.
 release_requirements:
   - all architecture tests pass
   - all governance tests pass

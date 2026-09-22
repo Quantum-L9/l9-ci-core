@@ -13,6 +13,7 @@ import importlib.util
 import os
 import pathlib
 import shutil
+import subprocess
 import tempfile
 import unittest
 import unittest.mock
@@ -50,6 +51,9 @@ class ValidateReleaseTests(unittest.TestCase):
         env = {
             "GITHUB_WORKSPACE": str(self.tmp),
             "L9_RELEASE_TAG": tag,
+            "L9_RELEASE_TAG_OBJECT": "",
+            "L9_RELEASE_COMMIT": "",
+            "L9_RELEASE_PREFLIGHT": "true",
             "L9_EXPECTED_VERSION": expected,
         }
         with (
@@ -133,6 +137,179 @@ class ValidateReleaseTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.module.validate_external_action_pins(self.tmp)
+
+
+class ReleaseIdentityTests(unittest.TestCase):
+    """Post-tag validation is bound to an annotated tag and its checkout."""
+
+    TAG = "v3.4.5"
+
+    def setUp(self) -> None:
+        self.module = load_validator()
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.git("init", "--quiet")
+        self.git("config", "user.name", "Release Test")
+        self.git("config", "user.email", "release-test@example.com")
+        (self.tmp / "release.txt").write_text("release\n", encoding="utf-8")
+        self.git("add", "release.txt")
+        self.git("commit", "--quiet", "-m", "release")
+        self.commit = self.git("rev-parse", "HEAD")
+        self.git("tag", "-a", self.TAG, "-m", self.TAG)
+        self.tag_object = self.git("rev-parse", f"refs/tags/{self.TAG}")
+
+    def git(self, *arguments: str) -> str:
+        result = subprocess.run(
+            ["git", *arguments],
+            cwd=self.tmp,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
+    def validate(self, tag: str | None = None) -> None:
+        env = {
+            "L9_RELEASE_TAG_OBJECT": self.tag_object,
+            "L9_RELEASE_COMMIT": self.commit,
+            "L9_RELEASE_PREFLIGHT": "false",
+        }
+        with unittest.mock.patch.dict(os.environ, env, clear=False):
+            self.module.validate_release_identity(self.tmp, tag or self.TAG)
+
+    def test_annotated_tag_object_and_peeled_checkout_pass(self) -> None:
+        self.validate()
+
+    def test_explicit_preflight_may_omit_identity_as_a_pair(self) -> None:
+        with unittest.mock.patch.dict(
+            os.environ,
+            {
+                "L9_RELEASE_TAG_OBJECT": "",
+                "L9_RELEASE_COMMIT": "",
+                "L9_RELEASE_PREFLIGHT": "true",
+            },
+            clear=False,
+        ):
+            self.module.validate_release_identity(self.tmp, self.TAG)
+
+    def test_post_tag_validation_requires_both_identity_inputs(self) -> None:
+        with unittest.mock.patch.dict(
+            os.environ,
+            {
+                "L9_RELEASE_TAG_OBJECT": self.tag_object,
+                "L9_RELEASE_COMMIT": "",
+                "L9_RELEASE_PREFLIGHT": "false",
+            },
+            clear=False,
+        ):
+            with self.assertRaisesRegex(
+                self.module.ReleaseError, "L9_RELEASE_COMMIT must be"
+            ):
+                self.module.validate_release_identity(self.tmp, self.TAG)
+
+        with unittest.mock.patch.dict(
+            os.environ,
+            {
+                "L9_RELEASE_TAG_OBJECT": "",
+                "L9_RELEASE_COMMIT": "",
+                "L9_RELEASE_PREFLIGHT": "false",
+            },
+            clear=False,
+        ):
+            with self.assertRaisesRegex(
+                self.module.ReleaseError, "L9_RELEASE_TAG_OBJECT must be"
+            ):
+                self.module.validate_release_identity(self.tmp, self.TAG)
+
+    def test_preflight_rejects_post_tag_identity(self) -> None:
+        with unittest.mock.patch.dict(
+            os.environ,
+            {
+                "L9_RELEASE_TAG_OBJECT": self.tag_object,
+                "L9_RELEASE_COMMIT": self.commit,
+                "L9_RELEASE_PREFLIGHT": "true",
+            },
+            clear=False,
+        ):
+            with self.assertRaisesRegex(
+                self.module.ReleaseError, "must not supply post-tag identity"
+            ):
+                self.module.validate_release_identity(self.tmp, self.TAG)
+
+    def test_preflight_mode_must_be_explicit(self) -> None:
+        for value in ("", "1", "yes"):
+            with self.subTest(value=value):
+                with unittest.mock.patch.dict(
+                    os.environ,
+                    {
+                        "L9_RELEASE_TAG_OBJECT": self.tag_object,
+                        "L9_RELEASE_COMMIT": self.commit,
+                        "L9_RELEASE_PREFLIGHT": value,
+                    },
+                    clear=False,
+                ):
+                    with self.assertRaisesRegex(
+                        self.module.ReleaseError, "must be exactly"
+                    ):
+                        self.module.validate_release_identity(self.tmp, self.TAG)
+
+    def test_lightweight_tag_object_is_rejected(self) -> None:
+        self.git("tag", "v3.4.6")
+        lightweight = self.git("rev-parse", "refs/tags/v3.4.6")
+        with unittest.mock.patch.dict(
+            os.environ,
+            {
+                "L9_RELEASE_TAG_OBJECT": lightweight,
+                "L9_RELEASE_COMMIT": self.commit,
+                "L9_RELEASE_PREFLIGHT": "false",
+            },
+            clear=False,
+        ):
+            with self.assertRaisesRegex(self.module.ReleaseError, "not an annotated"):
+                self.module.validate_release_identity(self.tmp, "v3.4.6")
+
+    def test_nested_annotated_tag_is_rejected(self) -> None:
+        self.git("tag", "-a", "v3.4.6", self.TAG, "-m", "nested")
+        nested = self.git("rev-parse", "refs/tags/v3.4.6")
+        with unittest.mock.patch.dict(
+            os.environ,
+            {
+                "L9_RELEASE_TAG_OBJECT": nested,
+                "L9_RELEASE_COMMIT": self.commit,
+                "L9_RELEASE_PREFLIGHT": "false",
+            },
+            clear=False,
+        ):
+            with self.assertRaisesRegex(self.module.ReleaseError, "directly"):
+                self.module.validate_release_identity(self.tmp, "v3.4.6")
+
+    def test_embedded_tag_name_must_match_requested_tag(self) -> None:
+        with self.assertRaisesRegex(self.module.ReleaseError, "embedded name"):
+            self.validate("v3.4.6")
+
+    def test_supplied_commit_must_equal_direct_tag_target(self) -> None:
+        (self.tmp / "later.txt").write_text("later\n", encoding="utf-8")
+        self.git("add", "later.txt")
+        self.git("commit", "--quiet", "-m", "later")
+        later = self.git("rev-parse", "HEAD")
+        with unittest.mock.patch.dict(
+            os.environ,
+            {
+                "L9_RELEASE_TAG_OBJECT": self.tag_object,
+                "L9_RELEASE_COMMIT": later,
+                "L9_RELEASE_PREFLIGHT": "false",
+            },
+            clear=False,
+        ):
+            with self.assertRaisesRegex(self.module.ReleaseError, "does not peel"):
+                self.module.validate_release_identity(self.tmp, self.TAG)
+
+    def test_checkout_must_equal_peeled_release_commit(self) -> None:
+        (self.tmp / "later.txt").write_text("later\n", encoding="utf-8")
+        self.git("add", "later.txt")
+        self.git("commit", "--quiet", "-m", "later")
+        with self.assertRaisesRegex(self.module.ReleaseError, "checked-out HEAD"):
+            self.validate()
 
 
 class GitHubYamlSurfaceDiscoveryTests(unittest.TestCase):

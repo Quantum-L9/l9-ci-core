@@ -14,7 +14,12 @@ class Phase4WorkflowTests(unittest.TestCase):
         self.assertRegex(
             text,
             re.compile(
-                r"(?m)^permissions:\s*\n\s+actions:\s+read\s*\n\s+checks:\s+write\s*\n\s+contents:\s+read\s*$"
+                r"(?m)^permissions:\s*\n"
+                r"\s+actions:\s+read\s*\n"
+                r"\s+checks:\s+write\s*\n"
+                r"\s+contents:\s+read\s*\n"
+                r"(?:\s+#.*\n)*"
+                r"\s+security-events:\s+write\s*$"
             ),
         )
 
@@ -25,15 +30,24 @@ class Phase4WorkflowTests(unittest.TestCase):
             "if: inputs.mode == 'blocking' || inputs.mode == 'advisory'", text
         )
 
-    def test_bundle_is_revalidated_before_publication(self) -> None:
+    def test_local_envelopes_are_preflighted_before_remote_publication(self) -> None:
         text = PUBLICATION.read_text(encoding="utf-8")
-        self.assertLess(
-            text.index("Revalidate downloaded canonical bundle"),
-            text.index("Render publication payload"),
+        ordered_steps = (
+            "Revalidate downloaded canonical bundle",
+            "Render publication payload",
+            "Preflight publication and SARIF envelopes",
+            "Upload SDK-projected SARIF to code scanning",
+            "Create or update GitHub check",
         )
-        self.assertLess(
-            text.index("Render publication payload"), text.index("Publish GitHub check")
-        )
+        indexes = [text.index(step) for step in ordered_steps]
+        self.assertEqual(sorted(indexes), indexes)
+
+    def test_check_identity_is_stable_across_run_attempts(self) -> None:
+        text = PUBLICATION.read_text(encoding="utf-8")
+        publish = text[text.index("- id: publish") :]
+        self.assertIn("run-id: ${{ github.run_id }}", publish)
+        self.assertIn("matrix-id: ${{ inputs.matrix-id }}", publish)
+        self.assertNotIn("github.run_attempt", publish)
 
     def test_download_action_is_immutable(self) -> None:
         text = PUBLICATION.read_text(encoding="utf-8")

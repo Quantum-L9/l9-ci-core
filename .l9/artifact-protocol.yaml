@@ -21,13 +21,64 @@ workspace_layout:
   projections:
     root: artifacts/l9
     agent_payload: artifacts/l9/{matrix_id}/agent-review-payload.json
+    sarif: artifacts/l9/{matrix_id}/results.sarif
     ownership: SDK
     mutability: immutable_after_validation
+  orchestration_records:
+    root: artifacts/l9
+    gate_result: artifacts/l9/{matrix_id}/gate-result.json
+    repository_capabilities: artifacts/l9/{matrix_id}/repository-capabilities.json
+    ownership: Core
+    mutability: immutable_before_index
   metadata:
     root: artifacts/metadata
-    manifest: artifacts/metadata/{matrix_id}/artifact-manifest.json
+    routing_record: artifacts/metadata/{matrix_id}/routing-record.json
+    routing_record_schema: l9.core-routing-record/v2
+    integrity_index: artifacts/metadata/{matrix_id}/artifact-index.json
     ownership: Core
-    mutability: append_only
+    mutability: immutable_before_upload
+integrity_index:
+  schema: l9.core-artifact-index/v1
+  root: artifacts
+  path: artifacts/metadata/{matrix_id}/artifact-index.json
+  algorithm: sha256
+  coverage: >-
+    Every regular file below the artifact root at index time except the index
+    itself. Each entry contains a root-relative POSIX path, byte size, and
+    SHA-256 digest. Unknown and unindexed files fail retrieval.
+  self_reference: >-
+    The index excludes itself to avoid an impossible self-referential digest.
+    GitHub's immutable uploaded-artifact identity is the enclosing transport;
+    the index verifies every other member after exact-name retrieval.
+  relocatability:
+    artifact_root: .
+    absolute_paths_allowed: false
+    parent_traversal_allowed: false
+    symlinks_allowed: false
+  identity_bindings:
+    - exact artifact name
+    - analyzed repository and full revision
+    - provider and matrix_id
+    - exact SDK revision and integration contract
+  semantic_scope: >-
+    Core hashes bytes and records routes only. It never parses, reconstructs,
+    merges, or reserializes SDK-owned finding bundles, agent-review payloads,
+    or SARIF logs.
+retrieval:
+  action: .github/actions/retrieve-artifacts
+  downloader: actions/download-artifact
+  artifact_selection: exact_name_current_run
+  destination_must_be_empty: true
+  fail_closed_on:
+    - artifact identity mismatch
+    - repository or revision mismatch
+    - provider, matrix, or SDK mismatch
+    - unsafe, absolute, or non-canonical relative path
+    - symlink or non-regular indexed member
+    - missing indexed member
+    - checksum or size mismatch
+    - unindexed file
+    - missing or unknown route
 rules:
   - Core may move or copy canonical files without modifying their bytes.
   - Core must validate a canonical bundle before routing or upload.
@@ -38,8 +89,15 @@ rules:
   - Core must not merge canonical bundles.
   - Core must not infer compatibility from JSON shape.
   - SDK exit codes must propagate without remapping.
+  - Core must index the complete routed upload tree before upload.
+  - Core artifact-index paths and routes must be relative to the artifact root.
+  - Core retrieval must verify the complete index before exposing any route.
+  - Core must reject symlinks, path escapes, stale destinations, and unindexed files.
 phase_2_outputs:
   - raw provider report
   - validated finding bundle
   - validated agent-review payload
-  - artifact manifest
+  - SDK-projected SARIF when enabled
+  - Core technical gate and capability records when emitted
+  - Core routing record
+  - complete relocatable Core artifact integrity index

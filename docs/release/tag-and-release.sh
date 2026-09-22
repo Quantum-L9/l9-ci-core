@@ -67,6 +67,9 @@ git worktree add --detach "${PREFLIGHT_DIR}" "${TARGET}" >/dev/null
 say "Preflight: validate_release.py (tag ${RELEASE_TAG})"
 if ! GITHUB_WORKSPACE="${PREFLIGHT_DIR}" \
      L9_RELEASE_TAG="${RELEASE_TAG}" \
+     L9_RELEASE_TAG_OBJECT="" \
+     L9_RELEASE_COMMIT="" \
+     L9_RELEASE_PREFLIGHT="true" \
      L9_EXPECTED_VERSION="" \
      python3 "${PREFLIGHT_DIR}/.github/actions/validate-release/validate_release.py"; then
   die "release preflight failed for ${TARGET}; no tag was created. Fix main and re-run."

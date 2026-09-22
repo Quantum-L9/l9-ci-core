@@ -1,19 +1,33 @@
 name: Publish L9 GitHub check
 description: >
-  Publishes a previously rendered Core publication envelope through the
-  GitHub Checks API.
+  Preflights a Core publication envelope and optional SDK-projected SARIF,
+  then creates or updates its deterministic GitHub check identity.
 inputs:
   token:
-    required: true
+    required: false
   repository:
     required: true
   publication:
     required: true
+  sarif:
+    required: false
+    default: ""
+  run-id:
+    required: true
+  matrix-id:
+    required: true
+  preflight-only:
+    required: false
+    default: "false"
 outputs:
+  external-id:
+    value: ${{ steps.publish.outputs.external-id }}
   check-run-id:
     value: ${{ steps.publish.outputs.check-run-id }}
   check-run-url:
     value: ${{ steps.publish.outputs.check-run-url }}
+  check-run-operation:
+    value: ${{ steps.publish.outputs.check-run-operation }}
 runs:
   using: composite
   steps:
@@ -23,4 +37,8 @@ runs:
         GITHUB_TOKEN: ${{ inputs.token }}
         L9_REPOSITORY: ${{ inputs.repository }}
         L9_PUBLICATION: ${{ inputs.publication }}
+        L9_SARIF: ${{ inputs.sarif }}
+        L9_RUN_ID: ${{ inputs.run-id }}
+        L9_MATRIX_ID: ${{ inputs.matrix-id }}
+        L9_PREFLIGHT_ONLY: ${{ inputs.preflight-only }}
       run: python3 "${{ github.action_path }}/publish.py"

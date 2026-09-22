@@ -6,7 +6,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/normalize-semgrep-report.yml"
-CORE_ACTION_PIN = "2a7354ed590008cd59d254df08f10d6207933366"
 CORE_ACTION = re.compile(
     r"^\s*uses:\s*Quantum-L9/l9-ci-core/(\.github/actions/[A-Za-z0-9._/-]+)@"
     r"([0-9a-f]{40})\s*$",
@@ -49,7 +48,7 @@ class Phase2WorkflowTests(unittest.TestCase):
             text,
         )
 
-    def test_core_actions_are_fully_qualified_existing_immutable_pins(self) -> None:
+    def test_core_actions_are_fully_qualified_immutable_pins(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIsNone(
             LOCAL_CORE_ACTION.search(text),
@@ -69,10 +68,35 @@ class Phase2WorkflowTests(unittest.TestCase):
             {path for path, _revision in references},
         )
         self.assertEqual(
-            {CORE_ACTION_PIN},
-            {revision for _path, revision in references},
-            "normalization must use the existing Core action pin already exercised "
-            "by org-ci.yml and analyze-semgrep.yml",
+            1,
+            len({revision for _path, revision in references}),
+            "Phase 2 Core primitives must advance together to one immutable revision",
+        )
+
+    def test_complete_relocatable_index_is_built_before_upload(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        build = text.index("name: Build artifact manifest")
+        upload = text.index("name: Upload Phase 2 artifact set")
+        self.assertLess(build, upload)
+        index_block = text[build:upload]
+        self.assertIn(
+            "artifact-name: ${{ steps.names.outputs.artifact-name }}", index_block
+        )
+        self.assertIn("repository: ${{ github.repository }}", index_block)
+        self.assertIn("repository-revision: ${{ github.sha }}", index_block)
+        self.assertIn("artifact-root: artifacts", index_block)
+        self.assertIn(
+            "routing-record: ${{ steps.route.outputs.routing-record }}",
+            index_block,
+        )
+        self.assertIn("artifact-index.json", index_block)
+        self.assertNotIn("artifact-manifest.json", index_block)
+
+    def test_retrieval_is_not_faked_inside_the_producer_workflow(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "Quantum-L9/l9-ci-core/.github/actions/retrieve-artifacts@",
+            text,
         )
 
 

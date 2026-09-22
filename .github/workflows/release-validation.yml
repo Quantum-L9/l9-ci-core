@@ -1,7 +1,9 @@
-# Validates an immutable Core release tag (vMAJOR.MINOR.PATCH). Releases are
-# audit/provenance/rollback anchors per .l9/release-plane.yaml; the organization
-# CI runtime is Core main, bound directly by the GitHub organization ruleset.
-# The expected version is read from .l9/repo-spec.yaml, never hard-coded here.
+# Validates an immutable annotated Core release tag (vMAJOR.MINOR.PATCH).
+# Releases are audit/provenance/rollback anchors per .l9/release-plane.yaml; the
+# organization CI runtime is Core main, bound directly by the GitHub
+# organization ruleset. The expected version is read from .l9/repo-spec.yaml,
+# never hard-coded here. Both triggers resolve the remote tag object and its
+# peeled commit before any released code executes.
 name: Phase 4 release validation
 on:
   push:
@@ -23,36 +25,77 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout immutable release revision
+      - id: release
+        name: Resolve annotated release identity and checkout peeled commit
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
           REPOSITORY: ${{ github.repository }}
-          REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${DISPATCH_TAG}"
+          elif [[ "${EVENT_NAME}" == "push" ]]; then
+            tag="${REF_NAME}"
+            [[ "${EVENT_REF}" == "refs/tags/${tag}" ]] \
+              || { echo "push ref is not the selected tag" >&2; exit 2; }
+          else
+            echo "unsupported release-validation event: ${EVENT_NAME}" >&2
+            exit 2
+          fi
+
+          [[ "${tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+            || { echo "release tag is not exact vMAJOR.MINOR.PATCH: ${tag}" >&2; exit 2; }
+
           git init .
           git remote add origin \
             "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
-          git checkout --detach FETCH_HEAD
+          # Fetch only the selected remote ref. --no-tags prevents any other
+          # tag from becoming local evidence and FETCH_HEAD preserves the
+          # remote ref's object identity instead of silently peeling it.
+          git -c protocol.version=2 fetch --no-tags --depth=1 origin \
+            "refs/tags/${tag}"
           git remote set-url origin \
             "https://github.com/${REPOSITORY}.git"
-      - id: tag
-        name: Resolve release tag
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          DISPATCH_TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
-            value="${DISPATCH_TAG}"
-          else
-            value="${REF_NAME}"
+
+          [[ "$(git cat-file -t FETCH_HEAD)" == "tag" ]] \
+            || { echo "refs/tags/${tag} is not an annotated tag object" >&2; exit 2; }
+          tag_object="$(git rev-parse --verify 'FETCH_HEAD^{tag}')"
+          direct_target="$(git cat-file -p "${tag_object}" | sed -n 's/^object //p' | head -n1)"
+          direct_type="$(git cat-file -p "${tag_object}" | sed -n 's/^type //p' | head -n1)"
+          embedded_tag="$(git cat-file -p "${tag_object}" | sed -n 's/^tag //p' | head -n1)"
+          [[ "${direct_type}" == "commit" ]] \
+            || { echo "${tag} must point directly to a commit" >&2; exit 2; }
+          [[ "${embedded_tag}" == "${tag}" ]] \
+            || { echo "annotated tag name does not match ${tag}" >&2; exit 2; }
+          commit="$(git rev-parse --verify "${tag_object}^{commit}")"
+          [[ "${direct_target}" == "${commit}" ]] \
+            || { echo "annotated tag target does not match peeled commit" >&2; exit 2; }
+
+          # GitHub reports the peeled commit as github.sha for an annotated-tag
+          # push. Bind the event to the same commit resolved from the remote ref;
+          # manual dispatch has no trusted tag SHA and therefore uses the remote
+          # tag object as its sole identity source.
+          if [[ "${EVENT_NAME}" == "push" && "${EVENT_SHA}" != "${commit}" ]]; then
+            echo "push SHA ${EVENT_SHA} does not match peeled commit ${commit}" >&2
+            exit 2
           fi
-          test -n "${value}"
-          echo "value=${value}" >> "${GITHUB_OUTPUT}"
+
+          git checkout --detach "${commit}"
+          [[ "$(git rev-parse --verify 'HEAD^{commit}')" == "${commit}" ]] \
+            || { echo "checkout is not the peeled release commit" >&2; exit 2; }
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "tag-object=${tag_object}" >> "${GITHUB_OUTPUT}"
+          echo "commit=${commit}" >> "${GITHUB_OUTPUT}"
       - name: Validate immutable Core release
         uses: ./.github/actions/validate-release
         with:
-          tag: ${{ steps.tag.outputs.value }}
+          tag: ${{ steps.release.outputs.tag }}
+          tag-object: ${{ steps.release.outputs.tag-object }}
+          release-commit: ${{ steps.release.outputs.commit }}

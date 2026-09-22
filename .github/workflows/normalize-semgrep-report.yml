@@ -150,21 +150,23 @@ jobs:
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
+          artifact-name: ${{ steps.names.outputs.artifact-name }}
+          repository: ${{ github.repository }}
+          repository-revision: ${{ github.sha }}
           sdk-revision: ${{ steps.sdk.outputs.sdk-revision }}
+          artifact-root: artifacts
           bundle: ${{ steps.route.outputs.bundle }}
           agent-payload: ${{ steps.route.outputs.agent-payload }}
           raw-directory: ${{ steps.route.outputs.raw-directory }}
-          output: artifacts/metadata/${{ inputs.matrix-id }}/artifact-manifest.json
+          routing-record: ${{ steps.route.outputs.routing-record }}
+          output: artifacts/metadata/${{ inputs.matrix-id }}/artifact-index.json
       - name: Upload Phase 2 artifact set
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.names.outputs.artifact-name }}
-          path: |
-            artifacts/raw/semgrep/${{ inputs.matrix-id }}/
-            artifacts/l9/${{ inputs.matrix-id }}/
-            artifacts/metadata/${{ inputs.matrix-id }}/
+          path: artifacts/
           if-no-files-found: error
           retention-days: ${{ inputs.retention-days }}
           compression-level: 6
           overwrite: false
-          include-hidden-files: false
+          include-hidden-files: true
