@@ -148,7 +148,7 @@ jobs:
         name: Resolve governance (Core)
         # CORE_ACTIONS_PIN; this revision exports identity-map-directory and
         # includes the bundled map bytes in governance-digest.
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@94e5debc412a7fd0618fc7968ecf3e622b68ad98
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           profile: ${{ inputs.profile }}
           provider: semgrep
@@ -181,7 +181,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -199,26 +199,25 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12.14"
-      - name: Install Semgrep (hash-locked central pin)
+      - id: semgrep
+        name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true'
-        # CORE_ACTIONS_PIN — install-semgrep first-commit SHA.
+        # CORE_ACTIONS_PIN — its verified executable is handed to semgrep-run.
         # `semgrep==X` alone pins one package and lets pip re-resolve the rest
         # of the closure against whatever PyPI and the runner image offer that
         # day, which is how this analysis could change behaviour without a Core
         # source revision changing. The action ships a hash-locked closure and
         # fails closed on a version it has no lock for. org-ci.yml already
         # installs Semgrep this way; this is the same mechanism, not a second.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@673a3e4c82021809af32baac7571fde5e1059d3b
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           semgrep-version: ${{ inputs.semgrep-version }}
       - name: Run + normalize semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        # `l9-ci semgrep run` (via invoke-sdk) runs semgrep with the
-        # community registry ruleset for the language plus the SDK's
-        # packaged L9 ruleset, then normalizes into a canonical bundle —
-        # one SDK-owned process. Gating is the separate gate step.
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        # `l9-ci semgrep run` (via invoke-sdk) runs Semgrep with the SDK's
+        # packaged ruleset while Core passes the one verified provider binary.
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -228,6 +227,7 @@ jobs:
           root: .
           snapshot-id: ${{ github.sha }}
           revision: ${{ github.sha }}
+          provider-executable: ${{ steps.semgrep.outputs.executable }}
           strict: ${{ steps.gov.outputs.strict }}
           required: ${{ steps.gov.outputs['required-provider'] }}
           policy: ${{ steps.gov.outputs['sdk-policy'] }}
@@ -235,7 +235,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
@@ -281,7 +281,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -291,7 +291,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           # The SDK deterministically projects the canonical bundle to SARIF;
@@ -304,7 +304,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
@@ -324,15 +324,20 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
+          artifact-name: ${{ steps.names.outputs['artifact-name'] }}
+          repository: ${{ github.repository }}
+          repository-revision: ${{ github.sha }}
           sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+          artifact-root: artifacts
           bundle: ${{ steps.route.outputs.bundle }}
           agent-payload: ${{ steps.route.outputs['agent-payload'] }}
           raw-directory: ${{ steps.route.outputs['raw-directory'] }}
-          output: artifacts/metadata/${{ inputs.matrix-id }}/artifact-manifest.json
+          routing-record: ${{ steps.route.outputs['routing-record'] }}
+          output: artifacts/metadata/${{ inputs.matrix-id }}/artifact-index.json
       - name: Upload analysis artifact set
         if: steps.gov.outputs.enabled == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2

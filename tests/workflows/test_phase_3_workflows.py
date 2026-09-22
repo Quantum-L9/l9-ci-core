@@ -20,7 +20,13 @@ class Phase3WorkflowTests(unittest.TestCase):
         path = ROOT / ".github/workflows/profile-normalize-semgrep.yml"
         text = path.read_text(encoding="utf-8")
         self.assertIn(
-            "uses: ./.github/workflows/normalize-semgrep-report.yml",
+            "uses: Quantum-L9/l9-ci-core/.github/workflows/"
+            "normalize-semgrep-report.yml@def55c54ff4ba654c2ebea088dde71db0b5f7135",
+            text,
+        )
+        self.assertIn(
+            "uses: Quantum-L9/l9-ci-core/.github/actions/"
+            "resolve-governance@def55c54ff4ba654c2ebea088dde71db0b5f7135",
             text,
         )
         self.assertIn(

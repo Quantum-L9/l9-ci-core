@@ -49,10 +49,24 @@ class Phase4WorkflowTests(unittest.TestCase):
         self.assertIn("matrix-id: ${{ inputs.matrix-id }}", publish)
         self.assertNotIn("github.run_attempt", publish)
 
-    def test_download_action_is_immutable(self) -> None:
+    def test_download_and_integrity_verification_use_the_pinned_retrieval_action(
+        self,
+    ) -> None:
         text = PUBLICATION.read_text(encoding="utf-8")
         self.assertIn(
-            "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093", text
+            "Quantum-L9/l9-ci-core/.github/actions/"
+            "retrieve-artifacts@def55c54ff4ba654c2ebea088dde71db0b5f7135",
+            text,
+        )
+        for value in (
+            "artifact-name: ${{ inputs.artifact-name }}",
+            "repository-revision: ${{ inputs.repository-revision }}",
+            "sdk-revision: ${{ inputs.sdk-revision }}",
+        ):
+            self.assertIn(value, text)
+        self.assertNotIn(
+            "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+            text,
         )
 
 

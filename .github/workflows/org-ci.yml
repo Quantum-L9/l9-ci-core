@@ -301,12 +301,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@def55c54ff4ba654c2ebea088dde71db0b5f7135
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -342,7 +342,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -379,17 +379,18 @@ jobs:
         with:
           python-version: "3.12.14"
 
-      - name: Install Semgrep (hash-locked central pin)
+      - id: semgrep
+        name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN — install-semgrep first-commit SHA
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@673a3e4c82021809af32baac7571fde5e1059d3b
+        # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -399,6 +400,7 @@ jobs:
           root: .
           snapshot-id: ${{ github.sha }}
           revision: ${{ github.sha }}
+          provider-executable: ${{ steps.semgrep.outputs.executable }}
           strict: ${{ steps.gov.outputs.strict }}
           required: ${{ steps.gov.outputs['required-provider'] }}
           policy: ${{ steps.gov.outputs['sdk-policy'] }}
@@ -406,7 +408,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -447,7 +449,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -458,7 +460,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -470,7 +472,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -492,15 +494,20 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
+          artifact-name: ${{ steps.names.outputs['artifact-name'] }}
+          repository: ${{ github.repository }}
+          repository-revision: ${{ github.sha }}
           sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+          artifact-root: artifacts
           bundle: ${{ steps.route.outputs.bundle }}
           agent-payload: ${{ steps.route.outputs['agent-payload'] }}
           raw-directory: ${{ steps.route.outputs['raw-directory'] }}
-          output: artifacts/metadata/${{ steps.runtime.outputs['matrix-id'] }}/artifact-manifest.json
+          routing-record: ${{ steps.route.outputs['routing-record'] }}
+          output: artifacts/metadata/${{ steps.runtime.outputs['matrix-id'] }}/artifact-index.json
 
       - name: Upload analysis artifact set
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
