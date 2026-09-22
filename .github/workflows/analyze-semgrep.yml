@@ -42,11 +42,11 @@ on:
     inputs:
       profile:
         description: >
-          Governance execution profile (pr_fast, merge, nightly, release,
-          supply_chain). Must allow the resolved governance event class in the
-          caller's .github/governance/execution-profiles.yaml.
+          Optional Core execution-profile override. Omit to derive the profile
+          from the triggering event using Core's bundled governance defaults.
         type: string
-        required: true
+        required: false
+        default: ""
       event:
         description: >
           Optional governance event class override for reusable callers. Empty
@@ -57,14 +57,17 @@ on:
         required: false
         default: ""
       matrix-id:
-        description: Stable artifact matrix identifier (e.g. pr-semgrep).
-        type: string
-        required: true
-      language:
-        description: SDK semgrep language ruleset ("python" or "typescript").
+        description: Optional artifact matrix identifier.
         type: string
         required: false
-        default: python
+        default: pr-semgrep
+      language:
+        description: >
+          Optional compatibility assertion (python or typescript). Core always
+          uses SDK capability detection; this value cannot select a language.
+        type: string
+        required: false
+        default: ""
       semgrep-version:
         description: >
           Exact semgrep pin (not a range) — a semgrep minor/patch bump can
@@ -81,10 +84,12 @@ on:
         required: false
         default: ""
       governance-root:
-        description: Governance pack directory in the CALLER's repository.
+        description: >
+          Compatibility-only governance source. Omit to use the immutable
+          governance bundle shipped by Core.
         type: string
         required: false
-        default: .github/governance
+        default: "@core-defaults"
       artifact-retention-days:
         type: number
         required: false
@@ -105,6 +110,12 @@ on:
       enabled:
         description: Whether governance enabled this profile/provider.
         value: ${{ jobs.analyze.outputs.enabled }}
+      profile:
+        description: Core-resolved execution profile.
+        value: ${{ jobs.analyze.outputs.profile }}
+      language:
+        description: SDK-detected Semgrep language (python, typescript, or none).
+        value: ${{ jobs.analyze.outputs.language }}
       sdk-revision:
         description: Provisioned immutable SDK revision.
         value: ${{ jobs.analyze.outputs.sdk-revision }}
@@ -118,8 +129,10 @@ jobs:
     permissions:
       contents: read
     outputs:
+      profile: ${{ steps.contract.outputs.profile }}
       mode: ${{ steps.gov.outputs.mode }}
       enabled: ${{ steps.gov.outputs.enabled }}
+      language: ${{ steps.language.outputs.language }}
       governance-digest: ${{ steps.gov.outputs['governance-digest'] }}
       artifact-name: ${{ steps.names.outputs['artifact-name'] }}
       sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
@@ -144,24 +157,59 @@ jobs:
               -c "http.https://github.com/.extraheader=${auth_header}" \
               fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
+      - id: contract
+        name: Resolve Core execution defaults
+        env:
+          EVENT_OVERRIDE: ${{ inputs.event }}
+          PROFILE_OVERRIDE: ${{ inputs.profile }}
+          TRIGGER_EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          source_event="${EVENT_OVERRIDE:-${TRIGGER_EVENT}}"
+          case "${source_event}" in
+            pull_request)
+              event="pull_request"
+              default_profile="pr_fast"
+              ;;
+            push)
+              event="push"
+              default_profile="merge"
+              ;;
+            merge_group|merge)
+              event="merge"
+              default_profile="merge"
+              ;;
+            schedule|workflow_dispatch|nightly)
+              event="nightly"
+              default_profile="nightly"
+              ;;
+            release)
+              event="release"
+              default_profile="release"
+              ;;
+            supply_chain)
+              event="supply_chain"
+              default_profile="supply_chain"
+              ;;
+            *)
+              echo "Core does not define a default profile for event ${source_event}" >&2
+              exit 2
+              ;;
+          esac
+          profile="${PROFILE_OVERRIDE:-${default_profile}}"
+          {
+            echo "event=${event}"
+            echo "profile=${profile}"
+          } >> "${GITHUB_OUTPUT}"
       - id: gov
         name: Resolve governance (Core)
         # CORE_ACTIONS_PIN; this revision exports identity-map-directory and
         # includes the bundled map bytes in governance-digest.
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@d1a9689bb70958f078e567412e3171f3fa95b965
         with:
-          profile: ${{ inputs.profile }}
+          profile: ${{ steps.contract.outputs.profile }}
           provider: semgrep
-          # `resolve-governance` expects a governance event *class*, not a raw
-          # trigger name. Reusable release/supply-chain callers can state that
-          # class explicitly; a generic manual dispatch with no override remains
-          # the nightly canary, matching org-ci.yml. This prevents a release
-          # workflow dispatched by hand from being silently reclassified as
-          # nightly while preserving the existing default for ordinary canaries.
-          event-name: >-
-            ${{ inputs.event != '' && inputs.event
-             || github.event_name == 'workflow_dispatch' && 'nightly'
-             || github.event_name }}
+          event-name: ${{ steps.contract.outputs.event }}
           repository: ${{ github.repository }}
           ref: ${{ github.ref }}
           governance-root: ${{ inputs.governance-root }}
@@ -186,6 +234,32 @@ jobs:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision || 'bc678190582694f6efee08b6b7ea39be7e09bd5c' }}
+      - id: language
+        name: Detect repository language (SDK)
+        if: steps.gov.outputs.enabled == 'true'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@645ea6e5d4ef78735605e6df4ed10d4388921e07
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          root: .
+      - name: Validate compatibility language assertion
+        if: steps.gov.outputs.enabled == 'true' && inputs.language != ''
+        env:
+          ASSERTED_LANGUAGE: ${{ inputs.language }}
+          DETECTED_LANGUAGE: ${{ steps.language.outputs.language }}
+        run: |
+          set -euo pipefail
+          case "${ASSERTED_LANGUAGE}" in
+            python|typescript) ;;
+            *)
+              echo "language must be python or typescript when supplied" >&2
+              exit 2
+              ;;
+          esac
+          if [ "${ASSERTED_LANGUAGE}" != "${DETECTED_LANGUAGE}" ]; then
+            echo "language assertion ${ASSERTED_LANGUAGE} disagrees with SDK capability detection ${DETECTED_LANGUAGE}" >&2
+            exit 2
+          fi
       # The lock resolves its closure for one exact interpreter, so the
       # interpreter has to be selected as deliberately as the packages are.
       # Without this the runner's default `python` decides which
@@ -195,13 +269,13 @@ jobs:
       # adopting the locked closure without its precondition would trade a
       # silent defect for an availability one. Mirrors org-ci.yml.
       - name: Set up locked Python for the central toolchain
-        if: steps.gov.outputs.enabled == 'true'
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12.14"
       - id: semgrep
         name: Install Semgrep (hash-locked central pin)
-        if: steps.gov.outputs.enabled == 'true'
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN — its verified executable is handed to semgrep-run.
         # `semgrep==X` alone pins one package and lets pip re-resolve the rest
         # of the closure against whatever PyPI and the runner image offer that
@@ -213,7 +287,7 @@ jobs:
         with:
           semgrep-version: ${{ inputs.semgrep-version }}
       - name: Run + normalize semgrep (SDK)
-        if: steps.gov.outputs.enabled == 'true'
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
         # `l9-ci semgrep run` (via invoke-sdk) runs Semgrep with the SDK's
         # packaged ruleset while Core passes the one verified provider binary.
@@ -221,7 +295,7 @@ jobs:
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
-          language: ${{ inputs.language }}
+          language: ${{ steps.language.outputs.language }}
           raw-output: artifacts/raw/semgrep/${{ inputs.matrix-id }}/report.json
           output: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
           root: .
@@ -231,9 +305,9 @@ jobs:
           strict: ${{ steps.gov.outputs.strict }}
           required: ${{ steps.gov.outputs['required-provider'] }}
           policy: ${{ steps.gov.outputs['sdk-policy'] }}
-          identity-map: ${{ steps.gov.outputs['identity-map-directory'] }}/${{ inputs.language }}.yaml
+          identity-map: ${{ steps.gov.outputs['identity-map-directory'] }}/${{ steps.language.outputs.language }}.yaml
       - name: Validate canonical bundle
-        if: steps.gov.outputs.enabled == 'true'
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
         uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
@@ -241,7 +315,7 @@ jobs:
           bundle: .l9/runtime/${{ inputs.matrix-id }}/finding-bundle.json
       - id: gate
         name: Evaluate gate (SDK verdict)
-        if: steps.gov.outputs.enabled == 'true'
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         run: |
           set -euo pipefail
           # The SDK is the single gate-decision authority. Capture its
@@ -279,7 +353,7 @@ jobs:
           L9_MATRIX_ID: ${{ inputs.matrix-id }}
           L9_STRICT: ${{ steps.gov.outputs.strict }}
       - name: Project agent-review payload
-        if: steps.gov.outputs.enabled == 'true'
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
         uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
@@ -289,7 +363,7 @@ jobs:
           output: .l9/runtime/${{ inputs.matrix-id }}/agent-review-payload.json
           strict: ${{ steps.gov.outputs.strict }}
       - name: Project SARIF (SDK-owned)
-        if: steps.gov.outputs.enabled == 'true'
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
         uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
@@ -302,7 +376,7 @@ jobs:
           strict: ${{ steps.gov.outputs.strict }}
       - id: route
         name: Route artifacts
-        if: steps.gov.outputs.enabled == 'true'
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
         uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
@@ -314,7 +388,7 @@ jobs:
           sarif: .l9/runtime/${{ inputs.matrix-id }}/results.sarif
           destination-root: artifacts
       - name: Stage gate result with canonical artifacts
-        if: steps.gov.outputs.enabled == 'true'
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         env:
           L9_MATRIX_ID: ${{ inputs.matrix-id }}
         run: |
@@ -322,7 +396,7 @@ jobs:
           cp ".l9/runtime/${L9_MATRIX_ID}/gate-result.json" \
             "artifacts/l9/${L9_MATRIX_ID}/gate-result.json"
       - name: Build artifact manifest
-        if: steps.gov.outputs.enabled == 'true'
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
         uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
@@ -339,7 +413,7 @@ jobs:
           routing-record: ${{ steps.route.outputs['routing-record'] }}
           output: artifacts/metadata/${{ inputs.matrix-id }}/artifact-index.json
       - name: Upload analysis artifact set
-        if: steps.gov.outputs.enabled == 'true'
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ${{ steps.names.outputs['artifact-name'] }}
@@ -350,7 +424,7 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ inputs.artifact-retention-days }}
       - name: Enforce SDK gate verdict
-        if: steps.gov.outputs.enabled == 'true'
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         env:
           GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
           GATE_EXIT: ${{ steps.gate.outputs['gate-exit-code'] }}
@@ -365,7 +439,7 @@ jobs:
   publish:
     name: Publish analysis (Core)
     needs: analyze
-    if: needs.analyze.outputs.enabled == 'true'
+    if: needs.analyze.outputs.enabled == 'true' && needs.analyze.outputs.language != 'none'
     # Nested local reusable-workflow call: resolved against the same commit
     # of THIS repository, so publish-analysis.yml and its own pinned action
     # refs travel together with this file.
@@ -377,7 +451,7 @@ jobs:
       security-events: write
     with:
       artifact-name: ${{ needs.analyze.outputs['artifact-name'] }}
-      profile: ${{ inputs.profile }}
+      profile: ${{ needs.analyze.outputs.profile }}
       mode: ${{ needs.analyze.outputs.mode }}
       provider: semgrep
       matrix-id: ${{ inputs.matrix-id }}
