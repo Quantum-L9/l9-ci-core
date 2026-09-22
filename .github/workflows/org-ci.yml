@@ -376,7 +376,7 @@ jobs:
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@ed22910dbe7069181aafd10d0ba6c94763520bed
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -434,7 +434,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@ed22910dbe7069181aafd10d0ba6c94763520bed
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -445,7 +445,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@ed22910dbe7069181aafd10d0ba6c94763520bed
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
