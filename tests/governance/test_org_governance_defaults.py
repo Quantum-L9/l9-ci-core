@@ -132,6 +132,7 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
         text = ACTION_PATH.read_text(encoding="utf-8")
         self.assertIn('default: "@core-defaults"', text)
         self.assertNotIn("default: .github/governance", text)
+        self.assertIn("Callers normally omit this input.", text)
         self.assertIn("identity-map-directory:", text)
         self.assertIn("steps.resolve.outputs.identity-map-directory", text)
 
