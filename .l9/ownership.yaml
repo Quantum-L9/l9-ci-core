@@ -19,10 +19,13 @@ core_owns:
     - trust-boundary enforcement
     - fork safety
     - immutable dependency selection
+    - recursive workflow and composite-action dependency-edge validation
   provisioning:
     - SDK source selection
     - SDK revision validation
     - SDK runtime preparation
+    - SDK checkout requirements-byte verification
+    - wheel-only hash-locked SDK runtime closure selection
     - SDK public-contract probing
     - exact CI tool pins
   consumer_contract:

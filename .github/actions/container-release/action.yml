@@ -155,4 +155,4 @@ runs:
     - if: always()
       name: Logout from GHCR
       shell: bash
-      run: docker logout ghcr.io || true
+      run: docker logout ghcr.io

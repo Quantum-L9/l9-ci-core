@@ -142,6 +142,7 @@ ownership:
     - execution-profile mapping
     - provider enablement and requiredness
     - immutable SDK provisioning and compatibility
+    - checkout requirements-byte verification and wheel-only SDK runtime locks
     - exact tool-version selection
     - consumer metadata validation
     - artifact routing and retention
@@ -189,8 +190,13 @@ pinning:
   core_internal_actions:
     policy: full-40-char-sha
     floating_references_allowed: false
+    recursive_yaml_scan: workflows_and_composite_actions
+    nested_remote_core_action_edges_allowed: false
   sdk_revision:
     policy: per .l9/sdk-compatibility.yaml
+    compatibility_bootstrap_dependencies: python_standard_library_only
+    checkout_requirements_install_allowed: false
+    runtime_dependency_install: core_owned_wheel_only_hash_lock
     floating_git_references_allowed: false
     branches_allowed: false
     tags_allowed: false

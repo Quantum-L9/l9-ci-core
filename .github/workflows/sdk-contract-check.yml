@@ -44,6 +44,13 @@ jobs:
           test -x "${SDK_EXECUTABLE}"
           test "${SDK_REVISION}" =             "bc678190582694f6efee08b6b7ea39be7e09bd5c"
           test "${SDK_CONTRACT}" = "l9.integration-contract/v1"
+          "${SDK_EXECUTABLE%/bin/l9-ci}/venv/bin/python" -I -c '
+          import platform, sys
+          assert platform.system() == "Linux"
+          assert platform.machine().lower() == "x86_64"
+          assert sys.implementation.name == "cpython"
+          assert sys.version_info[:3] == (3, 12, 14)
+          '
           "${SDK_EXECUTABLE}" --help
       - name: Prove every required CLI path resolves
         env:
