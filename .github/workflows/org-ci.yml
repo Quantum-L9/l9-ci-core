@@ -361,7 +361,7 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@290ddf0b8a5d589050ab1ed2a201cd5472db79b2
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@d51c6002caeb88fe69e3c1b1bf944ab500106204
         with:
           workspace: .
           contract-mode: migration

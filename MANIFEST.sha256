@@ -20,7 +20,6 @@
 08892ad69f9936ac9f727273c3110b4a25fd1aac0e3026aa91e5d964e3e9c629  docs/pipeline-runs/2026-09-07/evidence/repo-state/l9-harness.txt
 08edd67f3cc9a9c944bd27a8e78543c2f70ee4c56177d331a108ba1b94f90e6e  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/core_to_sdk/finding-bundle.json
 08edd67f3cc9a9c944bd27a8e78543c2f70ee4c56177d331a108ba1b94f90e6e  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/sdk_to_assurance/finding-bundle.json
-09c7b3e2492130b063ef90d235930284ac9c7c9eecc671659f4a478ff6f53c5c  .github/workflows/org-ci.yml
 0a15f2aa22225e3287ec51def491f1c1f6d8f42a23a3cf73dd48cd5ffa9c146a  tests/tools/test_l9_repo_change_policy.py
 0a167be4321097161f2753c1a2d48cac38ca898a06bc091a78c528f7f001df62  .github/workflows/pr-pipeline.yml
 0aff39f660924f6bbddee82fc77a9ecdd1bef8d9a408104e9b80182f21712e32  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/sdk_to_assurance/negative/n2-out-of-range-sdk-version/out/admission-report.json
@@ -189,6 +188,7 @@
 56a7719bc7c0bd13510830538823ab45738fc1850e675c0860504b863e806108  docs/pipeline-runs/2026-09-07/evidence/layer-3/payloads/ci_evidence/mandatory-findings-observation.json
 56a7719bc7c0bd13510830538823ab45738fc1850e675c0860504b863e806108  docs/pipeline-runs/2026-09-07/evidence/layer-3/payloads/ci_evidence/profile-evidence/observations/mandatory-findings.json
 56c486daf516c2e23fc9b08011fc6427cf55d45ec6d5aa530986dbd09d0c01e4  .github/workflows/self-security.yml
+56fd638d0513a146d1343da3b3ad5c3a6136aafa57c14b675bd64f759ce0101e  tests/workflows/test_org_repository_verification.py
 572eca88be58d8ea685f2239cecfa5c40bd3d8cd4f7a6014ccb022b465992351  tools/l9_repo/reporting.py
 5941238e144766f36215d86e18e633efbe0d911dd74ecdb1a32a9143a5b054c8  docs/pipeline-runs/2026-09-07/evidence/layer-3/payloads/assurance_harness/harness-run-record.json
 5982f4df419c0225227eae0cf6979e7e9e7d17b726819a240a26bdfd9d19e128  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/pr_repair_standalone/runtime-output/prs/pr_123/repair_plan.json
@@ -229,7 +229,6 @@
 6daf0e3a2626c08ffe56338225af41f6352c139e0d0236a03a369088dd3be6a8  .github/workflows/self-analysis.yml
 6f88e867206571fa4f63672dc1ca96ab203c89d0d3c17ae8f2275c4aba4f24c9  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/intelligence_to_lsp/analytics.json
 6f9668e4c39cc481b83c4e8e50d6f38526947908d484a384af6db9653ae0f609  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/intelligence_to_lsp/final/compilation/compile_958379ff180318c64555d8e5f0c244fced92c1bd95e7d69cd8f9b4f5f88a1ee8/candidates.json
-7108724118ffc250f3b7449613fa053e3b420cf6f9f3eac29002ca3f9f64dceb  tests/workflows/test_org_repository_verification.py
 723c078d93d6b98df41810cfe4b4e5f954fe4cf8b542b2bdb3761f40d187be58  docs/pipeline-runs/2026-09-07/evidence/layer-3/payloads/ci_evidence/profile-evidence/logs/l9ci-last.out
 7335b04c65cf2b476f164f97846cb479de02c2368d53e0605c67c9683226caa7  tests/workflows/test_container_release_action.py
 7376726d381e18d29bd994226354cb61440e9304c588a3a4a96329c4ac5df250  docs/pipeline-runs/2026-09-07/evidence/layer-3/payloads/ci_evidence/evaluate-l3f1-fix/decision.json
@@ -373,6 +372,7 @@ b1ad41ba5ba3a67e6e9b12a9e36d7f58fd337d83aaab348c7cf6e67c65a2af4b  docs/pipeline-
 b1cbe8e7697f60c04992155bd9217fff47494cdb4ee2ebf015b93e04de79e3c7  presets/python/.github/workflows/l9-analysis.yml
 b2094136bf67e50bf4dbfb7dd9e0e599814b6bf58137015b29d3bff1918185d4  tests/workflows/test_release_plane.py
 b2851cdf4990a5e901de02b43a8e5f4a2d59ec747fa70c86b26c55cff973501b  SECURITY.md
+b2babbceb0f971177ffd4efafdb74d60d84e3bef328a0f4a27c4689542256461  .github/workflows/org-ci.yml
 b2d8aad604c3bd4e3de711b6f5b48fe25b42f4ebd248f25496671c17089ecb8d  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/pr_repair_standalone/review-comments.json
 b38e47c16e9b35197d5b6af3c2b64a700468339417beac9a03719eabd71b41dd  .github/actions/resolve-governance/defaults/execution-profiles.yaml
 b3e18455404ea0a004092818ddacf9389edfecdd1702558720b47e34eb1d0f6e  .gitleaksignore
