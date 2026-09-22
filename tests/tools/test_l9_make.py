@@ -98,6 +98,30 @@ class MakeCompilerTests(unittest.TestCase):
         )
         self.assertEqual(plan_digest(plan), plan_digest(load_plan(self.plan_path)))
 
+    def test_provenance_is_producer_attested_trace_metadata(self) -> None:
+        schema = json.loads(
+            (ROOT / "tools" / "l9_make" / "make-plan.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        description = schema["description"]
+        self.assertIn("provenance-bearing", description)
+        self.assertIn("producer-attested", description)
+        self.assertIn("digest format", description)
+        self.assertNotIn("provenance-bound", description)
+
+        data = self.valid_plan()
+        provenance = data["provenance"]
+        assert isinstance(provenance, dict)
+        provenance["source"] = "fixture/not-present-in-compiler-workspace"
+        provenance["digest"] = self.digest("producer-attested-only")
+        self.write_plan(data)
+
+        plan = load_plan(self.plan_path)
+        self.assertEqual(
+            "fixture/not-present-in-compiler-workspace", plan["provenance"]["source"]
+        )
+
     def test_render_and_check_are_deterministic_and_stateful(self) -> None:
         render(
             self.plan_path,

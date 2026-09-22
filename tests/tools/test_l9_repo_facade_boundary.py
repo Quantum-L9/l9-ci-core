@@ -32,6 +32,7 @@ from l9_repo.__main__ import COMMANDS  # noqa: E402
 
 MAKEFILE = ROOT / "Makefile"
 TEMPLATE = ROOT / "tools" / "l9_make" / "Makefile.template"
+LEGACY_TEMPLATE = ROOT / "tools" / "l9_repo" / "Makefile.template"
 REPO_MK = ROOT / "Repo.mk"
 REPO_LOCAL = ROOT / "Repo.local.mk"
 SCHEMA = ROOT / ".l9" / "repo-workflow.schema.json"
@@ -50,12 +51,7 @@ class FacadeHoldsNoPublicationAuthority(unittest.TestCase):
                 )
 
     def test_generated_facade_binds_no_repository_runtime(self) -> None:
-        """The template is portable: no directive may name Core's module.
-
-        Only executable directives are in scope. The header comment documents
-        ``python3 -m tools.l9_repo reconcile`` as the recovery path for an
-        unparseable Makefile, which is exactly the situation in which ``make``
-        cannot help — that instruction is the point, not a violation.
+        """The universal template is portable: no line may name Core's module.
 
         ``Repo.mk`` is deliberately exempt in full — it is Core's
         implementation adapter and legitimately binds the runtime through
@@ -63,12 +59,18 @@ class FacadeHoldsNoPublicationAuthority(unittest.TestCase):
         """
         for path in (MAKEFILE, TEMPLATE):
             with self.subTest(path=path.name):
-                directives = [
-                    line
-                    for line in path.read_text(encoding="utf-8").splitlines()
-                    if line.strip() and not line.lstrip().startswith("#")
-                ]
-                self.assertNotIn("tools.l9_repo", "\n".join(directives))
+                self.assertNotIn("tools.l9_repo", path.read_text(encoding="utf-8"))
+
+    def test_generated_projections_match_canonical_provider_neutral_template(
+        self,
+    ) -> None:
+        expected = TEMPLATE.read_bytes()
+        for path in (MAKEFILE, LEGACY_TEMPLATE):
+            with self.subTest(path=path.name):
+                text = path.read_text(encoding="utf-8")
+                self.assertEqual(expected, path.read_bytes())
+                self.assertNotIn("Recover generated artifacts", text)
+                self.assertNotIn("tools.l9_repo", text)
 
     def test_generated_adapter_fails_closed_and_local_layer_is_optional(self) -> None:
         """Only the generated adapter is mandatory across all adopting repositories."""

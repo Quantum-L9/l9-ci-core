@@ -21,7 +21,8 @@
     "component_schema": ".l9/repo-workflow.schema.json",
     "generated_artifacts": [
       "Makefile",
-      "Repo.mk"
+      "Repo.mk",
+      "tools/l9_repo/Makefile.template"
     ],
     "derived_documents": [
       "docs/repository-execution-runtime.md"

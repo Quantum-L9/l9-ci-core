@@ -18,6 +18,7 @@ REPO_LOCAL = ROOT / "Repo.local.mk"
 PLAN = ROOT / "tools" / "l9_make" / "default-capability-plan.json"
 AGENTS = ROOT / "AGENTS.md"
 RUNTIME_DOC = ROOT / "docs" / "repository-execution-runtime.md"
+WORKFLOW = ROOT / ".l9" / "repo-workflow.json"
 
 TARGET = re.compile(r"(?m)^(?P<name>[a-z][a-z0-9-]*):(?!=)")
 RECIPE_SCRIPT = re.compile(r"\$\(PYTHON\)\s+(?P<script>tools/[\w/]+\.py)")
@@ -140,6 +141,16 @@ class RepoMkTargetTests(unittest.TestCase):
             runtime,
         )
         self.assertNotIn("Repository-specific targets live in `Repo.mk`", runtime)
+
+    def test_legacy_template_is_registered_generated_compatibility_state(self) -> None:
+        workflow = json.loads(WORKFLOW.read_text(encoding="utf-8"))
+        authority = workflow["authority"]
+        assert isinstance(authority, dict)
+        generated = authority["generated_artifacts"]
+        self.assertEqual(
+            ["Makefile", "Repo.mk", "tools/l9_repo/Makefile.template"], generated
+        )
+        self.assertNotIn("tools/l9_make/Makefile.template", generated)
 
     def test_compiler_and_release_targets_are_documented_for_agents(self) -> None:
         agents = AGENTS.read_text(encoding="utf-8")

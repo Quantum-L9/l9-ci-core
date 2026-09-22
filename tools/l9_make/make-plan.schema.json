@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://quantum-l9.dev/schemas/make-plan/v1",
   "title": "L9 Make Capability Plan",
-  "description": "Resolved, provenance-bound compiler input. Capability detection remains owned by the SDK or repository-native authority that produced this plan.",
+  "description": "Resolved, provenance-bearing compiler input. Provenance is producer-attested trace metadata: the producer or envelope authority owns evidence binding and authenticity, while this compiler validates structure and digest format and preserves provenance deterministically. Capability detection remains owned by the SDK or repository-native authority that produced this plan.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "repository_class", "provenance", "capabilities"],

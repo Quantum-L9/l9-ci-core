@@ -47,7 +47,10 @@ the standard repository adapter from repository-native extension leaves:
 - **`Repo.mk`** is generated from a Draft 2020-12 validated
   `l9.make-plan/v1` plan. It contains every standard local capability with an
   explicit `supported`, `not_required`, or `unsupported` state, its native
-  argv binding or diagnostic, and provenance. `not_required` exits zero;
+  argv binding or diagnostic, and provenance. Provenance is producer-attested
+  trace metadata: the compiler validates its shape and digest format and
+  preserves it deterministically, but the producer or envelope authority owns
+  evidence binding and source authenticity. `not_required` exits zero;
   `unsupported` exits two. It is never hand-edited.
 - **`Repo.local.mk`** is an optional tracked repository-owned extension layer.
   It owns Core-specific leaves such as `change-policy`, `agent-check`,
@@ -72,20 +75,18 @@ consumer workspace as `WS`.  Core never replaces that handoff with `git`,
 
 The generated `Repo.mk` include is mandatory; the repository-local extension
 uses `-include Repo.local.mk`, so a newly adopting repository can use the
-universal adapter before it defines extensions. A missing generated adapter
-makes the whole Makefile unparseable, so the bootstrap recovery path bypasses
-`make` entirely:
-
-```bash
-python3 -m tools.l9_repo reconcile
-```
+universal adapter before it defines extensions. The universal facade carries no
+provider-specific recovery command. Consumers recover generated artifacts
+through their provider's documented compilation or reconciliation path; Core
+itself exposes `make reconcile` as its repository-local implementation path.
 
 `tools/l9_make/Makefile.template` is the sole source for the generated root
 facade. During the currently pinned Organization CI transition,
 `tools/l9_repo/Makefile.template` is retained only as a byte-identical,
 compiler-generated compatibility projection. The compiler renders and checks
-both paths; no runtime reads that compatibility path as source authority. Remove
-the projection only after the pinned repository-verification action advances.
+both paths; `.l9/repo-workflow.json` registers the compatibility path as
+generated state, and no runtime reads it as source authority. Remove the
+projection only after the pinned repository-verification action advances.
 
 `Repo.mk` and `Repo.local.mk` may not implement organization governance, and
 neither defines a `pr`, `push`, `release`, or `deploy` target. The compiler does
