@@ -75,7 +75,9 @@
         "--output",
         "Repo.mk",
         "--local",
-        "Repo.local.mk"
+        "Repo.local.mk",
+        "--makefile",
+        "Makefile"
       ]
     ],
     "check": [

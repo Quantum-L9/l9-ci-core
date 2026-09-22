@@ -22,14 +22,14 @@ change-policy: ## Show Core change-policy obligations
 agent-check: ## Run Core evidence-bearing completion checks
 	@$(L9_REPO) agent-check
 
-reconcile: ## Regenerate the stable root Makefile from its canonical template
+reconcile: ## Regenerate both Make artifacts from the authoritative capability plan
 	@$(L9_REPO) reconcile
 
-make-render: ## Render generated Repo.mk from Core's approved capability plan
-	@$(L9_MAKE) render --plan tools/l9_make/default-capability-plan.json --output Repo.mk --local Repo.local.mk
+make-render: ## Render generated Makefile and Repo.mk from Core's approved capability plan
+	@$(L9_MAKE) render --plan tools/l9_make/default-capability-plan.json --output Repo.mk --local Repo.local.mk --makefile Makefile
 
-make-check: ## Verify generated Repo.mk and local target boundaries
-	@$(L9_MAKE) check --plan tools/l9_make/default-capability-plan.json --output Repo.mk --local Repo.local.mk
+make-check: ## Verify generated Make artifacts and local target boundaries
+	@$(L9_MAKE) check --plan tools/l9_make/default-capability-plan.json --output Repo.mk --local Repo.local.mk --makefile Makefile
 
 # Read-only attestation of the live GitHub control plane against
 # .l9/release-plane.yaml. Needs a credential in L9_CONTROL_PLANE_TOKEN,

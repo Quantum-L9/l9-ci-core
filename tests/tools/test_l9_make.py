@@ -32,6 +32,7 @@ class MakeCompilerTests(unittest.TestCase):
         self.root = pathlib.Path(self.temporary.name)
         self.plan_path = self.root / "make-plan.json"
         self.output_path = self.root / "Repo.mk"
+        self.makefile_path = self.root / "Makefile"
         self.local_path = self.root / "Repo.local.mk"
         self.local_path.write_text("# repository extension layer\n", encoding="utf-8")
         self.plan_path.write_text(
@@ -95,11 +96,13 @@ class MakeCompilerTests(unittest.TestCase):
         self.assertEqual(plan_digest(plan), plan_digest(load_plan(self.plan_path)))
 
     def test_render_and_check_are_deterministic_and_stateful(self) -> None:
-        render(self.plan_path, self.output_path, self.local_path)
+        render(self.plan_path, self.output_path, self.local_path, self.makefile_path)
         first = self.output_path.read_text(encoding="utf-8")
-        render(self.plan_path, self.output_path, self.local_path)
+        first_makefile = self.makefile_path.read_text(encoding="utf-8")
+        render(self.plan_path, self.output_path, self.local_path, self.makefile_path)
         self.assertEqual(first, self.output_path.read_text(encoding="utf-8"))
-        check(self.plan_path, self.output_path, self.local_path)
+        self.assertEqual(first_makefile, self.makefile_path.read_text(encoding="utf-8"))
+        check(self.plan_path, self.output_path, self.local_path, self.makefile_path)
         self.assertIn("repo-capabilities:", first)
         self.assertIn("repo-build:", first)
         self.assertIn("NOT_REQUIRED: build - fixture has no build artifact", first)
@@ -116,6 +119,12 @@ class MakeCompilerTests(unittest.TestCase):
         self.output_path.write_text("drift\n", encoding="utf-8")
         with self.assertRaisesRegex(CompilerError, "drifted"):
             check(self.plan_path, self.output_path, self.local_path)
+
+    def test_check_rejects_generated_root_facade_drift(self) -> None:
+        render(self.plan_path, self.output_path, self.local_path, self.makefile_path)
+        self.makefile_path.write_text("drift\n", encoding="utf-8")
+        with self.assertRaisesRegex(CompilerError, "Makefile drifted"):
+            check(self.plan_path, self.output_path, self.local_path, self.makefile_path)
 
     def test_schema_rejects_missing_or_unapproved_contract_fields(self) -> None:
         data = self.plan_data()
@@ -181,6 +190,25 @@ class MakeCompilerTests(unittest.TestCase):
                         self.local_path,
                         [f"repo-{name}" for name in STANDARD_CAPABILITIES],
                     )
+
+    def test_missing_optional_local_extension_is_valid(self) -> None:
+        self.local_path.unlink()
+        render(self.plan_path, self.output_path, self.local_path, self.makefile_path)
+        check(self.plan_path, self.output_path, self.local_path, self.makefile_path)
+
+    def test_portable_resolved_plan_does_not_bind_core_runtime(self) -> None:
+        data = self.valid_plan()
+        capabilities = data["capabilities"]
+        assert isinstance(capabilities, list)
+        for capability in capabilities:
+            assert isinstance(capability, dict)
+            if capability["state"] == "supported":
+                capability["argv"] = ["echo", str(capability["name"])]
+        self.write_plan(data)
+        render(self.plan_path, self.output_path, self.local_path, self.makefile_path)
+        generated = self.output_path.read_text(encoding="utf-8")
+        self.assertIn("@echo doctor", generated)
+        self.assertNotIn("tools.l9_repo", generated)
 
     def test_renderer_is_closed_and_shell_free(self) -> None:
         source = (ROOT / "tools" / "l9_make" / "__main__.py").read_text(

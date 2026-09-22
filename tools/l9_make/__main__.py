@@ -22,6 +22,7 @@ from typing import Any, cast
 PLAN_SCHEMA = "l9.make-plan/v1"
 PLAN_SCHEMA_PATH = pathlib.Path(__file__).with_name("make-plan.schema.json")
 REPO_MK_TEMPLATE_PATH = pathlib.Path(__file__).with_name("Repo.mk.template")
+MAKEFILE_TEMPLATE_PATH = pathlib.Path(__file__).with_name("Makefile.template")
 TARGET_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
 MAKE_TARGET_PATTERN = re.compile(
     r"^\s*([A-Za-z0-9_.-]+(?:\s+[A-Za-z0-9_.-]+)*)\s*::?\s*(?:#.*)?$"
@@ -233,9 +234,9 @@ def _target_declarations(path: pathlib.Path) -> list[tuple[int, str]]:
 def validate_local_extensions(
     path: pathlib.Path, generated_targets: Sequence[str]
 ) -> None:
-    """Reject local declarations that override generated or façade-owned targets."""
+    """Reject protected local overrides; a missing optional extension is valid."""
     if not path.exists():
-        raise CompilerError(f"Repo.local.mk is missing: {path}")
+        return
     if not path.is_file():
         raise CompilerError(f"Repo.local.mk must be a regular file: {path}")
     forbidden = (
@@ -368,8 +369,23 @@ def _write_output(path: pathlib.Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _render_makefile(output: pathlib.Path | None) -> None:
+    if output is None:
+        return
+    try:
+        content = MAKEFILE_TEMPLATE_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError as error:
+        raise CompilerError(
+            f"Makefile template is missing: {MAKEFILE_TEMPLATE_PATH}"
+        ) from error
+    _write_output(output, content)
+
+
 def render(
-    plan_path: pathlib.Path, output: pathlib.Path, local: pathlib.Path | None
+    plan_path: pathlib.Path,
+    output: pathlib.Path,
+    local: pathlib.Path | None,
+    makefile: pathlib.Path | None = None,
 ) -> None:
     plan = load_plan(plan_path)
     generated_targets = [
@@ -379,11 +395,15 @@ def render(
     if local is not None:
         validate_local_extensions(local, generated_targets)
     _write_output(output, render_repo_mk(plan))
+    _render_makefile(makefile)
     print(f"rendered {output}")
 
 
 def check(
-    plan_path: pathlib.Path, output: pathlib.Path, local: pathlib.Path | None
+    plan_path: pathlib.Path,
+    output: pathlib.Path,
+    local: pathlib.Path | None,
+    makefile: pathlib.Path | None = None,
 ) -> None:
     plan = load_plan(plan_path)
     generated_targets = [
@@ -399,6 +419,16 @@ def check(
         raise CompilerError(f"generated output is missing: {output}") from error
     if actual != expected:
         raise CompilerError(f"generated output drifted: {output}; run make make-render")
+    if makefile is not None:
+        try:
+            expected_makefile = MAKEFILE_TEMPLATE_PATH.read_text(encoding="utf-8")
+            actual_makefile = makefile.read_text(encoding="utf-8")
+        except FileNotFoundError as error:
+            raise CompilerError(f"generated Makefile is missing: {makefile}") from error
+        if actual_makefile != expected_makefile:
+            raise CompilerError(
+                f"generated Makefile drifted: {makefile}; run make reconcile"
+            )
     print(f"verified {output}")
 
 
@@ -410,6 +440,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--plan", type=pathlib.Path, required=True)
         subparser.add_argument("--output", type=pathlib.Path, required=True)
         subparser.add_argument("--local", type=pathlib.Path)
+        subparser.add_argument("--makefile", type=pathlib.Path)
     return parser
 
 
@@ -417,9 +448,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "render":
-            render(args.plan, args.output, args.local)
+            render(args.plan, args.output, args.local, args.makefile)
         else:
-            check(args.plan, args.output, args.local)
+            check(args.plan, args.output, args.local, args.makefile)
     except CompilerError as error:
         print(f"l9_make: {error}", file=sys.stderr)
         return 2

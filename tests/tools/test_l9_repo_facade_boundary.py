@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from l9_repo.__main__ import COMMANDS  # noqa: E402
 
 MAKEFILE = ROOT / "Makefile"
-TEMPLATE = ROOT / "tools" / "l9_repo" / "Makefile.template"
+TEMPLATE = ROOT / "tools" / "l9_make" / "Makefile.template"
 REPO_MK = ROOT / "Repo.mk"
 REPO_LOCAL = ROOT / "Repo.local.mk"
 SCHEMA = ROOT / ".l9" / "repo-workflow.schema.json"
@@ -70,13 +70,12 @@ class FacadeHoldsNoPublicationAuthority(unittest.TestCase):
                 ]
                 self.assertNotIn("tools.l9_repo", "\n".join(directives))
 
-    def test_implementation_boundaries_fail_closed(self) -> None:
-        """Both layers use ``include`` so a missing boundary cannot silently degrade."""
+    def test_generated_adapter_fails_closed_and_local_layer_is_optional(self) -> None:
+        """Only the generated adapter is mandatory across all adopting repositories."""
         text = TEMPLATE.read_text(encoding="utf-8")
         self.assertRegex(text, r"(?m)^include Repo\.mk$")
-        self.assertRegex(text, r"(?m)^include Repo\.local\.mk$")
+        self.assertRegex(text, r"(?m)^-include Repo\.local\.mk$")
         self.assertNotRegex(text, r"(?m)^-include Repo\.mk$")
-        self.assertNotRegex(text, r"(?m)^-include Repo\.local\.mk$")
 
     def test_runtime_exposes_no_publication_command(self) -> None:
         self.assertNotIn("push", COMMANDS)
