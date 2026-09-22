@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Compile a closed capability plan into a deterministic ``Repo.mk`` adapter.
+"""Compile an authoritative capability plan into deterministic ``Repo.mk``.
 
-This is a Core-local renderer. It deliberately consumes a narrow, repository
-approved plan and does not inspect the repository, infer capabilities, invoke
-provider tooling, or implement publication. SDK-fed plan provenance is a later,
-separately approved integration contract.
+The compiler is deliberately narrow. It validates an already-resolved plan,
+renders a repository-local Make adapter, and proves the generated adapter has
+not drifted. It neither detects repository capabilities nor implements
+publication: `make pr` remains a one-line delegation to the Governance SSOT.
 """
 
 from __future__ import annotations
@@ -14,36 +14,46 @@ import hashlib
 import json
 import pathlib
 import re
+import shlex
 import sys
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
-PLAN_SCHEMA = "l9.make-capability-plan/v1"
+PLAN_SCHEMA = "l9.make-plan/v1"
+PLAN_SCHEMA_PATH = pathlib.Path(__file__).with_name("make-plan.schema.json")
+REPO_MK_TEMPLATE_PATH = pathlib.Path(__file__).with_name("Repo.mk.template")
 TARGET_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
-MAKE_TARGET_PATTERN = re.compile(r"^([A-Za-z0-9_.-]+)\s*:")
+MAKE_TARGET_PATTERN = re.compile(
+    r"^\s*([A-Za-z0-9_.-]+(?:\s+[A-Za-z0-9_.-]+)*)\s*::?\s*(?:#.*)?$"
+)
 
-STANDARD_BINDINGS: Mapping[str, str] = {
-    "repo-setup": "setup",
-    "repo-validate": "validate",
-    "repo-check": "check",
-    "repo-test": "test",
-    "repo-clean": "clean",
-    "repo-doctor": "doctor",
-}
-RESERVED_TARGETS = frozenset(
-    {
-        "help",
-        "pr",
-        "push",
-        "start",
-        "workspace-clean",
-        "wiring-check",
-    }
+# The standard local vocabulary is universal. Individual capabilities remain
+# explicit about whether a repository supports, does not require, or does not
+# provide the operation.
+STANDARD_CAPABILITIES = (
+    "doctor",
+    "setup",
+    "build",
+    "lint",
+    "test",
+    "validate",
+    "check",
+    "package",
+    "generate",
+    "benchmark",
+    "status",
+    "clean",
+)
+CAPABILITY_STATES = frozenset({"supported", "not_required", "unsupported"})
+COMPATIBILITY_TARGETS = frozenset({"check"})
+ROOT_TARGETS = frozenset({"help", "capabilities", *STANDARD_CAPABILITIES, "pr"})
+RESERVED_GOVERNANCE_TARGETS = frozenset(
+    {"pr", "push", "release", "deploy", "start", "workspace-clean", "wiring-check"}
 )
 
 
 class CompilerError(ValueError):
-    """Raised when a plan or local extension violates the compiler contract."""
+    """Raised when a capability plan or extension violates the contract."""
 
 
 def _require_mapping(value: object, path: str) -> Mapping[str, object]:
@@ -55,127 +65,300 @@ def _require_mapping(value: object, path: str) -> Mapping[str, object]:
 def _require_string(value: object, path: str) -> str:
     if not isinstance(value, str) or not value or "\x00" in value:
         raise CompilerError(f"{path} must be a non-empty string without NUL")
+    if "\r" in value or "\n" in value:
+        raise CompilerError(f"{path} must not contain a line break")
     return value
 
 
-def load_plan(path: pathlib.Path) -> dict[str, Any]:
-    """Load and validate the closed V2 capability-plan contract."""
+def _load_json(path: pathlib.Path, description: str) -> Mapping[str, object]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as error:
-        raise CompilerError(f"capability plan is missing: {path}") from error
+        raise CompilerError(f"{description} is missing: {path}") from error
     except json.JSONDecodeError as error:
-        raise CompilerError(f"capability plan is invalid JSON: {error}") from error
+        raise CompilerError(f"{description} is invalid JSON: {error}") from error
+    return _require_mapping(raw, description)
 
-    root = _require_mapping(raw, "plan")
-    allowed = {"schema", "bindings"}
-    if set(root) != allowed:
-        raise CompilerError("plan must contain exactly schema and bindings")
-    if root["schema"] != PLAN_SCHEMA:
+
+def _validate_against_schema(plan: Mapping[str, object]) -> None:
+    """Apply the shipped Draft 2020-12 schema before semantic normalization."""
+    try:
+        import jsonschema
+    except ModuleNotFoundError as error:
+        raise CompilerError("jsonschema is required to validate make plans") from error
+
+    schema = _load_json(PLAN_SCHEMA_PATH, "make-plan schema")
+    try:
+        jsonschema.Draft202012Validator.check_schema(schema)
+        errors = sorted(
+            jsonschema.Draft202012Validator(schema).iter_errors(plan),
+            key=lambda error: list(error.path),
+        )
+    except (
+        Exception
+    ) as error:  # pragma: no cover - schema defects are infrastructure failures
+        raise CompilerError(f"make-plan schema validation failed: {error}") from error
+    if errors:
+        detail = "; ".join(
+            f"{'/'.join(str(part) for part in error.path) or 'plan'}: {error.message}"
+            for error in errors
+        )
+        raise CompilerError(f"make-plan contract violation: {detail}")
+
+
+def _normalized_capability(raw: object, index: int) -> dict[str, Any]:
+    capability = _require_mapping(raw, f"plan.capabilities[{index}]")
+    name = _require_string(capability.get("name"), f"plan.capabilities[{index}].name")
+    if not TARGET_PATTERN.fullmatch(name) or name not in STANDARD_CAPABILITIES:
+        raise CompilerError(
+            f"plan.capabilities[{index}].name is not a standard capability: {name!r}"
+        )
+    state = _require_string(
+        capability.get("state"), f"plan.capabilities[{index}].state"
+    )
+    if state not in CAPABILITY_STATES:
+        raise CompilerError(f"plan.capabilities[{index}].state is invalid: {state!r}")
+    kind = _require_string(capability.get("kind"), f"plan.capabilities[{index}].kind")
+    if name in COMPATIBILITY_TARGETS:
+        if kind != "compatibility_alias":
+            raise CompilerError(
+                f"plan.capabilities[{index}].kind must be compatibility_alias"
+            )
+    elif kind != "native_binding":
+        raise CompilerError(f"plan.capabilities[{index}].kind must be native_binding")
+
+    provenance = _require_mapping(
+        capability.get("provenance"), f"plan.capabilities[{index}].provenance"
+    )
+    source = _require_string(
+        provenance.get("source"), f"plan.capabilities[{index}].provenance.source"
+    )
+    digest = _require_string(
+        provenance.get("digest"), f"plan.capabilities[{index}].provenance.digest"
+    )
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise CompilerError(
+            f"plan.capabilities[{index}].provenance.digest must be a sha256 digest"
+        )
+
+    normalized: dict[str, Any] = {
+        "name": name,
+        "state": state,
+        "kind": kind,
+        "provenance": {"source": source, "digest": digest},
+    }
+    if state == "supported":
+        argv = capability.get("argv")
+        if not isinstance(argv, list) or not argv:
+            raise CompilerError(f"plan.capabilities[{index}].argv must be non-empty")
+        normalized["argv"] = [
+            _require_string(token, f"plan.capabilities[{index}].argv[{token_index}]")
+            for token_index, token in enumerate(argv)
+        ]
+    else:
+        diagnostic = _require_string(
+            capability.get("diagnostic"), f"plan.capabilities[{index}].diagnostic"
+        )
+        normalized["diagnostic"] = diagnostic
+    return normalized
+
+
+def load_plan(path: pathlib.Path) -> dict[str, Any]:
+    """Load the authoritative V2 make-plan contract and normalize target order."""
+    root = _load_json(path, "make plan")
+    _validate_against_schema(root)
+    if root.get("schema") != PLAN_SCHEMA:
         raise CompilerError(f"plan.schema must be {PLAN_SCHEMA}")
-    bindings = root["bindings"]
-    if not isinstance(bindings, list) or not bindings:
-        raise CompilerError("plan.bindings must be a non-empty array")
+    repository_class = _require_string(
+        root.get("repository_class"), "plan.repository_class"
+    )
+    provenance = _require_mapping(root.get("provenance"), "plan.provenance")
+    producer = _require_string(provenance.get("producer"), "plan.provenance.producer")
+    source = _require_string(provenance.get("source"), "plan.provenance.source")
+    digest = _require_string(provenance.get("digest"), "plan.provenance.digest")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise CompilerError("plan.provenance.digest must be a sha256 digest")
 
-    observed: dict[str, str] = {}
-    for index, raw_binding in enumerate(bindings):
-        binding = _require_mapping(raw_binding, f"plan.bindings[{index}]")
-        if set(binding) != {"target", "command"}:
-            raise CompilerError(
-                f"plan.bindings[{index}] must contain exactly target and command"
-            )
-        target = _require_string(binding["target"], f"plan.bindings[{index}].target")
-        command = _require_string(binding["command"], f"plan.bindings[{index}].command")
-        if not TARGET_PATTERN.fullmatch(target):
-            raise CompilerError(
-                f"plan.bindings[{index}].target is not a safe Make target"
-            )
-        if target in RESERVED_TARGETS:
-            raise CompilerError(f"plan.bindings[{index}].target is reserved: {target}")
-        if target in observed:
-            raise CompilerError(f"plan.bindings contains duplicate target: {target}")
-        expected = STANDARD_BINDINGS.get(target)
-        if expected is None:
-            raise CompilerError(
-                f"plan.bindings[{index}].target is not an approved Core binding"
-            )
-        if command != expected:
-            raise CompilerError(
-                f"plan.bindings[{index}].command must be {expected!r} for {target}"
-            )
-        observed[target] = command
+    raw_capabilities = root.get("capabilities")
+    if not isinstance(raw_capabilities, list):
+        raise CompilerError("plan.capabilities must be an array")
+    observed: dict[str, dict[str, Any]] = {}
+    for index, raw in enumerate(raw_capabilities):
+        capability = _normalized_capability(raw, index)
+        name = capability["name"]
+        if name in observed:
+            raise CompilerError(f"plan.capabilities contains duplicate name: {name}")
+        observed[name] = capability
 
-    expected_targets = set(STANDARD_BINDINGS)
-    if set(observed) != expected_targets:
-        missing = sorted(expected_targets - set(observed))
-        extra = sorted(set(observed) - expected_targets)
+    expected = set(STANDARD_CAPABILITIES)
+    if set(observed) != expected:
+        missing = sorted(expected - set(observed))
+        extra = sorted(set(observed) - expected)
         details = []
         if missing:
             details.append("missing " + ", ".join(missing))
         if extra:
             details.append("unapproved " + ", ".join(extra))
         raise CompilerError(
-            "plan.bindings must define the exact Core binding set: "
+            "plan.capabilities must define the standard vocabulary: "
             + "; ".join(details)
         )
 
     return {
         "schema": PLAN_SCHEMA,
-        "bindings": [
-            {"target": target, "command": observed[target]}
-            for target in STANDARD_BINDINGS
-        ],
+        "repository_class": repository_class,
+        "provenance": {"producer": producer, "source": source, "digest": digest},
+        "capabilities": [observed[name] for name in STANDARD_CAPABILITIES],
     }
 
 
 def plan_digest(plan: Mapping[str, object]) -> str:
-    """Return a canonical digest independent of input JSON whitespace or ordering."""
+    """Return a canonical digest independent of input JSON whitespace or order."""
     payload = json.dumps(plan, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _target_declarations(path: pathlib.Path) -> list[tuple[int, str]]:
+    declarations: list[tuple[int, str]] = []
+    for number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        match = MAKE_TARGET_PATTERN.match(line)
+        if not match:
+            continue
+        declarations.extend((number, name) for name in match.group(1).split())
+    return declarations
 
 
 def validate_local_extensions(
     path: pathlib.Path, generated_targets: Sequence[str]
 ) -> None:
-    """Reject local target declarations that override generated or reserved names."""
+    """Reject local declarations that override generated or façade-owned targets."""
     if not path.exists():
-        return
+        raise CompilerError(f"Repo.local.mk is missing: {path}")
     if not path.is_file():
         raise CompilerError(f"Repo.local.mk must be a regular file: {path}")
-    forbidden = set(generated_targets) | set(RESERVED_TARGETS)
-    for number, line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), start=1
-    ):
-        match = MAKE_TARGET_PATTERN.match(line)
-        if match and match.group(1) in forbidden:
+    forbidden = (
+        set(generated_targets) | set(ROOT_TARGETS) | set(RESERVED_GOVERNANCE_TARGETS)
+    )
+    for number, target in _target_declarations(path):
+        if target in forbidden:
             raise CompilerError(
-                f"Repo.local.mk:{number} overrides protected target {match.group(1)!r}"
+                f"Repo.local.mk:{number} overrides protected target {target!r}"
             )
+
+
+def _make_command(argv: Sequence[str]) -> str:
+    rendered: list[str] = []
+    for token in argv:
+        if token == "@python":
+            rendered.append("$(PYTHON)")
+        else:
+            rendered.append(shlex.quote(token))
+    return " ".join(rendered)
+
+
+def _shell_string(value: str) -> str:
+    return shlex.quote(value)
+
+
+def _render_header(plan: Mapping[str, object]) -> list[str]:
+    provenance = cast(Mapping[str, object], plan["provenance"])
+    try:
+        template = REPO_MK_TEMPLATE_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError as error:
+        raise CompilerError(
+            f"Repo.mk template is missing: {REPO_MK_TEMPLATE_PATH}"
+        ) from error
+    try:
+        return (
+            template.format(
+                plan_digest=plan_digest(plan),
+                repository_class=plan["repository_class"],
+                plan_source=provenance["source"],
+            )
+            .rstrip("\n")
+            .splitlines()
+        )
+    except (KeyError, ValueError) as error:
+        raise CompilerError(f"Repo.mk template is invalid: {error}") from error
+
+
+def _target_list(values: Sequence[str]) -> list[str]:
+    if not values:
+        return []
+    return [".PHONY: \\", "\t" + " \\\n\t".join(values), ""]
 
 
 def render_repo_mk(plan: Mapping[str, object]) -> str:
     """Render the byte-stable generated adapter for an already validated plan."""
-    bindings = plan["bindings"]
-    assert isinstance(bindings, list)
-    ordered = sorted(
-        (binding for binding in bindings if isinstance(binding, dict)),
-        key=lambda binding: str(binding["target"]),
-    )
-    target_lines = " \\\n\t".join(str(binding["target"]) for binding in ordered)
-    lines = [
-        "# GENERATED by Quantum-L9/l9-ci-core tools.l9_make. DO NOT EDIT.",
-        f"# capability-plan-sha256: {plan_digest(plan)}",
-        "# Repository-native targets belong in Repo.local.mk. Governance remains delegated by Makefile.",
-        "PYTHON ?= python3",
-        'L9_REPO := $(PYTHON) -m tools.l9_repo --workspace "$(CURDIR)"',
-        "",
-        ".PHONY: \\",
-        f"\t{target_lines}",
-        "",
+    capabilities = plan["capabilities"]
+    assert isinstance(capabilities, list)
+    supported = [item["name"] for item in capabilities if item["state"] == "supported"]
+    not_required = [
+        item["name"] for item in capabilities if item["state"] == "not_required"
     ]
-    for binding in ordered:
-        lines.append(f"{binding['target']}:")
-        lines.append(f"\t@$(L9_REPO) {binding['command']}")
+    unsupported = [
+        item["name"] for item in capabilities if item["state"] == "unsupported"
+    ]
+    generated = [
+        "repo-capabilities",
+        *(f"repo-{item['name']}" for item in capabilities),
+    ]
+
+    lines = _render_header(plan)
+    lines.extend(
+        [
+            "PYTHON ?= python3",
+            "",
+            "L9_REPO_CLASS := " + str(plan["repository_class"]),
+            "L9_REPO_CAPABILITY_PLAN_SHA256 := " + plan_digest(plan),
+            "L9_REPO_SUPPORTED_CAPABILITIES := " + " ".join(supported),
+            "L9_REPO_NOT_REQUIRED_CAPABILITIES := " + " ".join(not_required),
+            "L9_REPO_UNSUPPORTED_CAPABILITIES := " + " ".join(unsupported),
+            "L9_REPO_CAPABILITIES := "
+            + " ".join(item["name"] for item in capabilities),
+            "",
+        ]
+    )
+    lines.extend(_target_list(generated))
+    lines.extend(
+        [
+            "repo-capabilities:",
+            "\t@printf '%-16s %-14s %s\\n' capability state provenance",
+        ]
+    )
+    for capability in capabilities:
+        lines.append(
+            "\t@printf '%-16s %-14s %s\\n' "
+            + " ".join(
+                _shell_string(str(value))
+                for value in (
+                    capability["name"],
+                    capability["state"],
+                    capability["provenance"]["source"],
+                )
+            )
+        )
+    lines.append("")
+
+    for capability in capabilities:
+        name = str(capability["name"])
+        state = str(capability["state"])
+        lines.append(f"repo-{name}:")
+        if state == "supported":
+            lines.append("\t@" + _make_command(capability["argv"]))
+        elif state == "not_required":
+            lines.append(
+                "\t@printf '%s\\n' "
+                + _shell_string(f"NOT_REQUIRED: {name} - {capability['diagnostic']}")
+            )
+        else:
+            lines.append(
+                "\t@printf '%s\\n' "
+                + _shell_string(f"UNSUPPORTED: {name} - {capability['diagnostic']}")
+                + " >&2; exit 2"
+            )
         lines.append("")
     return "\n".join(lines)
 
@@ -189,7 +372,10 @@ def render(
     plan_path: pathlib.Path, output: pathlib.Path, local: pathlib.Path | None
 ) -> None:
     plan = load_plan(plan_path)
-    generated_targets = [str(binding["target"]) for binding in plan["bindings"]]
+    generated_targets = [
+        "repo-capabilities",
+        *(f"repo-{item['name']}" for item in plan["capabilities"]),
+    ]
     if local is not None:
         validate_local_extensions(local, generated_targets)
     _write_output(output, render_repo_mk(plan))
@@ -200,7 +386,10 @@ def check(
     plan_path: pathlib.Path, output: pathlib.Path, local: pathlib.Path | None
 ) -> None:
     plan = load_plan(plan_path)
-    generated_targets = [str(binding["target"]) for binding in plan["bindings"]]
+    generated_targets = [
+        "repo-capabilities",
+        *(f"repo-{item['name']}" for item in plan["capabilities"]),
+    ]
     if local is not None:
         validate_local_extensions(local, generated_targets)
     expected = render_repo_mk(plan)
@@ -209,7 +398,7 @@ def check(
     except FileNotFoundError as error:
         raise CompilerError(f"generated output is missing: {output}") from error
     if actual != expected:
-        raise CompilerError(f"generated output drifted: {output}; run l9_make render")
+        raise CompilerError(f"generated output drifted: {output}; run make make-render")
     print(f"verified {output}")
 
 

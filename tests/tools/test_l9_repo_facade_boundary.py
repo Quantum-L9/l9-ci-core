@@ -139,11 +139,37 @@ class FacadeRoutesToTheRightOwner(unittest.TestCase):
         return result.stdout
 
     def test_repository_verbs_reach_the_repo_leaves(self) -> None:
-        for target in ("setup", "validate", "check", "test", "clean", "doctor"):
+        for target in (
+            "setup",
+            "validate",
+            "check",
+            "lint",
+            "test",
+            "clean",
+            "doctor",
+            "status",
+        ):
             with self.subTest(target=target):
                 output = self.dry_run(target)
                 self.assertIn("tools.l9_repo", output)
                 self.assertIsNone(GIT_PUBLICATION.search(output))
+
+    def test_stateful_capabilities_preserve_explicit_contracts(self) -> None:
+        for target, state in (("build", "NOT_REQUIRED"), ("package", "NOT_REQUIRED")):
+            with self.subTest(target=target):
+                output = self.dry_run(target)
+                self.assertIn(state, output)
+                self.assertNotIn("tools.l9_repo", output)
+        for target in ("generate", "benchmark"):
+            with self.subTest(target=target):
+                output = self.dry_run(target)
+                self.assertIn("UNSUPPORTED", output)
+                self.assertNotIn("tools.l9_repo", output)
+
+    def test_capabilities_target_reaches_the_generated_inventory(self) -> None:
+        output = self.dry_run("capabilities")
+        self.assertIn("repo-capabilities", output)
+        self.assertIn("capability state provenance", output)
 
     def test_governance_verbs_reach_the_dispatcher(self) -> None:
         for target, verb in (

@@ -1,11 +1,171 @@
 {
-  "schema": "l9.make-capability-plan/v1",
-  "bindings": [
-    {"target": "repo-setup", "command": "setup"},
-    {"target": "repo-validate", "command": "validate"},
-    {"target": "repo-check", "command": "check"},
-    {"target": "repo-test", "command": "test"},
-    {"target": "repo-clean", "command": "clean"},
-    {"target": "repo-doctor", "command": "doctor"}
+  "schema": "l9.make-plan/v1",
+  "repository_class": "python-control-plane",
+  "provenance": {
+    "producer": "l9-ci-core.repository-execution-runtime",
+    "source": ".l9/repo-workflow.json",
+    "digest": "sha256:090ce04741ea18b1cf4c6fb2d230ee9bb7c4205f0f2198a58a7e3509b85878de"
+  },
+  "capabilities": [
+    {
+      "name": "doctor",
+      "state": "supported",
+      "kind": "native_binding",
+      "argv": [
+        "@python",
+        "-m",
+        "tools.l9_repo",
+        "doctor"
+      ],
+      "provenance": {
+        "source": "tools/l9_repo/__main__.py",
+        "digest": "sha256:f0fc6c866a4b825151bbddb4ab5a91728265a2e98c13da95322a6cf62a1a4f33"
+      }
+    },
+    {
+      "name": "setup",
+      "state": "supported",
+      "kind": "native_binding",
+      "argv": [
+        "@python",
+        "-m",
+        "tools.l9_repo",
+        "setup"
+      ],
+      "provenance": {
+        "source": "tools/l9_repo/__main__.py",
+        "digest": "sha256:f0fc6c866a4b825151bbddb4ab5a91728265a2e98c13da95322a6cf62a1a4f33"
+      }
+    },
+    {
+      "name": "build",
+      "state": "not_required",
+      "kind": "native_binding",
+      "diagnostic": "repository class python-control-plane has no distributable build artifact",
+      "provenance": {
+        "source": ".l9/repo-workflow.json",
+        "digest": "sha256:090ce04741ea18b1cf4c6fb2d230ee9bb7c4205f0f2198a58a7e3509b85878de"
+      }
+    },
+    {
+      "name": "lint",
+      "state": "supported",
+      "kind": "native_binding",
+      "argv": [
+        "@python",
+        "-m",
+        "tools.l9_repo",
+        "check"
+      ],
+      "provenance": {
+        "source": ".l9/repo-workflow.json",
+        "digest": "sha256:090ce04741ea18b1cf4c6fb2d230ee9bb7c4205f0f2198a58a7e3509b85878de"
+      }
+    },
+    {
+      "name": "test",
+      "state": "supported",
+      "kind": "native_binding",
+      "argv": [
+        "@python",
+        "-m",
+        "tools.l9_repo",
+        "test"
+      ],
+      "provenance": {
+        "source": ".l9/repo-workflow.json",
+        "digest": "sha256:090ce04741ea18b1cf4c6fb2d230ee9bb7c4205f0f2198a58a7e3509b85878de"
+      }
+    },
+    {
+      "name": "validate",
+      "state": "supported",
+      "kind": "native_binding",
+      "argv": [
+        "@python",
+        "-m",
+        "tools.l9_repo",
+        "validate"
+      ],
+      "provenance": {
+        "source": ".l9/repo-workflow.json",
+        "digest": "sha256:090ce04741ea18b1cf4c6fb2d230ee9bb7c4205f0f2198a58a7e3509b85878de"
+      }
+    },
+    {
+      "name": "check",
+      "state": "supported",
+      "kind": "compatibility_alias",
+      "argv": [
+        "@python",
+        "-m",
+        "tools.l9_repo",
+        "check"
+      ],
+      "provenance": {
+        "source": "tools/l9_make/__main__.py#COMPATIBILITY_TARGETS",
+        "digest": "sha256:cf19f1ce0bae77d88a116e64c7d6c3cd392fa3011929f3a21bf2d77dfb6ea92f"
+      }
+    },
+    {
+      "name": "package",
+      "state": "not_required",
+      "kind": "native_binding",
+      "diagnostic": "repository class python-control-plane has no package deliverable",
+      "provenance": {
+        "source": ".l9/repo-workflow.json",
+        "digest": "sha256:090ce04741ea18b1cf4c6fb2d230ee9bb7c4205f0f2198a58a7e3509b85878de"
+      }
+    },
+    {
+      "name": "generate",
+      "state": "unsupported",
+      "kind": "native_binding",
+      "diagnostic": "this repository does not expose a generated-artifact capability",
+      "provenance": {
+        "source": ".l9/repo-workflow.json",
+        "digest": "sha256:090ce04741ea18b1cf4c6fb2d230ee9bb7c4205f0f2198a58a7e3509b85878de"
+      }
+    },
+    {
+      "name": "benchmark",
+      "state": "unsupported",
+      "kind": "native_binding",
+      "diagnostic": "this repository does not expose a benchmark capability",
+      "provenance": {
+        "source": ".l9/repo-workflow.json",
+        "digest": "sha256:090ce04741ea18b1cf4c6fb2d230ee9bb7c4205f0f2198a58a7e3509b85878de"
+      }
+    },
+    {
+      "name": "status",
+      "state": "supported",
+      "kind": "native_binding",
+      "argv": [
+        "@python",
+        "-m",
+        "tools.l9_repo",
+        "status"
+      ],
+      "provenance": {
+        "source": "tools/l9_repo/__main__.py",
+        "digest": "sha256:f0fc6c866a4b825151bbddb4ab5a91728265a2e98c13da95322a6cf62a1a4f33"
+      }
+    },
+    {
+      "name": "clean",
+      "state": "supported",
+      "kind": "native_binding",
+      "argv": [
+        "@python",
+        "-m",
+        "tools.l9_repo",
+        "clean"
+      ],
+      "provenance": {
+        "source": ".l9/repo-workflow.json",
+        "digest": "sha256:090ce04741ea18b1cf4c6fb2d230ee9bb7c4205f0f2198a58a7e3509b85878de"
+      }
+    }
   ]
 }

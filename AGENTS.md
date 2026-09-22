@@ -281,20 +281,32 @@ reason: it would recreate a second publication authority.
 ### The generated adapter and local extension layers
 
 The root `Makefile` is generated from `tools/l9_repo/Makefile.template` and
-owns only the stable bootstrap vocabulary and Governance delegation. Standard
-repository verbs (`make setup`, `make validate`, `make check`, `make test`,
-`make clean`, `make doctor`) route through generated `Repo.mk`, which is
-rendered by `tools/l9_make` from Core's closed capability plan. Core-specific
-leaves are repository-owned in `Repo.local.mk`. Governance verbs (`make start`,
-`make pr`, `make workspace-clean`, `make wiring-check`) route to the `l9`
-dispatcher.
+owns only the universal bootstrap vocabulary and Governance delegation.
+`tools/l9_make` validates the authoritative `l9.make-plan/v1` schema and
+renders deterministic `Repo.mk` output from a resolved capability plan.
+
+Standard capability names are `doctor`, `setup`, `build`, `lint`, `test`,
+`validate`, `package`, `generate`, `benchmark`, `status`, and `clean`; inspect
+their explicit `supported`, `not_required`, or `unsupported` state with
+`make capabilities`. `make check` is a documented compatibility alias during
+the V2 migration. `NOT_REQUIRED` returns zero and `UNSUPPORTED` returns two.
+Never silently omit a known standard capability.
 
 `Repo.mk` is generated and must never be hand-edited. `Repo.local.mk` may add
-Core-native capabilities but may not override a generated target, a reserved
-Governance target, `pr`, or `push`. Neither layer may implement organization
-governance. Both includes are mandatory: if the root bootstrap is missing,
-recover with `python3 -m tools.l9_repo reconcile`; if `Repo.mk` drifts, use
-`make make-render`; verify both layers with `make make-check`.
+Core-native extensions but may not override a generated or universal target, a
+reserved Governance target, `pr`, `push`, `release`, or `deploy`. Neither layer
+may implement organization governance. Both includes are mandatory: if the root
+bootstrap or generated adapter drifts, run `python3 -m tools.l9_repo reconcile`;
+use `make make-render` for the explicit adapter render, and `make make-check`
+to verify schema, rendered bytes, and local-layer ownership.
+
+The Core compiler does not detect repository capabilities, infer languages, or
+consume a provider at render time. The permanent downstream plan path is
+`.l9/make-plan.json`, but it remains unavailable until the SDK/Core owner
+approves a versioned immutable envelope. Until then, no hand-authored plan may
+pretend to be SDK evidence; this Core reference uses its checked-in plan only.
+Governance verbs (`make start`, `make pr`, `make workspace-clean`,
+`make wiring-check`) route only to the `l9` dispatcher.
 
 ### The contract shape is pinned
 

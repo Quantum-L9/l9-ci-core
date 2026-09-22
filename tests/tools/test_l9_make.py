@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 import pathlib
 import sys
@@ -10,8 +12,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from l9_make.__main__ import (  # noqa: E402
+    CAPABILITY_STATES,
     CompilerError,
-    STANDARD_BINDINGS,
+    STANDARD_CAPABILITIES,
     check,
     load_plan,
     main,
@@ -27,44 +30,86 @@ class MakeCompilerTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = pathlib.Path(self.temporary.name)
-        self.plan_path = self.root / "plan.json"
+        self.plan_path = self.root / "make-plan.json"
         self.output_path = self.root / "Repo.mk"
         self.local_path = self.root / "Repo.local.mk"
+        self.local_path.write_text("# repository extension layer\n", encoding="utf-8")
         self.plan_path.write_text(
-            json.dumps(
-                {
-                    "schema": "l9.make-capability-plan/v1",
-                    "bindings": [
-                        {"target": target, "command": command}
-                        for target, command in reversed(
-                            tuple(STANDARD_BINDINGS.items())
-                        )
-                    ],
-                }
-            ),
-            encoding="utf-8",
+            json.dumps(self.valid_plan(), indent=2), encoding="utf-8"
         )
 
-    def test_load_plan_normalizes_binding_order(self) -> None:
+    @staticmethod
+    def digest(seed: str) -> str:
+        return "sha256:" + hashlib.sha256(seed.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def valid_plan(cls) -> dict[str, object]:
+        capabilities: list[dict[str, object]] = []
+        for name in reversed(STANDARD_CAPABILITIES):
+            capability: dict[str, object] = {
+                "name": name,
+                "state": "supported",
+                "kind": "compatibility_alias" if name == "check" else "native_binding",
+                "argv": ["@python", "-m", "tools.l9_repo", "validate"],
+                "provenance": {
+                    "source": f"fixture:{name}",
+                    "digest": cls.digest(name[0]),
+                },
+            }
+            if name == "build":
+                capability.pop("argv")
+                capability["state"] = "not_required"
+                capability["diagnostic"] = "fixture has no build artifact"
+            elif name == "benchmark":
+                capability.pop("argv")
+                capability["state"] = "unsupported"
+                capability["diagnostic"] = "fixture has no benchmark capability"
+            capabilities.append(capability)
+        return {
+            "schema": "l9.make-plan/v1",
+            "repository_class": "fixture-repository",
+            "provenance": {
+                "producer": "fixture-producer",
+                "source": "fixture-plan",
+                "digest": cls.digest("f"),
+            },
+            "capabilities": capabilities,
+        }
+
+    def plan_data(self) -> dict[str, object]:
+        return json.loads(self.plan_path.read_text(encoding="utf-8"))
+
+    def write_plan(self, value: object) -> None:
+        self.plan_path.write_text(json.dumps(value, indent=2), encoding="utf-8")
+
+    def test_load_plan_normalizes_capability_order_and_schema(self) -> None:
         plan = load_plan(self.plan_path)
         self.assertEqual(
-            list(STANDARD_BINDINGS), [entry["target"] for entry in plan["bindings"]]
+            list(STANDARD_CAPABILITIES),
+            [entry["name"] for entry in plan["capabilities"]],
         )
         self.assertEqual(
-            "3e347d477591620d6fb803acca60af491f959099bcd75330ba4a52aaf7e3f6cc",
-            plan_digest(plan),
+            CAPABILITY_STATES,
+            {entry["state"] for entry in plan["capabilities"]} | {"supported"},
         )
+        self.assertEqual(plan_digest(plan), plan_digest(load_plan(self.plan_path)))
 
-    def test_render_and_check_are_deterministic(self) -> None:
+    def test_render_and_check_are_deterministic_and_stateful(self) -> None:
         render(self.plan_path, self.output_path, self.local_path)
         first = self.output_path.read_text(encoding="utf-8")
         render(self.plan_path, self.output_path, self.local_path)
         self.assertEqual(first, self.output_path.read_text(encoding="utf-8"))
         check(self.plan_path, self.output_path, self.local_path)
-        self.assertIn("repo-validate:", first)
-        self.assertIn("$(L9_REPO) validate", first)
+        self.assertIn("repo-capabilities:", first)
+        self.assertIn("repo-build:", first)
+        self.assertIn("NOT_REQUIRED: build - fixture has no build artifact", first)
+        self.assertIn(
+            "UNSUPPORTED: benchmark - fixture has no benchmark capability", first
+        )
+        self.assertIn("$(PYTHON) -m tools.l9_repo validate", first)
         self.assertNotIn("git push", first)
         self.assertNotIn("gh pr", first)
+        self.assertNotIn("l9 pr", first)
 
     def test_check_rejects_generated_output_drift(self) -> None:
         render(self.plan_path, self.output_path, self.local_path)
@@ -72,30 +117,70 @@ class MakeCompilerTests(unittest.TestCase):
         with self.assertRaisesRegex(CompilerError, "drifted"):
             check(self.plan_path, self.output_path, self.local_path)
 
-    def test_plan_rejects_unapproved_or_duplicate_target(self) -> None:
-        data = json.loads(self.plan_path.read_text(encoding="utf-8"))
-        data["bindings"][0]["target"] = "pr"
-        self.plan_path.write_text(json.dumps(data), encoding="utf-8")
-        with self.assertRaisesRegex(CompilerError, "reserved"):
+    def test_schema_rejects_missing_or_unapproved_contract_fields(self) -> None:
+        data = self.plan_data()
+        assert isinstance(data, dict)
+        data["unexpected"] = True
+        self.write_plan(data)
+        with self.assertRaisesRegex(CompilerError, "contract violation"):
             load_plan(self.plan_path)
 
-        data["bindings"][0] = {"target": "repo-setup", "command": "setup"}
-        self.plan_path.write_text(json.dumps(data), encoding="utf-8")
-        with self.assertRaisesRegex(CompilerError, "duplicate"):
+        data = self.valid_plan()
+        capabilities = data["capabilities"]
+        assert isinstance(capabilities, list)
+        capabilities.pop()
+        self.write_plan(data)
+        with self.assertRaisesRegex(
+            CompilerError, "contract violation|standard vocabulary"
+        ):
             load_plan(self.plan_path)
 
-    def test_local_extensions_cannot_override_generated_or_governance_targets(
+    def test_schema_rejects_invalid_state_transport_and_alias_kind(self) -> None:
+        data = self.valid_plan()
+        capabilities = data["capabilities"]
+        assert isinstance(capabilities, list)
+        target = next(item for item in capabilities if item["name"] == "setup")
+        target["state"] = "invented"
+        self.write_plan(data)
+        with self.assertRaisesRegex(CompilerError, "contract violation|invalid"):
+            load_plan(self.plan_path)
+
+        data = self.valid_plan()
+        capabilities = data["capabilities"]
+        assert isinstance(capabilities, list)
+        target = next(item for item in capabilities if item["name"] == "check")
+        target["kind"] = "native_binding"
+        self.write_plan(data)
+        with self.assertRaisesRegex(CompilerError, "compatibility_alias"):
+            load_plan(self.plan_path)
+
+        data = self.valid_plan()
+        capabilities = data["capabilities"]
+        assert isinstance(capabilities, list)
+        target = next(item for item in capabilities if item["name"] == "package")
+        target["argv"] = ["echo\nunsafe"]
+        self.write_plan(data)
+        with self.assertRaisesRegex(CompilerError, "contract violation|line break"):
+            load_plan(self.plan_path)
+
+    def test_local_extensions_cannot_override_generated_or_reserved_targets(
         self,
     ) -> None:
-        self.local_path.write_text("repo-check:\n\t@true\n", encoding="utf-8")
-        with self.assertRaisesRegex(
-            CompilerError, "overrides protected target 'repo-check'"
+        for declaration, target in (
+            ("repo-check:\n\t@true\n", "repo-check"),
+            ("pr:\n\t@true\n", "pr"),
+            ("inventory repo-build:\n\t@true\n", "repo-build"),
+            ("release::\n\t@true\n", "release"),
         ):
-            validate_local_extensions(self.local_path, STANDARD_BINDINGS)
-
-        self.local_path.write_text("pr:\n\t@true\n", encoding="utf-8")
-        with self.assertRaisesRegex(CompilerError, "overrides protected target 'pr'"):
-            validate_local_extensions(self.local_path, STANDARD_BINDINGS)
+            with self.subTest(target=target):
+                self.local_path.write_text(declaration, encoding="utf-8")
+                with self.assertRaisesRegex(
+                    CompilerError, rf"protected target '{target}'"
+                ):
+                    validate_local_extensions(
+                        self.local_path,
+                        [f"repo-{name}" for name in STANDARD_CAPABILITIES],
+                    )
 
     def test_renderer_is_closed_and_shell_free(self) -> None:
         source = (ROOT / "tools" / "l9_make" / "__main__.py").read_text(
@@ -112,9 +197,9 @@ class MakeCompilerTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, source)
         plan = load_plan(self.plan_path)
-        self.assertEqual(render_repo_mk(plan), render_repo_mk(plan))
+        self.assertEqual(render_repo_mk(plan), render_repo_mk(copy.deepcopy(plan)))
 
-    def test_cli_returns_nonzero_for_drift(self) -> None:
+    def test_cli_returns_nonzero_for_output_drift(self) -> None:
         self.assertEqual(
             0,
             main(
@@ -124,6 +209,8 @@ class MakeCompilerTests(unittest.TestCase):
                     str(self.plan_path),
                     "--output",
                     str(self.output_path),
+                    "--local",
+                    str(self.local_path),
                 ]
             ),
         )
@@ -137,6 +224,8 @@ class MakeCompilerTests(unittest.TestCase):
                     str(self.plan_path),
                     "--output",
                     str(self.output_path),
+                    "--local",
+                    str(self.local_path),
                 ]
             ),
         )

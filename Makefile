@@ -1,9 +1,9 @@
 # GENERATED - Quantum-L9 repository Make bootstrap.
 #
-# This stable root file owns only operator vocabulary and governance delegation.
-#   - Core-approved repository bindings are generated into Repo.mk.
-#   - Repository-native extensions live in Repo.local.mk.
-#   - Cross-repository governance is delegated to the l9 dispatcher.
+# The public interface is universal and intentionally thin:
+#   - Repo.mk is a generated, provenance-bound local capability adapter.
+#   - Repo.local.mk is a tracked repository-owned extension layer.
+#   - Governance and publication are delegated only to the installed l9 dispatcher.
 #
 # Do not place product logic, Git publication logic, or GitHub API logic here.
 # Recover this bootstrap with: python3 -m tools.l9_repo reconcile
@@ -12,44 +12,59 @@ SHELL := /usr/bin/env bash
 .SHELLFLAGS := -eu -o pipefail -c
 L9 ?= l9
 
-# Both layers are required. A missing generated adapter or repository-native
-# extension is a broken repository boundary, not a silent degrade.
+# Both layers are required. A missing generated adapter or local extension is a
+# broken repository boundary, not a silent degrade.
 include Repo.mk
 include Repo.local.mk
 
-.PHONY: \
+L9_STANDARD_TARGETS := \
 	help \
+	capabilities \
+	doctor \
 	setup \
+	build \
+	lint \
+	test \
 	validate \
 	check \
-	test \
+	package \
+	generate \
+	benchmark \
+	status \
 	clean \
-	doctor \
 	wiring-check \
 	start \
 	workspace-clean \
 	pr
 
-help: ## Show repository commands
+.PHONY: $(L9_STANDARD_TARGETS)
+
+help: ## Show public repository commands
 	@awk '\
 		BEGIN { FS = ":.*## "; } \
 		/^[A-Za-z0-9_.-]+:.*## / { \
-			printf "  %-24s %s\n", $$1, $$2; \
+			printf "  %-24s %s\\n", $$1, $$2; \
 		}' $(MAKEFILE_LIST)
 
-# ---------------------------------------------------------------------------
-# Standard repository bindings - implemented by generated Repo.mk
-# ---------------------------------------------------------------------------
-setup: repo-setup ## Install/bootstrap repository dependencies
-validate: repo-validate ## Run the repository canonical validation
-check: repo-check ## Run repository static/quality checks
-test: repo-test ## Run repository tests
-clean: repo-clean ## Remove repository-local disposable outputs
-doctor: repo-doctor ## Verify the local execution toolchain
+capabilities: ## Show all standard capability states and their provenance
+	@$(MAKE) --no-print-directory repo-capabilities
 
-# ---------------------------------------------------------------------------
-# Cross-repository governance - this bootstrap owns no implementation here
-# ---------------------------------------------------------------------------
+# Standard local capabilities are generated in Repo.mk.
+doctor: repo-doctor ## Verify local prerequisites and wiring
+setup: repo-setup ## Establish local development dependencies
+build: repo-build ## Produce the primary build artifact when required
+lint: repo-lint ## Run static analysis, style, and type checks
+check: repo-check ## Compatibility alias for the historical static-check target
+test: repo-test ## Execute repository tests
+validate: repo-validate ## Run the canonical repository readiness gate
+package: repo-package ## Produce a distributable local artifact when required
+generate: repo-generate ## Regenerate derived artifacts when supported
+benchmark: repo-benchmark ## Execute repository benchmarks when supported
+status: repo-status ## Report local repository state
+clean: repo-clean ## Remove disposable repository-local outputs
+
+# Cross-repository governance remains an external handoff. No local façade,
+# generated adapter, or extension layer owns Git/GitHub publication semantics.
 wiring-check: ## Verify Governance wiring for this repository
 	@$(L9) wiring-check
 

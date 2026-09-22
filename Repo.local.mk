@@ -4,12 +4,12 @@
 # Core-specific validation and release-assurance helpers. It must not override a
 # generated target or define publication targets: make pr remains a delegation to
 # Cursor-Governance through the root Makefile.
+L9_REPO ?= $(PYTHON) -m tools.l9_repo
 L9_MAKE := $(PYTHON) -m tools.l9_make
 
 .PHONY: \
 	change-policy \
 	agent-check \
-	status \
 	reconcile \
 	make-render \
 	make-check \
@@ -21,9 +21,6 @@ change-policy: ## Show Core change-policy obligations
 
 agent-check: ## Run Core evidence-bearing completion checks
 	@$(L9_REPO) agent-check
-
-status: ## Show Core-local repository state
-	@$(L9_REPO) status
 
 reconcile: ## Regenerate the stable root Makefile from its canonical template
 	@$(L9_REPO) reconcile
