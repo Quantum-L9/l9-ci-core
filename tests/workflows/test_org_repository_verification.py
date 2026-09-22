@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "org-ci.yml"
 ACTION = ROOT / ".github" / "actions" / "run-repository-verification" / "action.yml"
 RUNNER = ROOT / ".github" / "actions" / "run-repository-verification" / "run.py"
-PIN = "63428872c2fc010f79d319f499b9ce844b181063"
+PIN = "b80403150868df839c3562e2f8dca27bd6e1260b"
 
 
 def _load_runner():

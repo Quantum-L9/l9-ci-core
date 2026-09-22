@@ -348,9 +348,10 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@63428872c2fc010f79d319f499b9ce844b181063
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@b80403150868df839c3562e2f8dca27bd6e1260b
         with:
           workspace: .
+          contract-mode: migration
 
       # The provider toolchain is a locked contract, not a resolution. Core
       # selects the setup-python action by full SHA, the interpreter by exact
