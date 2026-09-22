@@ -24,7 +24,9 @@ edits a ruleset, branch, repository setting, release, or tag.
 Three outcomes are distinguished and only one of them is success: ``PASS``,
 ``FAIL``, and ``UNKNOWN``. Absent credentials, insufficient permissions, an
 unreachable API, and an unrecognised response are all ``UNKNOWN`` — never
-``PASS``. The process exits non-zero unless every check is ``PASS``.
+``PASS``. A local contract error is a ``FAIL`` and, with ``--json``, is emitted
+in the same machine-readable evidence envelope before exit. The process exits
+non-zero unless every live check is ``PASS``.
 
     python3 tools/verify_control_plane.py [--root PATH] [--json]
 
@@ -43,7 +45,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -65,6 +66,7 @@ BINDING_CHECK = "organization required-workflow binding"
 PROTECTION_CHECK = "Core main protection"
 IMMUTABLE_CHECK = "immutable releases"
 FRESHNESS_CHECK = "required status-check freshness"
+CONTRACT_CHECK = "local control-plane contract"
 
 #: Ruleset enforcement states. Only ``active`` enforces; ``evaluate`` reports
 #: without blocking and ``disabled`` does nothing, so neither is a PASS.
@@ -765,6 +767,29 @@ def as_json(results: list[CheckResult], expected: Expected) -> dict[str, Any]:
     }
 
 
+def contract_error_json(error: ContractError) -> dict[str, Any]:
+    """Return uploadable failure evidence when local expectations cannot load."""
+    return {
+        "schema": "l9.control-plane-attestation/v1",
+        "mutating": False,
+        "expected": {},
+        "conclusion": FAIL,
+        "checks": [
+            {
+                "name": CONTRACT_CHECK,
+                "status": FAIL,
+                "expected": (
+                    f"readable, valid, and agreeing {CONTRACT} and "
+                    f"{ORG_RUNTIME_CONTRACT}"
+                ),
+                "actual": "local contract expectations could not be loaded",
+                "reason": str(error),
+                "evidence": [],
+            }
+        ],
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Attest the live control plane.")
     parser.add_argument("--root", default=".", help="repository root")
@@ -773,7 +798,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         expected = load_expected(Path(arguments.root).resolve())
     except ContractError as error:
-        print(f"verify-control-plane: {error}", file=sys.stderr)
+        if arguments.json:
+            print(json.dumps(contract_error_json(error), indent=2))
+        else:
+            print(f"FAIL {CONTRACT_CHECK}")
+            print(f"  reason:   {error}")
         return 4
 
     token = resolve_token()

@@ -13,14 +13,18 @@ the process exit code non-zero.
 from __future__ import annotations
 
 import importlib.util
+import io
 import pathlib
+import re
 import shutil
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 VERIFIER = ROOT / "tools" / "verify_control_plane.py"
+WORKFLOW_PATH = ROOT / ".github" / "workflows" / "control-plane-attestation.yml"
 
 REPOSITORY = "Quantum-L9/l9-ci-core"
 BRANCH = "main"
@@ -281,6 +285,22 @@ class ContractLoadingFailureTests(unittest.TestCase):
         with self.assertRaises(MODULE.ContractError):
             MODULE.load_expected(self.tmp)
         self.assertEqual(4, MODULE.main(["--root", str(self.tmp)]))
+
+    def test_absent_contract_emits_parseable_json_failure_evidence(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            status = MODULE.main(["--root", str(self.tmp), "--json"])
+        document = MODULE.json.loads(output.getvalue())
+        self.assertEqual(4, status)
+        self.assertEqual("l9.control-plane-attestation/v1", document["schema"])
+        self.assertEqual(MODULE.FAIL, document["conclusion"])
+        self.assertFalse(document["mutating"])
+        self.assertEqual({}, document["expected"])
+        self.assertEqual(1, len(document["checks"]))
+        check = document["checks"][0]
+        self.assertEqual(MODULE.CONTRACT_CHECK, check["name"])
+        self.assertEqual(MODULE.FAIL, check["status"])
+        self.assertIn(str(MODULE.CONTRACT), check["reason"])
 
     def test_contract_without_a_production_source_is_an_error(self) -> None:
         self.write("schema: l9.release-plane/v1\n")
@@ -610,6 +630,93 @@ class RenderingTests(unittest.TestCase):
         )
         self.assertEqual(MODULE.UNKNOWN, document["conclusion"])
         self.assertFalse(document["mutating"])
+
+
+class AutomaticWorkflowTests(unittest.TestCase):
+    """The privileged verifier runs automatically without widening trust."""
+
+    def setUp(self) -> None:
+        import yaml
+
+        self.text = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.workflow = yaml.safe_load(self.text)
+        self.triggers = (
+            self.workflow[True] if True in self.workflow else self.workflow["on"]
+        )
+        self.job = self.workflow["jobs"]["attest"]
+        self.steps = self.job["steps"]
+
+    def step(self, name: str) -> dict:
+        return next(step for step in self.steps if step.get("name") == name)
+
+    def test_triggers_are_main_push_daily_off_peak_and_manual(self) -> None:
+        self.assertEqual(["main"], self.triggers["push"]["branches"])
+        self.assertIsNone(self.triggers["workflow_dispatch"])
+        schedules = self.triggers["schedule"]
+        self.assertEqual(1, len(schedules))
+        cron = str(schedules[0]["cron"])
+        fields = cron.split()
+        self.assertEqual(5, len(fields))
+        self.assertNotEqual("0", fields[0], "daily schedule must not start on the hour")
+
+    def test_every_trigger_is_confined_to_trusted_core_main(self) -> None:
+        self.assertEqual({"attest"}, set(self.workflow["jobs"]))
+        condition = " ".join(str(self.job["if"]).split())
+        self.assertIn("github.repository == 'Quantum-L9/l9-ci-core'", condition)
+        self.assertIn("github.ref == 'refs/heads/main'", condition)
+        self.assertNotRegex(self.text, r"(?m)^\s*pull_request(?:_target)?:")
+        self.assertNotIn("workflow_call", self.triggers)
+
+    def test_permissions_and_environment_are_least_privilege(self) -> None:
+        self.assertEqual({"contents": "read"}, self.workflow["permissions"])
+        self.assertEqual({"name": "control-plane-attestation"}, self.job["environment"])
+        self.assertNotIn("permissions", self.job)
+        self.assertNotRegex(self.text, r"(?m)^\s+id-token:\s*")
+        self.assertNotRegex(self.text, r"(?m)^\s+[a-z-]+:\s*write\s*$")
+
+    def test_environment_secret_is_scoped_only_to_the_verifier_step(self) -> None:
+        secret = "${{ secrets.L9_CONTROL_PLANE_TOKEN }}"
+        verifier = self.step("Attest the live control plane")
+        self.assertEqual(secret, verifier["env"]["L9_CONTROL_PLANE_TOKEN"])
+        self.assertEqual(1, self.text.count(secret))
+        self.assertNotIn("env", self.job)
+        for step in self.steps:
+            if step is verifier:
+                continue
+            self.assertNotIn("L9_CONTROL_PLANE_TOKEN", step.get("env", {}))
+
+    def test_runtime_and_contract_reader_are_core_pinned(self) -> None:
+        setup = self.step("Set up pinned Python")
+        self.assertRegex(str(setup["uses"]), r"^actions/setup-python@[0-9a-f]{40}$")
+        self.assertEqual("3.12.14", setup["with"]["python-version"])
+        install = self.step("Install Core-pinned contract reader")
+        command = " ".join(str(install["run"]).split())
+        self.assertIn("--requirement requirements-ci.txt", command)
+        self.assertIn("--only-binary :all:", command)
+        self.assertNotRegex(command, r"\bPyYAML(?:==|\s|$)")
+
+    def test_json_evidence_is_initialized_first_and_always_uploaded(self) -> None:
+        self.assertEqual(
+            "Initialize machine-readable failure evidence", self.steps[0]["name"]
+        )
+        initializer = str(self.steps[0]["run"])
+        self.assertIn('"conclusion": "FAIL"', initializer)
+        self.assertIn('"status": "FAIL"', initializer)
+        upload = self.step("Publish attestation evidence")
+        self.assertEqual("always()", upload["if"])
+        self.assertEqual(30, upload["with"]["retention-days"])
+        self.assertEqual("error", upload["with"]["if-no-files-found"])
+        self.assertEqual(
+            "${{ runner.temp }}/control-plane-attestation.json",
+            upload["with"]["path"],
+        )
+
+    def test_verifier_replaces_fallback_only_after_json_validation(self) -> None:
+        run = str(self.step("Attest the live control plane")["run"])
+        self.assertIn("control-plane-attestation.candidate.json", run)
+        self.assertIn("json.loads(open(sys.argv[1]", run)
+        self.assertLess(run.index("json.loads"), run.index('mv "${candidate}"'))
+        self.assertNotRegex(run, re.compile(r"\|\|\s*true\b"))
 
 
 if __name__ == "__main__":

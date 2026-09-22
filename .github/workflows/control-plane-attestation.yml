@@ -11,29 +11,65 @@
 # It is deliberately not a job inside release-validation.yml. The
 # immutable-releases endpoint needs repository administration:read, which the
 # workflow-scoped GITHUB_TOKEN cannot hold, so wiring it into the release gate
-# would make every release depend on an admin credential being present. Run it
-# here, on demand, with a credential that can see the whole control plane.
+# would make every release depend on an admin credential being present. This
+# workflow runs only against trusted Core main: after a main push, daily at a
+# non-peak minute, or by a main-ref manual dispatch.
 #
-# Credentials, in the order the verifier reads them:
-#   L9_CONTROL_PLANE_TOKEN  repository or organization secret, if configured
-#   GITHUB_TOKEN            the run's own token; enough for the binding and
-#                           branch-protection checks, not for immutable releases
+# L9_CONTROL_PLANE_TOKEN must be an environment secret in the
+# control-plane-attestation Environment. It is exposed only to the verifier
+# step. GITHUB_TOKEN is the read-only fallback; it can read some checks but not
+# immutable releases, so a run with only that token remains UNKNOWN and fails.
 #
 # The verifier fails closed: it exits non-zero unless every check is PASS, and
-# a state it cannot determine is reported UNKNOWN, never PASS.
+# a state it cannot determine is reported UNKNOWN, never PASS. A fallback JSON
+# document is created before setup so the always-running artifact step has
+# machine-readable failure evidence even if setup cannot reach the verifier.
 name: Control plane attestation
 on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 4 * * *"
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: control-plane-attestation-${{ github.ref }}
+  group: control-plane-attestation-main
   cancel-in-progress: false
 jobs:
   attest:
-    runs-on: ubuntu-latest
+    if: >-
+      github.repository == 'Quantum-L9/l9-ci-core' &&
+      github.ref == 'refs/heads/main'
+    environment:
+      name: control-plane-attestation
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: Initialize machine-readable failure evidence
+        env:
+          EVIDENCE: ${{ runner.temp }}/control-plane-attestation.json
+        run: |
+          set -euo pipefail
+          cat > "${EVIDENCE}" <<'JSON'
+          {
+            "schema": "l9.control-plane-attestation/v1",
+            "mutating": false,
+            "expected": {},
+            "conclusion": "FAIL",
+            "checks": [
+              {
+                "name": "attestation workflow execution",
+                "status": "FAIL",
+                "expected": "the verifier completes and emits JSON evidence",
+                "actual": "the verifier did not replace the fallback evidence",
+                "reason": "checkout, runtime setup, dependency setup, or verifier execution failed",
+                "evidence": []
+              }
+            ]
+          }
+          JSON
       - name: Checkout immutable event revision
         env:
           REPOSITORY: ${{ github.repository }}
@@ -48,8 +84,14 @@ jobs:
           git checkout --detach FETCH_HEAD
           git remote set-url origin \
             "https://github.com/${REPOSITORY}.git"
-      - name: Install contract reader
-        run: python3 -m pip install --quiet --disable-pip-version-check PyYAML
+      - name: Set up pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.14"
+      - name: Install Core-pinned contract reader
+        run: >-
+          python -m pip install --quiet --disable-pip-version-check
+          --only-binary :all: --requirement requirements-ci.txt
       - name: Attest the live control plane
         env:
           L9_CONTROL_PLANE_TOKEN: ${{ secrets.L9_CONTROL_PLANE_TOKEN }}
@@ -57,12 +99,13 @@ jobs:
         run: |
           set -euo pipefail
           evidence="${RUNNER_TEMP}/control-plane-attestation.json"
+          candidate="${RUNNER_TEMP}/control-plane-attestation.candidate.json"
           # One invocation, so the artifact and the summary describe the same
           # observation. The exit code is preserved and re-raised below: a
           # FAIL or an UNKNOWN must fail this job.
           status=0
-          python3 tools/verify_control_plane.py --json > "${evidence}" || status=$?
-          python3 - "${evidence}" <<'PY'
+          python tools/verify_control_plane.py --json > "${candidate}" || status=$?
+          if ! python - "${candidate}" <<'PY'
           import json
           import sys
 
@@ -75,6 +118,11 @@ jobs:
                           print(f"  {field}: {check[field]}")
           print(f"conclusion: {document['conclusion']}")
           PY
+          then
+            echo "verifier did not emit valid JSON evidence" >&2
+            exit 4
+          fi
+          mv "${candidate}" "${evidence}"
           exit "${status}"
       - name: Publish attestation evidence
         if: always()
@@ -82,5 +130,5 @@ jobs:
         with:
           name: control-plane-attestation
           path: ${{ runner.temp }}/control-plane-attestation.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
