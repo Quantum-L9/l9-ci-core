@@ -329,7 +329,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@ed22910dbe7069181aafd10d0ba6c94763520bed
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
