@@ -241,6 +241,7 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
             "contract-mode:",
         ):
             self.assertIn(name, text)
+        self.assertIn("value: ${{ steps.verify.outputs.contract-mode }}", text)
 
 
 if __name__ == "__main__":

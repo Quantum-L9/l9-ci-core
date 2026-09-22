@@ -81,7 +81,6 @@
 2b1f041cb6f78eda3e92fafd15e52d45fd8e71518651504b7b3a5b36e00ab338  docs/pipeline-runs/2026-09-07/evidence/repo-state/l9-ci-sdk.txt
 2b8396a732ab78fc4f4ef66fc7d767578d76767655f401087364279a4fce68fd  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/resolver_to_intelligence/final/index.json
 2b8546386494b39127e2fc99baaba9848510041d629757fc7add9ec36e7135a8  docs/pipeline-runs/2026-09-07/evidence/layer-4/receipts/input-presence.json
-2c35e938983dfd150ca5749e969bf647764677361183e6356cab1b232c5618d1  tests/workflows/test_org_repository_verification.py
 2cd9c5bc7b45f1896a201e76000c87490f1b7c758b01ea5620c11e766f69d876  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/pr_repair_standalone/runtime-output/findings_merged.json
 2cd9c5bc7b45f1896a201e76000c87490f1b7c758b01ea5620c11e766f69d876  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/pr_repair_standalone/runtime-output/prs/pr_123/findings_classified.json
 2dc65f8530812ae2f7c01ee6d688b128d605f2fe1ea81b3a4e1e40346f5824dc  docs/pipeline-runs/2026-09-07/evidence/layer-3/payloads/ci_evidence/profile-evidence/admission/accepted/ev_1b56c327360036e425c05992f9f3c1466732f34a.json
@@ -165,6 +164,7 @@
 4b4b854646d4658766636929f1bd1e210561aa3447fbbb63dd5da6eec33fad0d  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/sdk_to_assurance/negative/n1-unknown-artifact-field/out/admission-report.json
 4c5cadb11fb606aad6de6cda21ee4632970de928787ab3401824add28b45cd01  .github/workflows/control-plane-attestation.yml
 4d9c106466af9a7ec58c691b21dc07ba0aec68c771af79d78b440213eee99da6  docs/pipeline-runs/2026-09-07/evidence/repo-state/l9-pr-repair.txt
+4dc63ad0a7f2be33629cd7dd2780e80344ebfe27d206b19d41ae26ea2a995600  .github/actions/run-repository-verification/action.yml
 4e5444004d06afe5c1c91ff894fb75acffe024501a0b6572b2d66d5f86a9ee4e  .github/actions/detect-language/action.yml
 4eabb7907565bc6a931e95bb1bde942838764351b65945babeb3299471345bf0  tests/release/test_validate_release_action.py
 4ef865bb430976bd155a4b9b594c54138466df8fd742f9fb68bb6efe67abce96  .github/actions/validate-governance/action.yml
@@ -229,6 +229,7 @@
 6daf0e3a2626c08ffe56338225af41f6352c139e0d0236a03a369088dd3be6a8  .github/workflows/self-analysis.yml
 6f88e867206571fa4f63672dc1ca96ab203c89d0d3c17ae8f2275c4aba4f24c9  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/intelligence_to_lsp/analytics.json
 6f9668e4c39cc481b83c4e8e50d6f38526947908d484a384af6db9653ae0f609  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/intelligence_to_lsp/final/compilation/compile_958379ff180318c64555d8e5f0c244fced92c1bd95e7d69cd8f9b4f5f88a1ee8/candidates.json
+7108724118ffc250f3b7449613fa053e3b420cf6f9f3eac29002ca3f9f64dceb  tests/workflows/test_org_repository_verification.py
 723c078d93d6b98df41810cfe4b4e5f954fe4cf8b542b2bdb3761f40d187be58  docs/pipeline-runs/2026-09-07/evidence/layer-3/payloads/ci_evidence/profile-evidence/logs/l9ci-last.out
 7335b04c65cf2b476f164f97846cb479de02c2368d53e0605c67c9683226caa7  tests/workflows/test_container_release_action.py
 7376726d381e18d29bd994226354cb61440e9304c588a3a4a96329c4ac5df250  docs/pipeline-runs/2026-09-07/evidence/layer-3/payloads/ci_evidence/evaluate-l3f1-fix/decision.json
@@ -409,7 +410,6 @@ c78fe98ba29c5c81671901cc4b620e8b5b47d5bad1f3f1ef7da6ede512117527  docs/pipeline-
 c7f567e0556630a0ee8ad01e66f05e82d8d090521042fa61a15441e8fb33601c  docs/pipeline-runs/2026-09-07/evidence/layer-2/logs/sdk-semgrep-run.log
 c7fec3a579b433f18f1bbd56ba25d7f10ed57f3048c3f65801fd15ae1051b5a1  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/intelligence_to_lsp/final/analytics/ar_62e62dcabd559b59f21fb3865345235c03e255ca268001916253c317274b78c9/effort-atlas.json
 c82f85a443ffdcfaef08ef8b9b7c0f5df88c8f4dddfd8ae3ab9212c0ab4d7fa4  .l9/core-repo-policy.json
-c90cc10a7cd1847a567c31096e47ad6b2e9f7c7d42ca80f98275be21a339e863  .github/actions/run-repository-verification/action.yml
 c929aabe1739d2a1d7652814d51a555a339b11f75f5263618c575b54c81a1c04  .l9/publication-contract.yaml
 c9eb0296376a6e9f1822d31d30f3eb9486d0db2712419fd377b0b0b803468008  .github/actions/route-artifacts/action.yml
 ca401f67d6426b0e1a25aff7c00c36e24b00b81a9f6b9165d35c22aa1399e402  docs/pipeline-runs/2026-09-07/evidence/layer-2/payloads/resolver_to_intelligence/final/store/records/cr_c14ca6a269c7c73638ce7223ebaeaa56ba705f3843f700424ca64a4cac4e41c7.json

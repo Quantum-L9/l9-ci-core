@@ -19,6 +19,8 @@ outputs:
     value: ${{ steps.verify.outputs.contract-version }}
   failure-kind:
     value: ${{ steps.verify.outputs.failure-kind }}
+  contract-mode:
+    value: ${{ steps.verify.outputs.contract-mode }}
 runs:
   using: composite
   steps:
