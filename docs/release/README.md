@@ -284,7 +284,7 @@ SDK merge → exact SDK SHA → Core PR editing .l9/sdk-compatibility.yaml
 ```
 
 Zero downstream promotions. See the `sdk-pin-mirrors` companion rule in
-`.l9/repo-workflow.json` for every file a pin change must touch.
+`.l9/core-repo-policy.json` for every file a pin change must touch.
 
 ## Historical documents
 

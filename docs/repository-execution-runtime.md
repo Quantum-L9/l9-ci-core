@@ -1,205 +1,136 @@
-# Repository Execution Runtime
+# Repository Execution Contract V2
 
-**Artifact:** `l9-ci-core-repository-execution-runtime`
+**Contract ID:** `L9-CORE-REPO-EXEC-V2`
+**Status:** Authoritative
+**Owner:** `l9-ci-core`
 
-**Version:** `5.0.0`
+## Purpose and ownership
 
-This local-first runtime compiles repository policy and Git state into bounded
-validation, evidence-bearing completion checks, status, cleanup, and
-generated-facade integrity for `l9-ci-core`. It is a repository-execution layer
-inside `l9-ci-core`; it does not own SDK analysis semantics, canonical findings,
-Assurance decisions, repair planning, or learning.
+Repository execution is a **portable consumer ABI**, separate from organization
+CI governance and from repository-specific build logic. The contract exists in
+the consumer repository as `.l9/repo-workflow.json`, but it is parsed,
+validated, compiled, and executed only by the immutable, pinned Core checkout.
+A consumer cannot alter Core semantics by vendoring `tools/l9_repo`, a schema,
+or a template.
 
-**It does not own Git publication.** Branch publication policy, protected-branch
-publication denial, push semantics, pull-request creation and reuse, publication
-single-flight and overlap policy, and publication remediation belong to
-Cursor-Governance. The generated Make facade delegates those operations to the
-installed `l9` dispatcher.
+| Concern | Owner |
+| --- | --- |
+| Organization workflow, CI permissions, enforcement, tool pins, and execution order | Core |
+| V2 schema, parser, compiler, reconciler, generated-artifact verifier | Core |
+| `.l9/repo-workflow.json` declaration | Consumer |
+| Generated root `Makefile` facade | Core-generated artifact in consumer |
+| `Repo.mk` and native build/test commands | Consumer |
+| Provider analysis, evidence, and technical findings | SDK |
+| Publication governance | Cursor-Governance |
 
-## Authority
+The V2 consumer contract is deliberately small:
 
-Authority resolves in this order:
+```json
+{
+  "schema": "l9.repo-execution/v2",
+  "facade": "make-v1",
+  "required_phases": ["setup", "validate", "check", "test"]
+}
+```
 
-1. `AGENTS.md` and the target `.l9` contracts: `architecture.yaml`,
-   `ownership.yaml`, `sdk-compatibility.yaml`, `org-runtime-contract.yaml`,
-   and `org-runtime-interface.yaml`.
-2. `.l9/repo-workflow.json`.
-3. `.l9/repo-workflow.schema.json`.
-4. `tools/l9_repo/` runtime behavior.
-5. `Makefile`, generated from `tools/l9_repo/Makefile.template`.
-6. `Repo.mk`, the repository-owned implementation boundary.
+Unknown fields fail closed. The contract cannot contain command matrices,
+beneficiary metadata, Core revisions, organization policy, GitHub Actions
+configuration, publication behavior, or `push`/`pull_request` settings.
 
-`.l9/repo-workflow.json` registers the target authorities under
-`authority.target_authorities` and requires `AGENTS.md` to reference each
-(`agent_contracts.reference_requirements`); structural validation fails
-closed when any registered authority is missing or unreferenced.
+## Stable ABI and facade
 
-## The two-file facade
+Core owns the sequence and meaning of these operations:
 
-The root `Makefile` is generated and portable. It owns the operator vocabulary
-and implements nothing:
+```text
+make setup → make validate → make check → make test
+```
 
-- **Repository verbs** (`setup`, `validate`, `check`, `test`, `clean`,
-  `doctor`) delegate to the `repo-*` leaves in `Repo.mk`.
-- **Governance verbs** (`start`, `pr`, `workspace-clean`, `wiring-check`)
-  delegate to the `l9` dispatcher, which resolves `CONSUMER_SAFE` targets
-  against the Cursor-Governance Makefile.
+The canonical generated `Makefile` routes those four targets to the
+consumer-owned leaves `repo-setup`, `repo-validate`, `repo-check`, and
+`repo-test` in `Repo.mk`. `Repo.mk` is mandatory and each leaf must exist;
+missing leaves are contract failures, not successful no-ops. The generated
+facade contains no language-specific commands and no publication commands.
 
-`include Repo.mk` is mandatory, not `-include`: a missing implementation
-boundary is a broken repository, not a silent degrade. Because that makes the
-whole Makefile unparseable, the recovery path bypasses `make` entirely:
+`clean` and `doctor` remain optional developer-facing facade verbs. They are
+not part of the authoritative four-phase CI sequence.
+
+## Core-owned tooling
+
+The pinned Core package provides the following operations. The command may be
+exposed by an installed `l9-repo` CLI or run from a Core checkout as
+`python3 -m tools.l9_repo`.
+
+| Operation | Behavior |
+| --- | --- |
+| `init` | Creates a V2 declaration, generated facade, and a `Repo.mk` skeleton only when `Repo.mk` is absent. |
+| `reconcile` | Validates V2 and deterministically replaces stale generated artifacts. It never overwrites an existing `Repo.mk`. |
+| `validate` | Validates the consumer declaration using the embedded Core V2 schema. |
+| `verify-generated` | Computes and compares generated artifacts without writing the consumer worktree; drift prints `run l9-repo reconcile`. |
+| `migrate-v1` | Converts supported V1 command matrices into a consumer `Repo.mk`, writes the V2 declaration, and removes Core-specific V1 concepts. |
+
+Core’s own `Repo.mk` self-hosts these same ABI leaves. Its Core-only checks,
+change policy, evidence configuration, manifest validation, and authority
+wiring reside in `.l9/core-repo-policy.json`, which is never interpreted as a
+consumer protocol.
+
+## CI runtime and failure semantics
+
+`run-repository-verification` reads the consumer contract from the workspace
+with Core code, verifies generated-facade parity, and invokes the four Make
+phases in the required order. Repository commands run in the untrusted
+consumer checkout with the existing read-only central-CI posture; the action
+does not grant secrets, write credentials, or organization authority.
+
+During migration, the action supports a bounded dual-read mode:
+
+| Contract state | Migration mode result | Required mode result |
+| --- | --- | --- |
+| V2 | Validate, verify facade, execute ABI | Validate, verify facade, execute ABI |
+| V1 | Temporary compatibility execution | Temporary compatibility execution until V1 support is retired |
+| Absent | `legacy_not_applicable` typed result | `missing_repository_contract` blocking contract failure |
+
+The organization workflow uses migration mode until the fleet gate is
+satisfied. The explicit trigger for switching to required mode is: **every
+governed repository has a committed, passing V2 contract and migration census
+reports zero V1 and zero uncontracted governed repositories**. After that
+gate, change the action input to `contract-mode: required`; remove V1 support
+only after a subsequent census again proves zero V1 consumers.
+
+Technical command failures and contract/infrastructure failures are emitted as
+distinct typed results. CI never silently reconciles a pull request: generated
+drift fails and names the remediation command.
+
+## V1 migration instructions
+
+1. Run `l9-repo migrate-v1` from the consumer repository using the approved
+   Core runtime.
+2. Review the generated or preserved `Repo.mk`; command matrices become
+   repository-owned `repo-*` leaves.
+3. Confirm `.l9/repo-workflow.json` is exactly the V2 declaration and contains
+   no copied V1 authority, policy, publication, or command fields.
+4. Run `l9-repo verify-generated`, then `make setup`, `make validate`,
+   `make check`, and `make test`.
+5. Commit `.l9/repo-workflow.json`, `Makefile`, and `Repo.mk` as appropriate.
+
+Migration never overwrites an existing `Repo.mk`. If a repository already has
+implementation leaves, the tool preserves them and converts only the portable
+declaration and generated facade.
+
+## Core self-hosting and validation
+
+Core self-hosts through the same V2 declaration and generated facade. Its
+implementation commands live in `Repo.mk`; Core-specific policy is extracted
+into `.l9/core-repo-policy.json`. Before merging a Core runtime change, run:
 
 ```bash
-python3 -m tools.l9_repo reconcile
+make setup
+make validate
+make change-policy
+make check
+python3 -m unittest discover tests
+make agent-check
 ```
 
-`Repo.mk` may implement repository capabilities. It may not implement
-organization governance, and it defines no `pr` target and no `push` target.
-
-## Commands
-
-- `make setup`: install target and runtime validation dependencies.
-- `make validate`: validate schema, checksum manifest, authority wiring,
-  generated-facade parity, and the configured workflow-integrity command.
-- `make check`: run the configured static/quality matrix (`ruff check`,
-  `ruff format --check`, `mypy`).
-- `make test`: run the configured test matrix.
-- `make doctor`: verify the local execution toolchain. This checks only what
-  this runtime needs to execute; GitHub reachability and credential state are
-  publication concerns and are neither required nor probed here.
-- `make clean`: remove the configured disposable outputs.
-- `make change-policy`: display changed files, selected targeted gates, and
-  companion obligations.
-- `make agent-check`: run structural validation, targeted gates, full check and
-  test matrices, prove non-mutation, and emit JSON/Markdown receipts.
-- `make status`: report branch, sha, worktree state, comparison ref, ahead/behind,
-  and remote freshness. It reports no pull-request state: that lives on the
-  publication plane, and aggregating the two belongs to Cursor-Governance.
-- `make reconcile`: regenerate the root Makefile from the canonical template.
-- `make wiring-check`, `make start`, `make workspace-clean`, `make pr`: delegate
-  to Cursor-Governance through the `l9` dispatcher.
-
-Repository-specific targets live in `Repo.mk`. The release-assurance helpers are
-not part of the common facade:
-
-- `make check-release-writers`: run `tools/check_release_writers.py`, which
-  proves exactly one authorized executable surface can mutate the exact
-  `vX.Y.Z` Core release namespace and one the transitional `v2` installer tag,
-  and that neither can write the other's. The same invariant runs inside the
-  `unittest` suite, so the release gate enforces it too.
-- `make attest-control-plane`: run `tools/verify_control_plane.py`, a
-  read-only comparison of live GitHub state against `.l9/release-plane.yaml`
-  (organization required-workflow binding, Core `main` protection, immutable
-  releases). It issues only `GET` requests, reads a credential from
-  `L9_CONTROL_PLANE_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`, and exits non-zero
-  unless every check is `PASS` — a state it cannot determine is `UNKNOWN`,
-  never `PASS`. See `docs/release/README.md`.
-
-Evidence is written under `artifacts/`, which remains untracked.
-
-Configured command argv (including `change_policy` gate commands) is consumed
-**argv-only and allowlisted**: `argv[0]` must be `@python` (the workspace
-interpreter) or one of the pinned toolchain `ruff`, `mypy`, `uv`. Any other
-executable is rejected fail-closed at configuration load, so a repository
-contract can never smuggle arbitrary commands through the runner. Command
-arguments are passed literally and are never evaluated by a shell.
-
-## The check gate resolves its toolchain, then proves it
-
-`commands.check` runs ruff and mypy as `@python -m <tool>`, not as bare names.
-That is deliberate. A bare name is resolved by `PATH`, and `PATH` is not the
-repository's to control: a contributor with a `uv`- or `pipx`-installed ruff
-gets that one, silently, because the pin describes what was *installed* and
-`PATH` decides what *executes*.
-
-The failure mode is not always loud. A shadowing mypy of the wrong major
-reports missing stubs and someone investigates; a shadowing ruff of a nearby
-minor passes cleanly while checking a different file set — this repository
-measured 83 files under a shadowed `ruff 0.15.8` against 122 under the pinned
-`0.16.1`, both reporting success.
-
-**`make setup` does not fix this.** It installs the pinned versions correctly;
-they simply land later on `PATH` than the shadow. Provisioning and resolution
-are different problems, and only resolution decides what runs. Routing through
-`@python` settles it: the interpreter, not `PATH`, selects the code.
-
-Two residues remain, and `tools/check_toolchain_versions.py` — the first entry
-in `commands.check`, and the first step of the CI lint job — closes both.
-
-The interpreter itself may have been provisioned from something other than the
-pin files, so the check compares `importlib.metadata.version()` for ruff and
-mypy against `.github/actions/install-consumer-ci/toolchain-lock.json`.
-
-Metadata alone is not enough, because it proves what is *installed* rather
-than what `-m` will *import*. `-m` puts the working directory at the front of
-`sys.path`, so a plain `ruff/` package at the repository root would win for
-the gate while metadata still reported the pinned version — the same shadowing
-defect, moved from `PATH` to `sys.path`. The check therefore also resolves
-each module under the gate's own search path and confirms it belongs to the
-pinned distribution.
-
-The same contract applies in CI: `self-ci.yml`'s lint job runs the preflight
-first and invokes `python -m ruff` / `python -m mypy`. Installing the pins and
-executing them are different things, and the lint job is what gates a merge.
-
-The lock is the canonical owner of tool versions. The preflight reads it and
-never declares a version, and `tests/actions/test_install_consumer_ci.py`
-binds every other copy — the installer pins, `requirements-repo-runtime.txt`,
-the pre-commit `rev`, the Biome schema, and inline workflow `pytest` literals
-— back to it. Bump the lock, and every other pin must follow.
-
-## Comparison ref, and the deprecated publication keys
-
-`pull_request.base` is still read, in exactly one place and for one reason: it
-names the branch this runtime compares against — the diff base for
-`change-policy` and `agent-check`, and the fallback comparison ref for
-`status`. That is a repository fact wearing a publication-shaped name.
-
-Every other key in `push` and `pull_request` is **deprecated and dead**: no
-code path reads it. They are still declared, and still validated, because the
-contract's *shape* is co-versioned with the Core runtime pinned by
-`.github/workflows/org-ci.yml`:
-
-```yaml
-uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@<sha>
-```
-
-That pinned checkout parses this repository's `.l9/repo-workflow.json` with
-*its own* validator, which still requires `push` and `pull_request` and rejects
-an unknown `repository.default_branch`. Removing the blocks, or adding
-`default_branch`, therefore fails organization CI against the current pin —
-a self-hosting bootstrap constraint, not a design preference.
-
-**Removal trigger:** once a Core release whose runtime tolerates their absence
-is pinned in `org-ci.yml`, drop both blocks and replace `pull_request.base`
-with `repository.default_branch`. `tests/tools/test_l9_repo_facade_boundary.py`
-asserts the current state, so that removal fails a test rather than happening
-silently.
-
-## Invariants
-
-- Targeted gates add evidence and never replace the full configured suite.
-- Exit `0` is success, `1` is a blocking repository finding, and `2` is invalid
-  configuration, infrastructure, comparison context, or repository state.
-- Validation must preserve the initial subject, policy digest, index, tracked
-  worktree, and untracked-file set.
-- Configured commands are allowlisted (`@python`, `ruff`, `mypy`, `uv`) and
-  executed argv-only.
-- The check gate resolves ruff and mypy through `@python -m`, so `PATH` cannot
-  decide which code it runs, and asserts the resolved versions against the
-  canonical lock before any of them execute.
-- Shell-string command execution and hidden bypasses are prohibited.
-- Single-flight locking guards `reconcile`, the one remaining mutating target.
-- The generated facade holds no Git publication logic and no GitHub API logic.
-- `MANIFEST.sha256` must be regenerated for every tracked change.
-- Two surfaces verify it: `make validate` via the repository facade, and
-  `tests/tools/test_manifest_integrity.py` on the pull-request path, because
-  `self-ci.yml` and `governance-ci.yml` run `unittest discover` and never
-  invoke the facade. Without the test, a dependency bump or docs edit that
-  skipped the manifest merged green and only failed later on someone's local
-  `make validate` or in Phase 4 release validation — which is how #81 and #82
-  left `main` unable to pass `make validate`.
-- `L9_MANIFEST_CHECK=0` disables both, for bisects and salvage work on a
-  knowingly drifted tree. While disabled the manifest is recorded but
-  unverified and provides no tamper-detection, so keep the window to the single
-  command that needs it.
+Regenerate `MANIFEST.sha256` for all changed tracked files. The manifest check
+is never an acceptance bypass; `L9_MANIFEST_CHECK=0` is limited to salvage or
+bisect work on a knowingly drifted tree.

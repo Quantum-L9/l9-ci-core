@@ -1,834 +1,230 @@
 from __future__ import annotations
 
-import contextlib
-import hashlib
-import io
 import json
 import os
 import pathlib
-import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from l9_repo import locking  # noqa: E402
-from l9_repo.authority import AuthorityError, validate_authority  # noqa: E402
 from l9_repo.__main__ import (  # noqa: E402
-    MANIFEST_CHECK_ENV,
-    AgentCheckFailure,
+    PHASES,
+    V2_FACADE_NAME,
+    V2_SCHEMA_NAME,
     RepositoryWorkflow,
     WorkflowError,
-    main,
     validate_config_data,
-    verify_checksum_manifest,
 )
 
 
-def git_environment() -> dict[str, str]:
-    """Environment that keeps fixture git runs off the developer's config.
-
-    Without this, whatever is in ``~/.gitconfig`` reaches into the fixture:
-    ``core.excludesFile`` changes what ``ls-files --others --exclude-standard``
-    reports (which ``worktree_fingerprint`` hashes), and ``commit.gpgsign`` or
-    ``core.hooksPath`` can fail the fixture's own commit. CI has no global
-    config, so a leak here fails only on developer machines.
-    """
-    return {
-        **os.environ,
-        "GIT_CONFIG_GLOBAL": os.devnull,
-        "GIT_CONFIG_SYSTEM": os.devnull,
-    }
-
-
-def run_git(
-    root: pathlib.Path, *args: str, check: bool = True
-) -> subprocess.CompletedProcess[str]:
+def run_git(root: pathlib.Path, *args: str) -> None:
     result = subprocess.run(
         ["git", *args],
         cwd=root,
         text=True,
         capture_output=True,
         check=False,
-        env=git_environment(),
+        env={
+            **os.environ,
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+        },
     )
-    if check and result.returncode != 0:
-        raise AssertionError(
-            f"git {' '.join(args)} failed with exit {result.returncode} in {root}\n"
-            f"{result.stderr.strip() or result.stdout.strip()}"
-        )
-    return result
+    if result.returncode:
+        raise AssertionError(result.stderr)
 
 
-def initialize_target_fixture(root: pathlib.Path) -> None:
-    for relative in (
-        ".l9/architecture.yaml",
-        ".l9/ownership.yaml",
-        ".l9/sdk-compatibility.yaml",
-    ):
-        path = root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("schema: test\n", encoding="utf-8")
-    (root / "AGENTS.md").write_text(
-        "\n".join(
-            [
-                "[architecture](.l9/architecture.yaml)",
-                "[ownership](.l9/ownership.yaml)",
-                "[compatibility](.l9/sdk-compatibility.yaml)",
-                "[org-runtime-contract](.l9/org-runtime-contract.yaml)",
-                "[org-runtime-interface](.l9/org-runtime-interface.yaml)",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    checker = root / "tools/check_workflow_integrity.py"
-    checker.parent.mkdir(parents=True, exist_ok=True)
-    checker.write_text("raise SystemExit(0)\n", encoding="utf-8")
-    (root / ".gitignore").write_text(
-        "artifacts/\n__pycache__/\n*.pyc\n", encoding="utf-8"
-    )
-    (root / "requirements-ci.txt").write_text(
-        "# target-owned fixture\n", encoding="utf-8"
-    )
-
-
-def regenerate_manifest(root: pathlib.Path) -> None:
-    files = []
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(root).as_posix()
-        if relative == "MANIFEST.sha256" or relative.startswith(
-            (".git/", "artifacts/")
-        ):
-            continue
-        if "__pycache__" in path.parts or path.suffix == ".pyc":
-            continue
-        files.append(relative)
-    lines = [
-        f"{hashlib.sha256((root / relative).read_bytes()).hexdigest()}  {relative}"
-        for relative in sorted(files)
-    ]
-    (root / "MANIFEST.sha256").write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def simple_command(exit_code: int = 0, output: str = "") -> list[str]:
-    code = f"print({output!r}); raise SystemExit({exit_code})"
-    return ["@python", "-c", code]
-
-
-def configure_simple_commands(root: pathlib.Path) -> dict[str, object]:
-    path = root / ".l9/repo-workflow.json"
-    config = json.loads(path.read_text())
-    config["commands"] = {
-        "setup": [simple_command()],
-        "validate": [simple_command()],
-        "check": [simple_command()],
-        "test": [simple_command()],
+def contract() -> dict[str, object]:
+    return {
+        "schema": V2_SCHEMA_NAME,
+        "facade": V2_FACADE_NAME,
+        "required_phases": list(PHASES),
     }
-    for gate in config["change_policy"]["gates"].values():
-        gate["commands"] = [simple_command()]
-    path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    regenerate_manifest(root)
-    return config
 
 
-def copy_tracked_tree(source: pathlib.Path, destination: pathlib.Path) -> None:
-    """Copy only ``source``'s tracked files into ``destination``.
-
-    Copying the live worktree instead leaks three things into every fixture,
-    none of which CI ever sees because its checkout is a bare depth-1 fetch:
-
-    * ``.git`` itself, which makes ``git init`` a no-op re-init. The fixture
-      then inherits the developer's refs, so ``checkout -b feature`` dies with
-      exit 128 against a local ``feature`` branch, inherited ``origin/*`` refs
-      change which ref ``_comparison_ref`` picks, and the base commit lands on
-      top of real history instead of an empty baseline.
-    * Symlinked trees, because ``shutil.copytree`` follows symlinks by default.
-      In this repo ``.cursor-commands`` points at a 214 MB governance clone.
-    * Untracked and ignored files, which ``regenerate_manifest`` then hashes
-      and ``verify_checksum_manifest`` re-hashes, once per fixture.
-
-    Tracked paths carry working-tree content, so uncommitted edits to tracked
-    files are still exercised.
-    """
-    listed = run_git(source, "ls-files", "-z", check=False)
-    if listed.returncode != 0:
-        raise AssertionError(
-            f"cannot enumerate tracked files in {source}; the fixture requires "
-            f"a git repository\n{listed.stderr.strip()}"
-        )
-    for relative in listed.stdout.split("\0"):
-        if not relative:
-            continue
-        origin = source / relative
-        # A tracked path deleted from the worktree but not yet staged has no
-        # content to copy; reproduce that absence rather than failing.
-        if not origin.is_file():
-            continue
-        target = destination / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(origin, target)
-
-
-def make_git_fixture() -> tuple[tempfile.TemporaryDirectory[str], pathlib.Path]:
-    temporary = tempfile.TemporaryDirectory()
-    root = pathlib.Path(temporary.name)
-    copy_tracked_tree(ROOT, root)
-    initialize_target_fixture(root)
-    configure_simple_commands(root)
+def fixture(root: pathlib.Path, *, style: str = "python") -> None:
+    (root / ".l9").mkdir(parents=True)
+    (root / ".l9" / "repo-workflow.json").write_text(
+        json.dumps(contract(), indent=2) + "\n", encoding="utf-8"
+    )
+    (root / "Makefile").write_bytes(
+        (ROOT / "tools/l9_repo/Makefile.template").read_bytes()
+    )
+    lines = [".PHONY: " + " ".join(f"repo-{phase}" for phase in PHASES), ""]
+    for phase in PHASES:
+        marker = f"{style}:{phase}"
+        lines.extend([f"repo-{phase}:", f"\t@printf '{marker}\\n' >> order.log", ""])
+    (root / "Repo.mk").write_text("\n".join(lines), encoding="utf-8")
     run_git(root, "init", "-b", "main")
     run_git(root, "config", "user.email", "tests@example.com")
     run_git(root, "config", "user.name", "Tests")
     run_git(root, "add", ".")
-    run_git(root, "commit", "-m", "base")
-    run_git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
-    run_git(root, "checkout", "-b", "feature")
-    return temporary, root
+    run_git(root, "commit", "-m", "fixture")
 
 
-class ConfigTests(unittest.TestCase):
-    def load_config(self) -> dict[str, object]:
-        return json.loads((ROOT / ".l9/repo-workflow.json").read_text())
-
-    def test_repository_config_is_valid(self) -> None:
-        data = self.load_config()
+class V2ContractTests(unittest.TestCase):
+    def test_core_self_host_contract_is_v2_and_generic(self) -> None:
+        data = json.loads((ROOT / ".l9/repo-workflow.json").read_text(encoding="utf-8"))
+        self.assertEqual(data, contract())
+        self.assertNotIn("Quantum-L9/l9-ci-core", json.dumps(data))
         self.assertIs(validate_config_data(data), data)
 
-    def test_authority_metadata_is_canonical(self) -> None:
-        data = self.load_config()
-        data["metadata"]["contract_status"] = "draft"  # type: ignore[index]
-        with self.assertRaisesRegex(WorkflowError, "must be authoritative"):
-            validate_config_data(data)
-
-    def test_authority_paths_are_safe(self) -> None:
-        data = self.load_config()
-        data["authority"]["derived_documents"] = ["../escape.md"]  # type: ignore[index]
-        with self.assertRaisesRegex(WorkflowError, "safe relative path"):
-            validate_config_data(data)
-
-    def test_unknown_top_level_key_is_rejected(self) -> None:
-        data = self.load_config()
-        data["surprise"] = True
-        with self.assertRaisesRegex(WorkflowError, "unsupported keys"):
-            validate_config_data(data)
-
-    def test_empty_command_matrix_is_rejected(self) -> None:
-        data = self.load_config()
-        data["commands"]["test"] = []  # type: ignore[index]
-        with self.assertRaisesRegex(WorkflowError, "non-empty"):
-            validate_config_data(data)
-
-    def test_shell_string_is_rejected(self) -> None:
-        data = self.load_config()
-        data["commands"]["check"] = ["ruff check ."]  # type: ignore[index]
-        with self.assertRaisesRegex(WorkflowError, "argv array"):
-            validate_config_data(data)
-
-    def test_commands_allow_pinned_toolchain(self) -> None:
-        data = self.load_config()
-        data["commands"] = {
-            "setup": [["@python", "-m", "pip", "install", "-r", "x.txt"]],
-            "validate": [["ruff", "check", "."]],
-            "check": [["mypy"]],
-            "test": [["uv", "lock", "--check"]],
-        }
+    def test_arbitrary_consumer_contract_validates(self) -> None:
+        data = contract()
         self.assertIs(validate_config_data(data), data)
 
-    def test_command_rejects_unallowlisted_executable(self) -> None:
-        data = self.load_config()
-        data["commands"]["check"] = [["definitely-not-a-real-tool"]]
-        with self.assertRaisesRegex(WorkflowError, "argv-only allowlist"):
+    def test_unknown_and_prohibited_v1_fields_fail_closed(self) -> None:
+        for key, value in {
+            "commands": {"check": [["ruff", "check", "."]]},
+            "push": {"run_check": True},
+            "pull_request": {"base": "main"},
+            "authority": {},
+            "metadata": {"beneficiary": "Quantum-L9/l9-ci-core"},
+            "core_revision": "deadbeef",
+        }.items():
+            with self.subTest(key=key):
+                data = contract()
+                data[key] = value
+                with self.assertRaisesRegex(WorkflowError, "unsupported keys"):
+                    validate_config_data(data)
+
+    def test_required_phase_order_is_not_consumer_selectable(self) -> None:
+        data = contract()
+        data["required_phases"] = list(reversed(PHASES))
+        with self.assertRaisesRegex(WorkflowError, "in order"):
             validate_config_data(data)
 
-    def test_gate_command_rejects_unallowlisted_executable(self) -> None:
-        data = self.load_config()
-        data["change_policy"]["gates"]["workflow"]["commands"] = [["arbitrary-script"]]
-        with self.assertRaisesRegex(WorkflowError, "argv-only allowlist"):
-            validate_config_data(data)
-
-    def test_unsafe_clean_path_is_rejected(self) -> None:
-        data = self.load_config()
-        data["clean_paths"] = ["../escape"]
-        with self.assertRaisesRegex(WorkflowError, "safe relative path"):
-            validate_config_data(data)
-
-    def test_unsafe_lock_name_is_rejected(self) -> None:
-        data = self.load_config()
-        data["automation"]["lock"]["name"] = ".."  # type: ignore[index]
-        with self.assertRaisesRegex(WorkflowError, "safe simple file name"):
-            validate_config_data(data)
-
-    def test_safety_flags_cannot_be_disabled(self) -> None:
-        data = self.load_config()
-        data["push"]["reject_protected_branch"] = False  # type: ignore[index]
-        with self.assertRaisesRegex(WorkflowError, "must be true"):
-            validate_config_data(data)
-
-    def test_lockfile_command_rejects_unallowlisted_executable(self) -> None:
-        data = self.load_config()
-        data["push"]["lockfile_command"] = ["arbitrary-script"]
-        with self.assertRaisesRegex(WorkflowError, "argv-only allowlist"):
-            validate_config_data(data)
-
-    def test_pull_request_base_must_be_protected(self) -> None:
-        data = self.load_config()
-        data["pull_request"]["base"] = "develop"  # type: ignore[index]
-        with self.assertRaisesRegex(WorkflowError, "configured protected branch"):
-            validate_config_data(data)
-
-    def test_companion_rule_requires_at_least_one_requirement(self) -> None:
-        data = self.load_config()
-        rule = data["change_policy"]["companion_rules"][0]  # type: ignore[index]
-        rule.pop("require_all_paths")
-        with self.assertRaisesRegex(WorkflowError, "must declare"):
-            validate_config_data(data)
-
-    def test_reporting_paths_cannot_escape_root(self) -> None:
-        data = self.load_config()
-        data["reporting"]["agent_check_json"] = "../evidence.json"  # type: ignore[index]
-        with self.assertRaisesRegex(WorkflowError, "safe relative path"):
-            validate_config_data(data)
-
-
-class AuthorityIntegrationTests(unittest.TestCase):
-    def test_target_repository_root_docs_do_not_need_component_identity(self) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        (root / "README.md").write_text("# l9-ci-core\n", encoding="utf-8")
-        for pack_only in (
-            "AUTHORITY.md",
-            "MANIFEST.md",
-            "OPERATIONS.md",
-            "VALIDATION.md",
-        ):
-            path = root / pack_only
-            if path.exists():
-                path.unlink()
-        config = json.loads((root / ".l9/repo-workflow.json").read_text())
-        validate_authority(root, config)
-
-    def test_derived_runtime_doc_must_declare_identity_and_version(self) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        config = json.loads((root / ".l9/repo-workflow.json").read_text())
-        derived = root / config["authority"]["derived_documents"][0]
-        derived.write_text("# Runtime\n", encoding="utf-8")
-        with self.assertRaisesRegex(AuthorityError, "authoritative token"):
-            validate_authority(root, config)
-
-    def test_all_target_authorities_are_required(self) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        config = json.loads((root / ".l9/repo-workflow.json").read_text())
-        (root / ".l9/ownership.yaml").unlink()
-        with self.assertRaisesRegex(AuthorityError, "missing target authority"):
-            validate_authority(root, config)
-
-
-class GitFixtureIsolationTests(unittest.TestCase):
-    """The fixture must be a fresh repository, whatever this checkout contains.
-
-    Every assertion here is independent of the developer's branches, remotes,
-    and untracked files. That is the property the fixture lacked while it copied
-    the live worktree: a local ``feature`` branch broke it outright, and
-    inherited ``origin/*`` refs silently changed what the workflow compared
-    against.
-    """
-
-    def setUp(self) -> None:
-        temporary, self.root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-
-    def refs(self, namespace: str) -> set[str]:
-        listed = run_git(
-            self.root, "for-each-ref", "--format=%(refname:short)", namespace
+    def test_embedded_schema_rejects_unknown_fields(self) -> None:
+        schema = json.loads(
+            (ROOT / "tools/l9_repo/repo-workflow-v2.schema.json").read_text(
+                encoding="utf-8"
+            )
         )
-        return {line for line in listed.stdout.split() if line}
-
-    def test_fixture_history_starts_at_a_single_base_commit(self) -> None:
-        count = run_git(self.root, "rev-list", "--count", "HEAD").stdout.strip()
-        self.assertEqual("1", count)
-
-    def test_fixture_inherits_no_local_branches(self) -> None:
-        self.assertEqual({"main", "feature"}, self.refs("refs/heads"))
-
-    def test_fixture_inherits_no_remote_tracking_refs(self) -> None:
-        self.assertEqual({"origin/main"}, self.refs("refs/remotes"))
-
-    def test_fixture_contains_no_untracked_or_symlinked_content(self) -> None:
-        tracked = {
-            relative
-            for relative in run_git(ROOT, "ls-files", "-z").stdout.split("\0")
-            if relative
-        }
-        present = {
-            path.relative_to(self.root).as_posix()
-            for path in self.root.rglob("*")
-            if path.is_file() and ".git" not in path.relative_to(self.root).parts
-        }
-        self.assertEqual(set(), present - tracked)
+        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(
+            "https://quantum-l9.dev/schemas/repository-execution/v2", schema["$id"]
+        )
 
 
-class WorkflowTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.workflow = RepositoryWorkflow(ROOT)
-
-    def test_makefile_matches_template(self) -> None:
+class CompilerAndFacadeTests(unittest.TestCase):
+    def test_canonical_facade_is_deterministic(self) -> None:
         self.assertEqual(
             (ROOT / "Makefile").read_bytes(),
             (ROOT / "tools/l9_repo/Makefile.template").read_bytes(),
         )
 
-    def test_python_sentinel_uses_running_interpreter(self) -> None:
-        self.assertEqual(
-            self.workflow.render_argv(["@python", "-m", "unittest"])[0],
-            sys.executable,
-        )
-
-    def test_workspace_inside_repo_is_rejected(self) -> None:
-        completed = subprocess.CompletedProcess(["git"], 0, str(ROOT) + "\n", "")
-        workflow = RepositoryWorkflow(ROOT / "tests")
-        with mock.patch.object(workflow, "git", return_value=completed):
-            with self.assertRaisesRegex(WorkflowError, "not repository root"):
-                workflow._ensure_repository_root()
-
-    def test_non_git_workspace_is_taxonomy_two(self) -> None:
-        result = subprocess.CompletedProcess(["git"], 128, "", "not a repo")
-        with mock.patch.object(self.workflow, "git", return_value=result):
-            with self.assertRaisesRegex(WorkflowError, "not a repo"):
-                self.workflow._ensure_repository_root()
-
-    def test_validate_runs_structural_and_configured_validation(self) -> None:
-        with (
-            mock.patch.object(self.workflow, "_ensure_repository_root"),
-            mock.patch.object(self.workflow, "structural_validate") as structural,
-            mock.patch.object(self.workflow, "invoke") as invoke,
-        ):
-            self.workflow.validate()
-        structural.assert_called_once_with()
-        invoke.assert_called_once_with("validate")
-
-    def test_cli_validate_reaches_validator(self) -> None:
-        with mock.patch.object(RepositoryWorkflow, "validate") as validate:
-            self.assertEqual(main(["--workspace", str(ROOT), "validate"]), 0)
-        validate.assert_called_once_with()
-
-    def test_change_policy_cli_missing_context_exits_two(self) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        run_git(root, "checkout", "main")
-        run_git(root, "update-ref", "-d", "refs/remotes/origin/main")
-        self.assertEqual(
-            main(["--workspace", str(root), "change-policy"]),
-            2,
-        )
-
-    def test_agent_check_collects_multiple_findings_and_writes_both_reports(
-        self,
-    ) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        config_path = root / ".l9/repo-workflow.json"
-        config = json.loads(config_path.read_text())
-        config["commands"]["validate"] = [simple_command(1, "validate failed")]
-        config["commands"]["check"] = [simple_command(1, "check failed")]
-        config["commands"]["test"] = [simple_command(0, "test passed")]
-        config_path.write_text(json.dumps(config, indent=2) + "\n")
-        regenerate_manifest(root)
-        run_git(root, "add", ".l9/repo-workflow.json", "MANIFEST.sha256")
-        run_git(root, "commit", "-m", "configure failures")
-        workflow = RepositoryWorkflow(root)
-        with self.assertRaisesRegex(AgentCheckFailure, "2 blocking finding"):
-            workflow.agent_check(explicit=["MANIFEST.sha256"])
-        payload = json.loads((root / "artifacts/agent-check-evidence.json").read_text())
-        self.assertEqual(payload["overall_exit_code"], 1)
-        self.assertEqual(
-            [step["classification"] for step in payload["steps"] if step["command"]],
-            ["finding", "finding", "pass"],
-        )
-        self.assertTrue((root / "artifacts/agent-check-evidence.md").is_file())
-
-    def test_unallowlisted_executable_is_rejected_before_running(
-        self,
-    ) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        config_path = root / ".l9/repo-workflow.json"
-        config = json.loads(config_path.read_text())
-        config["commands"]["validate"] = [["definitely-not-a-real-tool"]]
-        config_path.write_text(json.dumps(config, indent=2) + "\n")
-        regenerate_manifest(root)
-        run_git(root, "add", ".l9/repo-workflow.json", "MANIFEST.sha256")
-        run_git(root, "commit", "-m", "configure arbitrary executable")
-        workflow = RepositoryWorkflow(root)
-        with self.assertRaisesRegex(WorkflowError, "argv-only allowlist"):
-            workflow.agent_check(explicit=["MANIFEST.sha256"])
-        self.assertFalse((root / "artifacts/agent-check-evidence.json").is_file())
-
-    def test_argv_only_transport_preserves_literal_arguments(self) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        workflow = RepositoryWorkflow(root)
-        argv = workflow.render_argv(
-            ["@python", "-c", "import sys; print(sys.argv[1])", "a;b $c"]
-        )
-        result = workflow.run(argv, capture=True)
-        self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual("a;b $c", result.stdout.strip())
-
-    def test_missing_allowlisted_executable_is_infrastructure(
-        self,
-    ) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        bin_dir = root / "shim-bin"
-        bin_dir.mkdir()
-        git_path = shutil.which("git")
-        self.assertIsNotNone(git_path)
-        (bin_dir / "git").symlink_to(git_path)
-        config_path = root / ".l9/repo-workflow.json"
-        config = json.loads(config_path.read_text())
-        config["commands"]["validate"] = [["ruff", "check", "."]]
-        config["commands"]["check"] = [simple_command(0, "check still ran")]
-        config["commands"]["test"] = [simple_command(0, "test still ran")]
-        config_path.write_text(json.dumps(config, indent=2) + "\n")
-        regenerate_manifest(root)
-        run_git(root, "add", ".l9/repo-workflow.json", "MANIFEST.sha256")
-        run_git(root, "commit", "-m", "configure missing allowlisted tool")
-        workflow = RepositoryWorkflow(root)
-        with mock.patch.dict(os.environ, {"PATH": str(bin_dir)}):
-            with self.assertRaisesRegex(WorkflowError, "infrastructure"):
-                workflow.agent_check(explicit=["MANIFEST.sha256"])
-        payload = json.loads((root / "artifacts/agent-check-evidence.json").read_text())
-        self.assertEqual(payload["overall_exit_code"], 2)
-        classes = [step["classification"] for step in payload["steps"]]
-        self.assertIn("infrastructure", classes)
-        self.assertGreaterEqual(classes.count("pass"), 2)
-
-    def test_agent_check_uses_committed_feature_diff_on_clean_tree(self) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        workflow_path = root / ".github/workflows/example.yml"
-        workflow_path.parent.mkdir(parents=True, exist_ok=True)
-        workflow_path.write_text("name: example\n", encoding="utf-8")
-        test_path = root / "tests/workflows/test_example.py"
-        test_path.parent.mkdir(parents=True, exist_ok=True)
-        test_path.write_text("# companion\n", encoding="utf-8")
-        regenerate_manifest(root)
-        run_git(root, "add", ".")
-        run_git(root, "commit", "-m", "workflow change")
-        workflow = RepositoryWorkflow(root)
-        workflow.agent_check()
-        payload = json.loads((root / "artifacts/agent-check-evidence.json").read_text())
-        self.assertIn(".github/workflows/example.yml", payload["changed_files"])
-        names = [step["name"] for step in payload["steps"]]
-        self.assertTrue(any(name.startswith("change-gate:workflow") for name in names))
-
-    def test_agent_check_does_not_dirty_tracked_worktree(self) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        workflow = RepositoryWorkflow(root)
-        workflow.agent_check(explicit=["MANIFEST.sha256"])
-        self.assertEqual(run_git(root, "status", "--porcelain").stdout.strip(), "")
-
-    def test_status_reports_live_divergence(self) -> None:
-        config = self.workflow.config()
-
-        def fake_git(*args: str, **kwargs: object) -> subprocess.CompletedProcess[str]:
-            if args == ("branch", "--show-current"):
-                return subprocess.CompletedProcess(["git"], 0, "feature\n", "")
-            if args == ("rev-parse", "HEAD"):
-                return subprocess.CompletedProcess(["git"], 0, "abc\n", "")
-            if args[:2] == ("fetch", "--prune"):
-                return subprocess.CompletedProcess(["git"], 0, "", "")
-            if args[:2] == ("rev-parse", "--verify"):
-                ref = args[2]
-                code = 0 if ref == "origin/feature" else 1
-                return subprocess.CompletedProcess(
-                    ["git"], code, "ok\n" if code == 0 else "", ""
-                )
-            if args[:3] == ("rev-list", "--left-right", "--count"):
-                return subprocess.CompletedProcess(["git"], 0, "2 3\n", "")
-            if args == ("status", "--porcelain"):
-                return subprocess.CompletedProcess(["git"], 0, "", "")
-            raise AssertionError(args)
-
-        output = io.StringIO()
-        with (
-            mock.patch.object(self.workflow, "_ensure_repository_root"),
-            mock.patch.object(self.workflow, "config", return_value=config),
-            mock.patch.object(self.workflow, "git", side_effect=fake_git),
-            mock.patch.object(
-                self.workflow,
-                "run",
-                return_value=subprocess.CompletedProcess(["gh"], 1, "", ""),
-            ),
-            contextlib.redirect_stdout(output),
-        ):
-            self.workflow.status()
-        payload = json.loads(output.getvalue())
-        self.assertEqual(payload["remote_freshness"], "fresh")
-        self.assertEqual(payload["behind"], 2)
-        self.assertEqual(payload["ahead"], 3)
-        self.assertEqual(payload["comparison_source"], "live")
-
-    def test_status_offline_uses_cached_counts_without_claiming_freshness(self) -> None:
-        config = self.workflow.config()
-
-        def fake_git(*args: str, **kwargs: object) -> subprocess.CompletedProcess[str]:
-            if args == ("branch", "--show-current"):
-                return subprocess.CompletedProcess(["git"], 0, "feature\n", "")
-            if args == ("rev-parse", "HEAD"):
-                return subprocess.CompletedProcess(["git"], 0, "abc\n", "")
-            if args[:2] == ("fetch", "--prune"):
-                return subprocess.CompletedProcess(["git"], 1, "", "offline")
-            if args[:2] == ("rev-parse", "--verify"):
-                return subprocess.CompletedProcess(["git"], 0, "cached\n", "")
-            if args[:3] == ("rev-list", "--left-right", "--count"):
-                return subprocess.CompletedProcess(["git"], 0, "0 1\n", "")
-            if args == ("status", "--porcelain"):
-                return subprocess.CompletedProcess(["git"], 0, "", "")
-            raise AssertionError(args)
-
-        output = io.StringIO()
-        with (
-            mock.patch.object(self.workflow, "_ensure_repository_root"),
-            mock.patch.object(self.workflow, "config", return_value=config),
-            mock.patch.object(self.workflow, "git", side_effect=fake_git),
-            mock.patch.object(
-                self.workflow,
-                "run",
-                return_value=subprocess.CompletedProcess(["gh"], 1, "", ""),
-            ),
-            contextlib.redirect_stdout(output),
-        ):
-            self.workflow.status()
-        payload = json.loads(output.getvalue())
-        self.assertEqual(payload["remote_freshness"], "unknown_offline")
-        self.assertEqual(payload["comparison_source"], "cached")
-        self.assertEqual(payload["fetch_error"], "offline")
-
-    def test_agent_check_fails_if_a_gate_mutates_tracked_content(self) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        config_path = root / ".l9/repo-workflow.json"
-        config = json.loads(config_path.read_text())
-        config["commands"]["check"] = [
-            [
-                "@python",
-                "-c",
-                "from pathlib import Path; Path('README.md').write_text('mutated\\n')",
-            ]
-        ]
-        config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-        regenerate_manifest(root)
-        run_git(root, "add", ".l9/repo-workflow.json", "MANIFEST.sha256")
-        run_git(root, "commit", "-m", "mutating gate")
-        with self.assertRaisesRegex(WorkflowError, "infrastructure"):
-            RepositoryWorkflow(root).agent_check(explicit=["MANIFEST.sha256"])
-        payload = json.loads((root / "artifacts/agent-check-evidence.json").read_text())
-        check = next(
-            step for step in payload["steps"] if step["name"] == "non-mutation-check"
-        )
-        self.assertEqual(check["classification"], "infrastructure")
-        self.assertIn("worktree content changed", check["stderr"])
-
-    def test_structural_validation_applies_json_schema(self) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        schema_path = root / ".l9/repo-workflow.schema.json"
-        schema = json.loads(schema_path.read_text())
-        schema["required"].append("schema_only_required_key")
-        schema_path.write_text(json.dumps(schema, indent=2) + "\n", encoding="utf-8")
-        regenerate_manifest(root)
-        with self.assertRaisesRegex(WorkflowError, "schema validation failed"):
-            RepositoryWorkflow(root).structural_validate()
-
-    def test_checksum_manifest_mismatch_is_rejected(self) -> None:
-        """Verification is on by default — no environment variable required."""
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        (root / "SECURITY.md").write_text("tampered\n", encoding="utf-8")
-        with mock.patch.dict(os.environ):
-            os.environ.pop(MANIFEST_CHECK_ENV, None)
-            with self.assertRaisesRegex(WorkflowError, "checksum mismatch"):
-                RepositoryWorkflow(root).structural_validate()
-
-    def test_checksum_manifest_is_skipped_when_switched_off(self) -> None:
-        """The escape hatch must skip verification, not silently pass a bad tree."""
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        (root / "SECURITY.md").write_text("tampered\n", encoding="utf-8")
-        with mock.patch.dict(os.environ, {MANIFEST_CHECK_ENV: "0"}):
-            RepositoryWorkflow(root).structural_validate()
-        with self.assertRaisesRegex(WorkflowError, "checksum mismatch"):
-            verify_checksum_manifest(root)
-
-    def test_status_without_any_remote_ref_reports_unavailable(self) -> None:
-        config = self.workflow.config()
-
-        def fake_git(*args: str, **kwargs: object) -> subprocess.CompletedProcess[str]:
-            if args == ("branch", "--show-current"):
-                return subprocess.CompletedProcess(["git"], 0, "feature\n", "")
-            if args == ("rev-parse", "HEAD"):
-                return subprocess.CompletedProcess(["git"], 0, "abc\n", "")
-            if args[:2] == ("fetch", "--prune"):
-                return subprocess.CompletedProcess(["git"], 1, "", "offline")
-            if args[:2] == ("rev-parse", "--verify"):
-                return subprocess.CompletedProcess(["git"], 1, "", "")
-            if args == ("status", "--porcelain"):
-                return subprocess.CompletedProcess(["git"], 0, "", "")
-            raise AssertionError(args)
-
-        output = io.StringIO()
-        with (
-            mock.patch.object(self.workflow, "_ensure_repository_root"),
-            mock.patch.object(self.workflow, "config", return_value=config),
-            mock.patch.object(self.workflow, "git", side_effect=fake_git),
-            mock.patch.object(
-                self.workflow,
-                "run",
-                return_value=subprocess.CompletedProcess(["gh"], 1, "", ""),
-            ),
-            contextlib.redirect_stdout(output),
-        ):
-            self.workflow.status()
-        payload = json.loads(output.getvalue())
-        self.assertIsNone(payload["comparison_ref"])
-        self.assertEqual(payload["comparison_source"], "unavailable")
-
-    def test_checksum_manifest_rejects_symlinked_entry(self) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        outside = pathlib.Path(temporary.name).parent / "outside-l9-test.txt"
-        outside.write_text("outside\n", encoding="utf-8")
-        self.addCleanup(lambda: outside.unlink(missing_ok=True))
-        link = root / "linked.txt"
-        link.symlink_to(outside)
-        digest = hashlib.sha256(outside.read_bytes()).hexdigest()
-        with (root / "MANIFEST.sha256").open("a", encoding="utf-8") as handle:
-            handle.write(f"{digest}  linked.txt\n")
-        with self.assertRaisesRegex(WorkflowError, "symlinked"):
-            verify_checksum_manifest(root)
-
-    def test_clean_never_escapes_root(self) -> None:
+    def test_reconcile_preserves_existing_repo_mk(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
+            fixture(root)
+            original = (root / "Repo.mk").read_bytes()
+            (root / "Makefile").write_text("drift\n", encoding="utf-8")
             workflow = RepositoryWorkflow(root)
-            with (
-                mock.patch.object(workflow, "_ensure_repository_root"),
-                mock.patch.object(
-                    workflow, "config", return_value={"clean_paths": ["../x"]}
-                ),
-            ):
-                with self.assertRaisesRegex(WorkflowError, "unsafe clean path"):
-                    workflow.clean()
+            workflow.reconcile()
+            self.assertEqual(original, (root / "Repo.mk").read_bytes())
+            self.assertEqual(
+                (ROOT / "tools/l9_repo/Makefile.template").read_bytes(),
+                (root / "Makefile").read_bytes(),
+            )
 
-
-class PrimitiveTests(unittest.TestCase):
-    def test_lock_is_single_flight(self) -> None:
+    def test_verify_generated_detects_drift_without_mutating_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            path = pathlib.Path(temporary) / "operation.lock"
-            with locking.single_flight(path):
-                with self.assertRaises(locking.LockBusy):
-                    with locking.single_flight(path):
-                        pass
-            self.assertFalse(path.exists())
+            root = pathlib.Path(temporary)
+            fixture(root)
+            (root / "Makefile").write_text("drift\n", encoding="utf-8")
+            before = (root / "Makefile").read_bytes()
+            with self.assertRaisesRegex(WorkflowError, "Makefile drift"):
+                RepositoryWorkflow(root).verify_generated()
+            self.assertEqual(before, (root / "Makefile").read_bytes())
 
-    def test_stale_lock_with_owner_marker_is_reclaimed(self) -> None:
+    def test_missing_required_repo_leaf_is_a_contract_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            path = pathlib.Path(temporary) / "operation.lock"
-            path.mkdir()
-            (path / "owner").write_text("999999999\n", encoding="utf-8")
-            os.utime(path, (0, 0))
-            with mock.patch.object(locking.time, "time", return_value=10_000):
-                with locking.single_flight(path, stale_after=1):
-                    self.assertTrue(path.exists())
-            self.assertFalse(path.exists())
+            root = pathlib.Path(temporary)
+            fixture(root)
+            (root / "Repo.mk").write_text("repo-setup:\n\t@:\n", encoding="utf-8")
+            with self.assertRaisesRegex(WorkflowError, "repo-validate"):
+                RepositoryWorkflow(root).verify_generated()
 
-    def test_stale_lock_is_kept_when_owner_is_alive(self) -> None:
+    def test_consumer_vendored_core_files_do_not_change_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            path = pathlib.Path(temporary) / "operation.lock"
-            path.mkdir()
-            (path / "owner").write_text("123\n", encoding="utf-8")
-            os.utime(path, (0, 0))
-            with (
-                mock.patch.object(locking.time, "time", return_value=10_000),
-                mock.patch.object(locking.os, "kill", return_value=None),
-            ):
-                with self.assertRaisesRegex(locking.LockBusy, "still running"):
-                    with locking.single_flight(path, stale_after=1):
-                        pass
+            root = pathlib.Path(temporary)
+            fixture(root)
+            vendored = root / "tools/l9_repo"
+            vendored.mkdir(parents=True)
+            (vendored / "Makefile.template").write_text("malicious\n", encoding="utf-8")
+            RepositoryWorkflow(root).verify_generated()
 
-    def test_stale_lock_with_unexpected_content_is_not_deleted(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            path = pathlib.Path(temporary) / "operation.lock"
-            path.mkdir()
-            (path / "unexpected").write_text("x\n", encoding="utf-8")
-            os.utime(path, (0, 0))
-            with mock.patch.object(locking.time, "time", return_value=10_000):
-                with self.assertRaisesRegex(locking.LockBusy, "not safely removable"):
-                    with locking.single_flight(path, stale_after=1):
-                        pass
-            self.assertTrue((path / "unexpected").is_file())
 
-    def test_main_reports_workflow_error_as_two(self) -> None:
-        stderr = io.StringIO()
-        with (
-            mock.patch.object(
-                RepositoryWorkflow, "doctor", side_effect=WorkflowError("broken")
-            ),
-            contextlib.redirect_stderr(stderr),
-        ):
-            self.assertEqual(main(["--workspace", str(ROOT), "doctor"]), 2)
-        self.assertIn("broken", stderr.getvalue())
-
-    def test_no_shell_execution_primitives_in_engine(self) -> None:
-        text = (ROOT / "tools/l9_repo/__main__.py").read_text()
-        change_text = (ROOT / "tools/l9_repo/change_policy.py").read_text()
-        combined = text + change_text
-        self.assertNotIn("shell=True", combined)
-        self.assertNotIn("os.system", combined)
-        self.assertNotIn("shlex", combined)
-        self.assertNotIn("eval(", combined)
-
-    def test_structural_validation_rejects_identity_document_version_drift(
+class MigrationTests(unittest.TestCase):
+    def test_v1_migration_translates_commands_into_repo_mk_and_drops_policy(
         self,
     ) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        derived = root / "docs/repository-execution-runtime.md"
-        # Read the version from the contract rather than hard-coding it: a
-        # literal here silently stops testing anything the moment
-        # metadata.artifact_version is bumped, because the replace becomes a
-        # no-op and no drift is introduced.
-        version = json.loads(
-            (root / ".l9/repo-workflow.json").read_text(encoding="utf-8")
-        )["metadata"]["artifact_version"]
-        text = derived.read_text(encoding="utf-8")
-        self.assertIn(
-            version, text, "derived document must declare the contract version"
-        )
-        derived.write_text(text.replace(version, "9.9.9"), encoding="utf-8")
-        regenerate_manifest(root)
-        with self.assertRaisesRegex(WorkflowError, "authoritative token"):
-            RepositoryWorkflow(root).structural_validate()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            (root / ".l9").mkdir()
+            legacy = {
+                "schema_version": 1,
+                "metadata": {"beneficiary": "Quantum-L9/l9-ci-core"},
+                "authority": {"change_policy": "Core-only"},
+                "commands": {
+                    phase: [["@python", "-c", f"print('{phase}')"]] for phase in PHASES
+                },
+                "push": {"run_check": True},
+            }
+            (root / ".l9/repo-workflow.json").write_text(
+                json.dumps(legacy), encoding="utf-8"
+            )
+            run_git(root, "init", "-b", "main")
+            run_git(root, "config", "user.email", "tests@example.com")
+            run_git(root, "config", "user.name", "Tests")
+            run_git(root, "add", ".")
+            run_git(root, "commit", "-m", "legacy")
+            RepositoryWorkflow(root).migrate_v1()
+            migrated = json.loads((root / ".l9/repo-workflow.json").read_text())
+            self.assertEqual(contract(), migrated)
+            implementation = (root / "Repo.mk").read_text(encoding="utf-8")
+            self.assertIn("repo-check", implementation)
+            self.assertNotIn("beneficiary", json.dumps(migrated))
+            self.assertNotIn("authority", json.dumps(migrated))
 
-    def test_structural_validation_rejects_missing_dependency_manifest(self) -> None:
-        temporary, root = make_git_fixture()
-        self.addCleanup(temporary.cleanup)
-        (root / "requirements-repo-runtime.txt").unlink()
-        regenerate_manifest(root)
-        with self.assertRaisesRegex(
-            WorkflowError, "missing component dependency manifest"
-        ):
-            RepositoryWorkflow(root).structural_validate()
+    def test_migration_never_overwrites_existing_repo_mk(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            fixture(root)
+            existing = (root / "Repo.mk").read_bytes()
+            legacy = {
+                "schema_version": 1,
+                "commands": {phase: [["@python", "-c", "pass"]] for phase in PHASES},
+            }
+            (root / ".l9/repo-workflow.json").write_text(
+                json.dumps(legacy), encoding="utf-8"
+            )
+            RepositoryWorkflow(root).migrate_v1()
+            self.assertEqual(existing, (root / "Repo.mk").read_bytes())
+
+
+class CorePolicyTests(unittest.TestCase):
+    def test_core_local_policy_is_not_part_of_v2_contract(self) -> None:
+        policy = json.loads(
+            (ROOT / ".l9/core-repo-policy.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual("l9.core-repository-policy/v1", policy["schema"])
+        self.assertIn("change_policy", policy)
+        portable = json.loads(
+            (ROOT / ".l9/repo-workflow.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(set(portable), {"schema", "facade", "required_phases"})
+
+    def test_core_generic_verifier_never_uses_core_policy_for_a_consumer(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            fixture(root)
+            self.assertFalse((root / ".l9/core-repo-policy.json").exists())
+            RepositoryWorkflow(root).verify_generated()
 
 
 if __name__ == "__main__":

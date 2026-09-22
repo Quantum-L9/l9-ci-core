@@ -39,11 +39,11 @@ workflow — all three are exactly the surfaces the campaign objective removes.
 - Preferred consumer kernel: `analyze-semgrep.yml` (SDK `semgrep run` →
   bundle validate → `gate evaluate` → agent-payload + SARIF → route →
   manifest → publish).
-- Repository execution runtime: `.l9/repo-workflow.json` (artifact version
-  4.3.1, authoritative) with `make` delegation to `tools.l9_repo/`
-  (`validate`, `change-policy`, `agent-check`, `push`, `pr`, …). Targeted
-  change gates: workflows → `tests/workflows`, actions → `tests/architecture`,
-  sdk-compatibility → `tests/provisioning`.
+- Repository execution runtime: `.l9/repo-workflow.json` V2 declares only the
+  Core-owned Make ABI. The pinned Core runtime validates and compiles the
+  generated `Makefile`; consumer `Repo.mk` owns `repo-setup`, `repo-validate`,
+  `repo-check`, and `repo-test`. Core-only change policy and evidence settings
+  are extracted to `.l9/core-repo-policy.json`.
 
 ## 4. Organization-administration leakage inventory (to remove / re-bound)
 

@@ -1,16 +1,24 @@
 name: Run repository verification
 description: >
-  Runs the canonical repository-execution contract with immutable Core runtime
-  code. Consumer workflow/runtime code is never imported as execution authority.
+  Runs a consumer's V2 Make ABI with immutable Core-owned contract tooling.
+  Consumer-vendored parsers, schemas, templates, and runtimes are never loaded.
 inputs:
   workspace:
     required: false
     default: .
+  contract-mode:
+    description: migration permits absent contracts; required fails them closed
+    required: false
+    default: migration
 outputs:
   present:
     value: ${{ steps.verify.outputs.present }}
   status:
     value: ${{ steps.verify.outputs.status }}
+  contract-version:
+    value: ${{ steps.verify.outputs.contract-version }}
+  failure-kind:
+    value: ${{ steps.verify.outputs.failure-kind }}
 runs:
   using: composite
   steps:
@@ -18,4 +26,5 @@ runs:
       shell: bash
       env:
         L9_REPOSITORY_WORKSPACE: ${{ inputs.workspace }}
+        L9_REPOSITORY_CONTRACT_MODE: ${{ inputs.contract-mode }}
       run: python3 "${{ github.action_path }}/run.py"

@@ -232,12 +232,39 @@ Both `make validate` and `tests/tools/test_manifest_integrity.py` verify the
 manifest. `L9_MANIFEST_CHECK=0` exists only for a bounded salvage/bisect command;
 it is not an acceptance path.
 
-## 11. Repository execution runtime
+## 11. Repository execution V2
 
-The repository execution contract is `.l9/repo-workflow.json`, validated by
-`.l9/repo-workflow.schema.json`.
+The consumer execution declaration is `.l9/repo-workflow.json`. It is exactly
+the three-field `l9.repo-execution/v2` contract (`schema`, `facade`, and the
+ordered `setup`, `validate`, `check`, `test` phases). Core owns the embedded
+schema, parser, validator, compiler/reconciler, generated-facade verifier, and
+CI ordering. Consumers own the declaration and the repository-native commands
+in `Repo.mk`; they must not vendor a Core schema, template, or `tools/l9_repo`
+runtime.
 
-Before declaring a Core change complete:
+The generated root `Makefile` is a facade only. It routes `make setup`, `make
+validate`, `make check`, and `make test` to `repo-*` leaves in `Repo.mk`; it
+does not contain pip/npm/test/lint commands, publication logic, or organization
+CI policy. `Repo.mk` is mandatory. A missing required leaf is a contract
+failure, not a successful no-op. Recover generated drift with the pinned Core
+tooling: `l9-repo reconcile` (or `python3 -m tools.l9_repo reconcile` while
+working inside Core).
+
+Core self-hosts through the same ABI. Core-only change policy, authority
+wiring, manifest validation, evidence settings, and status behavior are
+explicitly local in [`.l9/core-repo-policy.json`](.l9/core-repo-policy.json),
+not in the portable consumer contract. Its repository implementation remains
+in `Repo.mk`.
+
+The `run-repository-verification` action supports a bounded V1 compatibility
+window. Migration mode reports an absent declaration as typed
+`legacy_not_applicable`; required mode reports
+`missing_repository_contract` and blocks. Switch to required mode only after
+the fleet census records zero V1 and zero uncontracted governed repositories;
+delete V1 support only after a later zero-V1 census. See
+`docs/repository-execution-runtime.md` for exact migration steps.
+
+Before declaring a Core change complete, run:
 
 1. `make validate`
 2. `make change-policy`
@@ -245,62 +272,11 @@ Before declaring a Core change complete:
 4. `python3 -m unittest discover tests`
 5. `make agent-check`
 
-The repo-local runtime preserves:
-
-- evidence emission;
-- argv-only command execution;
-- toolchain resolution through the workspace interpreter: `commands.check` and
-  `self-ci.yml`'s lint job both run ruff and mypy as `python -m <tool>`, so
-  `PATH` cannot decide which code the gate executes, and
-  `tools/check_toolchain_versions.py` runs first in each to assert the
-  resolved versions against `toolchain-lock.json`, the canonical version
-  owner. It also resolves each module under the gate's own `sys.path` — `-m`
-  puts the working directory first, so metadata proves what is installed, not
-  what would be imported. `make setup` alone does not remediate a shadowed
-  `PATH`: installing the pin and resolving it are different problems. See
-  `docs/repository-execution-runtime.md`;
-- deterministic change-policy behavior;
-- non-mutation of the worktree during validation;
-- single-flight locking (`reconcile` is the one remaining mutating target);
-- generated-facade parity between `Makefile` and `tools/l9_repo/Makefile.template`;
-- the Core → SDK dependency boundary.
-
-Cursor-Governance owns, and this runtime must not reimplement:
-
-- branch publication policy;
-- protected-branch publication denial;
-- push semantics;
-- pull-request creation and reuse;
-- publication single-flight and overlap policy;
-- publication remediation.
-
-A change duplicating SDK behavior is invalid even if functional tests pass.
-A change reintroducing publication into this runtime is invalid for the same
-reason: it would recreate a second publication authority.
-
-### The two-file facade
-
-The root `Makefile` is generated from `tools/l9_repo/Makefile.template` and owns
-the portable operator vocabulary only. Repository verbs (`make setup`,
-`make validate`, `make check`, `make test`, `make clean`, `make doctor`) route
-to the `repo-*` leaves in `Repo.mk`. Governance verbs (`make start`, `make pr`,
-`make workspace-clean`, `make wiring-check`) route to the `l9` dispatcher.
-
-`Repo.mk` is repository-owned implementation. It may add repository
-capabilities; it may not implement organization governance, and it must define
-no `pr` target and no `push` target. `include Repo.mk` is mandatory: if it is
-missing, recover with `python3 -m tools.l9_repo reconcile`, which bypasses
-`make`.
-
-### The contract shape is pinned
-
-`.l9/repo-workflow.json` still declares `push` and `pull_request`. No code path
-reads them except `pull_request.base`, which survives as the comparison ref.
-They stay because `org-ci.yml` pins `run-repository-verification@<sha>` to a
-Core checkout whose validator requires them and rejects an unknown
-`repository.default_branch`. **Do not remove them, and do not add
-`default_branch`, until that pin advances** — either change fails organization
-CI. See `docs/repository-execution-runtime.md` for the removal trigger.
+Toolchain resolution in Core's `Repo.mk` and `self-ci.yml` runs ruff and mypy
+through `python -m <tool>` and runs `tools/check_toolchain_versions.py` first.
+This prevents `PATH` from selecting a shadowed executable. Cursor-Governance
+continues to own publication; do not add `push`, `pr`, `git push`, or `gh pr`
+implementation to this runtime or `Repo.mk`.
 
 ## 12. Release plane
 

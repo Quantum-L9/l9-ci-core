@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""Core-owned repository-execution contract tooling.
+
+The portable consumer contract is deliberately declarative.  It names a fixed
+Make ABI; it never carries repository commands.  This module is loaded from a
+pinned Core checkout when a consumer is verified, so consumer-vendored tooling
+cannot redefine parsing, validation, or generated-facade semantics.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -6,13 +14,13 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from typing import Any, NoReturn
 
-from .authority import AuthorityError, validate_authority
 from .change_policy import (
     ChangePolicyError,
     ChangedFileResolution,
@@ -24,46 +32,40 @@ from .contract_wiring import ContractWiringError, validate_contract_wiring
 from .locking import LockBusy, single_flight
 from .reporting import StepEvidence, redact_text, write_reports
 
+PHASES = ("setup", "validate", "check", "test")
+V2_SCHEMA_NAME = "l9.repo-execution/v2"
+V2_FACADE_NAME = "make-v1"
+CONFIG_PATH = pathlib.Path(".l9/repo-workflow.json")
+CORE_POLICY_PATH = pathlib.Path(".l9/core-repo-policy.json")
+PACKAGE_ROOT = pathlib.Path(__file__).resolve().parent
+SCHEMA_PATH = PACKAGE_ROOT / "repo-workflow-v2.schema.json"
+TEMPLATE_PATH = PACKAGE_ROOT / "Makefile.template"
+MANIFEST_CHECK_ENV = "L9_MANIFEST_CHECK"
+_INFRASTRUCTURE_EXIT_CODE = 2
+_ALLOWED_LEGACY_EXECUTABLES = frozenset({"ruff", "mypy", "uv"})
+
 COMMANDS = (
+    "init",
+    "reconcile",
+    "validate",
+    "verify-generated",
+    "migrate-v1",
+    "core-validate",
     "doctor",
     "change-policy",
     "agent-check",
-    "setup",
-    "validate",
-    "check",
-    "test",
     "status",
     "clean",
-    "reconcile",
     "help",
 )
-CONFIG_PATH = pathlib.Path(".l9/repo-workflow.json")
-SCHEMA_PATH = pathlib.Path(".l9/repo-workflow.schema.json")
-TEMPLATE_PATH = pathlib.Path("tools/l9_repo/Makefile.template")
-
-# Semantic version "x.y.z" has exactly three dot-separated components.
-_SEMVER_COMPONENT_COUNT = 3
-# A `sha256sum`-style manifest line is "<64 hex chars><two spaces><path>".
-_SHA256_HEX_LENGTH = 64
-_MANIFEST_FIELD_SEPARATOR = "  "
-_MANIFEST_PATH_OFFSET = _SHA256_HEX_LENGTH + len(_MANIFEST_FIELD_SEPARATOR)
-_MANIFEST_MIN_LINE_LENGTH = _MANIFEST_PATH_OFFSET + 1
-# agent-check exits 2 when an infrastructure/configuration failure occurred.
-_INFRASTRUCTURE_EXIT_CODE = 2
-# Repository-owned deterministic validation is consumed argv-only. Configured
-# commands may name only the workspace interpreter token (`@python`) or the
-# pinned Core toolchain; any other executable is rejected fail-closed so a
-# repository contract can never smuggle arbitrary commands through the
-# runner. Command arguments are passed literally and never parsed by a shell.
-_ALLOWED_COMMAND_EXECUTABLES = frozenset({"ruff", "mypy", "uv"})
 
 
 class AgentCheckFailure(RuntimeError):
-    """Raised after all checks run and one or more findings remain."""
+    """Raised after every eligible Core check ran and findings remain."""
 
 
 class WorkflowError(RuntimeError):
-    """Raised when repository workflow configuration or infrastructure is invalid."""
+    """Raised for malformed contracts and infrastructure failures."""
 
 
 def _fail(message: str) -> NoReturn:
@@ -76,19 +78,15 @@ def _require_dict(value: object, path: str) -> dict[str, Any]:
     return value
 
 
-def _require_bool(value: object, path: str, *, expected: bool | None = None) -> bool:
-    if not isinstance(value, bool):
-        _fail(f"{path} must be a boolean")
-    if expected is not None and value is not expected:
-        _fail(f"{path} must be {str(expected).lower()}")
+def _require_string(value: object, path: str) -> str:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        _fail(f"{path} must be a non-empty string without NUL")
     return value
 
 
-def _require_string(value: object, path: str, *, allow_empty: bool = False) -> str:
-    if not isinstance(value, str) or (not allow_empty and not value):
-        _fail(f"{path} must be a {'string' if allow_empty else 'non-empty string'}")
-    if "\x00" in value:
-        _fail(f"{path} must not contain NUL")
+def _require_bool(value: object, path: str) -> bool:
+    if not isinstance(value, bool):
+        _fail(f"{path} must be a boolean")
     return value
 
 
@@ -114,62 +112,15 @@ def _validate_keys(
         _fail(f"{path} has unsupported keys: {', '.join(extras)}")
 
 
-def _validate_strings(
-    value: object,
-    path: str,
-    *,
-    allow_empty_items: bool = False,
-    non_empty: bool = True,
-) -> list[str]:
+def _validate_strings(value: object, path: str, *, non_empty: bool = True) -> list[str]:
     if not isinstance(value, list) or (non_empty and not value):
         _fail(f"{path} must be a {'non-empty ' if non_empty else ''}array")
-    result: list[str] = []
-    for index, item in enumerate(value):
-        result.append(
-            _require_string(
-                item,
-                f"{path}[{index}]",
-                allow_empty=allow_empty_items,
-            )
-        )
-    if len(set(result)) != len(result):
-        _fail(f"{path} must not contain duplicates")
-    return result
-
-
-def _validate_argv(value: object, path: str, *, allow_empty: bool) -> list[str]:
-    if not isinstance(value, list):
-        _fail(f"{path} must be an argv array")
-    if not allow_empty and not value:
-        _fail(f"{path} must not be empty")
-    return [
+    result = [
         _require_string(item, f"{path}[{index}]") for index, item in enumerate(value)
     ]
-
-
-def _validate_argv_matrix(value: object, path: str) -> list[list[str]]:
-    if not isinstance(value, list) or not value:
-        _fail(f"{path} must be a non-empty array of argv arrays")
-    return [
-        _validate_argv(item, f"{path}[{index}]", allow_empty=False)
-        for index, item in enumerate(value)
-    ]
-
-
-def _require_allowlisted_executable(argv: list[str], path: str, index: int) -> None:
-    executable = argv[0]
-    if executable != "@python" and executable not in _ALLOWED_COMMAND_EXECUTABLES:
-        _fail(
-            f"{path}[{index}][0] must be @python or one of "
-            f"{sorted(_ALLOWED_COMMAND_EXECUTABLES)} (argv-only allowlist)"
-        )
-
-
-def _validate_argv_command(value: object, path: str) -> list[list[str]]:
-    validated = _validate_argv_matrix(value, path)
-    for index, argv in enumerate(validated):
-        _require_allowlisted_executable(argv, path, index)
-    return validated
+    if len(result) != len(set(result)):
+        _fail(f"{path} must not contain duplicates")
+    return result
 
 
 def _validate_safe_relative_path(value: object, path: str) -> str:
@@ -180,355 +131,118 @@ def _validate_safe_relative_path(value: object, path: str) -> str:
     return text
 
 
-def validate_config_data(data: object) -> dict[str, Any]:
-    root = _require_dict(data, "config")
-    required = {
-        "$schema",
-        "schema_version",
-        "metadata",
-        "authority",
-        "repository",
-        "commands",
-        "push",
-        "pull_request",
-        "clean_paths",
-        "workspace",
-        "automation",
-        "change_policy",
-        "agent_contracts",
-        "reporting",
-        "status",
-    }
-    _validate_keys(root, "config", required=required)
-    if root["$schema"] != "./repo-workflow.schema.json":
-        _fail("config.$schema must be ./repo-workflow.schema.json")
-    if root["schema_version"] != 1:
-        _fail("unsupported repo-workflow schema_version")
+def _load_json(path: pathlib.Path, description: str) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        _fail(f"missing {description}: {path}")
+    try:
+        return _require_dict(json.loads(path.read_text(encoding="utf-8")), description)
+    except (OSError, json.JSONDecodeError) as error:
+        _fail(f"invalid {description}: {error}")
 
-    metadata = _require_dict(root["metadata"], "metadata")
-    _validate_keys(
-        metadata,
-        "metadata",
-        required={
-            "artifact_id",
-            "artifact_version",
-            "contract_status",
-            "beneficiary",
-            "authority_scope",
-        },
-    )
-    if metadata["artifact_id"] != "l9-ci-core-repository-execution-runtime":
-        _fail("metadata.artifact_id is not canonical")
-    version = _require_string(metadata["artifact_version"], "metadata.artifact_version")
-    parts = version.split(".")
-    if len(parts) != _SEMVER_COMPONENT_COUNT or not all(
-        part.isdigit() for part in parts
-    ):
-        _fail("metadata.artifact_version must be semantic version x.y.z")
-    if metadata["contract_status"] != "authoritative":
-        _fail("metadata.contract_status must be authoritative")
-    if metadata["beneficiary"] != "Quantum-L9/l9-ci-core":
-        _fail("metadata.beneficiary is not canonical")
-    if metadata["authority_scope"] != "repository-execution":
-        _fail("metadata.authority_scope is not canonical")
 
-    authority = _require_dict(root["authority"], "authority")
-    _validate_keys(
-        authority,
-        "authority",
-        required={
-            "target_authorities",
-            "component_authority",
-            "component_schema",
-            "generated_artifacts",
-            "derived_documents",
-            "dependency_manifests",
-        },
+def validate_v2_contract_data(data: object) -> dict[str, Any]:
+    """Validate only the portable V2 repository-execution declaration."""
+
+    contract = _require_dict(data, "repo-workflow/v2")
+    required = {"schema", "facade", "required_phases"}
+    _validate_keys(contract, "repo-workflow/v2", required=required)
+    if contract["schema"] != V2_SCHEMA_NAME:
+        _fail(f"repo-workflow/v2.schema must be {V2_SCHEMA_NAME}")
+    if contract["facade"] != V2_FACADE_NAME:
+        _fail(f"repo-workflow/v2.facade must be {V2_FACADE_NAME}")
+    phases = _validate_strings(
+        contract["required_phases"], "repo-workflow/v2.required_phases"
     )
-    for key in ("target_authorities", "generated_artifacts", "derived_documents"):
-        paths = _validate_strings(authority[key], f"authority.{key}")
-        for index, relative in enumerate(paths):
-            _validate_safe_relative_path(relative, f"authority.{key}[{index}]")
-    dependencies = _require_dict(
-        authority["dependency_manifests"], "authority.dependency_manifests"
-    )
-    _validate_keys(
-        dependencies,
-        "authority.dependency_manifests",
-        required={"target_required", "component_bundled"},
-    )
-    for key in ("target_required", "component_bundled"):
-        paths = _validate_strings(
-            dependencies[key], f"authority.dependency_manifests.{key}"
+    if tuple(phases) != PHASES:
+        _fail(f"repo-workflow/v2.required_phases must be {list(PHASES)} in order")
+    return contract
+
+
+# The former public helper is retained as a stable import name, but its meaning
+# is now V2-only.  It deliberately accepts no V1 fields.
+validate_config_data = validate_v2_contract_data
+
+
+def _validate_v2_json_schema(contract: dict[str, Any]) -> None:
+    schema = _load_json(SCHEMA_PATH, "Core-owned V2 schema")
+    if schema.get("$id") != "https://quantum-l9.dev/schemas/repository-execution/v2":
+        _fail("unexpected Core-owned V2 schema identity")
+    try:
+        import jsonschema
+
+        jsonschema.Draft202012Validator.check_schema(schema)
+        jsonschema.Draft202012Validator(schema).validate(contract)
+    except ModuleNotFoundError:
+        _fail(
+            "jsonschema is required for V2 validation; install Core runtime requirements"
         )
-        for index, relative in enumerate(paths):
-            _validate_safe_relative_path(
-                relative, f"authority.dependency_manifests.{key}[{index}]"
-            )
+    except Exception as error:
+        _fail(f"repo-workflow/v2 schema validation failed: {error}")
 
-    if authority["component_authority"] != ".l9/repo-workflow.json":
-        _fail("authority.component_authority must be .l9/repo-workflow.json")
-    if authority["component_schema"] != ".l9/repo-workflow.schema.json":
-        _fail("authority.component_schema must be .l9/repo-workflow.schema.json")
 
-    repository = _require_dict(root["repository"], "repository")
-    _validate_keys(
-        repository,
-        "repository",
-        required={"protected_branches", "require_pull_request"},
-    )
-    protected = _validate_strings(
-        repository["protected_branches"], "repository.protected_branches"
-    )
-    _require_bool(
-        repository["require_pull_request"],
-        "repository.require_pull_request",
-        expected=True,
-    )
+def _contract_kind(data: Mapping[str, object]) -> str:
+    if data.get("schema") == V2_SCHEMA_NAME:
+        return "v2"
+    if data.get("schema_version") == 1:
+        return "v1"
+    _fail("unsupported repository execution contract; expected V2 or supported V1")
 
-    commands = _require_dict(root["commands"], "commands")
-    command_names = {"setup", "validate", "check", "test"}
-    _validate_keys(commands, "commands", required=command_names)
-    for name in sorted(command_names):
-        _validate_argv_command(commands[name], f"commands.{name}")
 
-    # `push` and `pull_request` are DEPRECATED and no longer drive behaviour:
-    # this runtime owns no publication, and `pull_request.base` survives only as
-    # the comparison ref below. They stay declared, and stay validated, because
-    # the contract's SHAPE is co-versioned with the Core runtime pinned by
-    # `.github/workflows/org-ci.yml` (`run-repository-verification@<sha>`), which
-    # still requires both keys. Removing them here fails organization CI against
-    # the current pin. Removal trigger: a Core release whose runtime tolerates
-    # their absence is pinned in `org-ci.yml`; then drop these blocks and replace
-    # `pull_request.base` with `repository.default_branch`.
-    push = _require_dict(root["push"], "push")
-    push_keys = {
-        "run_check",
-        "require_clean_worktree",
-        "reject_force_push",
-        "reject_protected_branch",
-        "set_upstream",
-        "lockfile_command",
-        "rebase_before_push",
-    }
-    _validate_keys(push, "push", required=push_keys)
-    for key in (
-        "run_check",
-        "require_clean_worktree",
-        "reject_force_push",
-        "reject_protected_branch",
-    ):
-        _require_bool(push[key], f"push.{key}", expected=True)
-    _require_bool(push["set_upstream"], "push.set_upstream")
-    _require_bool(push["rebase_before_push"], "push.rebase_before_push")
-    lockfile_command = _validate_argv(
-        push["lockfile_command"], "push.lockfile_command", allow_empty=True
-    )
-    if lockfile_command:
-        _require_allowlisted_executable(lockfile_command, "push.lockfile_command", 0)
-
-    pull_request = _require_dict(root["pull_request"], "pull_request")
-    _validate_keys(
-        pull_request,
-        "pull_request",
-        required={"base", "draft_by_default"},
-    )
-    base = _require_string(pull_request["base"], "pull_request.base")
-    if base not in protected:
-        _fail("pull_request.base must be a configured protected branch")
-    _require_bool(pull_request["draft_by_default"], "pull_request.draft_by_default")
-
-    clean_paths = _validate_strings(root["clean_paths"], "clean_paths", non_empty=False)
-    for index, item in enumerate(clean_paths):
-        _validate_safe_relative_path(item, f"clean_paths[{index}]")
-
-    workspace = _require_dict(root["workspace"], "workspace")
-    _validate_keys(workspace, "workspace", required={"default", "allow_override"})
-    if workspace["default"] != ".":
-        _fail("workspace.default must be .")
-    _require_bool(
-        workspace["allow_override"],
-        "workspace.allow_override",
-        expected=True,
-    )
-
-    automation = _require_dict(root["automation"], "automation")
-    _validate_keys(automation, "automation", required={"lock"})
-    lock = _require_dict(automation["lock"], "automation.lock")
-    _validate_keys(lock, "automation.lock", required={"name", "stale_after_seconds"})
-    lock_name = _require_string(lock["name"], "automation.lock.name")
-    if lock_name in {".", ".."} or pathlib.PurePath(lock_name).name != lock_name:
-        _fail("automation.lock.name must be a safe simple file name")
-    _require_int(lock["stale_after_seconds"], "automation.lock.stale_after_seconds")
-
-    change_policy = _require_dict(root["change_policy"], "change_policy")
-    _validate_keys(
-        change_policy,
-        "change_policy",
-        required={"gate_order", "gates", "companion_rules"},
-    )
-    gate_order = _validate_strings(
-        change_policy["gate_order"], "change_policy.gate_order"
-    )
-    gates = _require_dict(change_policy["gates"], "change_policy.gates")
-    if set(gate_order) != set(gates):
-        _fail("change_policy.gate_order must name every gate exactly once")
-    for gate_id in gate_order:
-        gate = _require_dict(gates[gate_id], f"change_policy.gates.{gate_id}")
-        _validate_keys(
-            gate,
-            f"change_policy.gates.{gate_id}",
-            required={"match_any_prefix", "blocking", "commands"},
-        )
-        _validate_strings(
-            gate["match_any_prefix"],
-            f"change_policy.gates.{gate_id}.match_any_prefix",
-            allow_empty_items=True,
-        )
-        _require_bool(gate["blocking"], f"change_policy.gates.{gate_id}.blocking")
-        _validate_argv_command(
-            gate["commands"], f"change_policy.gates.{gate_id}.commands"
-        )
-
-    rules = change_policy["companion_rules"]
-    if not isinstance(rules, list) or not rules:
-        _fail("change_policy.companion_rules must be a non-empty array")
-    seen_rules: set[str] = set()
-    for index, raw in enumerate(rules):
-        rule = _require_dict(raw, f"change_policy.companion_rules[{index}]")
-        allowed = {
-            "id",
-            "match_any_prefix",
-            "require_any_prefix",
-            "require_all_paths",
-            "message",
-        }
-        required_rule = {"id", "match_any_prefix", "message"}
-        _validate_keys(
-            rule,
-            f"change_policy.companion_rules[{index}]",
-            required=required_rule,
-            allowed=allowed,
-        )
-        rule_id = _require_string(
-            rule["id"], f"change_policy.companion_rules[{index}].id"
-        )
-        if rule_id in seen_rules:
-            _fail(f"duplicate companion rule id: {rule_id}")
-        seen_rules.add(rule_id)
-        _validate_strings(
-            rule["match_any_prefix"],
-            f"change_policy.companion_rules[{index}].match_any_prefix",
-            allow_empty_items=True,
-        )
-        has_requirement = False
-        if "require_any_prefix" in rule:
-            _validate_strings(
-                rule["require_any_prefix"],
-                f"change_policy.companion_rules[{index}].require_any_prefix",
-                allow_empty_items=True,
-            )
-            has_requirement = True
-        if "require_all_paths" in rule:
-            paths = _validate_strings(
-                rule["require_all_paths"],
-                f"change_policy.companion_rules[{index}].require_all_paths",
-            )
-            for path_index, relative in enumerate(paths):
-                _validate_safe_relative_path(
-                    relative,
-                    f"change_policy.companion_rules[{index}].require_all_paths[{path_index}]",
-                )
-            has_requirement = True
-        if not has_requirement:
+def _legacy_matrix(data: Mapping[str, object], phase: str) -> list[list[str]]:
+    commands = data.get("commands")
+    if not isinstance(commands, dict) or not isinstance(commands.get(phase), list):
+        _fail(f"legacy V1 contract has no commands.{phase} matrix")
+    raw_matrix = commands[phase]
+    if not raw_matrix:
+        _fail(f"legacy V1 commands.{phase} must not be empty")
+    matrix: list[list[str]] = []
+    for command_index, raw_argv in enumerate(raw_matrix):
+        if not isinstance(raw_argv, list) or not raw_argv:
             _fail(
-                f"change_policy.companion_rules[{index}] must declare require_any_prefix or require_all_paths"
+                f"legacy V1 commands.{phase}[{command_index}] must be a non-empty argv"
             )
-        _require_string(
-            rule["message"], f"change_policy.companion_rules[{index}].message"
-        )
-
-    agent_contracts = _require_dict(root["agent_contracts"], "agent_contracts")
-    _validate_keys(
-        agent_contracts,
-        "agent_contracts",
-        required={"required_files", "reference_requirements"},
-    )
-    required_files = _validate_strings(
-        agent_contracts["required_files"], "agent_contracts.required_files"
-    )
-    for index, relative in enumerate(required_files):
-        _validate_safe_relative_path(
-            relative, f"agent_contracts.required_files[{index}]"
-        )
-    reference_requirements = agent_contracts["reference_requirements"]
-    if not isinstance(reference_requirements, list) or not reference_requirements:
-        _fail("agent_contracts.reference_requirements must be a non-empty array")
-    for index, raw in enumerate(reference_requirements):
-        requirement = _require_dict(
-            raw, f"agent_contracts.reference_requirements[{index}]"
-        )
-        _validate_keys(
-            requirement,
-            f"agent_contracts.reference_requirements[{index}]",
-            required={"target", "instruction_files"},
-        )
-        _validate_safe_relative_path(
-            requirement["target"],
-            f"agent_contracts.reference_requirements[{index}].target",
-        )
-        instruction_files = _validate_strings(
-            requirement["instruction_files"],
-            f"agent_contracts.reference_requirements[{index}].instruction_files",
-        )
-        for file_index, relative in enumerate(instruction_files):
-            _validate_safe_relative_path(
-                relative,
-                f"agent_contracts.reference_requirements[{index}].instruction_files[{file_index}]",
+        argv = [
+            _require_string(
+                value, f"legacy V1 commands.{phase}[{command_index}][{index}]"
             )
-
-    reporting = _require_dict(root["reporting"], "reporting")
-    _validate_keys(
-        reporting,
-        "reporting",
-        required={
-            "agent_check_json",
-            "agent_check_markdown",
-            "capture_limit_chars",
-        },
-    )
-    _validate_safe_relative_path(
-        reporting["agent_check_json"], "reporting.agent_check_json"
-    )
-    _validate_safe_relative_path(
-        reporting["agent_check_markdown"], "reporting.agent_check_markdown"
-    )
-    _require_int(
-        reporting["capture_limit_chars"],
-        "reporting.capture_limit_chars",
-        minimum=1000,
-    )
-
-    status = _require_dict(root["status"], "status")
-    _validate_keys(status, "status", required={"fetch_remote"})
-    _require_bool(status["fetch_remote"], "status.fetch_remote")
-    return root
+            for index, value in enumerate(raw_argv)
+        ]
+        if argv[0] != "@python" and argv[0] not in _ALLOWED_LEGACY_EXECUTABLES:
+            _fail("legacy V1 executable is outside the bounded compatibility allowlist")
+        matrix.append(argv)
+    return matrix
 
 
-MANIFEST_CHECK_ENV = "L9_MANIFEST_CHECK"
+def _legacy_to_repo_mk(data: Mapping[str, object]) -> str:
+    """Convert a bounded V1 command matrix into a repository-owned Make leaf."""
+
+    lines = [
+        "# Generated once from a legacy V1 execution contract.",
+        "# Review and maintain repository implementation here after migration.",
+        "PYTHON ?= python3",
+        "",
+        ".PHONY: " + " ".join(f"repo-{phase}" for phase in PHASES),
+        "",
+    ]
+    for phase in PHASES:
+        lines.append(f"repo-{phase}:")
+        for argv in _legacy_matrix(data, phase):
+            rendered = ["$(PYTHON)" if token == "@python" else token for token in argv]
+            # Make recipes are shell text. Quote each consumer-supplied V1 token
+            # before writing the consumer-owned implementation boundary.
+            quoted = " ".join(_make_quote(token) for token in rendered)
+            lines.append(f"\t{quoted}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _make_quote(value: str) -> str:
+    if re.fullmatch(r"[A-Za-z0-9_./:=+@%,-]+", value):
+        return value
+    return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
 def manifest_check_enabled() -> bool:
-    """Is tracked-file checksum verification switched on?
-
-    Enabled unless ``L9_MANIFEST_CHECK`` explicitly disables it. The escape
-    hatch exists for bisects and salvage work on a knowingly drifted tree; it
-    is not a way to land a change without regenerating the manifest.
-
-    While disabled nothing verifies `MANIFEST.sha256`, so tracked-file
-    tampering goes undetected. Keep the window as short as the one command
-    that needs it.
-    """
     return os.environ.get(MANIFEST_CHECK_ENV, "").strip().lower() not in {
         "0",
         "false",
@@ -544,46 +258,32 @@ def verify_checksum_manifest(
     if manifest.is_symlink() or not manifest.is_file():
         _fail(f"missing checksum manifest: {manifest}")
     errors: list[str] = []
-    seen: set[str] = set()
     entries = 0
+    seen: set[str] = set()
     for line_number, raw in enumerate(
-        manifest.read_text(encoding="utf-8").splitlines(), start=1
+        manifest.read_text(encoding="utf-8").splitlines(), 1
     ):
         if not raw.strip():
             continue
-        if (
-            len(raw) < _MANIFEST_MIN_LINE_LENGTH
-            or raw[_SHA256_HEX_LENGTH:_MANIFEST_PATH_OFFSET]
-            != _MANIFEST_FIELD_SEPARATOR
-        ):
+        if len(raw) < 67 or raw[64:66] != "  ":
             errors.append(f"{relative}:{line_number}: malformed checksum entry")
             continue
         entries += 1
-        digest, name = raw[:_SHA256_HEX_LENGTH], raw[_MANIFEST_PATH_OFFSET:]
+        digest, name = raw[:64], raw[66:]
         if name in seen:
             errors.append(f"{relative}:{line_number}: duplicate path {name}")
             continue
         seen.add(name)
-        if any(ch not in "0123456789abcdef" for ch in digest):
-            errors.append(f"{relative}:{line_number}: invalid sha256 digest")
+        path = root / pathlib.PurePosixPath(name)
+        if (
+            any(ch not in "0123456789abcdef" for ch in digest)
+            or path.is_symlink()
+            or not path.is_file()
+            or root.resolve() not in path.resolve().parents
+        ):
+            errors.append(f"{relative}:{line_number}: unsafe or missing file {name}")
             continue
-        candidate = pathlib.PurePosixPath(name)
-        if candidate.is_absolute() or ".." in candidate.parts or name in {"", "."}:
-            errors.append(f"{relative}:{line_number}: unsafe path {name!r}")
-            continue
-        path = root / candidate
-        try:
-            resolved = path.resolve(strict=True)
-        except OSError:
-            resolved = path.resolve()
-        if path.is_symlink() or root.resolve() not in resolved.parents:
-            errors.append(f"{relative}:{line_number}: unsafe or symlinked file {name}")
-            continue
-        if not path.is_file():
-            errors.append(f"{relative}:{line_number}: missing file {name}")
-            continue
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        if actual != digest:
+        if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             errors.append(f"{relative}:{line_number}: checksum mismatch for {name}")
     if entries == 0:
         errors.append(f"{relative}: checksum manifest is empty")
@@ -592,6 +292,8 @@ def verify_checksum_manifest(
 
 
 class RepositoryWorkflow:
+    """V2 compiler, validator, and non-mutating generated-facade verifier."""
+
     def __init__(self, root: pathlib.Path) -> None:
         self.root = root.resolve()
 
@@ -603,96 +305,13 @@ class RepositoryWorkflow:
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            list(argv),
-            cwd=self.root,
-            text=True,
-            capture_output=capture,
-            check=check,
+            list(argv), cwd=self.root, text=True, capture_output=capture, check=check
         )
 
     def git(
-        self,
-        *args: str,
-        capture: bool = False,
-        check: bool = True,
+        self, *args: str, capture: bool = False, check: bool = True
     ) -> subprocess.CompletedProcess[str]:
         return self.run(["git", *args], capture=capture, check=check)
-
-    def config(self) -> dict[str, Any]:
-        path = self.root / CONFIG_PATH
-        if not path.is_file():
-            _fail(f"missing {path}")
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            _fail(f"invalid {path}: {error}")
-        return validate_config_data(data)
-
-    def command_matrix(self, name: str) -> list[list[str]]:
-        return _validate_argv_command(
-            self.config()["commands"][name], f"commands.{name}"
-        )
-
-    @staticmethod
-    def render_argv(argv: Sequence[str]) -> list[str]:
-        return [sys.executable if token == "@python" else token for token in argv]
-
-    def invoke(self, name: str) -> None:
-        for configured_argv in self.command_matrix(name):
-            argv = self.render_argv(configured_argv)
-            print("+", " ".join(argv), flush=True)
-            self.run(argv)
-
-    def branch(self) -> str:
-        return self.git("branch", "--show-current", capture=True).stdout.strip()
-
-    def status_porcelain(self) -> str:
-        return self.git("status", "--porcelain", capture=True).stdout.strip()
-
-    def worktree_fingerprint(self) -> str:
-        digest = hashlib.sha256()
-        for argv in (
-            ("git", "diff", "--binary", "HEAD"),
-            ("git", "ls-files", "--others", "--exclude-standard", "-z"),
-        ):
-            result = subprocess.run(
-                list(argv), cwd=self.root, capture_output=True, check=False
-            )
-            if result.returncode != 0:
-                _fail(
-                    result.stderr.decode("utf-8", errors="replace").strip()
-                    or "unable to fingerprint worktree"
-                )
-            digest.update(len(result.stdout).to_bytes(8, "big"))
-            digest.update(result.stdout)
-        untracked = subprocess.run(
-            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
-            cwd=self.root,
-            capture_output=True,
-            check=False,
-        )
-        for raw in sorted(path for path in untracked.stdout.split(b"\0") if path):
-            try:
-                relative = raw.decode("utf-8")
-            except UnicodeDecodeError as error:
-                _fail(f"non-UTF-8 untracked path: {error}")
-            path = self.root / relative
-            digest.update(raw)
-            if path.is_symlink():
-                digest.update(b"SYMLINK")
-                digest.update(path.readlink().as_posix().encode("utf-8"))
-            elif path.is_file():
-                digest.update(path.read_bytes())
-        return digest.hexdigest()
-
-    def git_path(self, name: str) -> pathlib.Path:
-        value = self.git("rev-parse", "--git-path", name, capture=True).stdout.strip()
-        path = pathlib.Path(value)
-        return path if path.is_absolute() else (self.root / path).resolve()
-
-    def _lock_settings(self) -> tuple[pathlib.Path, int]:
-        lock = self.config()["automation"]["lock"]
-        return self.git_path(lock["name"]), lock["stale_after_seconds"]
 
     def _ensure_repository_root(self) -> None:
         result = self.git("rev-parse", "--show-toplevel", capture=True, check=False)
@@ -701,18 +320,335 @@ class RepositoryWorkflow:
                 result.stderr.strip()
                 or f"workspace is not a Git repository root: {self.root}"
             )
-        actual = pathlib.Path(result.stdout.strip()).resolve()
-        if actual != self.root:
-            _fail(f"workspace is not repository root: {self.root} != {actual}")
+        if pathlib.Path(result.stdout.strip()).resolve() != self.root:
+            _fail(f"workspace is not repository root: {self.root}")
+
+    def raw_contract(self) -> dict[str, Any]:
+        return _load_json(self.root / CONFIG_PATH, "repository execution contract")
+
+    def contract_version(self) -> str:
+        return _contract_kind(self.raw_contract())
+
+    def config(self) -> dict[str, Any]:
+        contract = self.raw_contract()
+        if _contract_kind(contract) != "v2":
+            _fail("V2 contract required for this operation; run l9-repo migrate-v1")
+        return validate_v2_contract_data(contract)
+
+    def render_makefile(self) -> bytes:
+        if not TEMPLATE_PATH.is_file():
+            _fail(f"missing Core canonical Makefile template: {TEMPLATE_PATH}")
+        return TEMPLATE_PATH.read_bytes()
+
+    def _required_repo_targets(self) -> None:
+        path = self.root / "Repo.mk"
+        if path.is_symlink() or not path.is_file():
+            _fail("missing repository implementation boundary: Repo.mk")
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for phase in PHASES:
+            if not re.search(rf"(?m)^repo-{phase}\s*:", text):
+                _fail(
+                    f"missing required repository implementation target: repo-{phase}"
+                )
+
+    def validate(self) -> None:
+        self._ensure_repository_root()
+        contract = self.config()
+        _validate_v2_json_schema(contract)
+
+    def verify_generated(self) -> None:
+        """Verify derived artifacts without writing the consumer worktree."""
+
+        self.validate()
+        makefile = self.root / "Makefile"
+        if makefile.is_symlink() or not makefile.is_file():
+            _fail("missing generated Makefile; run l9-repo reconcile")
+        if makefile.read_bytes() != self.render_makefile():
+            _fail("Makefile drift: run l9-repo reconcile")
+        self._required_repo_targets()
+
+    def reconcile(self) -> None:
+        self._ensure_repository_root()
+        self.validate()
+        (self.root / "Makefile").write_bytes(self.render_makefile())
+        print("Makefile reconciled from the Core canonical template")
+
+    def init(self) -> None:
+        self._ensure_repository_root()
+        contract_path = self.root / CONFIG_PATH
+        contract_path.parent.mkdir(parents=True, exist_ok=True)
+        if contract_path.exists():
+            self.validate()
+        else:
+            contract_path.write_text(
+                json.dumps(
+                    {
+                        "schema": V2_SCHEMA_NAME,
+                        "facade": V2_FACADE_NAME,
+                        "required_phases": list(PHASES),
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        repo_mk = self.root / "Repo.mk"
+        if not repo_mk.exists():
+            repo_mk.write_text(
+                "# Repository-owned implementation of the Core Make ABI.\n"
+                "# Replace explicit no-op leaves with this repository's commands.\n"
+                ".PHONY: repo-setup repo-validate repo-check repo-test\n\n"
+                + "\n\n".join(f"repo-{phase}:\n\t@:" for phase in PHASES)
+                + "\n",
+                encoding="utf-8",
+            )
+        (self.root / "Makefile").write_bytes(self.render_makefile())
+        print("repository execution contract initialized")
+
+    def migrate_v1(self) -> None:
+        self._ensure_repository_root()
+        legacy = self.raw_contract()
+        if _contract_kind(legacy) != "v1":
+            _fail("migrate-v1 requires a supported V1 repository execution contract")
+        repo_mk = self.root / "Repo.mk"
+        if not repo_mk.exists():
+            repo_mk.write_text(_legacy_to_repo_mk(legacy), encoding="utf-8")
+        else:
+            self._required_repo_targets()
+        (self.root / CONFIG_PATH).write_text(
+            json.dumps(
+                {
+                    "schema": V2_SCHEMA_NAME,
+                    "facade": V2_FACADE_NAME,
+                    "required_phases": list(PHASES),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (self.root / "Makefile").write_bytes(self.render_makefile())
+        self.verify_generated()
+        print("V1 contract migrated to V2; review Repo.mk before committing")
+
+    def execute_phase(self, phase: str) -> None:
+        if phase not in PHASES:
+            _fail(f"unsupported repository execution phase: {phase}")
+        self.verify_generated()
+        print(f"+ make {phase}", flush=True)
+        self.run(["make", phase])
+
+    def execute_legacy_phase(self, phase: str) -> None:
+        """Bounded, temporary V1 compatibility path.
+
+        V1 execution is intentionally isolated here.  V2 never consumes command
+        matrices; `migrate-v1` translates those matrices into `Repo.mk`.
+        """
+
+        if self.contract_version() != "v1":
+            _fail("legacy execution requested for a non-V1 contract")
+        for configured_argv in _legacy_matrix(self.raw_contract(), phase):
+            argv = [
+                sys.executable if token == "@python" else token
+                for token in configured_argv
+            ]
+            print("+", " ".join(argv), flush=True)
+            self.run(argv)
+
+
+def _validate_command_matrix(value: object, path: str) -> list[list[str]]:
+    if not isinstance(value, list) or not value:
+        _fail(f"{path} must be a non-empty argv matrix")
+    result: list[list[str]] = []
+    for index, raw in enumerate(value):
+        if not isinstance(raw, list) or not raw:
+            _fail(f"{path}[{index}] must be a non-empty argv")
+        argv = [_require_string(item, f"{path}[{index}]") for item in raw]
+        if argv[0] != "@python" and argv[0] not in _ALLOWED_LEGACY_EXECUTABLES:
+            _fail(f"{path}[{index}][0] is outside Core's command allowlist")
+        result.append(argv)
+    return result
+
+
+def validate_core_policy_data(data: object) -> dict[str, Any]:
+    """Validate Core-local policy that is intentionally absent from V2."""
+
+    policy = _require_dict(data, "core repository policy")
+    required = {
+        "schema",
+        "comparison_ref",
+        "clean_paths",
+        "automation",
+        "change_policy",
+        "agent_contracts",
+        "reporting",
+        "status",
+        "authority",
+    }
+    _validate_keys(policy, "core repository policy", required=required)
+    if policy["schema"] != "l9.core-repository-policy/v1":
+        _fail("unsupported Core repository policy schema")
+    _require_string(policy["comparison_ref"], "comparison_ref")
+    for index, item in enumerate(
+        _validate_strings(policy["clean_paths"], "clean_paths", non_empty=False)
+    ):
+        _validate_safe_relative_path(item, f"clean_paths[{index}]")
+
+    automation = _require_dict(policy["automation"], "automation")
+    _validate_keys(automation, "automation", required={"lock"})
+    lock = _require_dict(automation["lock"], "automation.lock")
+    _validate_keys(lock, "automation.lock", required={"name", "stale_after_seconds"})
+    name = _require_string(lock["name"], "automation.lock.name")
+    if pathlib.PurePath(name).name != name or name in {".", ".."}:
+        _fail("automation.lock.name must be a safe simple file name")
+    _require_int(lock["stale_after_seconds"], "automation.lock.stale_after_seconds")
+
+    policy_block = _require_dict(policy["change_policy"], "change_policy")
+    _validate_keys(
+        policy_block,
+        "change_policy",
+        required={"gate_order", "gates", "companion_rules"},
+    )
+    gate_order = _validate_strings(
+        policy_block["gate_order"], "change_policy.gate_order"
+    )
+    gates = _require_dict(policy_block["gates"], "change_policy.gates")
+    if set(gate_order) != set(gates):
+        _fail("change_policy.gate_order must name every gate exactly once")
+    for gate_id in gate_order:
+        gate = _require_dict(gates[gate_id], f"change_policy.gates.{gate_id}")
+        _validate_keys(
+            gate,
+            f"change_policy.gates.{gate_id}",
+            required={"match_any_prefix", "blocking", "commands"},
+        )
+        prefixes = gate["match_any_prefix"]
+        if (
+            not isinstance(prefixes, list)
+            or not prefixes
+            or not all(isinstance(x, str) for x in prefixes)
+        ):
+            _fail(
+                f"change_policy.gates.{gate_id}.match_any_prefix must be a non-empty string array"
+            )
+        _require_bool(gate["blocking"], f"change_policy.gates.{gate_id}.blocking")
+        _validate_command_matrix(
+            gate["commands"], f"change_policy.gates.{gate_id}.commands"
+        )
+
+    rules = policy_block["companion_rules"]
+    if not isinstance(rules, list) or not rules:
+        _fail("change_policy.companion_rules must be a non-empty array")
+    for index, raw in enumerate(rules):
+        rule = _require_dict(raw, f"change_policy.companion_rules[{index}]")
+        allowed = {
+            "id",
+            "match_any_prefix",
+            "require_any_prefix",
+            "require_all_paths",
+            "message",
+        }
+        _validate_keys(
+            rule,
+            f"change_policy.companion_rules[{index}]",
+            required={"id", "match_any_prefix", "message"},
+            allowed=allowed,
+        )
+        _require_string(rule["id"], f"change_policy.companion_rules[{index}].id")
+        _require_string(
+            rule["message"], f"change_policy.companion_rules[{index}].message"
+        )
+        for key in ("match_any_prefix", "require_any_prefix", "require_all_paths"):
+            if key not in rule:
+                continue
+            values = rule[key]
+            if (
+                not isinstance(values, list)
+                or not values
+                or not all(isinstance(x, str) for x in values)
+            ):
+                _fail(
+                    f"change_policy.companion_rules[{index}].{key} must be a non-empty string array"
+                )
+        if "require_any_prefix" not in rule and "require_all_paths" not in rule:
+            _fail(f"change_policy.companion_rules[{index}] must declare a requirement")
+
+    contracts = _require_dict(policy["agent_contracts"], "agent_contracts")
+    _validate_keys(
+        contracts,
+        "agent_contracts",
+        required={"required_files", "reference_requirements"},
+    )
+    for index, relative in enumerate(
+        _validate_strings(contracts["required_files"], "agent_contracts.required_files")
+    ):
+        _validate_safe_relative_path(
+            relative, f"agent_contracts.required_files[{index}]"
+        )
+    requirements = contracts["reference_requirements"]
+    if not isinstance(requirements, list):
+        _fail("agent_contracts.reference_requirements must be an array")
+    for index, raw in enumerate(requirements):
+        requirement = _require_dict(
+            raw, f"agent_contracts.reference_requirements[{index}]"
+        )
+        _validate_keys(
+            requirement,
+            f"agent_contracts.reference_requirements[{index}]",
+            required={"target", "instruction_files"},
+        )
+        _validate_safe_relative_path(
+            requirement["target"],
+            f"agent_contracts.reference_requirements[{index}].target",
+        )
+        _validate_strings(
+            requirement["instruction_files"],
+            f"agent_contracts.reference_requirements[{index}].instruction_files",
+        )
+
+    reporting = _require_dict(policy["reporting"], "reporting")
+    _validate_keys(
+        reporting,
+        "reporting",
+        required={"agent_check_json", "agent_check_markdown", "capture_limit_chars"},
+    )
+    _validate_safe_relative_path(
+        reporting["agent_check_json"], "reporting.agent_check_json"
+    )
+    _validate_safe_relative_path(
+        reporting["agent_check_markdown"], "reporting.agent_check_markdown"
+    )
+    _require_int(
+        reporting["capture_limit_chars"], "reporting.capture_limit_chars", minimum=1000
+    )
+    status = _require_dict(policy["status"], "status")
+    _validate_keys(status, "status", required={"fetch_remote"})
+    _require_bool(status["fetch_remote"], "status.fetch_remote")
+
+    authority = _require_dict(policy["authority"], "authority")
+    _validate_keys(
+        authority,
+        "authority",
+        required={"target_authorities", "derived_documents", "generated_artifacts"},
+    )
+    for key in ("target_authorities", "derived_documents", "generated_artifacts"):
+        for index, relative in enumerate(
+            _validate_strings(authority[key], f"authority.{key}")
+        ):
+            _validate_safe_relative_path(relative, f"authority.{key}[{index}]")
+    return policy
+
+
+class CoreRepositoryWorkflow(RepositoryWorkflow):
+    """Core's local policy layer; never used as a consumer protocol."""
+
+    def policy(self) -> dict[str, Any]:
+        return validate_core_policy_data(
+            _load_json(self.root / CORE_POLICY_PATH, "Core repository policy")
+        )
 
     def _comparison_ref(self, base_ref: str | None = None) -> str:
-        if base_ref:
-            return base_ref
-        # DEPRECATED COUPLING: this is a repository fact (the comparison ref
-        # for change-policy, agent-check, and status), not publication policy.
-        # It stays on `pull_request.base` only because the contract shape is
-        # pinned by org-ci.yml; see the note in validate_config_data.
-        return f"origin/{self.config()['pull_request']['base']}"
+        return base_ref or self.policy()["comparison_ref"]
 
     def _resolve_changes(
         self,
@@ -728,25 +664,82 @@ class RepositoryWorkflow:
             head_ref=head_ref,
         )
 
-    def doctor(self) -> None:
-        self._ensure_repository_root()
-        config = self.config()
-        # This runtime owns local execution only. GitHub reachability and
-        # credential state are publication concerns owned by Cursor-Governance,
-        # so `gh` is neither required nor probed here.
-        required_tools = {"git"}
-        for name in ("setup", "validate", "check", "test"):
-            required_tools.update(
-                argv[0] for argv in config["commands"][name] if argv[0] != "@python"
+    def structural_validate(self) -> None:
+        self.verify_generated()
+        policy = self.policy()
+        if manifest_check_enabled():
+            verify_checksum_manifest(self.root)
+        try:
+            validate_contract_wiring(self.root, policy["agent_contracts"])
+        except ContractWiringError as error:
+            _fail(str(error))
+        errors: list[str] = []
+        for key in ("target_authorities", "derived_documents", "generated_artifacts"):
+            for relative in policy["authority"][key]:
+                path = self.root / relative
+                if path.is_symlink() or not path.is_file():
+                    errors.append(f"missing Core policy authority: {relative}")
+        if errors:
+            _fail("; ".join(errors))
+
+    def _lock_settings(self) -> tuple[pathlib.Path, int]:
+        lock = self.policy()["automation"]["lock"]
+        path = self.git(
+            "rev-parse", "--git-path", lock["name"], capture=True
+        ).stdout.strip()
+        candidate = pathlib.Path(path)
+        return (
+            candidate if candidate.is_absolute() else self.root / candidate,
+            lock["stale_after_seconds"],
+        )
+
+    @staticmethod
+    def _bounded(text: str, limit: int) -> str:
+        redacted = redact_text(text)
+        return (
+            redacted
+            if len(redacted) <= limit
+            else redacted[:limit] + "\n... output truncated ...\n"
+        )
+
+    def _run_matrix(
+        self,
+        name: str,
+        matrix: Sequence[Sequence[str]],
+        *,
+        limit: int,
+        steps: list[StepEvidence],
+    ) -> tuple[int, int]:
+        findings = 0
+        infrastructure = 0
+        for index, configured in enumerate(matrix, 1):
+            argv = [
+                sys.executable if item == "@python" else item for item in configured
+            ]
+            result = self.run(argv, capture=True, check=False)
+            classification = (
+                "pass"
+                if result.returncode == 0
+                else (
+                    "infrastructure"
+                    if result.returncode in {2, 126, 127}
+                    else "finding"
+                )
             )
-        for gate in config["change_policy"]["gates"].values():
-            required_tools.update(
-                argv[0] for argv in gate["commands"] if argv[0] != "@python"
+            findings += int(classification == "finding")
+            infrastructure += int(classification == "infrastructure")
+            steps.append(
+                StepEvidence(
+                    f"{name}:{index}",
+                    tuple(argv),
+                    result.returncode,
+                    classification,
+                    True,
+                    stdout=self._bounded(result.stdout, limit),
+                    stderr=self._bounded(result.stderr, limit),
+                )
             )
-        missing = sorted(tool for tool in required_tools if not shutil.which(tool))
-        if missing:
-            _fail("missing tools: " + ", ".join(missing))
-        print("doctor: PASS")
+        return findings, infrastructure
 
     def change_policy(
         self,
@@ -757,46 +750,28 @@ class RepositoryWorkflow:
     ) -> None:
         self._ensure_repository_root()
         resolution = self._resolve_changes(
-            explicit=explicit,
-            base_ref=base_ref,
-            head_ref=head_ref,
+            explicit=explicit, base_ref=base_ref, head_ref=head_ref
         )
-        policy = self.config()["change_policy"]
+        policy = self.policy()["change_policy"]
         findings = companion_findings(policy, resolution.files)
-        payload = {
-            "schema": "l9.repo-change-policy/v1",
-            "change_context": {
-                "source": resolution.source,
-                "base_ref": resolution.base_ref,
-                "head_ref": resolution.head_ref,
-            },
-            "changed_files": list(resolution.files),
-            "selected_gates": [
-                gate.gate_id for gate in select_gates(policy, resolution.files)
-            ],
-            "companion_findings": [
+        print(
+            json.dumps(
                 {
-                    "rule_id": finding.rule_id,
-                    "message": finding.message,
-                    "changed": list(finding.changed),
-                    "required_any": list(finding.required_any),
-                    "missing_all": list(finding.missing_all),
-                }
-                for finding in findings
-            ],
-        }
-        print(json.dumps(payload, indent=2, sort_keys=True))
+                    "schema": "l9.repo-change-policy/v1",
+                    "changed_files": list(resolution.files),
+                    "selected_gates": [
+                        gate.gate_id for gate in select_gates(policy, resolution.files)
+                    ],
+                    "companion_findings": [finding.rule_id for finding in findings],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         if findings:
             raise AgentCheckFailure(
                 f"change policy found {len(findings)} blocking companion finding(s)"
             )
-
-    @staticmethod
-    def _bounded(text: str, limit: int) -> str:
-        text = redact_text(text)
-        if len(text) <= limit:
-            return text
-        return text[:limit] + f"\n... output truncated at {limit} characters ...\n"
 
     def agent_check(
         self,
@@ -806,32 +781,24 @@ class RepositoryWorkflow:
         head_ref: str = "HEAD",
     ) -> None:
         self._ensure_repository_root()
-        config = self.config()
+        policy = self.policy()
         resolution = self._resolve_changes(
-            explicit=explicit,
-            base_ref=base_ref,
-            head_ref=head_ref,
+            explicit=explicit, base_ref=base_ref, head_ref=head_ref
         )
-        policy = config["change_policy"]
-        initial_subject_sha = self.git("rev-parse", "HEAD", capture=True).stdout.strip()
-        initial_policy_sha256 = hashlib.sha256(
-            (self.root / CONFIG_PATH).read_bytes()
-        ).hexdigest()
-        initial_worktree_fingerprint = self.worktree_fingerprint()
-        companion = companion_findings(policy, resolution.files)
+        initial = self.worktree_fingerprint()
         steps: list[StepEvidence] = []
-        finding_failures = len(companion)
-        infrastructure_failures = 0
-        capture_limit = config["reporting"]["capture_limit_chars"]
-
+        findings = len(companion_findings(policy["change_policy"], resolution.files))
+        infrastructure = 0
         try:
             self.structural_validate()
-            steps.append(StepEvidence("structural-validate", tuple(), 0, "pass", True))
-        except (WorkflowError, ContractWiringError) as error:
-            infrastructure_failures += 1
+            steps.append(
+                StepEvidence("core-structural-validate", tuple(), 0, "pass", True)
+            )
+        except WorkflowError as error:
+            infrastructure += 1
             steps.append(
                 StepEvidence(
-                    "structural-validate",
+                    "core-structural-validate",
                     tuple(),
                     2,
                     "infrastructure",
@@ -839,89 +806,35 @@ class RepositoryWorkflow:
                     stderr=str(error),
                 )
             )
-
-        def run_matrix(
-            name: str,
-            matrix: Sequence[Sequence[str]],
-            *,
-            blocking: bool = True,
-        ) -> None:
-            nonlocal finding_failures, infrastructure_failures
-            for index, configured in enumerate(matrix, start=1):
-                argv = self.render_argv(configured)
-                print("+", " ".join(argv), flush=True)
-                try:
-                    result = self.run(argv, capture=True, check=False)
-                    stdout = self._bounded(result.stdout, capture_limit)
-                    stderr = self._bounded(result.stderr, capture_limit)
-                    if stdout:
-                        print(stdout, end="" if stdout.endswith("\n") else "\n")
-                    if stderr:
-                        print(
-                            stderr,
-                            file=sys.stderr,
-                            end="" if stderr.endswith("\n") else "\n",
-                        )
-                    if result.returncode == 0:
-                        classification = "pass"
-                    elif result.returncode in {2, 126, 127}:
-                        classification = "infrastructure"
-                        if blocking:
-                            infrastructure_failures += 1
-                    else:
-                        classification = "finding"
-                        if blocking:
-                            finding_failures += 1
-                    steps.append(
-                        StepEvidence(
-                            f"{name}:{index}",
-                            tuple(argv),
-                            result.returncode,
-                            classification,
-                            blocking,
-                            stdout=stdout,
-                            stderr=stderr,
-                        )
-                    )
-                except OSError as error:
-                    infrastructure_failures += int(blocking)
-                    steps.append(
-                        StepEvidence(
-                            f"{name}:{index}",
-                            tuple(argv),
-                            127,
-                            "infrastructure",
-                            blocking,
-                            stderr=str(error),
-                        )
-                    )
-
-        run_matrix("validate", config["commands"]["validate"])
-        for gate in select_gates(policy, resolution.files):
-            run_matrix(
-                f"change-gate:{gate.gate_id}",
-                gate.commands,
-                blocking=gate.blocking,
+        limit = policy["reporting"]["capture_limit_chars"]
+        for gate in select_gates(policy["change_policy"], resolution.files):
+            found, infra = self._run_matrix(
+                f"change-gate:{gate.gate_id}", gate.commands, limit=limit, steps=steps
             )
-        run_matrix("check", config["commands"]["check"])
-        run_matrix("test", config["commands"]["test"])
-
-        final_subject_sha = self.git("rev-parse", "HEAD", capture=True).stdout.strip()
-        final_policy_sha256 = hashlib.sha256(
-            (self.root / CONFIG_PATH).read_bytes()
-        ).hexdigest()
-        final_worktree_fingerprint = self.worktree_fingerprint()
-        integrity_errors: list[str] = []
-        if final_subject_sha != initial_subject_sha:
-            integrity_errors.append("HEAD changed during agent-check")
-        if final_policy_sha256 != initial_policy_sha256:
-            integrity_errors.append(
-                "repository workflow policy changed during agent-check"
+            findings += found if gate.blocking else 0
+            infrastructure += infra if gate.blocking else 0
+        for phase in ("validate", "check", "test"):
+            result = self.run(["make", phase], capture=True, check=False)
+            classification = (
+                "pass"
+                if result.returncode == 0
+                else ("infrastructure" if result.returncode == 2 else "finding")
             )
-        if final_worktree_fingerprint != initial_worktree_fingerprint:
-            integrity_errors.append("worktree content changed during agent-check")
-        if integrity_errors:
-            infrastructure_failures += 1
+            findings += int(classification == "finding")
+            infrastructure += int(classification == "infrastructure")
+            steps.append(
+                StepEvidence(
+                    f"make:{phase}",
+                    ("make", phase),
+                    result.returncode,
+                    classification,
+                    True,
+                    stdout=self._bounded(result.stdout, limit),
+                    stderr=self._bounded(result.stderr, limit),
+                )
+            )
+        if self.worktree_fingerprint() != initial:
+            infrastructure += 1
             steps.append(
                 StepEvidence(
                     "non-mutation-check",
@@ -929,210 +842,101 @@ class RepositoryWorkflow:
                     2,
                     "infrastructure",
                     True,
-                    stderr="; ".join(integrity_errors),
+                    stderr="worktree content changed during agent-check",
                 )
             )
         else:
             steps.append(StepEvidence("non-mutation-check", tuple(), 0, "pass", True))
-
-        finding_payloads: list[dict[str, object]] = [
-            {
-                "rule_id": finding.rule_id,
-                "message": finding.message,
-                "changed": list(finding.changed),
-                "required_any": list(finding.required_any),
-                "missing_all": list(finding.missing_all),
-            }
-            for finding in companion
-        ]
-        if infrastructure_failures:
-            overall_exit_code = _INFRASTRUCTURE_EXIT_CODE
-        elif finding_failures:
-            overall_exit_code = 1
-        else:
-            overall_exit_code = 0
-
-        json_path = self.root / config["reporting"]["agent_check_json"]
-        markdown_path = self.root / config["reporting"]["agent_check_markdown"]
-        subject_sha = initial_subject_sha
-        policy_sha256 = initial_policy_sha256
+        code = 2 if infrastructure else (1 if findings else 0)
         write_reports(
-            json_path,
-            markdown_path,
+            self.root / policy["reporting"]["agent_check_json"],
+            self.root / policy["reporting"]["agent_check_markdown"],
             files=resolution.files,
             change_source=resolution.source,
             base_ref=resolution.base_ref,
             head_ref=resolution.head_ref,
-            findings=finding_payloads,
+            findings=[],
             steps=steps,
-            overall_exit_code=overall_exit_code,
-            subject_sha=subject_sha,
-            policy_sha256=policy_sha256,
+            overall_exit_code=code,
+            subject_sha=self.git("rev-parse", "HEAD", capture=True).stdout.strip(),
+            policy_sha256=hashlib.sha256(
+                (self.root / CORE_POLICY_PATH).read_bytes()
+            ).hexdigest(),
         )
-        evidence = f"{json_path} and {markdown_path}"
-        if overall_exit_code == _INFRASTRUCTURE_EXIT_CODE:
+        if code == 2:
             raise WorkflowError(
-                f"agent-check encountered {infrastructure_failures} infrastructure/configuration failure(s); evidence: {evidence}"
+                "agent-check encountered infrastructure/configuration failures"
             )
-        if overall_exit_code == 1:
-            raise AgentCheckFailure(
-                f"agent-check found {finding_failures} blocking finding(s); evidence: {evidence}"
-            )
-        print(f"agent-check: PASS; evidence: {evidence}")
+        if code == 1:
+            raise AgentCheckFailure("agent-check found blocking findings")
+        print("agent-check: PASS")
 
-    def setup(self) -> None:
+    def worktree_fingerprint(self) -> str:
+        digest = hashlib.sha256()
+        result = subprocess.run(
+            ["git", "status", "--porcelain=v1", "-z"],
+            cwd=self.root,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            _fail("unable to fingerprint worktree")
+        digest.update(result.stdout)
+        return digest.hexdigest()
+
+    def doctor(self) -> None:
         self._ensure_repository_root()
-        self.invoke("setup")
-
-    def validate(self) -> None:
-        self._ensure_repository_root()
-        self.structural_validate()
-        self.invoke("validate")
-        print("validate: PASS")
-
-    def check(self) -> None:
-        self._ensure_repository_root()
-        self.invoke("check")
-
-    def test(self) -> None:
-        self._ensure_repository_root()
-        self.invoke("test")
-
-    def structural_validate(self) -> None:
-        config = self.config()
-        schema_path = self.root / SCHEMA_PATH
-        if not schema_path.is_file():
-            _fail(f"missing {schema_path}")
-        try:
-            schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            _fail(f"invalid {schema_path}: {error}")
-        if schema.get("$id") != "https://quantum-l9.dev/schemas/repo-workflow/v1":
-            _fail("unexpected repo-workflow schema identity")
-        try:
-            import jsonschema
-
-            jsonschema.Draft202012Validator.check_schema(schema)
-            jsonschema.Draft202012Validator(schema).validate(config)
-        except ModuleNotFoundError:
-            _fail("jsonschema is required for structural validation; run make setup")
-        except Exception as error:
-            _fail(f"repo-workflow schema validation failed: {error}")
-        if manifest_check_enabled():
-            verify_checksum_manifest(self.root)
-        template = self.root / TEMPLATE_PATH
-        makefile = self.root / "Makefile"
-        if not template.is_file():
-            _fail(f"missing {template}")
-        if not makefile.is_file() or makefile.read_bytes() != template.read_bytes():
-            _fail("Makefile drift: run make reconcile")
-        try:
-            validate_contract_wiring(self.root, config["agent_contracts"])
-            validate_authority(self.root, config)
-        except (ContractWiringError, AuthorityError) as error:
-            _fail(str(error))
+        missing = [tool for tool in ("git", "make") if not shutil.which(tool)]
+        if missing:
+            _fail("missing tools: " + ", ".join(missing))
+        print("doctor: PASS")
 
     def clean(self) -> None:
         self._ensure_repository_root()
-        root = self.root.resolve()
-        for relative in self.config()["clean_paths"]:
-            path = (root / relative).resolve()
-            if path == root or root not in path.parents:
+        for relative in self.policy()["clean_paths"]:
+            path = (self.root / relative).resolve()
+            if self.root not in path.parents:
                 _fail(f"unsafe clean path: {relative}")
             if path.is_dir():
                 shutil.rmtree(path)
             elif path.exists():
                 path.unlink()
 
-    def _ref_exists(self, ref: str) -> bool:
-        return (
-            self.git("rev-parse", "--verify", ref, capture=True, check=False).returncode
-            == 0
-        )
-
     def status(self) -> None:
         self._ensure_repository_root()
-        config = self.config()
-        branch = self.branch()
-        sha = self.git("rev-parse", "HEAD", capture=True).stdout.strip()
-        fetch_result: subprocess.CompletedProcess[str] | None = None
-        if config["status"]["fetch_remote"]:
-            try:
-                fetch_result = self.git(
-                    "fetch", "--prune", "origin", capture=True, check=False
-                )
-            except OSError as error:
-                fetch_result = subprocess.CompletedProcess(
-                    ["git", "fetch"], 127, "", str(error)
-                )
-        freshness = (
-            "fresh"
-            if fetch_result is not None and fetch_result.returncode == 0
-            else "unknown_offline"
+        policy = self.policy()
+        fetch = (
+            self.git("fetch", "--prune", "origin", capture=True, check=False)
+            if policy["status"]["fetch_remote"]
+            else None
         )
-        candidate_refs = []
-        if branch:
-            candidate_refs.append(f"origin/{branch}")
-        candidate_refs.append(f"origin/{config['pull_request']['base']}")
-        comparison_ref = next(
-            (ref for ref in candidate_refs if self._ref_exists(ref)), None
-        )
-        ahead: int | None = None
-        behind: int | None = None
-        if comparison_ref:
-            counts = self.git(
-                "rev-list",
-                "--left-right",
-                "--count",
-                f"{comparison_ref}...HEAD",
-                capture=True,
-                check=False,
+        print(
+            json.dumps(
+                {
+                    "branch": self.git(
+                        "branch", "--show-current", capture=True
+                    ).stdout.strip(),
+                    "sha": self.git("rev-parse", "HEAD", capture=True).stdout.strip(),
+                    "dirty": bool(
+                        self.git("status", "--porcelain", capture=True).stdout.strip()
+                    ),
+                    "remote_freshness": "fresh"
+                    if fetch is not None and fetch.returncode == 0
+                    else "unknown_offline",
+                },
+                indent=2,
+                sort_keys=True,
             )
-            if counts.returncode == 0:
-                values = counts.stdout.split()
-                if len(values) == 2:
-                    behind = int(values[0])
-                    ahead = int(values[1])
-
-        # Status is repository-local. Pull-request state lives on the
-        # publication plane; aggregating the two belongs to Cursor-Governance,
-        # not to this runtime.
-        payload: dict[str, object] = {
-            "branch": branch,
-            "sha": sha,
-            "dirty": bool(self.status_porcelain()),
-            "remote_freshness": freshness,
-            "comparison_ref": comparison_ref,
-            "comparison_source": (
-                "unavailable"
-                if comparison_ref is None
-                else ("live" if freshness == "fresh" else "cached")
-            ),
-            "ahead": ahead,
-            "behind": behind,
-            "fetch_error": (
-                None
-                if fetch_result is None or fetch_result.returncode == 0
-                else (fetch_result.stderr.strip() or "fetch failed")
-            ),
-        }
-        print(json.dumps(payload, indent=2, sort_keys=True))
+        )
 
     def reconcile(self) -> None:
         self._ensure_repository_root()
         path, stale_after = self._lock_settings()
         try:
             with single_flight(path, stale_after=stale_after):
-                source = self.root / TEMPLATE_PATH
-                if not source.is_file():
-                    _fail(f"missing {source}")
-                (self.root / "Makefile").write_bytes(source.read_bytes())
-                print("Makefile reconciled")
+                super().reconcile()
         except LockBusy as error:
             _fail(str(error))
-
-    def help(self) -> None:
-        print("Common targets: " + " ".join(COMMANDS))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1147,23 +951,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
-    workflow = RepositoryWorkflow(arguments.workspace)
+    generic = RepositoryWorkflow(arguments.workspace)
+    core = CoreRepositoryWorkflow(arguments.workspace)
     try:
-        if arguments.command == "agent-check":
-            workflow.agent_check(
-                explicit=arguments.changed_file,
-                base_ref=arguments.base_ref,
-                head_ref=arguments.head_ref,
-            )
-        elif arguments.command == "change-policy":
-            workflow.change_policy(
+        if arguments.command in {"init", "migrate-v1"}:
+            getattr(generic, arguments.command.replace("-", "_"))()
+        elif arguments.command in {"validate", "verify-generated"}:
+            getattr(generic, arguments.command.replace("-", "_"))()
+        elif arguments.command == "core-validate":
+            core.structural_validate()
+        elif arguments.command == "help":
+            print("Common commands: " + " ".join(COMMANDS))
+        elif arguments.command in {"change-policy", "agent-check"}:
+            getattr(core, arguments.command.replace("-", "_"))(
                 explicit=arguments.changed_file,
                 base_ref=arguments.base_ref,
                 head_ref=arguments.head_ref,
             )
         else:
-            method_name = arguments.command.replace("-", "_")
-            getattr(workflow, method_name)()
+            getattr(core, arguments.command)()
     except AgentCheckFailure as error:
         print(str(error), file=sys.stderr)
         return 1

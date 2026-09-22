@@ -1,0 +1,230 @@
+{
+  "schema": "l9.core-repository-policy/v1",
+  "comparison_ref": "origin/main",
+  "clean_paths": [
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache"
+  ],
+  "automation": {
+    "lock": {
+      "name": "l9-repo.lock",
+      "stale_after_seconds": 1800
+    }
+  },
+  "change_policy": {
+    "gate_order": [
+      "workflow",
+      "actions",
+      "sdk-compatibility",
+      "repository-execution"
+    ],
+    "gates": {
+      "workflow": {
+        "match_any_prefix": [
+          ".github/workflows/"
+        ],
+        "blocking": true,
+        "commands": [
+          [
+            "@python",
+            "-m",
+            "unittest",
+            "discover",
+            "--start-directory",
+            "tests/workflows",
+            "--pattern",
+            "test_*.py",
+            "--verbose"
+          ]
+        ]
+      },
+      "actions": {
+        "match_any_prefix": [
+          ".github/actions/"
+        ],
+        "blocking": true,
+        "commands": [
+          [
+            "@python",
+            "-m",
+            "unittest",
+            "discover",
+            "--start-directory",
+            "tests/architecture",
+            "--pattern",
+            "test_*.py",
+            "--verbose"
+          ]
+        ]
+      },
+      "sdk-compatibility": {
+        "match_any_prefix": [
+          ".l9/sdk-compatibility.yaml"
+        ],
+        "blocking": true,
+        "commands": [
+          [
+            "@python",
+            "-m",
+            "unittest",
+            "discover",
+            "--start-directory",
+            "tests/provisioning",
+            "--pattern",
+            "test_*.py",
+            "--verbose"
+          ]
+        ]
+      },
+      "repository-execution": {
+        "match_any_prefix": [
+          "tools/l9_repo/",
+          ".l9/repo-workflow.json",
+          ".l9/core-repo-policy.json",
+          "Makefile",
+          "Repo.mk"
+        ],
+        "blocking": true,
+        "commands": [
+          [
+            "@python",
+            "-m",
+            "unittest",
+            "discover",
+            "--start-directory",
+            "tests/tools",
+            "--pattern",
+            "test_l9_repo*.py",
+            "--verbose"
+          ]
+        ]
+      }
+    },
+    "companion_rules": [
+      {
+        "id": "manifest-integrity",
+        "match_any_prefix": [
+          ""
+        ],
+        "require_all_paths": [
+          "MANIFEST.sha256"
+        ],
+        "message": "every tracked change requires a regenerated MANIFEST.sha256"
+      },
+      {
+        "id": "workflow-tests",
+        "match_any_prefix": [
+          ".github/workflows/"
+        ],
+        "require_any_prefix": [
+          "tests/workflows/"
+        ],
+        "message": "workflow changes require workflow-test coverage"
+      },
+      {
+        "id": "action-tests",
+        "match_any_prefix": [
+          ".github/actions/"
+        ],
+        "require_any_prefix": [
+          "tests/"
+        ],
+        "message": "composite-action changes require companion tests"
+      },
+      {
+        "id": "repository-execution-evidence",
+        "match_any_prefix": [
+          "tools/l9_repo/",
+          ".l9/repo-workflow.json",
+          ".l9/core-repo-policy.json",
+          "Makefile",
+          "Repo.mk"
+        ],
+        "require_any_prefix": [
+          "tests/tools/"
+        ],
+        "require_all_paths": [
+          "AGENTS.md",
+          "docs/repository-execution-runtime.md",
+          "MANIFEST.sha256"
+        ],
+        "message": "repository execution changes require tests, agent instructions, operator documentation, and manifest refresh"
+      }
+    ]
+  },
+  "agent_contracts": {
+    "required_files": [
+      "AGENTS.md",
+      ".l9/architecture.yaml",
+      ".l9/ownership.yaml",
+      ".l9/sdk-compatibility.yaml",
+      ".l9/org-runtime-contract.yaml",
+      ".l9/org-runtime-interface.yaml",
+      ".l9/core-repo-policy.json"
+    ],
+    "reference_requirements": [
+      {
+        "target": ".l9/architecture.yaml",
+        "instruction_files": [
+          "AGENTS.md"
+        ]
+      },
+      {
+        "target": ".l9/ownership.yaml",
+        "instruction_files": [
+          "AGENTS.md"
+        ]
+      },
+      {
+        "target": ".l9/sdk-compatibility.yaml",
+        "instruction_files": [
+          "AGENTS.md"
+        ]
+      },
+      {
+        "target": ".l9/org-runtime-contract.yaml",
+        "instruction_files": [
+          "AGENTS.md"
+        ]
+      },
+      {
+        "target": ".l9/org-runtime-interface.yaml",
+        "instruction_files": [
+          "AGENTS.md"
+        ]
+      },
+      {
+        "target": ".l9/core-repo-policy.json",
+        "instruction_files": [
+          "AGENTS.md"
+        ]
+      }
+    ]
+  },
+  "reporting": {
+    "agent_check_json": "artifacts/agent-check-evidence.json",
+    "agent_check_markdown": "artifacts/agent-check-evidence.md",
+    "capture_limit_chars": 20000
+  },
+  "status": {
+    "fetch_remote": true
+  },
+  "authority": {
+    "target_authorities": [
+      "AGENTS.md",
+      ".l9/architecture.yaml",
+      ".l9/ownership.yaml",
+      ".l9/sdk-compatibility.yaml",
+      ".l9/org-runtime-contract.yaml",
+      ".l9/org-runtime-interface.yaml",
+      ".l9/core-repo-policy.json"
+    ],
+    "derived_documents": [
+      "docs/repository-execution-runtime.md"
+    ],
+    "generated_artifacts": [
+      "Makefile"
+    ]
+  }
+}

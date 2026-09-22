@@ -1,20 +1,17 @@
-# GENERATED - Quantum-L9 repository Make facade.
+# GENERATED - L9 repository Make facade.
 #
-# This file is the portable operator vocabulary. It owns no implementation.
-#   - Repository capabilities are implemented in Repo.mk as repo-* leaves.
-#   - Cross-repository governance is delegated to the `l9` dispatcher, which
-#     resolves CONSUMER_SAFE targets against the Cursor-Governance Makefile.
+# This Core-owned template defines the stable repository-execution ABI. It owns
+# no repository implementation: each consumer's Repo.mk supplies the repo-*
+# leaves below. Regenerate with the pinned Core tooling: l9-repo reconcile.
 #
-# Do not place product logic, Git publication logic, or GitHub API logic here.
-# Run `make reconcile` to restore canonical form. If this file is unparseable,
-# recover with: python3 -m tools.l9_repo reconcile
+# Do not place product logic, publication logic, or CI orchestration here.
 .DEFAULT_GOAL := help
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -eu -o pipefail -c
 L9 ?= l9
 
-# Required repository-owned implementation boundary. This is `include`, not
-# `-include`: a missing Repo.mk is a broken repository, not a silent degrade.
+# This is deliberately mandatory. A consumer without Repo.mk has no repository
+# execution implementation and must fail rather than silently passing CI.
 include Repo.mk
 
 .PHONY: \
@@ -37,19 +34,15 @@ help: ## Show repository commands
 			printf "  %-24s %s\n", $$1, $$2; \
 		}' $(MAKEFILE_LIST)
 
-# ---------------------------------------------------------------------------
-# Repository-local capabilities - implemented by Repo.mk
-# ---------------------------------------------------------------------------
+# Repository-execution ABI. Repo.mk is the single implementation authority.
 setup: repo-setup ## Install/bootstrap repository dependencies
-validate: repo-validate ## Run the repository canonical validation
+validate: repo-validate ## Run repository validation
 check: repo-check ## Run repository static/quality checks
 test: repo-test ## Run repository tests
 clean: repo-clean ## Remove repository-local disposable outputs
-doctor: repo-doctor ## Verify the local execution toolchain
+doctor: repo-doctor ## Verify repository-local execution tooling
 
-# ---------------------------------------------------------------------------
-# Cross-repository governance - this facade owns no implementation here
-# ---------------------------------------------------------------------------
+# Organization governance remains outside the portable execution ABI.
 wiring-check: ## Verify Governance wiring for this repository
 	@$(L9) wiring-check
 
