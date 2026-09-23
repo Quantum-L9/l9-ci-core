@@ -102,13 +102,13 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
       - id: sdk
         name: Provision immutable SDK
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@05e842683d54a54ad074d9f4f9105813c42b6954
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@34d070ef5e43950008f3788a009a9ad054b59ca9
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: 0c487747b0fcd172edaefe9e843dac818de8fc12  # supported rollback; default pin lives in sdk-compatibility.yaml
       - name: Normalize provider report
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@05e842683d54a54ad074d9f4f9105813c42b6954
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@34d070ef5e43950008f3788a009a9ad054b59ca9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-normalize
@@ -124,13 +124,13 @@ jobs:
           dirty: ${{ inputs.dirty }}
           revision: ${{ github.sha }}
       - name: Validate canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@05e842683d54a54ad074d9f4f9105813c42b6954
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@34d070ef5e43950008f3788a009a9ad054b59ca9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.names.outputs.bundle }}
           minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
       - name: Project agent-review payload
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@05e842683d54a54ad074d9f4f9105813c42b6954
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@34d070ef5e43950008f3788a009a9ad054b59ca9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -139,7 +139,7 @@ jobs:
           strict: ${{ inputs.strict }}
       - id: route
         name: Route artifacts
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@05e842683d54a54ad074d9f4f9105813c42b6954
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@34d070ef5e43950008f3788a009a9ad054b59ca9
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
@@ -148,13 +148,13 @@ jobs:
           agent-payload: ${{ steps.names.outputs.payload }}
           destination-root: artifacts
       - name: Revalidate routed canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@05e842683d54a54ad074d9f4f9105813c42b6954
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@34d070ef5e43950008f3788a009a9ad054b59ca9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.route.outputs.bundle }}
           minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
       - name: Build artifact manifest
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@05e842683d54a54ad074d9f4f9105813c42b6954
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@34d070ef5e43950008f3788a009a9ad054b59ca9
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
@@ -181,7 +181,7 @@ jobs:
           include-hidden-files: true
       - id: handoff
         name: Create artifact handoff descriptor
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@05e842683d54a54ad074d9f4f9105813c42b6954
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@34d070ef5e43950008f3788a009a9ad054b59ca9
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs.artifact-name }}

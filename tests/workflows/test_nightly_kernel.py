@@ -16,7 +16,7 @@ ANALYZE_PIN = re.compile(
     r"uses:\s*Quantum-L9/l9-ci-core/\.github/workflows/"
     r"analyze-semgrep\.yml@[0-9a-f]{40}"
 )
-CORE_ACTIONS_PIN = "3c0a68c986aa4fa7c9e1a7fbd8d6e84d459e9b20"
+CORE_ACTIONS_PIN = "34d070ef5e43950008f3788a009a9ad054b59ca9"
 JOB_ID = re.compile(r"(?m)^  ([A-Za-z][A-Za-z0-9_-]*):")
 
 

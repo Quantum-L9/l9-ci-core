@@ -56,7 +56,7 @@ jobs:
         name: Retrieve and verify immutable analysis artifact
         # CORE_ACTIONS_PIN; descriptor mode selects producer/run/artifact identity
         # from the closed handoff. Current-run exact-name mode remains compatible.
-        uses: Quantum-L9/l9-ci-core/.github/actions/retrieve-artifacts@05e842683d54a54ad074d9f4f9105813c42b6954
+        uses: Quantum-L9/l9-ci-core/.github/actions/retrieve-artifacts@34d070ef5e43950008f3788a009a9ad054b59ca9
         with:
           artifact-name: ${{ inputs.artifact-name }}
           handoff-descriptor: ${{ inputs.artifact-handoff }}
@@ -70,14 +70,14 @@ jobs:
       - id: sdk
         name: Provision immutable SDK
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@05e842683d54a54ad074d9f4f9105813c42b6954
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@34d070ef5e43950008f3788a009a9ad054b59ca9
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision }}
       - name: Revalidate downloaded canonical bundle
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@05e842683d54a54ad074d9f4f9105813c42b6954
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@34d070ef5e43950008f3788a009a9ad054b59ca9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.artifacts.outputs.bundle }}
@@ -92,7 +92,7 @@ jobs:
           fi
       - name: Preflight SARIF envelope
         # CORE_ACTIONS_PIN; parses transport structure only and has no write token.
-        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@05e842683d54a54ad074d9f4f9105813c42b6954
+        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@34d070ef5e43950008f3788a009a9ad054b59ca9
         with:
           repository: ${{ github.repository }}
           publication: "sarif-only"
