@@ -31,8 +31,10 @@ sys.path.insert(0, str(ROOT / "tools"))
 from l9_repo.__main__ import COMMANDS  # noqa: E402
 
 MAKEFILE = ROOT / "Makefile"
-TEMPLATE = ROOT / "tools" / "l9_repo" / "Makefile.template"
+TEMPLATE = ROOT / "tools" / "l9_make" / "Makefile.template"
+LEGACY_TEMPLATE = ROOT / "tools" / "l9_repo" / "Makefile.template"
 REPO_MK = ROOT / "Repo.mk"
+REPO_LOCAL = ROOT / "Repo.local.mk"
 SCHEMA = ROOT / ".l9" / "repo-workflow.schema.json"
 CONFIG = ROOT / ".l9" / "repo-workflow.json"
 
@@ -41,7 +43,7 @@ GIT_PUBLICATION = re.compile(r"git\s+push|gh\s+pr\b")
 
 class FacadeHoldsNoPublicationAuthority(unittest.TestCase):
     def test_facade_invokes_no_git_or_github_publication(self) -> None:
-        for path in (MAKEFILE, TEMPLATE, REPO_MK):
+        for path in (MAKEFILE, TEMPLATE, REPO_MK, REPO_LOCAL):
             with self.subTest(path=path.name):
                 self.assertIsNone(
                     GIT_PUBLICATION.search(path.read_text(encoding="utf-8")),
@@ -49,12 +51,7 @@ class FacadeHoldsNoPublicationAuthority(unittest.TestCase):
                 )
 
     def test_generated_facade_binds_no_repository_runtime(self) -> None:
-        """The template is portable: no directive may name Core's module.
-
-        Only executable directives are in scope. The header comment documents
-        ``python3 -m tools.l9_repo reconcile`` as the recovery path for an
-        unparseable Makefile, which is exactly the situation in which ``make``
-        cannot help — that instruction is the point, not a violation.
+        """The universal template is portable: no line may name Core's module.
 
         ``Repo.mk`` is deliberately exempt in full — it is Core's
         implementation adapter and legitimately binds the runtime through
@@ -62,17 +59,24 @@ class FacadeHoldsNoPublicationAuthority(unittest.TestCase):
         """
         for path in (MAKEFILE, TEMPLATE):
             with self.subTest(path=path.name):
-                directives = [
-                    line
-                    for line in path.read_text(encoding="utf-8").splitlines()
-                    if line.strip() and not line.lstrip().startswith("#")
-                ]
-                self.assertNotIn("tools.l9_repo", "\n".join(directives))
+                self.assertNotIn("tools.l9_repo", path.read_text(encoding="utf-8"))
 
-    def test_implementation_boundary_fails_closed(self) -> None:
-        """``include``, not ``-include``: a missing Repo.mk is an error."""
+    def test_generated_projections_match_canonical_provider_neutral_template(
+        self,
+    ) -> None:
+        expected = TEMPLATE.read_bytes()
+        for path in (MAKEFILE, LEGACY_TEMPLATE):
+            with self.subTest(path=path.name):
+                text = path.read_text(encoding="utf-8")
+                self.assertEqual(expected, path.read_bytes())
+                self.assertNotIn("Recover generated artifacts", text)
+                self.assertNotIn("tools.l9_repo", text)
+
+    def test_generated_adapter_fails_closed_and_local_layer_is_optional(self) -> None:
+        """Only the generated adapter is mandatory across all adopting repositories."""
         text = TEMPLATE.read_text(encoding="utf-8")
         self.assertRegex(text, r"(?m)^include Repo\.mk$")
+        self.assertRegex(text, r"(?m)^-include Repo\.local\.mk$")
         self.assertNotRegex(text, r"(?m)^-include Repo\.mk$")
 
     def test_runtime_exposes_no_publication_command(self) -> None:
@@ -136,11 +140,37 @@ class FacadeRoutesToTheRightOwner(unittest.TestCase):
         return result.stdout
 
     def test_repository_verbs_reach_the_repo_leaves(self) -> None:
-        for target in ("setup", "validate", "check", "test", "clean", "doctor"):
+        for target in (
+            "setup",
+            "validate",
+            "check",
+            "lint",
+            "test",
+            "clean",
+            "doctor",
+            "status",
+        ):
             with self.subTest(target=target):
                 output = self.dry_run(target)
                 self.assertIn("tools.l9_repo", output)
                 self.assertIsNone(GIT_PUBLICATION.search(output))
+
+    def test_stateful_capabilities_preserve_explicit_contracts(self) -> None:
+        for target, state in (("build", "NOT_REQUIRED"), ("package", "NOT_REQUIRED")):
+            with self.subTest(target=target):
+                output = self.dry_run(target)
+                self.assertIn(state, output)
+                self.assertNotIn("tools.l9_repo", output)
+        for target in ("generate", "benchmark"):
+            with self.subTest(target=target):
+                output = self.dry_run(target)
+                self.assertIn("UNSUPPORTED", output)
+                self.assertNotIn("tools.l9_repo", output)
+
+    def test_capabilities_target_reaches_the_generated_inventory(self) -> None:
+        output = self.dry_run("capabilities")
+        self.assertIn("repo-capabilities", output)
+        self.assertIn("capability state provenance", output)
 
     def test_governance_verbs_reach_the_dispatcher(self) -> None:
         for target, verb in (

@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ ALLOWED_MODES = {"blocking", "advisory", "shadow", "disabled"}
 ALLOWED_SDK_PROFILES = {"ci_fast", "ci_deep"}
 CORE_DEFAULTS_SENTINEL = "@core-defaults"
 IDENTITY_MAP_FILENAMES = ("python.yaml", "typescript.yaml")
+SDK_POLICY_SCHEMA = "l9.finding-policy/v1"
 
 
 class GovernanceError(RuntimeError):
@@ -234,9 +236,62 @@ def _bundled_policy_path(governance_root: Path, policy: str) -> Path:
     if name != policy or name in {".", ".."}:
         raise GovernanceError("sdk_policy must be a bare filename")
     for candidate in (governance_root / name, governance_root.parent / name):
+        if candidate.is_symlink():
+            raise GovernanceError("SDK policy source must not be a symlink")
         if candidate.is_file():
             return candidate
     raise GovernanceError(f"SDK policy does not exist: {name}")
+
+
+def _validated_sdk_policy_bytes(path: Path) -> bytes:
+    """Validate only the SDK-owned policy's transport envelope."""
+    payload = path.read_bytes()
+    try:
+        document = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise GovernanceError(f"invalid SDK policy JSON {path}: {error}") from error
+    if not isinstance(document, dict):
+        raise GovernanceError(f"SDK policy {path} must contain an object")
+    if document.get("schema") != SDK_POLICY_SCHEMA:
+        raise GovernanceError(
+            f"SDK policy {path} has unsupported schema {document.get('schema')!r}"
+        )
+    return payload
+
+
+def _stage_sdk_policy(source: Path, workspace: Path) -> str:
+    payload = _validated_sdk_policy_bytes(source)
+    destination = workspace_directory(
+        workspace,
+        Path(".l9/runtime/org-governance"),
+    )
+    target = destination / source.name
+    if target.is_symlink():
+        raise GovernanceError("SDK policy destination must not be a symlink")
+    if target.exists() and not target.is_file():
+        raise GovernanceError("SDK policy destination is not a file")
+
+    temporary: Path | None = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=destination,
+            prefix=f".{source.name}.",
+        )
+        temporary = Path(temporary_name)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+        temporary = None
+    except OSError as error:
+        raise GovernanceError(
+            f"could not stage SDK policy {source}: {error}"
+        ) from error
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return target.relative_to(workspace).as_posix()
 
 
 def resolve_policy(
@@ -256,14 +311,12 @@ def resolve_policy(
     if not policy:
         return ""
     bundled = _bundled_policy_path(governance_root, policy)
+    _validated_sdk_policy_bytes(bundled)
     workspace_raw = os.environ.get("GITHUB_WORKSPACE", "").strip()
     if not workspace_raw:
         return bundled.resolve().as_posix()
     workspace = Path(workspace_raw).resolve()
-    dest = workspace / ".l9" / "runtime" / "org-governance" / bundled.name
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(bundled.read_text(encoding="utf-8"), encoding="utf-8")
-    return dest.relative_to(workspace).as_posix()
+    return _stage_sdk_policy(bundled, workspace)
 
 
 def _validate_identity_map(path: Path) -> None:

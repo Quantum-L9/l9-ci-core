@@ -20,7 +20,7 @@ was invisible until a caller was dispatched manually — `workflow_dispatch` is
 not a class any profile declares, so no manual run could ever have resolved.
 
 This test derives both halves from the workflows themselves — the event class
-from the kernel's own `event-name` expression, the profile from the caller's —
+from the kernel's Core-owned defaulting step, the profile from the caller's —
 and checks them against the profile SSOT rather than restating any of it. So
 adding a trigger to a caller, changing the kernel's class mapping, or narrowing
 a profile's `allowed_events` fails here at authoring time instead of after the
@@ -53,6 +53,10 @@ CONDITIONAL_PROFILE = re.compile(
     r"github\.event_name\s*==\s*'(?P<event>[a-z_]+)'\s*&&\s*'(?P<profile>[a-z_]+)'"
 )
 FALLBACK_PROFILE = re.compile(r"\|\|\s*'(?P<profile>[a-z_]+)'\s*\}\}")
+CORE_EVENT_DEFAULT = re.compile(
+    r"(?m)^\s*(?P<sources>[a-z_|]+)\)\s*\n"
+    r"\s*event=\"(?P<event>[a-z_]+)\""
+)
 
 
 def profiles() -> dict:
@@ -91,21 +95,17 @@ def resolve_profile(expression: object, event: str) -> str | None:
 def kernel_event_class(trigger: str) -> str:
     """The event *class* the analysis kernel passes for a given trigger.
 
-    Derived from `analyze-semgrep.yml` rather than restated here, so a change
-    to the kernel's mapping is reflected in this check instead of silently
-    diverging from it. Every class but `nightly` shares its trigger's name;
-    the fallback arm is the identity `github.event_name`.
+    Derived from the Core-owned defaulting shell step rather than restated
+    here, so a change to the kernel's mapping is reflected in this check
+    instead of silently diverging from it.
     """
-    document = load(WORKFLOWS / "analyze-semgrep.yml")
-    for job in document["jobs"].values():
-        for step in job.get("steps") or []:
-            if step.get("id") == "gov":
-                expression = str(step["with"]["event-name"])
-                for match in CONDITIONAL_PROFILE.finditer(expression):
-                    if match.group("event") == trigger:
-                        return match.group("profile")
-                return trigger
-    raise AssertionError("analyze-semgrep.yml no longer has a `gov` step")
+    text = (WORKFLOWS / "analyze-semgrep.yml").read_text(encoding="utf-8")
+    for match in CORE_EVENT_DEFAULT.finditer(text):
+        if trigger in match.group("sources").split("|"):
+            return match.group("event")
+    raise AssertionError(
+        f"analyze-semgrep.yml has no Core event default for {trigger!r}"
+    )
 
 
 # The copy-first trees are frozen (presets/LEGACY.md, docs/templates/LEGACY.md)
@@ -185,9 +185,9 @@ class CallerProfileEventCompatibilityTests(unittest.TestCase):
         """`env` is not available at `jobs.<job_id>.with.<with_id>`.
 
         GitHub allows only `github, needs, strategy, matrix, inputs, vars`
-        there. `profile` and `matrix-id` are declared `required: true` with no
-        default in the kernel, so an `${{ env.X }}` reference supplies an
-        unusable required input on *every* event — not a dispatch-only bug.
+        there. An `${{ env.X }}` reference supplies an empty or invalid override
+        at a reusable-workflow boundary; Core derives ordinary defaults, but a
+        caller must not pretend an unavailable environment value is explicit.
         Three shipped templates carried exactly that until this test existed.
         """
         for path, _document, given in analysis_callers():

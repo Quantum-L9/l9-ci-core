@@ -12,8 +12,8 @@ The kernels are **contract-superset, language-aware shims**. Each one declares e
 
 | Kernel | Behavior |
 |---|---|
-| `pr-pipeline.yml` | Detects Python vs Node; runs ruff/mypy/pytest or ESLint/tsc/Vitest-Jest (preferring the repo's own `lint`/`typecheck`/`test` scripts). |
-| `security.yml` | Gitleaks secret scan (pinned CLI binary with checksum verification), then pip-audit + bandit for Python and `npm audit` for Node. |
+| `pr-pipeline.yml` | Detects Python vs Node; runs ruff/mypy/pytest or ESLint/tsc/Vitest-Jest (preferring the repo's own `lint`/`typecheck`/`test` scripts). `run-security: true` additionally runs the security compatibility workflow; `false` skips it. |
+| `security.yml` | Gitleaks secret scan (pinned CLI binary with checksum verification), then pip-audit + bandit for Python. For Node, `run-npm-audit: true` requires `package-lock.json` and runs `npm audit`; `false` skips npm audit even when the lockfile exists. |
 | `scorecard.yml` | OpenSSF Scorecard with results as a build artifact; self-skips on `pull_request` (unsupported by scorecard-action). |
 | `sbom.yml` | Syft SPDX-JSON SBOM uploaded as a build artifact. |
 | `nightly.yml` | **Superseded v1 shim.** Org nightly kernel: nests `analyze-semgrep.yml` at `profile: nightly` (`ci_deep`, advisory) plus language-aware full-tree tests and informational dependency-freshness reports. Filename unchanged so callers bump the pin. |
@@ -27,6 +27,26 @@ Two deliberate deviations from the v0.1.0 behavior follow from Core's v2 invaria
 2. **Everything is SHA-pinned.** All external actions and nested Core workflows are pinned to full 40-character commit SHAs (`tests/architecture/test_external_action_pins.py`), and the gitleaks CLI is a version-pinned, checksum-verified binary rather than the gitleaks-action (which requires a license key on organization repositories).
 
 The kernels never fail because a language toolchain is absent: each gate runs only when it applies to the repository, and inapplicable gates emit a `::notice` and pass. PR/push Semgrep stays on `analyze-semgrep.yml` via the v2 presets (`presets/*/.github/workflows/l9-analysis.yml`). Nightly deep analysis (`ci_deep`, advisory) is no longer a second product: it is the `nightly.yml` kernel at `profile: nightly`.
+
+### Compatibility input behavior
+
+Declared compatibility inputs are not promises that this frozen layer supports
+every historical behavior. They are retained so old callers still resolve, but
+their behavior is explicit:
+
+| Workflow input | Neutral or disabled value | Non-neutral or enabled value |
+|---|---|---|
+| `pr-pipeline.yml`: `run-security` | `false` skips the security job. | `true` runs `security.yml` against the same working directory. |
+| `pr-pipeline.yml`: `enable-pydantic-strict` | `false` is accepted. Pydantic typing remains repository-owned mypy configuration. | `true` fails during compatibility preflight because the shim does not implement this legacy switch. |
+| `pr-pipeline.yml`: `changed-files` | The empty string is accepted. | A non-empty value fails during compatibility preflight because the shim does not implement changed-file routing. |
+| `pr-pipeline.yml`: `pr-labels` | The empty string is accepted. | A non-empty value fails during compatibility preflight because the shim does not implement label routing. |
+| `pr-pipeline.yml`: `labels-known` | `false` is accepted. | `true` fails during compatibility preflight because the shim does not consume PR labels. |
+| `security.yml`: `run-npm-audit` | `false` always skips npm audit. | `true` runs npm audit for a detected Node project and fails explicitly if `package-lock.json` is absent. |
+
+This is deliberately fail-closed for unsupported non-neutral values. An old
+caller therefore receives an actionable error instead of a green run that
+silently ignored the requested behavior. These shims do not add SDK analysis
+semantics or a new consumer-governance surface.
 
 ## Tag policy
 

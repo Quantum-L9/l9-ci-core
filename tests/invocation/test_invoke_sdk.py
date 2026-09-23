@@ -44,6 +44,7 @@ class InvokeSDKTests(unittest.TestCase):
             "L9_OUTPUT": str(self.workspace / "bundle.json"),
             "L9_ROOT": str(self.root),
             "L9_SNAPSHOT_ID": "snapshot-1",
+            "L9_PROVIDER_EXECUTABLE": "",
             "L9_PROVIDER_VERSION": "1.0.0",
             "L9_IDENTITY_MAP": "",
             "L9_POLICY": "",
@@ -114,6 +115,64 @@ class InvokeSDKTests(unittest.TestCase):
         ):
             command = module.build_command(self.executable)
         self.assertNotIn("--provider-version", command)
+
+    def test_semgrep_run_requires_an_explicit_core_provider(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                self.environment(
+                    L9_OPERATION="semgrep-run",
+                    L9_LANGUAGE="python",
+                    L9_OUTPUT=str(self.workspace / "bundle.json"),
+                ),
+                clear=True,
+            ),
+            patch.object(module, "build_command", return_value=[str(self.executable)]),
+        ):
+            self.assertEqual(2, module.main())
+
+    def test_semgrep_run_prepends_only_the_selected_provider_directory(self) -> None:
+        core_bin = self.workspace / "core-bin"
+        sdk_bin = self.workspace / "sdk-runtime" / "bin"
+        core_bin.mkdir()
+        sdk_bin.mkdir(parents=True)
+        selected = core_bin / "semgrep"
+        conflicting = sdk_bin / "semgrep"
+        for executable in (selected, conflicting):
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
+        completed = type("Completed", (), {"returncode": 0})()
+
+        with (
+            patch.dict(
+                os.environ,
+                self.environment(
+                    L9_OPERATION="semgrep-run",
+                    L9_LANGUAGE="python",
+                    L9_OUTPUT=str(self.workspace / "bundle.json"),
+                    L9_PROVIDER_EXECUTABLE=str(selected),
+                    PATH=str(sdk_bin),
+                ),
+                clear=True,
+            ),
+            patch.object(module, "build_command", return_value=[str(self.executable)]),
+            patch.object(module.subprocess, "run", return_value=completed) as run,
+        ):
+            self.assertEqual(0, module.main())
+
+        invoked_environment = run.call_args.kwargs["env"]
+        self.assertEqual(
+            [str(core_bin), str(sdk_bin)],
+            invoked_environment["PATH"].split(os.pathsep),
+        )
+
+    def test_semgrep_run_rejects_a_non_semgrep_provider_name(self) -> None:
+        provider = self.workspace / "provider"
+        provider.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        provider.chmod(provider.stat().st_mode | stat.S_IXUSR)
+
+        with self.assertRaises(module.InvocationError):
+            module.validate_provider_executable(str(provider))
 
     def test_semgrep_run_maps_to_sdk_execution(self) -> None:
         bundle = self.workspace / "bundle.json"

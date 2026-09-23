@@ -21,8 +21,9 @@ inputs:
     default: "@core-defaults"
     description: >
       @core-defaults selects the immutable governance bundle shipped with this
-      action. A workspace-relative path is accepted only for explicit test or
-      compatibility invocations; it cannot escape GITHUB_WORKSPACE.
+      action. Callers normally omit this input. A workspace-relative path is
+      accepted only for explicit test or compatibility invocations; it cannot
+      escape GITHUB_WORKSPACE.
   evaluation-date:
     required: false
     description: ISO-8601 UTC date used for deterministic waiver validation.

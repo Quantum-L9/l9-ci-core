@@ -87,67 +87,38 @@ jobs:
           git -c protocol.version=2 fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
           git remote set-url origin             "https://github.com/${REPOSITORY}.git"
-      - name: Download immutable analysis artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - id: artifacts
+        name: Retrieve and verify immutable analysis artifact
+        uses: Quantum-L9/l9-ci-core/.github/actions/retrieve-artifacts@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
-          name: ${{ inputs.artifact-name }}
-          path: .l9/runtime/publication/download
-      - id: locate
-        name: Locate canonical artifacts
-        env:
-          MATRIX_ID: ${{ inputs.matrix-id }}
-        run: |
-          set -euo pipefail
-          if [[ ! "${MATRIX_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
-            echo "Invalid matrix-id" >&2
-            exit 2
-          fi
-          root=".l9/runtime/publication/download"
-          bundle="${root}/l9/${MATRIX_ID}/finding-bundle.json"
-          payload="${root}/l9/${MATRIX_ID}/agent-review-payload.json"
-          sarif="${root}/l9/${MATRIX_ID}/results.sarif"
-          test -f "${bundle}"
-          test -f "${payload}"
-          {
-            echo "bundle=${bundle}"
-            echo "payload=${payload}"
-          } >> "${GITHUB_OUTPUT}"
-          # SARIF is an optional derived artifact; publish it only when present.
-          if [ -f "${sarif}" ]; then
-            echo "sarif=${sarif}" >> "${GITHUB_OUTPUT}"
-          else
-            echo "sarif=" >> "${GITHUB_OUTPUT}"
-          fi
+          artifact-name: ${{ inputs.artifact-name }}
+          matrix-id: ${{ inputs.matrix-id }}
+          provider: ${{ inputs.provider }}
+          repository: ${{ github.repository }}
+          repository-revision: ${{ inputs.repository-revision }}
+          sdk-revision: ${{ inputs.sdk-revision }}
+          destination: .l9/runtime/publication/download
       # This reusable workflow runs in the CALLER's checkout, so `uses: ./...`
       # local-action refs resolve against the consumer repo (which does not
       # vendor Core's actions) and fail. Reference Core's actions by their
       # fully-qualified pinned form instead; keep the pin on a released commit.
       - id: sdk
         name: Provision immutable SDK
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision }}
       - name: Revalidate downloaded canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2a7354ed590008cd59d254df08f10d6207933366
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           executable: ${{ steps.sdk.outputs.executable }}
-          bundle: ${{ steps.locate.outputs.bundle }}
-      - name: Upload SDK-projected SARIF to code scanning
-        if: steps.locate.outputs.sarif != ''
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938  # v3
-        with:
-          sarif_file: ${{ steps.locate.outputs.sarif }}
-          # The SARIF is produced deterministically by the SDK for this exact
-          # commit; label the code-scanning category by matrix so parallel
-          # analyses do not overwrite each other's results.
-          category: l9-${{ inputs.matrix-id }}
+          bundle: ${{ steps.artifacts.outputs.bundle }}
       - id: render
         name: Render publication payload
         uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@402b604c7893ff5bf30e251beaf49d5cf230b63d
         with:
-          agent-payload: ${{ steps.locate.outputs.payload }}
+          agent-payload: ${{ steps.artifacts.outputs.agent-payload }}
           profile: ${{ inputs.profile }}
           mode: ${{ inputs.mode }}
           provider: ${{ inputs.provider }}
@@ -158,6 +129,18 @@ jobs:
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           artifact-url: ${{ inputs.artifact-url }}
           output: .l9/runtime/publication/publication.json
+      # Validate every local envelope before the first remote publication side
+      # effect. This parses only transport structure: finding semantics remain
+      # exclusively in the validated SDK bundle and SDK-owned projections.
+      - name: Preflight publication and SARIF envelopes
+        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        with:
+          repository: ${{ github.repository }}
+          publication: .l9/runtime/publication/publication.json
+          sarif: ${{ steps.artifacts.outputs.sarif }}
+          run-id: ${{ github.run_id }}
+          matrix-id: ${{ inputs.matrix-id }}
+          preflight-only: "true"
       - name: Write workflow summary
         env:
           TITLE: ${{ steps.render.outputs.title }}
@@ -171,17 +154,29 @@ jobs:
             echo
             echo "**Conclusion:** \`${CONCLUSION}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
+      - name: Upload SDK-projected SARIF to code scanning
+        if: steps.artifacts.outputs.sarif != ''
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v3
+        with:
+          sarif_file: ${{ steps.artifacts.outputs.sarif }}
+          # The SARIF is produced deterministically by the SDK for this exact
+          # commit; label the code-scanning category by matrix so parallel
+          # analyses do not overwrite each other's results.
+          category: l9-${{ inputs.matrix-id }}
       - id: publish
-        name: Publish GitHub check
-        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@2a7354ed590008cd59d254df08f10d6207933366
+        name: Create or update GitHub check
+        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@def55c54ff4ba654c2ebea088dde71db0b5f7135
         with:
           token: ${{ github.token }}
           repository: ${{ github.repository }}
           publication: .l9/runtime/publication/publication.json
+          run-id: ${{ github.run_id }}
+          matrix-id: ${{ inputs.matrix-id }}
       - name: Record check URL
         env:
           CHECK_URL: ${{ steps.publish.outputs.check-run-url }}
+          CHECK_OPERATION: ${{ steps.publish.outputs.check-run-operation }}
         run: |
           if [[ -n "${CHECK_URL}" ]]; then
-            echo "Published check: ${CHECK_URL}"
+            echo "${CHECK_OPERATION^} check: ${CHECK_URL}"
           fi

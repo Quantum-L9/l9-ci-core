@@ -1,137 +1,167 @@
-"""``Repo.mk`` targets must resolve to real, documented implementations.
+"""Compiler V2 target ownership and documentation contracts.
 
-``Repo.mk`` holds the repository-owned half of the command facade. The
-generated root ``Makefile`` owns the portable operator vocabulary and
-implements nothing: repository verbs delegate to the ``repo-*`` leaves below,
-and cross-repository governance verbs delegate to the ``l9`` dispatcher.
-
-A target naming a script that does not exist, or one that no operator
-documentation mentions, is a facade that lies — which is why the
-``facade-contract`` gate in ``.l9/repo-workflow.json`` requires tests, agent
-instructions, and operator documentation to move with it.
+The root Makefile is a public façade; ``Repo.mk`` is deterministic compiler
+output; and ``Repo.local.mk`` adds Core-specific helpers without owning a
+standard capability or any Governance transition.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 REPO_MK = ROOT / "Repo.mk"
+REPO_LOCAL = ROOT / "Repo.local.mk"
+PLAN = ROOT / "tools" / "l9_make" / "default-capability-plan.json"
 AGENTS = ROOT / "AGENTS.md"
 RUNTIME_DOC = ROOT / "docs" / "repository-execution-runtime.md"
+WORKFLOW = ROOT / ".l9" / "repo-workflow.json"
 
 TARGET = re.compile(r"(?m)^(?P<name>[a-z][a-z0-9-]*):(?!=)")
 RECIPE_SCRIPT = re.compile(r"\$\(PYTHON\)\s+(?P<script>tools/[\w/]+\.py)")
-
-# Leaves the generated facade delegates its repository verbs to. Each one is
-# implemented by the repository execution runtime, never by a standalone
-# script, so they are excluded from the script-and-documentation contract.
-FACADE_LEAVES = {
-    "repo-setup": "setup",
-    "repo-validate": "validate",
-    "repo-check": "check",
-    "repo-test": "test",
-    "repo-clean": "clean",
-    "repo-doctor": "doctor",
+STANDARD_CAPABILITIES = {
+    "doctor",
+    "setup",
+    "build",
+    "lint",
+    "test",
+    "validate",
+    "check",
+    "package",
+    "generate",
+    "benchmark",
+    "status",
+    "clean",
 }
-
-# Core-only operator targets. They are not part of the portable vocabulary, so
-# they live here rather than in the generated facade.
-CORE_RUNTIME_TARGETS = {
-    "change-policy": "change-policy",
-    "agent-check": "agent-check",
-    "status": "status",
-    "reconcile": "reconcile",
+LOCAL_RUNTIME_TARGETS = {
+    "change-policy",
+    "agent-check",
+    "reconcile",
+    "make-render",
+    "make-check",
 }
-
-# Release-assurance helpers implemented by standalone scripts.
-EXPECTED_TARGETS = {
+EXPECTED_SCRIPT_TARGETS = {
     "attest-control-plane": "tools/verify_control_plane.py",
     "check-release-writers": "tools/check_release_writers.py",
 }
+ALL_LOCAL_TARGETS = LOCAL_RUNTIME_TARGETS | set(EXPECTED_SCRIPT_TARGETS)
 
-ALL_TARGETS = set(FACADE_LEAVES) | set(CORE_RUNTIME_TARGETS) | set(EXPECTED_TARGETS)
+
+def declared_targets(path: Path) -> set[str]:
+    return set(TARGET.findall(path.read_text(encoding="utf-8")))
+
+
+def phony_targets(path: Path) -> set[str]:
+    text = path.read_text(encoding="utf-8")
+    joined = re.sub(r"\\\s*\n\s*", " ", text)
+    declaration = joined.split(".PHONY:")[1].splitlines()[0]
+    return set(declaration.split())
 
 
 class RepoMkTargetTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.text = REPO_MK.read_text(encoding="utf-8")
+    def test_generated_targets_match_plan_and_are_all_phony(self) -> None:
+        plan = json.loads(PLAN.read_text(encoding="utf-8"))
+        expected = {
+            "repo-capabilities",
+            *(f"repo-{item['name']}" for item in plan["capabilities"]),
+        }
+        self.assertEqual(expected, declared_targets(REPO_MK))
+        self.assertEqual(expected, phony_targets(REPO_MK))
+        self.assertEqual(
+            STANDARD_CAPABILITIES,
+            {item["name"] for item in plan["capabilities"]},
+        )
 
-    def test_declared_targets_are_the_expected_set(self) -> None:
-        declared = set(TARGET.findall(self.text))
-        self.assertEqual(ALL_TARGETS, declared)
+    def test_generated_adapter_exposes_all_three_capability_states(self) -> None:
+        plan = json.loads(PLAN.read_text(encoding="utf-8"))
+        states = {item["state"] for item in plan["capabilities"]}
+        self.assertEqual({"supported", "not_required", "unsupported"}, states)
+        text = REPO_MK.read_text(encoding="utf-8")
+        self.assertIn("L9_REPO_SUPPORTED_CAPABILITIES", text)
+        self.assertIn("L9_REPO_NOT_REQUIRED_CAPABILITIES", text)
+        self.assertIn("L9_REPO_UNSUPPORTED_CAPABILITIES", text)
+        self.assertIn("NOT_REQUIRED: build", text)
+        self.assertIn("UNSUPPORTED: generate", text)
 
-    def test_every_target_is_phony(self) -> None:
-        # ``.PHONY`` is written as one backslash-continued list, so join the
-        # continuations before splitting it into names.
-        joined = re.sub(r"\\\s*\n\s*", " ", self.text)
-        declaration = joined.split(".PHONY:")[1].splitlines()[0]
-        self.assertEqual(ALL_TARGETS, set(declaration.split()))
+    def test_local_targets_are_only_core_extension_set(self) -> None:
+        self.assertEqual(ALL_LOCAL_TARGETS, declared_targets(REPO_LOCAL))
+        self.assertEqual(ALL_LOCAL_TARGETS, phony_targets(REPO_LOCAL))
+        self.assertNotIn("status", declared_targets(REPO_LOCAL))
 
-    def test_script_targets_invoke_an_existing_script(self) -> None:
-        scripts = set(RECIPE_SCRIPT.findall(self.text))
-        self.assertEqual(set(EXPECTED_TARGETS.values()), scripts)
-        for script in scripts:
-            self.assertTrue((ROOT / script).is_file(), script)
-
-    def test_recipes_use_the_facade_interpreter(self) -> None:
-        """Every recipe runs through ``$(PYTHON)``.
-
-        ``L9_REPO`` expands to ``$(PYTHON) -m tools.l9_repo``, so both recipe
-        forms reach the same workspace interpreter. A hard-coded ``python3``
-        would silently run a different one from every other target.
-        """
-        # The ``.PHONY`` list is tab-continued, so its lines are tab-indented
-        # without being recipes. Drop that declaration before scanning.
-        body = re.sub(r"(?s)\.PHONY:.*?(?<!\\)\n(?=\S|\n)", "", self.text)
-        recipes = [line for line in body.splitlines() if line.startswith("\t")]
-        self.assertTrue(recipes, "no recipe lines found")
-        for line in recipes:
-            self.assertTrue(
-                "$(PYTHON)" in line or "$(L9_REPO)" in line,
-                line,
-            )
-
-    def test_repo_mk_owns_no_publication_target(self) -> None:
-        """Publication is Cursor-Governance's, reached as ``make pr`` -> ``l9 pr``.
-
-        ``Repo.mk`` is repository-owned implementation. A ``pr`` or ``push``
-        target here would reintroduce the second publication authority this
-        split exists to delete.
-        """
-        declared = set(TARGET.findall(self.text))
-        self.assertNotIn("pr", declared)
-        self.assertNotIn("push", declared)
-        self.assertNotIn("git push", self.text)
-        self.assertNotIn("gh pr", self.text)
-
-    def test_facade_leaves_reach_the_runtime_command(self) -> None:
-        for target, command in FACADE_LEAVES.items():
+    def test_local_compiler_targets_reach_the_renderer(self) -> None:
+        text = REPO_LOCAL.read_text(encoding="utf-8")
+        for target, command in (("make-render", "render"), ("make-check", "check")):
             with self.subTest(target=target):
-                recipe = re.search(
-                    rf"(?m)^{re.escape(target)}:.*\n\t(?P<body>.+)$", self.text
-                )
-                self.assertIsNotNone(recipe, target)
+                recipe = re.search(rf"(?m)^{target}:.*\n\t(?P<body>.+)$", text)
+                self.assertIsNotNone(recipe)
                 assert recipe is not None
-                self.assertIn("$(L9_REPO)", recipe.group("body"))
-                self.assertTrue(
-                    recipe.group("body").rstrip().endswith(command),
+                self.assertIn("$(L9_MAKE)", recipe.group("body"))
+                self.assertIn(f" {command} ", recipe.group("body"))
+                self.assertIn("--local Repo.local.mk", recipe.group("body"))
+                self.assertIn("--makefile Makefile", recipe.group("body"))
+                self.assertIn(
+                    "--legacy-makefile-template tools/l9_repo/Makefile.template",
                     recipe.group("body"),
                 )
 
-    def test_script_targets_are_documented_for_operators(self) -> None:
+    def test_script_targets_invoke_existing_scripts(self) -> None:
+        scripts = set(RECIPE_SCRIPT.findall(REPO_LOCAL.read_text(encoding="utf-8")))
+        self.assertEqual(set(EXPECTED_SCRIPT_TARGETS.values()), scripts)
+        for script in scripts:
+            self.assertTrue((ROOT / script).is_file(), script)
+
+    def test_generated_and_local_layers_own_no_governance_target(self) -> None:
+        for path in (REPO_MK, REPO_LOCAL):
+            with self.subTest(path=path.name):
+                declared = declared_targets(path)
+                self.assertFalse({"pr", "push", "release", "deploy"} & declared)
+                text = path.read_text(encoding="utf-8")
+                self.assertNotIn("git push", text)
+                self.assertNotIn("gh pr", text)
+
+    def test_compiler_and_release_targets_are_documented_for_operators(self) -> None:
         runtime = RUNTIME_DOC.read_text(encoding="utf-8")
-        for target, script in EXPECTED_TARGETS.items():
+        for target, script in EXPECTED_SCRIPT_TARGETS.items():
             with self.subTest(target=target):
                 self.assertIn(f"`make {target}`", runtime)
                 self.assertIn(script, runtime)
+        for target in ("make-render", "make-check", "capabilities"):
+            self.assertIn(f"`make {target}`", runtime)
 
-    def test_script_targets_are_documented_for_agents(self) -> None:
+    def test_runtime_docs_assign_repository_extensions_to_local_layer(self) -> None:
+        runtime = RUNTIME_DOC.read_text(encoding="utf-8")
+        self.assertIn(
+            "Repository-specific targets live in the optional `Repo.local.mk`", runtime
+        )
+        self.assertIn(
+            "generated `Repo.mk` contains only the standard capability bindings",
+            runtime,
+        )
+        self.assertNotIn("Repository-specific targets live in `Repo.mk`", runtime)
+
+    def test_legacy_template_is_registered_generated_compatibility_state(self) -> None:
+        workflow = json.loads(WORKFLOW.read_text(encoding="utf-8"))
+        authority = workflow["authority"]
+        assert isinstance(authority, dict)
+        generated = authority["generated_artifacts"]
+        self.assertEqual(
+            ["Makefile", "Repo.mk", "tools/l9_repo/Makefile.template"], generated
+        )
+        self.assertNotIn("tools/l9_make/Makefile.template", generated)
+
+    def test_compiler_and_release_targets_are_documented_for_agents(self) -> None:
         agents = AGENTS.read_text(encoding="utf-8")
-        for target in EXPECTED_TARGETS:
-            self.assertIn(f"make {target}", agents)
+        for target in (
+            *EXPECTED_SCRIPT_TARGETS,
+            "make-render",
+            "make-check",
+            "capabilities",
+        ):
+            with self.subTest(target=target):
+                self.assertIn(f"make {target}", agents)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,10 @@ governed repositories to Core ``main`` directly, so nothing here moves a
 major alias or publishes a consumer-facing ref.
 
 The expected version is read from ``.l9/repo-spec.yaml`` unless the caller
-overrides it, so the workflow never hard-codes a release number.
+overrides it, so the workflow never hard-codes a release number. Post-tag
+validation also receives the annotated tag-object SHA and its peeled commit.
+Only the sole-writer release script may omit both, and it must explicitly mark
+that direct validator invocation as the pre-tag preflight where no tag exists.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ SEMVER = re.compile(
     r"(?:-[0-9A-Za-z.-]+)?"
     r"(?:\+[0-9A-Za-z.-]+)?$"
 )
+FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 REPO_SPEC_VERSION = re.compile(r"(?m)^\s+version:\s*['\"]?([^'\"\s]+)['\"]?\s*$")
 CONTRACT_FRAGMENTS: dict[str, tuple[str, ...]] = {
     ".l9/repo-spec.yaml": (
@@ -104,6 +108,74 @@ def run_tests(root: Path) -> None:
     )
     if result.returncode != 0:
         raise ReleaseError("repository validation suite failed")
+
+
+def git_output(root: Path, *arguments: str) -> str:
+    result = subprocess.run(
+        ["git", *arguments],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise ReleaseError(f"git {' '.join(arguments)} failed: {detail}")
+    return result.stdout.strip()
+
+
+def annotated_tag_headers(root: Path, tag_object: str) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    for line in git_output(root, "cat-file", "-p", tag_object).splitlines():
+        if not line:
+            break
+        key, separator, value = line.partition(" ")
+        if separator:
+            headers[key] = value
+    return headers
+
+
+def validate_release_identity(root: Path, tag: str) -> None:
+    """Bind post-tag validation to one annotated tag object and peeled commit.
+
+    The workflow resolves the exact remote tag before checking out released
+    code. This second boundary check ensures the composite action cannot be
+    invoked without that identity, with a partial identity, or against a
+    different checkout. The sole-writer release preflight explicitly opts into
+    the only exception: neither identity exists before the tag is created.
+    """
+    tag_object = optional("L9_RELEASE_TAG_OBJECT").lower()
+    release_commit = optional("L9_RELEASE_COMMIT").lower()
+    preflight = optional("L9_RELEASE_PREFLIGHT").lower()
+    if preflight not in {"true", "false"}:
+        raise ReleaseError("L9_RELEASE_PREFLIGHT must be exactly 'true' or 'false'")
+    if preflight == "true":
+        if tag_object or release_commit:
+            raise ReleaseError("release preflight must not supply post-tag identity")
+        return
+    if not FULL_SHA.fullmatch(tag_object):
+        raise ReleaseError("L9_RELEASE_TAG_OBJECT must be a full 40-character SHA")
+    if not FULL_SHA.fullmatch(release_commit):
+        raise ReleaseError("L9_RELEASE_COMMIT must be a full 40-character SHA")
+    if git_output(root, "cat-file", "-t", tag_object) != "tag":
+        raise ReleaseError("L9_RELEASE_TAG_OBJECT is not an annotated tag object")
+    headers = annotated_tag_headers(root, tag_object)
+    if headers.get("tag") != tag:
+        raise ReleaseError(
+            "annotated tag object's embedded name does not match release tag"
+        )
+    if headers.get("type") != "commit":
+        raise ReleaseError("release tag must point directly to a commit")
+    direct_target = headers.get("object", "")
+    if not FULL_SHA.fullmatch(direct_target):
+        raise ReleaseError("annotated tag object has no full direct target SHA")
+    if git_output(root, "cat-file", "-t", direct_target) != "commit":
+        raise ReleaseError("annotated tag target is not a commit")
+    if direct_target != release_commit:
+        raise ReleaseError("annotated tag object does not peel to L9_RELEASE_COMMIT")
+    checkout = git_output(root, "rev-parse", "HEAD^{commit}")
+    if checkout != release_commit:
+        raise ReleaseError("checked-out HEAD is not L9_RELEASE_COMMIT")
 
 
 def github_yaml_surfaces(root: Path) -> list[Path]:
@@ -193,6 +265,7 @@ def main() -> int:
             raise ReleaseError(
                 f"release tag {tag!r} does not match expected version {expected!r}"
             )
+        validate_release_identity(root, tag)
         validate_contracts(root, normalized_expected)
         validate_external_action_pins(root)
         run_tests(root)

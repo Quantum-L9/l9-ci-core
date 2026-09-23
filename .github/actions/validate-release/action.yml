@@ -1,12 +1,23 @@
 name: Validate l9-ci-core release
 description: >
-  Validates an immutable Core release: exact semver tag, the release version
-  declared in .l9/repo-spec.yaml, the release-plane and publication contracts,
-  immutable action pins, and the repository validation suite. Releases are
-  audit anchors; the organization CI runtime is Core main via the ruleset.
+  Validates an immutable annotated Core release: exact semver tag, resolved tag
+  object and peeled commit, the release version declared in
+  .l9/repo-spec.yaml, the release-plane and publication contracts, immutable
+  action pins, and the repository validation suite. Releases are audit anchors;
+  the organization CI runtime is Core main via the ruleset.
 inputs:
   tag:
     required: true
+  tag-object:
+    required: true
+    description: >
+      Full annotated tag-object SHA resolved read-only from the exact remote
+      release ref. Always required when invoking this composite action.
+  release-commit:
+    required: true
+    description: >
+      Full commit SHA peeled from tag-object and checked out for validation.
+      Always required when invoking this composite action.
   expected-version:
     required: false
     default: ""
@@ -23,5 +34,8 @@ runs:
       shell: bash
       env:
         L9_RELEASE_TAG: ${{ inputs.tag }}
+        L9_RELEASE_TAG_OBJECT: ${{ inputs.tag-object }}
+        L9_RELEASE_COMMIT: ${{ inputs.release-commit }}
+        L9_RELEASE_PREFLIGHT: "false"
         L9_EXPECTED_VERSION: ${{ inputs.expected-version }}
       run: python3 "${{ github.action_path }}/validate_release.py"

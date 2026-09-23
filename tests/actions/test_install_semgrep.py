@@ -157,19 +157,28 @@ class InstallerTests(unittest.TestCase):
         shim = self.tmp / "bin"
         shim.mkdir()
         (shim / "python").write_text(
-            '#!/usr/bin/env bash\necho invoked >> "$PIP_TRACE"\nexit 0\n',
+            "#!/usr/bin/env bash\n"
+            'echo "$@" >> "$PIP_TRACE"\n'
+            'if [[ "$1" == "-c" ]]; then printf "%s\\n" "$LOCKED_SCRIPTS"; fi\n',
             encoding="utf-8",
         )
         (shim / "python").chmod(0o755)
         self.trace = self.tmp / "pip-trace"
+        self.locked_scripts = self.tmp / "locked-scripts"
+        self.locked_scripts.mkdir()
 
-    def run_installer(self, version: str) -> subprocess.CompletedProcess[str]:
+    def run_installer(
+        self, version: str, *, output: Path | None = None
+    ) -> subprocess.CompletedProcess[str]:
         import os
 
         env = dict(os.environ)
         env["L9_SEMGREP_VERSION"] = version
         env["PATH"] = f"{self.tmp / 'bin'}:{env['PATH']}"
         env["PIP_TRACE"] = str(self.trace)
+        env["LOCKED_SCRIPTS"] = str(self.locked_scripts)
+        if output is not None:
+            env["GITHUB_OUTPUT"] = str(output)
         return subprocess.run(
             ["bash", str(self.tmp / "install.sh")],
             check=False,
@@ -208,12 +217,49 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("--only-binary :all:", text)
         self.assertNotRegex(text, r"pip install[^\n]*--upgrade")
 
+    def test_success_emits_verified_provider_and_lock_provenance(self) -> None:
+        version = "1.0.0"
+        lock = self.tmp / "locks" / f"semgrep-{version}.txt"
+        lock.write_text(
+            f"semgrep=={version} \\\n    --hash=sha256:" + "0" * 64 + "\n",
+            encoding="utf-8",
+        )
+        semgrep = self.locked_scripts / "semgrep"
+        semgrep.write_text(f"#!/usr/bin/env bash\necho {version}\n", encoding="utf-8")
+        semgrep.chmod(0o755)
+        path_semgrep = self.tmp / "bin" / "semgrep"
+        path_semgrep.write_text("#!/usr/bin/env bash\necho 9.9.9\n", encoding="utf-8")
+        path_semgrep.chmod(0o755)
+        output = self.tmp / "github-output"
+
+        proc = self.run_installer(version, output=output)
+
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        values = dict(
+            line.split("=", 1)
+            for line in output.read_text(encoding="utf-8").splitlines()
+        )
+        self.assertEqual(str(semgrep), values["executable"])
+        self.assertEqual(version, values["provider-version"])
+        self.assertEqual(f"locks/semgrep-{version}.txt", values["lock-file"])
+        self.assertRegex(values["lock-sha256"], r"^[0-9a-f]{64}$")
+        self.assertIn("sysconfig.get_path", self.trace.read_text(encoding="utf-8"))
+
     def test_action_declares_the_version_input_and_runs_the_installer(self) -> None:
         action = yaml.safe_load((ACTION / "action.yml").read_text(encoding="utf-8"))
         self.assertTrue(action["inputs"]["semgrep-version"]["required"])
         self.assertEqual("composite", action["runs"]["using"])
+        self.assertEqual(
+            "${{ steps.install.outputs.executable }}",
+            action["outputs"]["executable"]["value"],
+        )
+        self.assertEqual(
+            "${{ steps.install.outputs.lock-sha256 }}",
+            action["outputs"]["lock-sha256"]["value"],
+        )
         steps = action["runs"]["steps"]
         self.assertEqual(1, len(steps))
+        self.assertEqual("install", steps[0]["id"])
         self.assertIn("install.sh", steps[0]["run"])
         self.assertEqual(
             "${{ inputs.semgrep-version }}", steps[0]["env"]["L9_SEMGREP_VERSION"]
