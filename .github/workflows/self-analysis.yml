@@ -57,4 +57,3 @@ jobs:
       repository-revision: ${{ github.sha }}
       workflow-result: ${{ needs.analyze.result }}
       publish-check: true
-      publish-sarif: false

@@ -105,7 +105,7 @@ class Phase4WorkflowTests(unittest.TestCase):
                     "handoff-descriptor: ${{ inputs.artifact-handoff }}", text
                 )
                 self.assertIn(
-                    "retrieve-artifacts@59cb3645ec8e462e1f1901538354ad873e94645c",
+                    "retrieve-artifacts@59cb364615ccd44d824bec6b71d49d2f93e465c9",
                     text,
                 )
 
@@ -123,6 +123,22 @@ class Phase4WorkflowTests(unittest.TestCase):
         self.assertEqual("${{ needs.analyze.result }}", job["with"]["workflow-result"])
         self.assertTrue(job["with"]["publish-check"])
         self.assertNotIn("pull_request_target:", text)
+
+    def test_local_reusable_calls_pass_only_declared_inputs(self) -> None:
+        # GitHub rejects an undeclared `with:` key at startup, before any job
+        # runs, so the caller produces no check run to fail.
+        workflows = ROOT / ".github/workflows"
+        for caller in sorted(workflows.glob("*.y*ml")):
+            for job_id, job in load(caller).get("jobs", {}).items():
+                uses = job.get("uses", "")
+                if not uses.startswith("./.github/workflows/"):
+                    continue
+                callee = load(ROOT / uses[2:])
+                declared = set(
+                    (callee["on"].get("workflow_call") or {}).get("inputs") or {}
+                )
+                with self.subTest(caller=caller.name, job=job_id):
+                    self.assertEqual(set(), set(job.get("with") or {}) - declared)
 
 
 if __name__ == "__main__":

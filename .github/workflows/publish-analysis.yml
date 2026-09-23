@@ -69,7 +69,7 @@ jobs:
         name: Retrieve and verify immutable analysis artifact
         # CORE_ACTIONS_PIN; descriptor mode selects producer/run/artifact identity
         # from the closed handoff. Current-run exact-name mode remains compatible.
-        uses: Quantum-L9/l9-ci-core/.github/actions/retrieve-artifacts@59cb3645ec8e462e1f1901538354ad873e94645c
+        uses: Quantum-L9/l9-ci-core/.github/actions/retrieve-artifacts@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           artifact-name: ${{ inputs.artifact-name }}
           handoff-descriptor: ${{ inputs.artifact-handoff }}
@@ -83,21 +83,21 @@ jobs:
       - id: sdk
         name: Provision immutable SDK
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@59cb3645ec8e462e1f1901538354ad873e94645c
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision }}
       - name: Revalidate downloaded canonical bundle
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@59cb3645ec8e462e1f1901538354ad873e94645c
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.artifacts.outputs.bundle }}
       - id: render
         name: Render publication payload
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@59cb3645ec8e462e1f1901538354ad873e94645c
+        uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           agent-payload: ${{ steps.artifacts.outputs.agent-payload }}
           gate-result: ${{ steps.artifacts.outputs.gate-result }}
@@ -113,7 +113,7 @@ jobs:
           output: .l9/runtime/publication/publication.json
       - name: Preflight publication envelope
         # CORE_ACTIONS_PIN; no token means local validation only.
-        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@59cb3645ec8e462e1f1901538354ad873e94645c
+        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           repository: ${{ github.repository }}
           publication: .l9/runtime/publication/publication.json
@@ -136,7 +136,7 @@ jobs:
       - id: publish
         name: Create or update GitHub check
         # CORE_ACTIONS_PIN; this is the job's only remote publication write.
-        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@59cb3645ec8e462e1f1901538354ad873e94645c
+        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           token: ${{ github.token }}
           repository: ${{ github.repository }}
