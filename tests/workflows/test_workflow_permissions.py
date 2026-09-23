@@ -21,9 +21,6 @@ class WorkflowPermissionTests(unittest.TestCase):
     #   publish-analysis.yml    checks:write only; publishes one elected check.
     #   publish-sarif.yml       security-events:write only; uploads one elected
     #                           SDK SARIF projection.
-    #   nightly.yml             legacy caller awaiting its successor pin; its
-    #                           current immutable callee still requests both
-    #                           publication scopes.
     #   self-analysis.yml       trusted self-only caller granting checks:write
     #                           to its explicit check publication job.
     #
@@ -32,7 +29,6 @@ class WorkflowPermissionTests(unittest.TestCase):
     WRITE_EXCEPTIONS = {
         "publish-analysis.yml": ["checks"],
         "publish-sarif.yml": ["security-events"],
-        "nightly.yml": ["checks", "security-events"],
         "self-analysis.yml": ["checks"],
     }
 

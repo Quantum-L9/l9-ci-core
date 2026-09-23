@@ -16,7 +16,7 @@ ANALYZE_PIN = re.compile(
     r"uses:\s*Quantum-L9/l9-ci-core/\.github/workflows/"
     r"analyze-semgrep\.yml@[0-9a-f]{40}"
 )
-CORE_ACTIONS_PIN = "2a7354ed590008cd59d254df08f10d6207933366"
+CORE_ACTIONS_PIN = "3c0a68c986aa4fa7c9e1a7fbd8d6e84d459e9b20"
 JOB_ID = re.compile(r"(?m)^  ([A-Za-z][A-Za-z0-9_-]*):")
 
 
@@ -43,11 +43,12 @@ class NightlyKernelTests(unittest.TestCase):
             re.compile(r"(?m)^\s+matrix-id:\s+nightly-semgrep\s*$"),
         )
 
-    def test_analyze_job_grants_publication_permissions(self) -> None:
+    def test_analyze_job_is_artifact_only(self) -> None:
         analyze = self.text.split("nightly:", 1)[0]
-        self.assertRegex(analyze, re.compile(r"(?m)^\s+actions:\s+read\s*$"))
-        self.assertRegex(analyze, re.compile(r"(?m)^\s+checks:\s+write\s*$"))
         self.assertRegex(analyze, re.compile(r"(?m)^\s+contents:\s+read\s*$"))
+        self.assertNotIn("actions: read", analyze)
+        self.assertNotIn("checks: write", analyze)
+        self.assertNotIn("security-events: write", analyze)
 
     def test_analyze_job_does_not_inherit_all_secrets(self) -> None:
         """Callee declares no secrets; GITHUB_TOKEN is the job token.
