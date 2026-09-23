@@ -36,10 +36,28 @@ class ArtifactHandoffProducerWorkflowTests(unittest.TestCase):
                 self.assertIn("artifact-handoff:", text[:upload])
                 self.assertNotIn("handoff-descriptor:", text[:upload])
 
-    def test_publication_workflow_does_not_consume_descriptor_yet(self) -> None:
-        text = (WORKFLOWS / "publish-analysis.yml").read_text(encoding="utf-8")
-        self.assertNotIn("handoff-descriptor", text)
-        self.assertNotIn("artifact-handoff", text)
+    def test_publication_workflows_consume_optional_descriptor(self) -> None:
+        for name in ("publish-analysis.yml", "publish-sarif.yml"):
+            with self.subTest(workflow=name):
+                text = (WORKFLOWS / name).read_text(encoding="utf-8")
+                self.assertIn("artifact-handoff:", text)
+                self.assertIn(
+                    "handoff-descriptor: ${{ inputs.artifact-handoff }}", text
+                )
+
+    def test_direct_analysis_marks_evidence_ready_after_handoff_before_enforcement(
+        self,
+    ) -> None:
+        text = (WORKFLOWS / "analyze-semgrep.yml").read_text(encoding="utf-8")
+        upload = text.index("name: Upload analysis artifact set")
+        handoff = text.index("name: Create artifact handoff descriptor")
+        ready = text.index("name: Mark uploaded evidence ready")
+        enforce = text.index("name: Enforce SDK gate verdict")
+        self.assertEqual(
+            sorted((upload, handoff, ready, enforce)), [upload, handoff, ready, enforce]
+        )
+        self.assertIn("evidence-ready:", text[:upload])
+        self.assertIn("evidence-ready=true", text[ready:enforce])
 
     def test_no_other_workflow_produces_a_handoff_descriptor(self) -> None:
         expected = set(PRODUCERS)

@@ -18,27 +18,22 @@ class WorkflowPermissionTests(unittest.TestCase):
     # Write permissions are read-only everywhere except these audited
     # exceptions. Any change to this table is a trust-boundary change.
     #
-    #   publish-analysis.yml    checks:write; publishes the GitHub check run.
-    #                           security-events:write uploads SDK SARIF.
-    #                           workflow_call-only, gated by the caller.
-    #   analyze-semgrep.yml     checks:write + security-events:write for its
-    #                           nested publication workflow. workflow_call-only.
-    #   nightly.yml             checks:write + security-events:write on the
-    #                           job that calls analyze-semgrep.yml: that grant
-    #                           is the ceiling for the nested publication
-    #                           workflow, which cannot elevate it (a caller
-    #                           that omits a scope fails at startup with zero
-    #                           jobs). workflow_call-only; advisory profile.
-    #   self-analysis.yml       audited self-only dogfood caller that grants
-    #                           the reusable publication scopes.
+    #   publish-analysis.yml    checks:write only; publishes one elected check.
+    #   publish-sarif.yml       security-events:write only; uploads one elected
+    #                           SDK SARIF projection.
+    #   nightly.yml             legacy caller awaiting its successor pin; its
+    #                           current immutable callee still requests both
+    #                           publication scopes.
+    #   self-analysis.yml       trusted self-only caller granting checks:write
+    #                           to its explicit check publication job.
     #
     # `org-ci.yml` is intentionally absent. The organization required workflow
     # runs on untrusted pull_request events and must remain contents:read only.
     WRITE_EXCEPTIONS = {
-        "publish-analysis.yml": ["checks", "security-events"],
-        "analyze-semgrep.yml": ["checks", "security-events"],
+        "publish-analysis.yml": ["checks"],
+        "publish-sarif.yml": ["security-events"],
         "nightly.yml": ["checks", "security-events"],
-        "self-analysis.yml": ["checks", "security-events"],
+        "self-analysis.yml": ["checks"],
     }
 
     def test_only_authorized_workflows_request_write(self) -> None:
@@ -88,7 +83,12 @@ class WorkflowPermissionTests(unittest.TestCase):
 
     def test_write_scoped_workflows_are_not_pull_request_triggered(self) -> None:
         trigger_pattern = re.compile(r"(?m)^\s*(pull_request|pull_request_target):")
-        reusable = {"publish-analysis.yml", "analyze-semgrep.yml", "nightly.yml"}
+        reusable = {
+            "publish-analysis.yml",
+            "publish-sarif.yml",
+            "analyze-semgrep.yml",
+            "nightly.yml",
+        }
         audited_pr_callers = {"self-analysis.yml"}
         for name in self.WRITE_EXCEPTIONS:
             workflow = WORKFLOWS / name

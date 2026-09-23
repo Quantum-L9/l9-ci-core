@@ -63,7 +63,14 @@ class ConsumerDefaultingTests(unittest.TestCase):
         self.assertIn("language: ${{ steps.language.outputs.language }}", text)
         self.assertIn("steps.language.outputs.language != 'none'", text)
         self.assertIn("Validate compatibility language assertion", text)
-        self.assertIn("profile: ${{ needs.analyze.outputs.profile }}", text)
+
+    def test_direct_analysis_is_artifact_only(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        document = yaml.safe_load(text)
+        self.assertEqual({"analyze"}, set(document["jobs"]))
+        self.assertNotIn("checks: write", text)
+        self.assertNotIn("security-events: write", text)
+        self.assertIn("evidence-ready:", text)
 
 
 if __name__ == "__main__":

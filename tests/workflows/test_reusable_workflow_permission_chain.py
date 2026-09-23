@@ -8,17 +8,15 @@ startup: the run ends ``startup_failure`` with zero jobs and nothing in the
 tree ever executes.
 
 That is exactly how a copied ``L9 Analysis`` caller failed three consecutive
-runs (workflow audit packet, 2026-09-13, F-001): its ``publish`` job granted
-``actions``, ``checks`` and ``contents`` but not the ``security-events: write``
-that ``publish-analysis.yml`` declares for the SARIF upload. Core's own
-``nightly.yml`` carried the same shape against ``analyze-semgrep.yml``.
+runs (workflow audit packet, 2026-09-13, F-001): its publication chain requested
+more capability than the caller granted. Direct analysis is now artifact-only;
+trusted publication is separate and each side effect receives only its own
+write scope.
 
-This test walks every call edge Core ships — its workflows calling each other,
-the kernels nesting ``publish-analysis.yml``, and the frozen starter/template
-callers — and asserts the calling job grants a superset of everything the
-callee requires: its workflow-level block plus every job-level block, including
-the job that nests the next workflow. A pinned Core reference is checked
-against the pinned revision as well when that object is available locally.
+This test walks every call edge Core ships and asserts the calling job grants a
+superset of everything the callee requires: its workflow-level block plus every
+job-level block. A pinned Core reference is checked against the pinned revision
+as well when that object is available locally.
 """
 
 from __future__ import annotations
@@ -172,21 +170,34 @@ class PermissionChainTests(unittest.TestCase):
                     "(zero jobs) because a called workflow cannot elevate permissions",
                 )
 
-    def test_core_kernel_chain_is_internally_consistent(self) -> None:
-        """nightly.yml → analyze-semgrep.yml → publish-analysis.yml stays callable."""
-        publish = required_by(
+    def test_core_kernel_and_publication_chains_are_least_privilege(self) -> None:
+        """Artifact analysis and explicit publication capabilities stay callable."""
+        publish_check = required_by(
             load((WORKFLOWS / "publish-analysis.yml").read_text(encoding="utf-8")),
             "publish-analysis.yml",
         )
-        self.assertEqual("write", publish.get("security-events"))
+        publish_sarif = required_by(
+            load((WORKFLOWS / "publish-sarif.yml").read_text(encoding="utf-8")),
+            "publish-sarif.yml",
+        )
+        self.assertEqual("write", publish_check.get("checks"))
+        self.assertNotIn("security-events", publish_check)
+        self.assertEqual("write", publish_sarif.get("security-events"))
+        self.assertNotIn("checks", publish_sarif)
         analyze = load((WORKFLOWS / "analyze-semgrep.yml").read_text(encoding="utf-8"))
-        nightly = load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
-        for scope, level in publish.items():
-            self.assertEqual(
-                level, granted_by(analyze, "publish", "analyze-semgrep.yml").get(scope)
-            )
-            self.assertEqual(
-                level, granted_by(nightly, "analyze", "nightly.yml").get(scope)
+        self.assertEqual(
+            {"contents": "read"}, required_by(analyze, "analyze-semgrep.yml")
+        )
+
+        self_analysis = load(
+            (WORKFLOWS / "self-analysis.yml").read_text(encoding="utf-8")
+        )
+        granted = granted_by(self_analysis, "publish-check", "self-analysis.yml")
+        for scope, level in publish_check.items():
+            self.assertGreaterEqual(
+                LEVELS[granted.get(scope, "none")],
+                LEVELS[level],
+                f"trusted self-analysis caller is missing {scope}:{level}",
             )
 
 

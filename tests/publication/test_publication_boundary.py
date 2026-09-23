@@ -33,6 +33,9 @@ class PublicationBoundaryTests(unittest.TestCase):
             "Pull-request source code is never executed in the publication job.",
             "SARIF preflight validates only the SDK projection transport envelope;",
             "never parses findings from SARIF.",
+            "Direct analysis is artifact-only and requests no checks or security-events",
+            "Check and SARIF publication are independently elected false-default",
+            "Blocking enforcement occurs only after immutable analysis evidence and its",
         ):
             with self.subTest(value=value):
                 self.assertIn(value, text)

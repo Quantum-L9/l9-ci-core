@@ -4,8 +4,10 @@
 # chain Core is responsible for — governance resolution, SDK provisioning,
 # provider execution via the SDK, canonical-bundle validation, SDK gate
 # evaluation, agent-payload projection, artifact routing + manifest + upload,
-# and GitHub-check publication — so consumer repositories (including
-# l9-ci-sdk itself) carry only a thin trigger-and-call stub.
+# and immutable artifact upload — so consumer repositories (including
+# l9-ci-sdk itself) carry only a thin trigger-and-call stub. Direct analysis is
+# artifact-only; a separately trusted Core caller must explicitly elect any
+# GitHub check or SARIF publication capability.
 #
 # Division of authority (per the SDK integration contract,
 # l9.integration-contract/v1):
@@ -16,9 +18,8 @@
 #               the single gate-decision authority; its exit code and emitted
 #               gate-result artifact ARE the verdict).
 #   Core owns — orchestration, governance/profile resolution, workflow
-#               permissions, artifact upload/retention, and publishing the
-#               SDK's verdict as a GitHub check. Core never reconstructs or
-#               overrides the SDK's gate decision.
+#               permissions, and artifact upload/retention. Core never
+#               reconstructs or overrides the SDK's gate decision.
 #
 # Gate wiring: the `gate` step runs `l9-ci gate evaluate` against the
 # validated bundle, captures the canonical gate-result artifact into the
@@ -31,10 +32,8 @@
 # Action references are fully qualified and pinned: this reusable workflow
 # executes in the CALLER's checkout, so `uses: ./...` local-action refs would
 # resolve against the consumer repo (which does not vendor Core's actions)
-# and fail. The nested `publish-analysis.yml` call uses the local `./` form,
-# which GitHub resolves against the same commit of THIS repository.
-# `uses:` does not support expression interpolation, so the Core SHA is
-# duplicated literally on every pinned line — update all together when
+# and fail. `uses:` does not support expression interpolation, so the Core SHA
+# is duplicated literally on every pinned line — update all together when
 # bumping (grep: CORE_ACTIONS_PIN).
 name: Analyze (semgrep)
 on:
@@ -94,6 +93,9 @@ on:
       artifact-handoff:
         description: Canonical cross-run artifact handoff descriptor JSON.
         value: ${{ jobs.analyze.outputs.artifact-handoff }}
+      evidence-ready:
+        description: True only after immutable upload and handoff descriptor completion.
+        value: ${{ jobs.analyze.outputs.evidence-ready }}
       gate-status:
         description: SDK gate verdict (pass, fail, incomplete).
         value: ${{ jobs.analyze.outputs.gate-status }}
@@ -132,6 +134,7 @@ jobs:
       governance-digest: ${{ steps.gov.outputs['governance-digest'] }}
       artifact-name: ${{ steps.names.outputs['artifact-name'] }}
       artifact-handoff: ${{ steps.handoff.outputs.descriptor }}
+      evidence-ready: ${{ steps.evidence.outputs['evidence-ready'] }}
       sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
       gate-status: ${{ steps.gate.outputs['gate-status'] }}
       gate-exit-code: ${{ steps.gate.outputs['gate-exit-code'] }}
@@ -435,6 +438,19 @@ jobs:
           repository-revision: ${{ github.sha }}
           sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
           output: .l9/runtime/handoffs/${{ inputs.matrix-id }}.json
+      - id: evidence
+        name: Mark uploaded evidence ready
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          ARTIFACT_HANDOFF: ${{ steps.handoff.outputs.descriptor }}
+        run: |
+          set -euo pipefail
+          test -n "${ARTIFACT_ID}"
+          test -n "${ARTIFACT_DIGEST}"
+          test -n "${ARTIFACT_HANDOFF}"
+          echo "evidence-ready=true" >> "$GITHUB_OUTPUT"
       - name: Enforce SDK gate verdict
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         env:
@@ -448,26 +464,3 @@ jobs:
             echo "Blocking mode: failing job on SDK gate verdict '${GATE_STATUS}'" >&2
             exit "${GATE_EXIT}"
           fi
-  publish:
-    name: Publish analysis (Core)
-    needs: analyze
-    if: needs.analyze.outputs.enabled == 'true' && needs.analyze.outputs.language != 'none'
-    # Nested local reusable-workflow call: resolved against the same commit
-    # of THIS repository, so publish-analysis.yml and its own pinned action
-    # refs travel together with this file.
-    uses: ./.github/workflows/publish-analysis.yml
-    permissions:
-      actions: read
-      checks: write
-      contents: read
-      security-events: write
-    with:
-      artifact-name: ${{ needs.analyze.outputs['artifact-name'] }}
-      profile: ${{ needs.analyze.outputs.profile }}
-      mode: ${{ needs.analyze.outputs.mode }}
-      provider: semgrep
-      matrix-id: ${{ inputs.matrix-id }}
-      sdk-revision: ${{ needs.analyze.outputs['sdk-revision'] }}
-      governance-digest: ${{ needs.analyze.outputs['governance-digest'] }}
-      repository-revision: ${{ github.sha }}
-      workflow-result: ${{ needs.analyze.result }}

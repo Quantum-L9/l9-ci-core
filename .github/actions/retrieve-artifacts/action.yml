@@ -49,6 +49,8 @@ outputs:
     value: ${{ steps.verify.outputs.bundle }}
   agent-payload:
     value: ${{ steps.verify.outputs.agent-payload }}
+  gate-result:
+    value: ${{ steps.verify.outputs.gate-result }}
   raw-directory:
     value: ${{ steps.verify.outputs.raw-directory }}
   routing-record:

@@ -1,8 +1,8 @@
-# Trusted check-publication capability. This workflow never checks out or
+# Trusted SARIF-publication capability. This workflow never checks out or
 # executes the analyzed revision. It retrieves a verified artifact set, asks the
-# pinned SDK to validate the bundle, renders and preflights locally, and only
-# then performs one explicitly elected GitHub Checks write.
-name: Publish L9 analysis check
+# pinned SDK to validate the bundle, preflights the SDK projection, and only
+# then performs one explicitly elected code-scanning upload.
+name: Publish L9 analysis SARIF
 on:
   workflow_call:
     inputs:
@@ -16,9 +16,6 @@ on:
         type: string
         required: false
         default: ""
-      profile:
-        type: string
-        required: true
       mode:
         type: string
         required: true
@@ -33,37 +30,27 @@ on:
         type: string
         required: false
         default: bc678190582694f6efee08b6b7ea39be7e09bd5c
-      governance-digest:
-        type: string
-        required: true
       repository-revision:
         type: string
         required: true
-      workflow-result:
-        type: string
-        required: true
-      artifact-url:
-        type: string
-        required: false
-        default: ""
-      publish-check:
-        description: Explicitly elect the GitHub check write.
+      publish-sarif:
+        description: Explicitly elect the code-scanning SARIF write.
         type: boolean
         required: false
         default: false
 permissions:
   contents: read
 jobs:
-  publish-check:
+  publish-sarif:
     if: >-
-      inputs.publish-check
+      inputs.publish-sarif
       && (inputs.mode == 'blocking' || inputs.mode == 'advisory')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       actions: read
-      checks: write
       contents: read
+      security-events: write
     steps:
       - id: artifacts
         name: Retrieve and verify immutable analysis artifact
@@ -94,79 +81,48 @@ jobs:
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.artifacts.outputs.bundle }}
-      - id: render
-        name: Render publication payload
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/render-publication@05e842683d54a54ad074d9f4f9105813c42b6954
-        with:
-          agent-payload: ${{ steps.artifacts.outputs.agent-payload }}
-          gate-result: ${{ steps.artifacts.outputs.gate-result }}
-          profile: ${{ inputs.profile }}
-          mode: ${{ inputs.mode }}
-          provider: ${{ inputs.provider }}
-          sdk-revision: ${{ steps.sdk.outputs.sdk-revision }}
-          governance-digest: ${{ inputs.governance-digest }}
-          repository-revision: ${{ inputs.repository-revision }}
-          workflow-result: ${{ inputs.workflow-result }}
-          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          artifact-url: ${{ inputs.artifact-url }}
-          output: .l9/runtime/publication/publication.json
-      - name: Preflight publication envelope
-        # CORE_ACTIONS_PIN; no token means local validation only.
+      - name: Require elected SARIF route
+        env:
+          SARIF: ${{ steps.artifacts.outputs.sarif }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SARIF}" ]; then
+            echo "SARIF publication was elected but the verified artifact has no SARIF route" >&2
+            exit 2
+          fi
+      - name: Preflight SARIF envelope
+        # CORE_ACTIONS_PIN; parses transport structure only and has no write token.
         uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@05e842683d54a54ad074d9f4f9105813c42b6954
         with:
           repository: ${{ github.repository }}
-          publication: .l9/runtime/publication/publication.json
+          publication: "sarif-only"
+          sarif: ${{ steps.artifacts.outputs.sarif }}
           run-id: ${{ github.run_id }}
           matrix-id: ${{ inputs.matrix-id }}
           preflight-only: "true"
-      - name: Write workflow summary
-        env:
-          TITLE: ${{ steps.render.outputs.title }}
-          SUMMARY: ${{ steps.render.outputs.summary }}
-          CONCLUSION: ${{ steps.render.outputs.conclusion }}
-        run: |
-          {
-            echo "# ${TITLE}"
-            echo
-            echo "${SUMMARY}"
-            echo
-            echo "**Conclusion:** \`${CONCLUSION}\`"
-          } >> "${GITHUB_STEP_SUMMARY}"
-      - id: publish
-        name: Create or update GitHub check
-        # CORE_ACTIONS_PIN; this is the job's only remote publication write.
-        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@05e842683d54a54ad074d9f4f9105813c42b6954
+          preflight-sarif-only: "true"
+      - name: Upload SDK-projected SARIF to code scanning
+        # This is the job's only remote publication write.
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v3
         with:
-          token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          publication: .l9/runtime/publication/publication.json
-          run-id: ${{ github.run_id }}
-          matrix-id: ${{ inputs.matrix-id }}
-      - name: Record check URL
-        env:
-          CHECK_URL: ${{ steps.publish.outputs.check-run-url }}
-          CHECK_OPERATION: ${{ steps.publish.outputs.check-run-operation }}
-        run: |
-          if [[ -n "${CHECK_URL}" ]]; then
-            echo "${CHECK_OPERATION^} check: ${CHECK_URL}"
-          fi
+          sarif_file: ${{ steps.artifacts.outputs.sarif }}
+          category: l9-${{ inputs.matrix-id }}
 
   no-publication:
-    if: '!inputs.publish-check'
+    if: '!inputs.publish-sarif'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - name: Record no check election
+      - name: Record no SARIF election
         env:
           MODE: ${{ inputs.mode }}
-        run: echo "No GitHub check publication capability elected for mode ${MODE}"
+        run: echo "No SARIF publication capability elected for mode ${MODE}"
 
   suppressed:
     if: >-
-      inputs.publish-check
+      inputs.publish-sarif
       && (inputs.mode == 'shadow' || inputs.mode == 'disabled')
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -176,7 +132,7 @@ jobs:
       - name: Preserve non-publication mode
         env:
           MODE: ${{ inputs.mode }}
-        run: echo "GitHub check publication suppressed for mode ${MODE}"
+        run: echo "SARIF publication suppressed for mode ${MODE}"
 
   invalid-mode:
     if: >-
