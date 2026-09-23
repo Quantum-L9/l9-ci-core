@@ -24,6 +24,14 @@ from .contract_wiring import ContractWiringError, validate_contract_wiring
 from .locking import LockBusy, single_flight
 from .reporting import StepEvidence, redact_text, write_reports
 
+TOOLS_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(TOOLS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOLS_ROOT))
+
+from l9_make.__main__ import CompilerError as MakeCompilerError  # noqa: E402
+from l9_make.__main__ import check as check_make_adapter  # noqa: E402
+from l9_make.__main__ import render as render_make_adapter  # noqa: E402
+
 COMMANDS = (
     "doctor",
     "change-policy",
@@ -39,7 +47,10 @@ COMMANDS = (
 )
 CONFIG_PATH = pathlib.Path(".l9/repo-workflow.json")
 SCHEMA_PATH = pathlib.Path(".l9/repo-workflow.schema.json")
-TEMPLATE_PATH = pathlib.Path("tools/l9_repo/Makefile.template")
+MAKE_PLAN_PATH = pathlib.Path("tools/l9_make/default-capability-plan.json")
+REPO_MK_PATH = pathlib.Path("Repo.mk")
+REPO_LOCAL_MK_PATH = pathlib.Path("Repo.local.mk")
+LEGACY_MAKEFILE_TEMPLATE_PATH = pathlib.Path("tools/l9_repo/Makefile.template")
 
 # Semantic version "x.y.z" has exactly three dot-separated components.
 _SEMVER_COMPONENT_COUNT = 3
@@ -1020,12 +1031,17 @@ class RepositoryWorkflow:
             _fail(f"repo-workflow schema validation failed: {error}")
         if manifest_check_enabled():
             verify_checksum_manifest(self.root)
-        template = self.root / TEMPLATE_PATH
         makefile = self.root / "Makefile"
-        if not template.is_file():
-            _fail(f"missing {template}")
-        if not makefile.is_file() or makefile.read_bytes() != template.read_bytes():
-            _fail("Makefile drift: run make reconcile")
+        try:
+            check_make_adapter(
+                self.root / MAKE_PLAN_PATH,
+                self.root / REPO_MK_PATH,
+                self.root / REPO_LOCAL_MK_PATH,
+                makefile,
+                self.root / LEGACY_MAKEFILE_TEMPLATE_PATH,
+            )
+        except MakeCompilerError as error:
+            _fail(f"generated Make artifact integrity failure: {error}")
         try:
             validate_contract_wiring(self.root, config["agent_contracts"])
             validate_authority(self.root, config)
@@ -1123,11 +1139,17 @@ class RepositoryWorkflow:
         path, stale_after = self._lock_settings()
         try:
             with single_flight(path, stale_after=stale_after):
-                source = self.root / TEMPLATE_PATH
-                if not source.is_file():
-                    _fail(f"missing {source}")
-                (self.root / "Makefile").write_bytes(source.read_bytes())
-                print("Makefile reconciled")
+                try:
+                    render_make_adapter(
+                        self.root / MAKE_PLAN_PATH,
+                        self.root / REPO_MK_PATH,
+                        self.root / REPO_LOCAL_MK_PATH,
+                        self.root / "Makefile",
+                        self.root / LEGACY_MAKEFILE_TEMPLATE_PATH,
+                    )
+                except MakeCompilerError as error:
+                    _fail(f"generated Make artifact reconciliation failure: {error}")
+                print("Makefile and Repo.mk reconciled")
         except LockBusy as error:
             _fail(str(error))
 

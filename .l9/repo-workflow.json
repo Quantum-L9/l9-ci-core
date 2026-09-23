@@ -20,7 +20,9 @@
     "component_authority": ".l9/repo-workflow.json",
     "component_schema": ".l9/repo-workflow.schema.json",
     "generated_artifacts": [
-      "Makefile"
+      "Makefile",
+      "Repo.mk",
+      "tools/l9_repo/Makefile.template"
     ],
     "derived_documents": [
       "docs/repository-execution-runtime.md"
@@ -63,6 +65,22 @@
       [
         "@python",
         "tools/check_workflow_integrity.py"
+      ],
+      [
+        "@python",
+        "-m",
+        "tools.l9_make",
+        "check",
+        "--plan",
+        "tools/l9_make/default-capability-plan.json",
+        "--output",
+        "Repo.mk",
+        "--local",
+        "Repo.local.mk",
+        "--makefile",
+        "Makefile",
+        "--legacy-makefile-template",
+        "tools/l9_repo/Makefile.template"
       ]
     ],
     "check": [
@@ -216,9 +234,11 @@
       "command-facade": {
         "match_any_prefix": [
           "tools/l9_repo/",
+          "tools/l9_make/",
           ".l9/repo-workflow",
           "Makefile",
-          "Repo.mk"
+          "Repo.mk",
+          "Repo.local.mk"
         ],
         "blocking": true,
         "commands": [
@@ -291,9 +311,11 @@
         "id": "facade-contract",
         "match_any_prefix": [
           "tools/l9_repo/",
+          "tools/l9_make/",
           ".l9/repo-workflow",
           "Makefile",
-          "Repo.mk"
+          "Repo.mk",
+          "Repo.local.mk"
         ],
         "require_any_prefix": [
           "tests/tools/"
