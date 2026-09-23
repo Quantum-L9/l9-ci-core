@@ -396,7 +396,7 @@ class WorkflowTests(unittest.TestCase):
     def test_makefile_matches_template(self) -> None:
         self.assertEqual(
             (ROOT / "Makefile").read_bytes(),
-            (ROOT / "tools/l9_repo/Makefile.template").read_bytes(),
+            (ROOT / "tools/l9_make/Makefile.template").read_bytes(),
         )
 
     def test_python_sentinel_uses_running_interpreter(self) -> None:
