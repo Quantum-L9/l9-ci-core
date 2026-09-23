@@ -34,9 +34,28 @@ fi
 # distributions, so installing a dependency can never execute it on the runner.
 python -m pip install --only-binary :all: --require-hashes -r "${LOCK}"
 
-installed="$(semgrep --version | tr -d '[:space:]')"
+# Resolve the console script from the same interpreter that performed the
+# hash-locked install. `command -v semgrep` is not authoritative: a stale or
+# attacker-controlled PATH entry could win even though pip installed the locked
+# closure successfully.
+scripts_directory="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')"
+executable="${scripts_directory}/semgrep"
+if [[ "${scripts_directory}" != /* || ! -f "${executable}" || ! -x "${executable}" ]]; then
+  echo "install-semgrep: locked install did not produce an executable at ${executable}" >&2
+  exit 2
+fi
+installed="$("${executable}" --version | tr -d '[:space:]')"
 if [[ "${installed}" != "${VERSION}" ]]; then
   echo "install-semgrep: installed semgrep '${installed}', expected ${VERSION}" >&2
   exit 2
 fi
-echo "install-semgrep: semgrep ${VERSION} installed from ${LOCK_NAME}"
+lock_sha256="$(sha256sum "${LOCK}" | awk '{print $1}')"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  {
+    echo "executable=${executable}"
+    echo "provider-version=${VERSION}"
+    echo "lock-file=${LOCK_NAME}"
+    echo "lock-sha256=${lock_sha256}"
+  } >> "${GITHUB_OUTPUT}"
+fi
+echo "install-semgrep: semgrep ${VERSION} installed from ${LOCK_NAME} (sha256:${lock_sha256})"

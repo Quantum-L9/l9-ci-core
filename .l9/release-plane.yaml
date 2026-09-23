@@ -96,13 +96,26 @@ core_release:
     expected_version_hardcoded_in_workflow: false
     preflight_before_tag: true
     preflight_script: docs/release/tag-and-release.sh
+    post_tag_identity:
+      remote_ref_source: exact_refs_tags_name
+      tag_object_required: annotated
+      target_type: direct_commit
+      checkout: peeled_commit
+      push_event_sha_must_equal_peeled_commit: true
+      manual_dispatch_resolves_same_remote_ref: true
+      mutating: false
     note: >-
       An immutable tag is an audit identity; an invalid one cannot be moved,
       only superseded. The release script therefore runs the same validator
       against the exact target commit (a temporary detached worktree, never
       the operator's working tree) and creates the tag only after it passes.
       The post-tag release-validation.yml run is the independent attestation
-      of the same revision, not the first time it is checked.
+      of the same revision, not the first time it is checked. For both a tag
+      push and a manual dispatch, that attestation reads the exact remote tag
+      ref with contents:read, requires an annotated tag object that points
+      directly to a commit, peels it, and executes only the peeled commit. On a
+      tag push the peeled commit must also equal the event SHA. Resolution never
+      creates, moves, pushes, or deletes a tag or release.
   lifecycle:
     - version bump and release notes PR
     - merge Core main

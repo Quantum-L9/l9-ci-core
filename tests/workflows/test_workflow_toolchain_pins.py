@@ -30,7 +30,7 @@ LOCK = ROOT / ".github" / "actions" / "install-consumer-ci" / "toolchain-lock.js
 
 LOCKED_SEMGREP_ACTION = (
     "Quantum-L9/l9-ci-core/.github/actions/install-semgrep@"
-    "673a3e4c82021809af32baac7571fde5e1059d3b"
+    "def55c54ff4ba654c2ebea088dde71db0b5f7135"
 )
 
 
@@ -108,14 +108,30 @@ class SemgrepInstallPathTests(unittest.TestCase):
                 self.assertIn(
                     LOCKED_SEMGREP_ACTION,
                     text,
-                    f"{name} must pin install-semgrep at its first-commit SHA "
-                    "(AGENTS.md section 8 keeps it off @v1)",
+                    f"{name} must pin install-semgrep to the immutable Core "
+                    "integration revision that also supplies invoke-sdk",
                 )
                 self.assertNotRegex(
                     text,
                     r"install-semgrep@v\d",
                     f"{name}: install-semgrep is a first-commit pin, not a "
                     "moving-major reference",
+                )
+
+
+class ProviderProvenanceTests(unittest.TestCase):
+    def test_live_sdk_runs_receive_the_verified_semgrep_executable(self) -> None:
+        for name in ("analyze-semgrep.yml", "org-ci.yml"):
+            with self.subTest(workflow=name):
+                text = (WORKFLOWS / name).read_text(encoding="utf-8")
+                run_start = text.index("operation: semgrep-run")
+                run_end = text.find("\n      - ", run_start)
+                block = text[run_start : run_end if run_end != -1 else None]
+                self.assertIn(
+                    "provider-executable: ${{ steps.semgrep.outputs.executable }}",
+                    block,
+                    "semgrep-run must receive Core's verified executable rather "
+                    "than resolve another installation from PATH",
                 )
 
 

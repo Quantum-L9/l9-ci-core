@@ -31,9 +31,28 @@ class PublicationBoundaryTests(unittest.TestCase):
             "Core must never change the SDK gate conclusion.",
             "Core may consume the SDK-owned agent-review projection.",
             "Pull-request source code is never executed in the publication job.",
+            "SARIF preflight validates only the SDK projection transport envelope;",
+            "never parses findings from SARIF.",
         ):
             with self.subTest(value=value):
                 self.assertIn(value, text)
+
+    def test_publisher_does_not_parse_sdk_findings(self) -> None:
+        text = (
+            (ROOT / ".github/actions/publish-check/publish.py")
+            .read_text(encoding="utf-8")
+            .lower()
+        )
+        for value in (
+            'document.get("findings")',
+            'document["findings"]',
+            'run.get("results")',
+            'run["results"]',
+            'result.get("ruleid")',
+            'result["ruleid"]',
+        ):
+            with self.subTest(value=value):
+                self.assertNotIn(value, text)
 
 
 if __name__ == "__main__":

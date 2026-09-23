@@ -33,6 +33,12 @@ inputs:
       Optional versioned packaged ruleset profile for semgrep-run (SDK
       profiles.yaml). Omit to use the SDK's default profile.
     required: false
+  provider-executable:
+    description: >
+      Verified provider executable emitted by Core's install-semgrep action.
+      Required for semgrep-run so the SDK cannot resolve a different Semgrep
+      installation from PATH.
+    required: false
   root:
     description: Repository root used for normalization.
     required: false
@@ -90,6 +96,7 @@ runs:
         L9_LANGUAGE: ${{ inputs.language }}
         L9_RAW_OUTPUT: ${{ inputs.raw-output }}
         L9_SEMGREP_PROFILE: ${{ inputs.semgrep-profile }}
+        L9_PROVIDER_EXECUTABLE: ${{ inputs.provider-executable }}
         L9_ROOT: ${{ inputs.root }}
         L9_SNAPSHOT_ID: ${{ inputs.snapshot-id }}
         L9_PROVIDER_VERSION: ${{ inputs.provider-version }}

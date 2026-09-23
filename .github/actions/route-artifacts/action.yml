@@ -29,6 +29,8 @@ outputs:
     value: ${{ steps.route.outputs.bundle }}
   agent-payload:
     value: ${{ steps.route.outputs.agent-payload }}
+  routing-record:
+    value: ${{ steps.route.outputs.routing-record }}
   sarif:
     value: ${{ steps.route.outputs.sarif }}
 runs:

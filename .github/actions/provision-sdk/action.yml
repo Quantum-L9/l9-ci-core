@@ -1,7 +1,8 @@
 name: Provision immutable l9-ci-sdk
 description: >
-  Prepares an isolated runtime for an explicitly permitted immutable SDK
-  revision and verifies its public CLI contract.
+  Creates an isolated runtime for an explicitly permitted immutable SDK
+  revision and verifies its public CLI contract. Provider executables are
+  installed separately by Core-owned provider actions.
 inputs:
   sdk-source:
     description: SDK source type. Phase 1 permits only "git".
@@ -16,7 +17,9 @@ inputs:
     required: false
     default: bc678190582694f6efee08b6b7ea39be7e09bd5c
   runtime-directory:
-    description: Runtime directory relative to the workspace.
+    description: >
+      Compatibility input fixed to .l9/runtime/sdk. The path must not already
+      exist and provisioning never deletes or replaces workspace content.
     required: false
     default: .l9/runtime/sdk
 outputs:

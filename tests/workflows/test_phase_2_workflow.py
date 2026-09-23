@@ -1,10 +1,17 @@
 from __future__ import annotations
+
 import re
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/normalize-semgrep-report.yml"
+CORE_ACTION = re.compile(
+    r"^\s*uses:\s*Quantum-L9/l9-ci-core/(\.github/actions/[A-Za-z0-9._/-]+)@"
+    r"([0-9a-f]{40})\s*$",
+    re.MULTILINE,
+)
+LOCAL_CORE_ACTION = re.compile(r"^\s*uses:\s*\./\.github/actions/", re.MULTILINE)
 
 
 class Phase2WorkflowTests(unittest.TestCase):
@@ -38,6 +45,57 @@ class Phase2WorkflowTests(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn(
             "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+            text,
+        )
+
+    def test_core_actions_are_fully_qualified_immutable_pins(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIsNone(
+            LOCAL_CORE_ACTION.search(text),
+            "caller-relative Core actions resolve against the consumer checkout",
+        )
+
+        references = CORE_ACTION.findall(text)
+        self.assertEqual(7, len(references))
+        self.assertEqual(
+            {
+                ".github/actions/build-artifact-manifest",
+                ".github/actions/invoke-sdk",
+                ".github/actions/provision-sdk",
+                ".github/actions/route-artifacts",
+                ".github/actions/validate-bundle",
+            },
+            {path for path, _revision in references},
+        )
+        self.assertEqual(
+            1,
+            len({revision for _path, revision in references}),
+            "Phase 2 Core primitives must advance together to one immutable revision",
+        )
+
+    def test_complete_relocatable_index_is_built_before_upload(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        build = text.index("name: Build artifact manifest")
+        upload = text.index("name: Upload Phase 2 artifact set")
+        self.assertLess(build, upload)
+        index_block = text[build:upload]
+        self.assertIn(
+            "artifact-name: ${{ steps.names.outputs.artifact-name }}", index_block
+        )
+        self.assertIn("repository: ${{ github.repository }}", index_block)
+        self.assertIn("repository-revision: ${{ github.sha }}", index_block)
+        self.assertIn("artifact-root: artifacts", index_block)
+        self.assertIn(
+            "routing-record: ${{ steps.route.outputs.routing-record }}",
+            index_block,
+        )
+        self.assertIn("artifact-index.json", index_block)
+        self.assertNotIn("artifact-manifest.json", index_block)
+
+    def test_retrieval_is_not_faked_inside_the_producer_workflow(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "Quantum-L9/l9-ci-core/.github/actions/retrieve-artifacts@",
             text,
         )
 
