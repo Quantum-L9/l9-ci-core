@@ -56,7 +56,9 @@ class AnalyzeSemgrepEventClassTests(unittest.TestCase):
         fallback = text.index("schedule|workflow_dispatch|nightly)")
         assert override < fallback
 
-    def test_semgrep_run_uses_the_core_staged_map_for_its_bounded_language(self) -> None:
+    def test_semgrep_run_uses_the_core_staged_map_for_its_bounded_language(
+        self,
+    ) -> None:
         step = _semgrep_run_step(_workflow())
         assert step["with"]["identity-map"] == (
             "${{ steps.gov.outputs['identity-map-directory'] }}/"

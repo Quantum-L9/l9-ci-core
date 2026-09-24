@@ -59,7 +59,6 @@ class PythonMypyContractTests(unittest.TestCase):
                 "repository-owned mypy config must decide per-module import handling"
             )
 
-
     def test_pr_pipeline_declares_explicit_required_mypy_input(self) -> None:
         text = PR_PIPELINE.read_text(encoding="utf-8")
         assert "mypy-required:" in text, "pr-pipeline must expose a mypy-required input"
@@ -70,7 +69,6 @@ class PythonMypyContractTests(unittest.TestCase):
         assert re.search(r"default:\s*true", block), (
             "mypy-required must default to true (blocking)"
         )
-
 
     def test_pr_pipeline_mypy_is_blocking_not_silently_swallowed(self) -> None:
         text = PR_PIPELINE.read_text(encoding="utf-8")
@@ -89,7 +87,6 @@ class PythonMypyContractTests(unittest.TestCase):
                     f"fail-open mypy line: {line.strip()}"
                 )
 
-
     def test_consumer_ci_pins_manifest_exists_and_pins_mypy(self) -> None:
         assert CONSUMER_CI_PINS.is_file(), "action pin file must exist"
         text = CONSUMER_CI_PINS.read_text(encoding="utf-8")
@@ -97,14 +94,12 @@ class PythonMypyContractTests(unittest.TestCase):
         assert re.search(r"(?m)^ruff==", text)
         assert re.search(r"(?m)^pytest==", text)
 
-
     def test_surfaces_call_the_installer_action(self) -> None:
         for path in PYTHON_MYPY_SURFACES:
             text = path.read_text(encoding="utf-8")
             assert INSTALLER_ACTION in text, (
                 f"{path.relative_to(ROOT)} must call {INSTALLER_ACTION}"
             )
-
 
     def test_surfaces_pin_the_installer_by_sha(self) -> None:
         """Every reference must be SHA-pinned, not tagged.
@@ -124,7 +119,6 @@ class PythonMypyContractTests(unittest.TestCase):
                     "rates an unpinned first-party ref HIGH, and `@v2` resolved to "
                     "nothing for every consumer until fa0ba1e SHA-pinned it."
                 )
-
 
     def test_dependabot_does_not_own_consumer_ci_pins(self) -> None:
         text = DEPENDABOT.read_text(encoding="utf-8")
