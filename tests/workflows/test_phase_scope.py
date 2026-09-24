@@ -17,6 +17,7 @@ class PhaseScopeTests(unittest.TestCase):
             "governance-ci.yml",
             "profile-normalize-semgrep.yml",
             "publish-analysis.yml",
+            "publish-sarif.yml",
             "release-validation.yml",
             "baseline-ratchet.yml",
             "self-analysis.yml",

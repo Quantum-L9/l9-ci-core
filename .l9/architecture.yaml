@@ -53,9 +53,12 @@ owned_by_core:
   - execution-profile mapping
   - provider enablement and requiredness
   - immutable SDK provisioning
+  - hash-locked wheel-only SDK runtime closures
+  - verified SDK dependency-manifest bytes
   - exact CI tool-version selection
   - consumer metadata validation
   - artifact routing and retention
+  - artifact transport handoff descriptors and verified retrieval
   - technical gate enforcement
   - GitHub check publication
   - workflow summaries and annotations
@@ -119,4 +122,7 @@ prohibited_architecture:
   - consumer-owned Core revision selection for organization CI
   - Core parsing provider-native scanner reports
   - Core reconstructing canonical findings
+  - Core installing an SDK checkout dependency manifest
+  - Core acquiring an unpinned YAML parser before compatibility selection
+  - Core composite actions nesting remote Core action references
   - SDK owning GitHub workflow permissions or organization rollout

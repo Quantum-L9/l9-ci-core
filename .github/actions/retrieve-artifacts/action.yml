@@ -1,26 +1,41 @@
 name: Retrieve verified artifact set
 description: >
-  Downloads one exact GitHub Actions artifact by name, verifies the complete
-  relocatable Core integrity index, and exposes safe routes without reading
-  SDK-owned finding-bundle, agent-payload, or SARIF semantics.
+  Downloads one current-run artifact by exact name or one descriptor-bound
+  cross-run artifact by immutable ID, verifies the complete relocatable Core
+  integrity index, and exposes safe routes without reading SDK-owned semantics.
 inputs:
   artifact-name:
-    description: Exact immutable artifact name produced by Core.
-    required: true
+    description: Exact current-run artifact name; mutually exclusive with handoff-descriptor.
+    required: false
+    default: ""
+  handoff-descriptor:
+    description: Canonical l9.core-artifact-handoff/v1 JSON for cross-run retrieval.
+    required: false
+    default: ""
+  token:
+    description: Token with actions read access to the descriptor's producer repository.
+    required: false
+    default: ""
   matrix-id:
-    required: true
+    description: Expected matrix identity in current-run exact-name mode.
+    required: false
+    default: ""
   provider:
+    description: Expected provider identity in current-run exact-name mode.
     required: false
     default: semgrep
   repository:
-    description: Expected owner/name identity of the analyzed repository.
-    required: true
+    description: Expected subject repository in current-run exact-name mode.
+    required: false
+    default: ""
   repository-revision:
-    description: Expected full immutable revision of the analyzed repository.
-    required: true
+    description: Expected subject revision in current-run exact-name mode.
+    required: false
+    default: ""
   sdk-revision:
-    description: Expected full immutable SDK revision recorded by Core.
-    required: true
+    description: Expected SDK revision in current-run exact-name mode.
+    required: false
+    default: ""
   destination:
     description: Empty destination directory for the downloaded artifact set.
     required: false
@@ -34,6 +49,8 @@ outputs:
     value: ${{ steps.verify.outputs.bundle }}
   agent-payload:
     value: ${{ steps.verify.outputs.agent-payload }}
+  gate-result:
+    value: ${{ steps.verify.outputs.gate-result }}
   raw-directory:
     value: ${{ steps.verify.outputs.raw-directory }}
   routing-record:
@@ -43,27 +60,58 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Validate empty retrieval destination
+    - id: prepare
+      name: Select retrieval mode and validate destination
       shell: bash
       env:
         L9_DESTINATION: ${{ inputs.destination }}
+        L9_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        L9_HANDOFF_DESCRIPTOR: ${{ inputs.handoff-descriptor }}
+        L9_TOKEN: ${{ inputs.token }}
+        L9_MATRIX_ID: ${{ inputs.matrix-id }}
+        L9_PROVIDER: ${{ inputs.provider }}
+        L9_REPOSITORY: ${{ inputs.repository }}
+        L9_REPOSITORY_REVISION: ${{ inputs.repository-revision }}
+        L9_SDK_REVISION: ${{ inputs.sdk-revision }}
       run: |
         set -euo pipefail
         python3 "${{ github.action_path }}/prepare.py"
-    - name: Download exact analysis artifact
+    - name: Verify descriptor artifact on GitHub
+      if: steps.prepare.outputs.mode == 'descriptor'
+      shell: bash
+      env:
+        L9_TOKEN: ${{ inputs.token }}
+        L9_SOURCE_REPOSITORY: ${{ steps.prepare.outputs.source-repository }}
+        L9_SOURCE_RUN_ID: ${{ steps.prepare.outputs.source-run-id }}
+        L9_ARTIFACT_ID: ${{ steps.prepare.outputs.artifact-id }}
+        L9_ARTIFACT_NAME: ${{ steps.prepare.outputs.artifact-name }}
+        L9_ARCHIVE_DIGEST: ${{ steps.prepare.outputs.archive-digest }}
+        L9_REPOSITORY_REVISION: ${{ steps.prepare.outputs.repository-revision }}
+      run: python3 "${{ github.action_path }}/verify_server.py"
+    - name: Download exact current-run analysis artifact
+      if: steps.prepare.outputs.mode == 'current-run'
       uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
       with:
-        name: ${{ inputs.artifact-name }}
+        name: ${{ steps.prepare.outputs.artifact-name }}
+        path: ${{ inputs.destination }}
+    - name: Download descriptor artifact by immutable ID
+      if: steps.prepare.outputs.mode == 'descriptor'
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        artifact-ids: ${{ steps.prepare.outputs.artifact-id }}
+        github-token: ${{ inputs.token }}
+        repository: ${{ steps.prepare.outputs.source-repository }}
+        run-id: ${{ steps.prepare.outputs.source-run-id }}
         path: ${{ inputs.destination }}
     - id: verify
       name: Verify complete artifact integrity index
       shell: bash
       env:
         L9_ARTIFACT_ROOT: ${{ inputs.destination }}
-        L9_ARTIFACT_NAME: ${{ inputs.artifact-name }}
-        L9_MATRIX_ID: ${{ inputs.matrix-id }}
-        L9_PROVIDER: ${{ inputs.provider }}
-        L9_REPOSITORY: ${{ inputs.repository }}
-        L9_REPOSITORY_REVISION: ${{ inputs.repository-revision }}
-        L9_SDK_REVISION: ${{ inputs.sdk-revision }}
+        L9_ARTIFACT_NAME: ${{ steps.prepare.outputs.artifact-name }}
+        L9_MATRIX_ID: ${{ steps.prepare.outputs.matrix-id }}
+        L9_PROVIDER: ${{ steps.prepare.outputs.provider }}
+        L9_REPOSITORY: ${{ steps.prepare.outputs.repository }}
+        L9_REPOSITORY_REVISION: ${{ steps.prepare.outputs.repository-revision }}
+        L9_SDK_REVISION: ${{ steps.prepare.outputs.sdk-revision }}
       run: python3 "${{ github.action_path }}/retrieve.py"

@@ -114,6 +114,9 @@ on:
       artifact-name:
         description: Uploaded analysis artifact set name.
         value: ${{ jobs.analyze.outputs.artifact-name }}
+      artifact-handoff:
+        description: Canonical cross-run artifact handoff descriptor JSON.
+        value: ${{ jobs.analyze.outputs.artifact-handoff }}
       gate-status:
         description: SDK technical gate result (pass, fail, incomplete).
         value: ${{ jobs.analyze.outputs.gate-status }}
@@ -169,6 +172,7 @@ jobs:
       enabled: ${{ steps.gov.outputs.enabled }}
       governance-digest: ${{ steps.gov.outputs['governance-digest'] }}
       artifact-name: ${{ steps.names.outputs['artifact-name'] }}
+      artifact-handoff: ${{ steps.handoff.outputs.descriptor }}
       sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
       gate-status: ${{ steps.gate.outputs['gate-status'] }}
       language: ${{ steps.language.outputs.language }}
@@ -301,19 +305,18 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@59cb364615ccd44d824bec6b71d49d2f93e465c9
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
           event-name: ${{ steps.runtime.outputs['event-class'] }}
           repository: ${{ github.repository }}
           ref: ${{ github.ref }}
-          governance-root: "@core-defaults"
 
       - name: Validate consumer waiver pointers
         env:
@@ -342,7 +345,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -391,7 +394,7 @@ jobs:
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -409,7 +412,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -450,7 +453,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -461,7 +464,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -473,7 +476,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -495,7 +498,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -510,7 +513,8 @@ jobs:
           routing-record: ${{ steps.route.outputs['routing-record'] }}
           output: artifacts/metadata/${{ steps.runtime.outputs['matrix-id'] }}/artifact-index.json
 
-      - name: Upload analysis artifact set
+      - id: upload
+        name: Upload analysis artifact set
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -521,6 +525,22 @@ jobs:
             artifacts/metadata/${{ steps.runtime.outputs['matrix-id'] }}/
           if-no-files-found: error
           retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
+
+      - id: handoff
+        name: Create artifact handoff descriptor
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        with:
+          artifact-id: ${{ steps.upload.outputs.artifact-id }}
+          artifact-name: ${{ steps.names.outputs['artifact-name'] }}
+          artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+          provider: semgrep
+          matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
+          repository: ${{ github.repository }}
+          repository-revision: ${{ github.sha }}
+          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+          output: .l9/runtime/handoffs/${{ steps.runtime.outputs['matrix-id'] }}.json
 
       - name: Write central CI summary
         if: always()

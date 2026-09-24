@@ -24,7 +24,15 @@ The kernels are **contract-superset, language-aware shims**. Each one declares e
 Two deliberate deviations from the v0.1.0 behavior follow from Core's v2 invariants, which are enforced by self-CI on every push:
 
 1. **Least-privilege write.** Core forbids workflow-level write on these kernels (`tests/workflows/test_workflow_permissions.py`). Scorecard therefore does not publish to the code-scanning feed (`publish_results: false`, artifact output instead), and `release-publish.yml` validates and stages artifacts rather than publishing to PyPI/npm. Unattended publication belongs in a repo-owned workflow using trusted publishing. `nightly.yml` is the audited exception: its analyze job grants `checks: write` so the nested `analyze-semgrep.yml` publication can emit a GitHub check. Findings stay advisory on the nightly profile and are not a required merge check.
-2. **Everything is SHA-pinned.** All external actions and nested Core workflows are pinned to full 40-character commit SHAs (`tests/architecture/test_external_action_pins.py`), and the gitleaks CLI is a version-pinned, checksum-verified binary rather than the gitleaks-action (which requires a license key on organization repositories).
+2. **Everything is SHA-pinned.** All remote actions and nested Core workflows are pinned to full 40-character commit SHAs. `tools/check_workflow_integrity.py` recursively checks both workflow and composite-action YAML, and rejects nested remote Core action edges inside composites. The gitleaks CLI is a version-pinned, checksum-verified binary rather than the gitleaks-action (which requires a license key on organization repositories).
+
+SDK provisioning applies the same trust rule to Python dependencies. Core parses
+its compatibility manifest without acquiring a YAML package, verifies the exact
+`requirements.txt` bytes at the selected SDK checkout, and installs a
+Core-owned, platform-specific wheel closure with required hashes. It never
+installs the checkout requirements file. See
+`.github/actions/provision-sdk/lock_runtime.py` and
+`docs/repository-execution-runtime.md` for regeneration and two-commit activation.
 
 The kernels never fail because a language toolchain is absent: each gate runs only when it applies to the repository, and inapplicable gates emit a `::notice` and pass. PR/push Semgrep stays on `analyze-semgrep.yml` via the v2 presets (`presets/*/.github/workflows/l9-analysis.yml`). Nightly deep analysis (`ci_deep`, advisory) is no longer a second product: it is the `nightly.yml` kernel at `profile: nightly`.
 

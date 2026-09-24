@@ -123,6 +123,34 @@ claims:
       - tests/provisioning
     status: VALIDATED
 
+  - id: sdk-runtime-closure-locked
+    statement: >-
+      Compatibility policy is parsed without network-acquired dependencies.
+      Every allowlisted SDK revision binds the exact checkout requirements.txt
+      bytes to a Core-owned CPython/Linux wheel closure installed with
+      --require-hashes and --only-binary; the checkout manifest is verified but
+      never installed. SDK commands re-enter the action-owned venv in isolated
+      Python mode, with the verified source registered inside that venv rather
+      than inherited from the caller's working directory or PYTHONPATH.
+    evidence:
+      - .l9/sdk-compatibility.yaml
+      - .github/actions/provision-sdk
+      - tests/provisioning
+    status: VALIDATED
+
+  - id: core-composite-actions-are-local-leaf-adapters
+    statement: >-
+      Core scans workflow and composite-action YAML recursively, requires every
+      remote uses edge to carry a full lowercase commit SHA, and forbids a Core
+      composite action from nesting another remote Core action. validate-bundle
+      invokes only the supplied SDK executable through its bundled leaf adapter.
+    evidence:
+      - .github/actions/validate-bundle
+      - tools/check_workflow_integrity.py
+      - tests/tools/test_check_workflow_integrity.py
+      - tests/invocation/test_validate_bundle.py
+    status: VALIDATED
+
   - id: required-workflow-read-only
     statement: >-
       The pull_request required-workflow path holds contents:read only. Its

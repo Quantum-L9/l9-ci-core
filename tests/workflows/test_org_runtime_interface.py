@@ -85,7 +85,7 @@ class OrgRuntimeInterfaceTests(unittest.TestCase):
         entries = {path.name for path in DEFAULTS_ROOT.iterdir() if path.is_file()}
         self.assertEqual(expected, entries)
         text = workflow_text()
-        self.assertIn('governance-root: "@core-defaults"', text)
+        self.assertNotIn("governance-root", text)
         self.assertNotIn(".github/org-governance-defaults", text)
 
     def test_consumer_metadata_claim_matches_schema_and_workflow(self) -> None:

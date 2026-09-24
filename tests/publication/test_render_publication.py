@@ -16,13 +16,40 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
+def gate_document(status: str, *, reasons: list[str] | None = None) -> dict:
+    blocking = ["f-1"] if status == "fail" else []
+    unresolved = ["f-2"] if status == "incomplete" else []
+    return {
+        "schema": "l9.gate-result/v1",
+        "schema_version": "1.0.0",
+        "status": status,
+        "blocking_finding_ids": blocking,
+        "unresolved_finding_ids": unresolved,
+        "fatal_provider_ids": [],
+        "incomplete_provider_ids": [],
+        "reasons": reasons or [],
+        "summary": {
+            "blocking_count": len(blocking),
+            "unresolved_count": len(unresolved),
+            "fatal_provider_count": 0,
+            "incomplete_provider_count": 0,
+        },
+    }
+
+
 class RenderPublicationTests(unittest.TestCase):
     def environment(
-        self, workspace: Path, payload: Path, output: Path, **overrides: str
+        self,
+        workspace: Path,
+        payload: Path,
+        gate: Path,
+        output: Path,
+        **overrides: str,
     ) -> dict[str, str]:
         values = {
             "GITHUB_WORKSPACE": str(workspace),
             "L9_AGENT_PAYLOAD": str(payload),
+            "L9_GATE_RESULT": str(gate),
             "L9_PROFILE": "pr_fast",
             "L9_MODE": "blocking",
             "L9_PROVIDER": "semgrep",
@@ -37,10 +64,11 @@ class RenderPublicationTests(unittest.TestCase):
         values.update(overrides)
         return values
 
-    def test_sdk_projection_is_consumed_without_finding_parsing(self) -> None:
+    def render(self, status: str, *, mode: str = "blocking") -> dict:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             payload = workspace / "agent-review-payload.json"
+            gate = workspace / "gate-result.json"
             output = workspace / "publication.json"
             payload.write_text(
                 json.dumps(
@@ -60,21 +88,73 @@ class RenderPublicationTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            gate.write_text(
+                json.dumps(gate_document(status, reasons=["canonical reason"])),
+                encoding="utf-8",
+            )
             with patch.dict(
-                os.environ, self.environment(workspace, payload, output), clear=True
+                os.environ,
+                self.environment(
+                    workspace,
+                    payload,
+                    gate,
+                    output,
+                    L9_MODE=mode,
+                ),
+                clear=True,
             ):
                 result = module.main()
             self.assertEqual(0, result)
-            publication = json.loads(output.read_text(encoding="utf-8"))
-            self.assertEqual("l9.core-publication/v1", publication["schema"])
-            self.assertEqual("success", publication["conclusion"])
-            self.assertEqual(1, len(publication["output"]["annotations"]))
+            return json.loads(output.read_text(encoding="utf-8"))
 
-    def test_advisory_failure_is_neutral(self) -> None:
-        self.assertEqual("neutral", module.workflow_conclusion("advisory", "failure"))
+    def test_pass_is_success(self) -> None:
+        publication = self.render("pass")
+        self.assertEqual("success", publication["conclusion"])
+        self.assertEqual("pass", publication["metadata"]["gate_status"])
 
-    def test_blocking_failure_is_failure(self) -> None:
-        self.assertEqual("failure", module.workflow_conclusion("blocking", "failure"))
+    def test_blocking_gate_fail_is_failure(self) -> None:
+        publication = self.render("fail", mode="blocking")
+        self.assertEqual("failure", publication["conclusion"])
+        self.assertIn("canonical reason", publication["output"]["summary"])
+
+    def test_advisory_gate_fail_is_neutral(self) -> None:
+        publication = self.render("fail", mode="advisory")
+        self.assertEqual("neutral", publication["conclusion"])
+
+    def test_incomplete_and_invalid_block_in_blocking_mode(self) -> None:
+        self.assertEqual("failure", self.render("incomplete")["conclusion"])
+        self.assertEqual("failure", self.render("invalid")["conclusion"])
+
+    def test_infrastructure_failure_dominates(self) -> None:
+        self.assertEqual(
+            "failure",
+            module.publication_conclusion("blocking", "failure", "pass"),
+        )
+        self.assertEqual(
+            "neutral",
+            module.publication_conclusion("advisory", "failure", "pass"),
+        )
+
+    def test_malformed_gate_result_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            payload = workspace / "payload.json"
+            gate = workspace / "gate.json"
+            output = workspace / "out.json"
+            payload.write_text("{}\n", encoding="utf-8")
+            gate.write_text('{"status":"pass"}\n', encoding="utf-8")
+            with patch.dict(
+                os.environ,
+                self.environment(workspace, payload, gate, output),
+                clear=True,
+            ):
+                self.assertEqual(2, module.main())
+
+    def test_summary_mismatch_fails_closed(self) -> None:
+        document = gate_document("fail")
+        document["summary"]["blocking_count"] = 0
+        with self.assertRaises(module.PublicationError):
+            module.validate_gate_result(document)
 
     def test_annotations_are_bounded(self) -> None:
         annotations = [

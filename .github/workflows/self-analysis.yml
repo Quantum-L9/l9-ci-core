@@ -1,7 +1,8 @@
-# Self-only dogfood caller for the Core analysis kernel.
-# Triggers on PRs/pushes to this repository and invokes analyze-semgrep.yml
-# (workflow_call) so Core runs the same SDK-owned semgrep → gate → publish
-# path offered to consumers. Not a reusable consumer surface.
+# Self-only dogfood caller for the Core analysis and publication capabilities.
+# The analysis job is artifact-only and contents-read. A distinct trusted job
+# elects check publication after evidence is ready, including when a deliberate
+# post-upload blocking gate failure made the analysis job fail. Fork PRs never
+# receive the write-scoped job, and pull_request_target is deliberately absent.
 name: Core self analysis
 on:
   pull_request:
@@ -19,20 +20,40 @@ jobs:
     name: Analyze (semgrep)
     uses: ./.github/workflows/analyze-semgrep.yml
     permissions:
-      actions: read
-      checks: write
       contents: read
-      security-events: write
     with:
-      # The profile must admit the event, or `resolve-governance` aborts with
-      # "event <e> is not allowed for profile <p>". `pr_fast` declares only
-      # `pull_request`, so a hardcoded value failed every push to main and
-      # every manual dispatch. The mapping mirrors org-ci.yml's own resolver
-      # so the dogfood caller and the organization surface agree on which
-      # profile a given event runs under.
+      # The profile must admit the event. The mapping mirrors org-ci.yml so the
+      # dogfood caller and organization surface use the same analysis semantics.
       profile: >-
         ${{ github.event_name == 'push' && 'merge'
          || github.event_name == 'workflow_dispatch' && 'nightly'
          || 'pr_fast' }}
       matrix-id: self-semgrep
       language: python
+
+  publish-check:
+    name: Publish terminal analysis check
+    needs: analyze
+    if: >-
+      always()
+      && needs.analyze.outputs.evidence-ready == 'true'
+      && needs.analyze.outputs.enabled == 'true'
+      && needs.analyze.outputs.language != 'none'
+      && (github.event_name != 'pull_request'
+          || github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/publish-analysis.yml
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+    with:
+      artifact-handoff: ${{ needs.analyze.outputs.artifact-handoff }}
+      profile: ${{ needs.analyze.outputs.profile }}
+      mode: ${{ needs.analyze.outputs.mode }}
+      provider: semgrep
+      matrix-id: self-semgrep
+      sdk-revision: ${{ needs.analyze.outputs.sdk-revision }}
+      governance-digest: ${{ needs.analyze.outputs.governance-digest }}
+      repository-revision: ${{ github.sha }}
+      workflow-result: ${{ needs.analyze.result }}
+      publish-check: true

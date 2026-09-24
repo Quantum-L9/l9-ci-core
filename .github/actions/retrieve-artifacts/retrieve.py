@@ -22,6 +22,7 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 REQUIRED_ROUTES = {
     "agent_review_payload",
     "finding_bundle",
+    "gate_result",
     "raw_directory",
     "routing_record",
 }
@@ -289,6 +290,7 @@ def main() -> int:
         expected_routes = {
             "agent_review_payload": f"l9/{matrix_id}/agent-review-payload.json",
             "finding_bundle": f"l9/{matrix_id}/finding-bundle.json",
+            "gate_result": f"l9/{matrix_id}/gate-result.json",
             "raw_directory": f"raw/{expected_provider}/{matrix_id}",
             "routing_record": f"metadata/{matrix_id}/routing-record.json",
             "sarif": f"l9/{matrix_id}/results.sarif",
@@ -316,6 +318,7 @@ def main() -> int:
         emit("index", index_path.relative_to(workspace()).as_posix())
         emit("bundle", resolved["finding_bundle"])
         emit("agent-payload", resolved["agent_review_payload"])
+        emit("gate-result", resolved["gate_result"])
         emit("raw-directory", resolved["raw_directory"])
         emit("routing-record", resolved["routing_record"])
         emit("sarif", resolved.get("sarif", ""))

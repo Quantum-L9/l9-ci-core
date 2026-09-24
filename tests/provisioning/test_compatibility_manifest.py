@@ -6,6 +6,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".l9" / "sdk-compatibility.yaml"
+LOCKS = ROOT / ".github" / "actions" / "provision-sdk" / "locks"
 # l9-ci-sdk 2.0.0 at the promoted revision — the analysis-contract surface Core adopts
 # (derived l9.repository-metadata / l9.sdk-validation observations, org-managed CI).
 EXPECTED_SHA = "bc678190582694f6efee08b6b7ea39be7e09bd5c"
@@ -26,11 +27,11 @@ class CompatibilityManifestTests(unittest.TestCase):
         self.assertIn(f"revision: {EXPECTED_SHA}", text)
         self.assertIn("l9.integration-contract/v1", text)
 
-    def test_default_revision_is_sdk_v1(self) -> None:
+    def test_default_revision_is_the_promoted_sdk(self) -> None:
         data = self._load()
         self.assertEqual(data["default"]["revision"], EXPECTED_SHA)
 
-    def test_v1_is_first_supported_entry(self) -> None:
+    def test_promoted_sdk_is_first_supported_entry(self) -> None:
         data = self._load()
         revisions = [entry["revision"] for entry in data["supported"]]
         self.assertEqual(revisions[0], EXPECTED_SHA)
@@ -41,7 +42,7 @@ class CompatibilityManifestTests(unittest.TestCase):
         text = MANIFEST.read_text(encoding="utf-8")
         self.assertNotIn(REMOVED_SHA, text)
 
-    def test_v1_entry_declares_the_full_cli_surface(self) -> None:
+    def test_promoted_entry_declares_the_full_cli_surface(self) -> None:
         data = self._load()
         entry = next(
             item for item in data["supported"] if item["revision"] == EXPECTED_SHA
@@ -60,7 +61,10 @@ class CompatibilityManifestTests(unittest.TestCase):
         text = MANIFEST.read_text(encoding="utf-8")
         required = (
             "arbitrary_install_commands_allowed: false",
-            "dependency_manifest_install_allowed: true",
+            "dependency_manifest_install_allowed: false",
+            "checkout_requirements_digest_required: true",
+            "core_runtime_lock_required: true",
+            "wheel_only_runtime_allowed: true",
             "floating_git_references_allowed: false",
             "short_git_revisions_allowed: false",
             "branches_allowed: false",
@@ -72,6 +76,18 @@ class CompatibilityManifestTests(unittest.TestCase):
         for statement in required:
             with self.subTest(statement=statement):
                 self.assertIn(statement, text)
+
+    def test_every_revision_binds_requirements_bytes_and_a_shipped_lock(self) -> None:
+        data = self._load()
+        for entry in data["supported"]:
+            with self.subTest(revision=entry["revision"]):
+                self.assertRegex(entry["requirements_sha256"], r"^[0-9a-f]{64}$")
+                self.assertEqual(
+                    ["cpython-3.12.14-linux-x86_64.txt"],
+                    entry["runtime_locks"],
+                )
+                for name in entry["runtime_locks"]:
+                    self.assertTrue((LOCKS / name).is_file())
 
 
 if __name__ == "__main__":

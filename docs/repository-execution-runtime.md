@@ -163,3 +163,46 @@ make agent-check
 Regenerate `MANIFEST.sha256` for all changed tracked files. The manifest check
 is never an acceptance bypass; `L9_MANIFEST_CHECK=0` is limited to salvage or
 bisect work on a knowingly drifted tree.
+
+## SDK trust bootstrap and runtime closure
+
+`provision-sdk` reads `.l9/sdk-compatibility.yaml` with a bounded standard-library
+parser. It does not install PyYAML, or any other package, before Core has selected
+an allowlisted full SDK revision. Each supported entry records the SHA-256 of the
+selected checkout's `requirements.txt` and one or more Core-owned platform lock
+names. Provisioning verifies those checkout bytes, but **never installs that
+file**. It creates the action-owned runtime and installs only the selected lock
+with pip's `--require-hashes --only-binary :all:` controls.
+
+The generated `l9-ci` launcher re-enters the action-owned venv in Python isolated
+mode (`-I`). It does not trust the caller's current directory, `PYTHONPATH`, user
+site, or Python environment variables. The verified SDK checkout is exposed by a
+data-only `.pth` file inside that venv, so a consumer repository containing its
+own `l9_ci/` package cannot shadow the selected immutable SDK. The launcher still
+inherits `PATH`; that is intentional because Core's separately hash-locked
+Semgrep executable must remain the provider selected by `l9-ci semgrep run`.
+
+The current platform contract is CPython 3.12.14 on Linux x86_64. The composite
+action selects that interpreter by a full-SHA `actions/setup-python` edge before
+the Python adapter runs. The complete closure is
+`.github/actions/provision-sdk/locks/cpython-3.12.14-linux-x86_64.txt`.
+Regenerate it deliberately with the Core-owned operator tool:
+
+```bash
+python3 .github/actions/provision-sdk/lock_runtime.py \
+  --revision <allowlisted-full-sdk-sha>
+```
+
+The generator fetches the exact SDK requirements bytes, resolves only wheels for
+the declared platform, verifies the selected wheel bytes against PyPI metadata,
+and reports the requirements digest to copy into the compatibility entry. A
+promotion is two-commit activation: first land the lock, digest binding, and
+tests; only a successor commit may change workflow pins to select the new
+primitive. The first commit must therefore be inert for already pinned callers.
+
+`tools/check_workflow_integrity.py` recursively scans both
+`.github/workflows/**/*.{yml,yaml}` and `.github/actions/**/*.{yml,yaml}`. Every
+remote `uses:` edge must be a full lowercase 40-character SHA. Composite actions
+must be local leaf adapters and may not nest a remote
+`Quantum-L9/l9-ci-core/.github/actions/...` edge; `validate-bundle` is the model
+and invokes the verified SDK executable directly through its bundled adapter.

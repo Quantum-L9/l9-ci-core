@@ -12,6 +12,9 @@ supported:
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: bc678190582694f6efee08b6b7ea39be7e09bd5c
     integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
     artifact_protocols:
       - l9.finding-bundle/v1
       - l9.agent-review-payload/v1
@@ -33,6 +36,9 @@ supported:
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: 4ceb240935b595ca719fc72dcaa83ea227e31957
     integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
     artifact_protocols:
       - l9.finding-bundle/v1
       - l9.agent-review-payload/v1
@@ -54,6 +60,9 @@ supported:
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: 7d7762eae5e1a12fdc66276975e2949891762a20
     integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
     artifact_protocols:
       - l9.finding-bundle/v1
       - l9.agent-review-payload/v1
@@ -75,6 +84,9 @@ supported:
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: 0efd762d1617a1c8635005d0611b1cf6f2303987
     integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
     artifact_protocols:
       - l9.finding-bundle/v1
       - l9.agent-review-payload/v1
@@ -96,6 +108,9 @@ supported:
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: b1a491414ed04bb18d665f8a8755de80947c8200
     integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
     artifact_protocols:
       - l9.finding-bundle/v1
       - l9.agent-review-payload/v1
@@ -117,6 +132,9 @@ supported:
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: f546f122d33601ea5a4b2592e3482c5c39eddd82
     integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
     artifact_protocols:
       - l9.finding-bundle/v1
       - l9.agent-review-payload/v1
@@ -136,6 +154,9 @@ supported:
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: 0c487747b0fcd172edaefe9e843dac818de8fc12
     integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
     artifact_protocols:
       - l9.finding-bundle/v1
       - l9.agent-review-payload/v1
@@ -153,7 +174,10 @@ supported:
       - baseline validate-ledger
 policy:
   arbitrary_install_commands_allowed: false
-  dependency_manifest_install_allowed: true
+  dependency_manifest_install_allowed: false
+  checkout_requirements_digest_required: true
+  core_runtime_lock_required: true
+  wheel_only_runtime_allowed: true
   floating_git_references_allowed: false
   short_git_revisions_allowed: false
   branches_allowed: false

@@ -166,6 +166,14 @@ Assurance decides, Core publishes/enforces the authoritative decision.
 SDK revisions must be full 40-character commit SHAs. Floating refs, branches,
 tags, short SHAs, and unlisted revisions are refused.
 
+Compatibility selection has no ambient package bootstrap. `provision-sdk` parses
+the bounded compatibility manifest with the Python standard library, verifies
+the selected checkout's `requirements.txt` digest, and installs only a
+Core-owned, platform-specific wheel closure with `--require-hashes` and
+`--only-binary :all:`. Never install the SDK checkout requirements file. Generate
+locks with `.github/actions/provision-sdk/lock_runtime.py`; land lock and manifest
+support before a successor commit activates new workflow pins.
+
 The active Core path requires these SDK capabilities, including:
 
 - `providers detect`
@@ -206,6 +214,10 @@ Therefore:
   be produced by Core itself.
 - Consumer-relative paths must remain inside `GITHUB_WORKSPACE`.
 - External actions are SHA-pinned.
+- The integrity checker scans workflow and composite-action `.yml` and `.yaml`
+  recursively; every remote `uses:` edge is a full lowercase commit SHA.
+- Composite actions are local leaf adapters and may not nest a remote
+  `Quantum-L9/l9-ci-core` action edge.
 - Never use floating `@main` references.
 
 ## 9. Publication and failure semantics

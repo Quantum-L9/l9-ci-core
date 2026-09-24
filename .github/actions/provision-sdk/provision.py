@@ -2,7 +2,10 @@
 """Provision and verify the immutable l9-ci-sdk Phase 1 dependency."""
 
 from __future__ import annotations
+
+import hashlib
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -25,31 +28,126 @@ FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 COMPATIBILITY_MANIFEST = (
     Path(__file__).resolve().parents[3] / ".l9" / "sdk-compatibility.yaml"
 )
+RUNTIME_LOCKS = Path(__file__).resolve().parent / "locks"
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+LOCK_REQUIREMENTS_SHA256 = re.compile(r"^# \(sha256:([0-9a-f]{64})\) ")
 
 
 class ProvisioningError(RuntimeError):
     pass
 
 
-def _load_yaml_module():
-    # provision.py runs on the runner's system python3, before any venv exists,
-    # so PyYAML may be absent; install it on demand rather than failing.
-    try:
-        import yaml
-    except ModuleNotFoundError:
-        run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "--quiet",
-                "--disable-pip-version-check",
-                "pyyaml",
-            ]
+def _scalar(value: str, *, line_number: int) -> str | bool:
+    """Parse the deliberately small scalar subset used by the Core manifest.
+
+    Provisioning starts before the isolated runtime exists, so compatibility
+    policy must be readable with the Python standard library alone. Supporting
+    only plain/quoted strings and booleans also makes unsupported YAML features
+    fail closed instead of acquiring an ambient parser from the network.
+    """
+    value = value.strip()
+    if not value:
+        raise ProvisioningError(
+            f"empty scalar in compatibility manifest line {line_number}"
         )
-        import yaml
-    return yaml
+    if value in {"true", "false"}:
+        return value == "true"
+    if value[0] in {'"', "'"}:
+        if len(value) < 2 or value[-1] != value[0]:
+            raise ProvisioningError(
+                f"unterminated quoted scalar in compatibility manifest line {line_number}"
+            )
+        return value[1:-1]
+    if any(token in value for token in ("{", "}", "[", "]", "&", "*", "!")):
+        raise ProvisioningError(
+            f"unsupported YAML scalar in compatibility manifest line {line_number}"
+        )
+    return value
+
+
+def _key_value(content: str, *, line_number: int) -> tuple[str, str]:
+    key, separator, value = content.partition(":")
+    if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", key):
+        raise ProvisioningError(
+            f"invalid compatibility manifest mapping in line {line_number}"
+        )
+    return key, value.strip()
+
+
+def _parse_manifest(text: str) -> dict:
+    """Parse the fixed compatibility-manifest shape without third-party code."""
+    document: dict = {}
+    section: str | None = None
+    current_entry: dict | None = None
+    current_list: list[str] | None = None
+    seen_lines = 0
+    for line_number, raw in enumerate(text.splitlines(), start=1):
+        line = raw.split("#", 1)[0].rstrip()
+        if not line.strip() or line.strip() == "---":
+            continue
+        seen_lines += 1
+        if "\t" in line:
+            raise ProvisioningError(
+                f"tabs are forbidden in compatibility manifest line {line_number}"
+            )
+        indent = len(line) - len(line.lstrip(" "))
+        content = line[indent:]
+        if indent == 0:
+            key, value = _key_value(content, line_number=line_number)
+            current_entry = None
+            current_list = None
+            if value:
+                document[key] = _scalar(value, line_number=line_number)
+                section = None
+            else:
+                if key == "supported":
+                    document[key] = []
+                else:
+                    document[key] = {}
+                section = key
+            continue
+        if section in {"metadata", "default", "policy"} and indent == 2:
+            key, value = _key_value(content, line_number=line_number)
+            mapping = document[section]
+            if key in mapping:
+                raise ProvisioningError(f"duplicate compatibility manifest key {key!r}")
+            mapping[key] = _scalar(value, line_number=line_number)
+            continue
+        if section == "supported" and indent == 2 and content.startswith("- "):
+            key, value = _key_value(content[2:], line_number=line_number)
+            current_entry = {key: _scalar(value, line_number=line_number)}
+            document[section].append(current_entry)
+            current_list = None
+            continue
+        if section == "supported" and indent == 4 and current_entry is not None:
+            key, value = _key_value(content, line_number=line_number)
+            if key in current_entry:
+                raise ProvisioningError(f"duplicate SDK compatibility key {key!r}")
+            if value:
+                current_entry[key] = _scalar(value, line_number=line_number)
+                current_list = None
+            else:
+                current_list = []
+                current_entry[key] = current_list
+            continue
+        if section == "supported" and indent == 6 and content.startswith("- "):
+            if current_list is None:
+                raise ProvisioningError(
+                    f"orphan compatibility list item in line {line_number}"
+                )
+            item = _scalar(content[2:], line_number=line_number)
+            if not isinstance(item, str):
+                raise ProvisioningError(
+                    f"compatibility list item must be a string in line {line_number}"
+                )
+            current_list.append(item)
+            continue
+        raise ProvisioningError(
+            f"unsupported compatibility manifest structure in line {line_number}"
+        )
+    if not seen_lines:
+        raise ProvisioningError("SDK compatibility manifest is empty")
+    return document
 
 
 def _load_manifest(manifest_path: Path) -> dict:
@@ -59,13 +157,14 @@ def _load_manifest(manifest_path: Path) -> dict:
         raise ProvisioningError(
             f"SDK compatibility manifest not found: {manifest_path}"
         )
-    yaml = _load_yaml_module()
     try:
-        data = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as error:
+        data = _parse_manifest(manifest_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError as error:
         raise ProvisioningError(
-            f"SDK compatibility manifest is not valid YAML: {error}"
+            f"SDK compatibility manifest is not UTF-8: {error}"
         ) from error
+    if data.get("schema") != "l9.sdk-compatibility/v1":
+        raise ProvisioningError("unexpected SDK compatibility manifest schema")
     return data
 
 
@@ -143,6 +242,26 @@ def select_manifest_entry(
     ):
         raise ProvisioningError(
             f"compatibility entry for {revision!r} omits required_cli_paths"
+        )
+    requirements_sha256 = entry.get("requirements_sha256")
+    if not isinstance(requirements_sha256, str) or not SHA256.fullmatch(
+        requirements_sha256
+    ):
+        raise ProvisioningError(
+            f"compatibility entry for {revision!r} omits requirements_sha256"
+        )
+    runtime_locks = entry.get("runtime_locks")
+    if (
+        not isinstance(runtime_locks, list)
+        or not runtime_locks
+        or not all(
+            isinstance(lock, str)
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*\.txt", lock)
+            for lock in runtime_locks
+        )
+    ):
+        raise ProvisioningError(
+            f"compatibility entry for {revision!r} omits runtime_locks"
         )
     return entry
 
@@ -237,23 +356,28 @@ def verify_contract_file(checkout: Path, entry: dict) -> None:
     contract = checkout / ".l9" / "integration-contract.yaml"
     if not contract.is_file():
         raise ProvisioningError("SDK is missing .l9/integration-contract.yaml")
-    yaml = _load_yaml_module()
-    try:
-        data = yaml.safe_load(contract.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as error:
-        raise ProvisioningError(
-            f"SDK integration-contract.yaml is not valid YAML: {error}"
-        ) from error
     expected_contract = entry["integration_contract"].strip()
-    declared = data.get("schema")
+    declared: str | None = None
+    executable: str | None = None
+    in_cli = False
+    for raw in contract.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].rstrip()
+        if not line.strip() or line.strip() == "---":
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        content = line.strip()
+        if indent == 0 and content.startswith("schema:"):
+            declared = content.partition(":")[2].strip()
+        elif indent == 0:
+            in_cli = content == "CLI:"
+        elif in_cli and indent == 2 and content.startswith("executable:"):
+            executable = content.partition(":")[2].strip()
     if declared != expected_contract:
         raise ProvisioningError(
             "SDK integration contract schema "
             f"{declared!r} does not match the compatibility entry "
             f"{expected_contract!r}"
         )
-    cli = data.get("CLI")
-    executable = cli.get("executable") if isinstance(cli, dict) else None
     if executable != "l9-ci":
         raise ProvisioningError(
             f"SDK integration contract declares executable {executable!r}, "
@@ -261,39 +385,137 @@ def verify_contract_file(checkout: Path, entry: dict) -> None:
         )
 
 
-def create_runtime(checkout: Path, runtime: Path) -> Path:
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_requirements_file(checkout: Path, expected_sha256: str) -> None:
+    """Bind the selected checkout's dependency declaration to Core policy."""
+    requirements = checkout / "requirements.txt"
+    if not requirements.is_file():
+        raise ProvisioningError("SDK is missing requirements.txt")
+    actual = sha256_file(requirements)
+    if actual != expected_sha256:
+        raise ProvisioningError(
+            "SDK requirements.txt digest "
+            f"{actual!r} does not match the compatibility entry {expected_sha256!r}"
+        )
+
+
+def runtime_platform() -> str:
+    implementation = sys.implementation.name
+    python = ".".join(str(part) for part in sys.version_info[:3])
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if (implementation, python, system, machine) != (
+        "cpython",
+        "3.12.14",
+        "linux",
+        "x86_64",
+    ):
+        raise ProvisioningError(
+            "unsupported SDK runtime platform: "
+            f"{implementation}-{python}-{system}-{machine}; "
+            "Core ships a wheel lock only for cpython-3.12.14-linux-x86_64"
+        )
+    return "cpython-3.12.14-linux-x86_64"
+
+
+def select_runtime_lock(entry: dict, lock_root: Path = RUNTIME_LOCKS) -> Path:
+    name = f"{runtime_platform()}.txt"
+    if name not in entry["runtime_locks"]:
+        raise ProvisioningError(
+            f"compatibility entry does not permit runtime lock {name!r}"
+        )
+    path = lock_root / name
+    if not path.is_file() or path.is_symlink():
+        raise ProvisioningError(f"SDK runtime lock not found: {path}")
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError) as error:
+        raise ProvisioningError(f"SDK runtime lock is unreadable: {path}") from error
+    digests = [
+        match.group(1)
+        for line in lines
+        if (match := LOCK_REQUIREMENTS_SHA256.match(line)) is not None
+    ]
+    if digests != [entry["requirements_sha256"]]:
+        raise ProvisioningError(
+            "SDK runtime lock requirements digest does not match the "
+            "compatibility entry"
+        )
+    return path
+
+
+def install_runtime_dependencies(venv_python: Path, lock: Path) -> None:
+    """Install the complete dependency closure without executing source builds."""
+    run(
+        [
+            str(venv_python),
+            "-m",
+            "pip",
+            "install",
+            "--quiet",
+            "--disable-pip-version-check",
+            "--only-binary",
+            ":all:",
+            "--require-hashes",
+            "-r",
+            str(lock),
+        ]
+    )
+
+
+def register_sdk_source(venv: Path, checkout: Path) -> None:
+    """Expose only the verified checkout through the isolated venv.
+
+    The launcher uses Python isolated mode, which intentionally ignores
+    ``PYTHONPATH`` and the caller's current directory. A data-only ``.pth`` file
+    inside the action-owned venv is therefore the sole source-code edge.
+    """
+    source = str(checkout.resolve())
+    if "\n" in source or "\r" in source:
+        raise ProvisioningError("SDK checkout path must not contain line breaks")
+    if os.name == "nt":
+        site_packages = venv / "Lib" / "site-packages"
+    else:
+        version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+        site_packages = venv / "lib" / version / "site-packages"
+    try:
+        site_packages.mkdir(parents=True, exist_ok=True)
+        (site_packages / "l9-ci-sdk-source.pth").write_text(
+            f"{source}\n", encoding="utf-8"
+        )
+    except OSError as error:
+        raise ProvisioningError(
+            f"could not register the verified SDK source in the runtime: {error}"
+        ) from error
+
+
+def create_runtime(checkout: Path, runtime: Path, lock: Path) -> Path:
     venv = runtime / "venv"
     run([sys.executable, "-m", "venv", str(venv)])
     venv_python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    # SDK runs from source via PYTHONPATH and ships no build; install its
-    # committed, pinned dependency manifest into the isolated venv or
-    # `python -m l9_ci` fails at import (ModuleNotFoundError: yaml).
-    requirements = checkout / "requirements.txt"
-    if requirements.is_file():
-        run(
-            [
-                str(venv_python),
-                "-m",
-                "pip",
-                "install",
-                "--quiet",
-                "--disable-pip-version-check",
-                "-r",
-                str(requirements),
-            ]
-        )
+    install_runtime_dependencies(venv_python, lock)
+    register_sdk_source(venv, checkout)
     # Core installs provider executables separately. Do not install or prioritize
     # an SDK-local Semgrep: the generated shim inherits the caller's PATH so
     # `l9-ci semgrep run` resolves the one hash-locked provider selected by Core.
-    # The venv remains an isolated home for SDK import-time dependencies only.
+    # Isolated mode ignores the caller's current directory, PYTHONPATH, user site,
+    # and Python environment variables while retaining the venv's trusted .pth.
     if os.name == "nt":
         scripts = venv / "Scripts"
         python = scripts / "python.exe"
         executable = runtime / "l9-ci.cmd"
         executable.write_text(
             "@echo off\r\n"
-            f'set "PYTHONPATH={checkout};%PYTHONPATH%"\r\n'
-            f'"{python}" -m l9_ci %*\r\n',
+            'set "PYTHONPATH="\r\n'
+            'set "PYTHONHOME="\r\n'
+            f'"{python}" -I -m l9_ci %*\r\n',
             encoding="utf-8",
         )
     else:
@@ -304,8 +526,8 @@ def create_runtime(checkout: Path, runtime: Path) -> Path:
         executable.write_text(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
-            f'export PYTHONPATH="{checkout}${{PYTHONPATH:+:$PYTHONPATH}}"\n'
-            f'exec "{python}" -m l9_ci "$@"\n',
+            "unset PYTHONPATH PYTHONHOME\n"
+            f'exec "{python}" -I -m l9_ci "$@"\n',
             encoding="utf-8",
         )
         executable.chmod(0o755)
@@ -414,7 +636,9 @@ def main() -> int:
         checkout = runtime / "source"
         checkout_sdk(repository, revision, checkout)
         verify_contract_file(checkout, entry)
-        executable = create_runtime(checkout, runtime)
+        verify_requirements_file(checkout, entry["requirements_sha256"])
+        lock = select_runtime_lock(entry)
+        executable = create_runtime(checkout, runtime, lock)
         probe_cli(executable, required_cli_paths)
         emit_output("executable", str(executable))
         emit_output("sdk-root", str(checkout.resolve()))
