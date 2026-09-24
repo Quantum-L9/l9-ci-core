@@ -55,8 +55,9 @@ FACADE_TARGETS = frozenset(
 RESERVED_GOVERNANCE_TARGETS = frozenset(
     {"pr", "push", "release", "deploy", "start", "workspace-clean", "wiring-check"}
 )
-# A rule definition: not a recipe line, not a variable assignment (`:=`, `::=`).
-_MAKE_RULE = re.compile(r"^(?!\t)([^\s:=#][^:=#]*?)\s*::?(?!=)")
+# A rule definition: not a recipe line, not a variable assignment (`:=`,
+# `::=`). The explicit alternatives stop `::=` backtracking into a `:` rule.
+_MAKE_RULE = re.compile(r"^(?!\t)([^\s:=#][^:=#]*?)\s*(?:::(?!=)|:(?![:=]))")
 
 COMMANDS = (
     "init",
