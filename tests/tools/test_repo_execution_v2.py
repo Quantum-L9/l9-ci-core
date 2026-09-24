@@ -496,12 +496,12 @@ class ArchitectureTripwireTests(unittest.TestCase):
         self.assertEqual(["tools/l9_repo/Makefile.template"], sorted(templates))
 
     def test_no_live_make_plan_or_second_compiler_reference(self) -> None:
+        # Prose may name the superseded model in order to forbid it; code,
+        # configuration, Make fragments, and workflows may not reference it.
         self_path = pathlib.Path(__file__).relative_to(ROOT).as_posix()
         offenders = []
         for relative in self.tracked():
-            if relative in {self_path, "MANIFEST.sha256"} or relative.startswith(
-                "docs/"
-            ):
+            if relative in {self_path, "MANIFEST.sha256"} or relative.endswith(".md"):
                 continue
             path = ROOT / relative
             if not path.is_file() or path.is_symlink():
