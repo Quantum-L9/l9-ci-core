@@ -234,9 +234,7 @@ class VerifierModeTests(unittest.TestCase):
 
     def write_contract(self, root: pathlib.Path, data: object) -> None:
         (root / ".l9").mkdir(parents=True, exist_ok=True)
-        (root / ".l9/repo-workflow.json").write_text(
-            json.dumps(data), encoding="utf-8"
-        )
+        (root / ".l9/repo-workflow.json").write_text(json.dumps(data), encoding="utf-8")
 
     def test_v2_consumer_passes_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -394,9 +392,7 @@ class MigrationPreservationTests(unittest.TestCase):
                 before = (root / ".l9/repo-workflow.json").read_bytes()
                 with self.assertRaises(WorkflowError):
                     RepositoryWorkflow(root).migrate_v1()
-                self.assertEqual(
-                    before, (root / ".l9/repo-workflow.json").read_bytes()
-                )
+                self.assertEqual(before, (root / ".l9/repo-workflow.json").read_bytes())
                 self.assertFalse((root / "Repo.mk").exists())
 
 
@@ -525,9 +521,7 @@ class ArchitectureTripwireTests(unittest.TestCase):
         self.assertNotIn("Repo.local.mk", TEMPLATE.read_text(encoding="utf-8"))
 
     def test_v2_contract_carries_no_commands(self) -> None:
-        data = json.loads(
-            (ROOT / ".l9/repo-workflow.json").read_text(encoding="utf-8")
-        )
+        data = json.loads((ROOT / ".l9/repo-workflow.json").read_text(encoding="utf-8"))
         self.assertEqual(v2_contract(), data)
 
     def test_generated_facade_has_no_product_commands(self) -> None:

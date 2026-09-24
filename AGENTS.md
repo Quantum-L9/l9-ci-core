@@ -256,10 +256,24 @@ explicitly local in [`.l9/core-repo-policy.json`](.l9/core-repo-policy.json),
 not in the portable consumer contract. Its repository implementation remains
 in `Repo.mk`.
 
+`Repo.mk` is repository-owned and hand-maintained: Core never generates it and
+`reconcile` never writes it. It may add repository-specific targets but may
+not redefine a facade verb (`help`, `setup`, `validate`, `check`, `test`,
+`clean`, `doctor`) or a reserved Governance target (`pr`, `push`, `release`,
+`deploy`, `start`, `workspace-clean`, `wiring-check`); `verify-generated`
+rejects either. `tools/l9_repo` is the single compiler authority and
+`tools/l9_repo/Makefile.template` the single facade source. Compiler V2
+(`tools/l9_make`, `l9.make-plan/v1`, generated `Repo.mk`, `Repo.local.mk`) is
+superseded and removed; do not reintroduce a second compiler, a make-plan, or
+a generated `Repo.mk`. `tests/tools/test_repo_execution_v2.py` fails on any of
+them.
+
 The `run-repository-verification` action supports a bounded V1 compatibility
 window. Migration mode reports an absent declaration as typed
 `legacy_not_applicable`; required mode reports
-`missing_repository_contract` and blocks. Switch to required mode only after
+`missing_repository_contract` and blocks. V1 runs only in migration mode (status
+`v1_compat`); required mode rejects a V1 contract without executing it. Switch
+to required mode only after
 the fleet census records zero V1 and zero uncontracted governed repositories;
 delete V1 support only after a later zero-V1 census. See
 `docs/repository-execution-runtime.md` for exact migration steps.

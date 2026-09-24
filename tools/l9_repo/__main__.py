@@ -408,9 +408,7 @@ class RepositoryWorkflow:
                     f"implement repo-{target} instead"
                 )
             if target in RESERVED_GOVERNANCE_TARGETS:
-                _fail(
-                    f"Repo.mk:{number} defines reserved Governance target {target!r}"
-                )
+                _fail(f"Repo.mk:{number} defines reserved Governance target {target!r}")
 
     def validate(self) -> None:
         self._ensure_repository_root()

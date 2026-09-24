@@ -54,6 +54,15 @@ facade contains no language-specific commands and no publication commands.
 `clean` and `doctor` remain optional developer-facing facade verbs. They are
 not part of the authoritative four-phase CI sequence.
 
+`Repo.mk` is repository-owned and hand-maintained. Core never generates it and
+`reconcile` never writes it. It may define any repository-specific target
+(Core's own defines `lint`, `status`, `change-policy`, and others), but it may
+not redefine a facade verb (`help`, `setup`, `validate`, `check`, `test`,
+`clean`, `doctor`) or a reserved Governance target (`pr`, `push`, `release`,
+`deploy`, `start`, `workspace-clean`, `wiring-check`); `verify-generated`
+rejects either and names the line. A facade verb is implemented through its
+`repo-*` leaf, never by replacing the verb.
+
 ## Core-owned tooling
 
 The pinned Core package provides the following operations. The command may be
@@ -81,13 +90,21 @@ phases in the required order. Repository commands run in the untrusted
 consumer checkout with the existing read-only central-CI posture; the action
 does not grant secrets, write credentials, or organization authority.
 
-During migration, the action supports a bounded dual-read mode:
+During migration, the action supports a bounded dual-read mode. V1 is
+migration-only: required mode never executes it.
 
-| Contract state | Migration mode result | Required mode result |
+| Contract state | Migration mode | Required mode |
 | --- | --- | --- |
-| V2 | Validate, verify facade, execute ABI | Validate, verify facade, execute ABI |
-| V1 | Temporary compatibility execution | Temporary compatibility execution until V1 support is retired |
-| Absent | `legacy_not_applicable` typed result | `missing_repository_contract` blocking contract failure |
+| V2 | Validate, verify facade, execute ABI → `V2_PASS` / `pass` | Same |
+| V1 | Bounded compatibility execution → `V1_COMPAT` / `v1_compat` | Rejected without execution → `CONTRACT_INVALID` / `contract_failure` |
+| Absent | `CONTRACT_MISSING` / `legacy_not_applicable` (tolerated) | `CONTRACT_MISSING` / `missing_repository_contract` (blocking) |
+| Malformed, drifted facade, or broken `Repo.mk` | `CONTRACT_INVALID` / `contract_failure` | Same |
+| A phase runs and fails | `TECHNICAL_FAILURE` / `technical_failure` | Same |
+
+The action's `result` output carries the typed state; `status` is what the
+organization gate enforces. `org-ci.yml` accepts `pass`, `v1_compat`, and
+`legacy_not_applicable` only in migration mode, and only `pass` in required
+mode.
 
 The organization workflow uses migration mode until the fleet gate is
 satisfied. The explicit trigger for switching to required mode is: **every
@@ -115,6 +132,18 @@ drift fails and names the remediation command.
 Migration never overwrites an existing `Repo.mk`. If a repository already has
 implementation leaves, the tool preserves them and converts only the portable
 declaration and generated facade.
+
+## Superseded: Compiler V2 (#186)
+
+Compiler V2 (`tools/l9_make`, `l9.make-plan/v1`, a Core-generated `Repo.mk`
+plus an optional `Repo.local.mk`) was merged before this contract and is
+superseded by it. Deterministic rendering and drift detection already existed
+here; its Make target parser and protected-target rule now live in
+`tools/l9_repo` as the `Repo.mk` boundary check, and its `lint` capability
+survives as a repository-specific target in Core's `Repo.mk`. `tools/l9_make`,
+the make-plan schema and default plan, and `Repo.local.mk` are removed; no
+make-plan is a live or migration input. `tools/l9_repo` is the single compiler
+authority and `tools/l9_repo/Makefile.template` the single facade source.
 
 ## Core self-hosting and validation
 
