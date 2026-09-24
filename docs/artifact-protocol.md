@@ -130,6 +130,10 @@ The workflow head SHA is `producer.head_sha`, the revision GitHub stores as
 `workflow_run.head_sha`. On `pull_request` that is the pull request head, and
 it is independent of `subject.revision`, which remains the analyzed tree.
 Only then does it invoke the pinned downloader by immutable artifact ID.
+The downloader extracts an artifact-ID download into
+`<destination>/<artifact name>/` rather than into the destination itself, so
+descriptor mode verifies that subdirectory as the artifact root; current-run
+mode verifies the destination directly.
 After download, it runs the exact same complete index, tree, identity, digest,
 and route verification used by current-run mode before exposing outputs.
 

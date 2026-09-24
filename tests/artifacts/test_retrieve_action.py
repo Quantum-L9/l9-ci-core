@@ -60,6 +60,14 @@ class RetrieveActionTests(unittest.TestCase):
         ):
             self.assertIn(f"steps.prepare.outputs.{output}", block)
 
+    def test_verification_reads_the_mode_specific_artifact_root(self) -> None:
+        text = ACTION.read_text(encoding="utf-8")
+        verify = text[text.index("name: Verify complete artifact integrity index") :]
+        self.assertIn(
+            "L9_ARTIFACT_ROOT: ${{ steps.prepare.outputs.artifact-root }}", verify
+        )
+        self.assertNotIn("L9_ARTIFACT_ROOT: ${{ inputs.destination }}", verify)
+
     def test_modes_are_mutually_exclusive_without_caller_source_fields(self) -> None:
         text = ACTION.read_text(encoding="utf-8")
         self.assertIn("handoff-descriptor:", text)

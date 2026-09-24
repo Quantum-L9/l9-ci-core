@@ -241,6 +241,15 @@ def main() -> int:
             resolved.relative_to(workspace)
         except ValueError as error:
             raise PreparationError("destination escapes GITHUB_WORKSPACE") from error
+        # actions/download-artifact extracts an `artifact-ids` download into
+        # <path>/<artifact name>/ but a `name` download into <path> itself, so
+        # descriptor mode verifies the artifact subdirectory. The artifact name
+        # is already validated as a single safe path component.
+        outputs["artifact-root"] = (
+            os.path.join(value, outputs["artifact-name"])
+            if outputs["mode"] == "descriptor"
+            else value
+        )
         for name, output in outputs.items():
             emit(name, output)
         return 0
