@@ -16,6 +16,7 @@ PREPARE_PATH = ROOT / ".github/actions/retrieve-artifacts/prepare.py"
 SERVER_PATH = ROOT / ".github/actions/retrieve-artifacts/verify_server.py"
 REVISION = "1" * 40
 SDK_REVISION = "2" * 40
+HEAD_SHA = "6" * 40
 ARCHIVE_DIGEST = "3" * 64
 ARTIFACT_NAME = "l9-semgrep-python-3.12-123-1"
 
@@ -36,7 +37,11 @@ server = load("verify_artifact_server", SERVER_PATH)
 def document() -> dict[str, object]:
     return {
         "schema": "l9.core-artifact-handoff/v1",
-        "producer": {"repository": "Quantum-L9/example", "run_id": 123},
+        "producer": {
+            "repository": "Quantum-L9/example",
+            "run_id": 123,
+            "head_sha": HEAD_SHA,
+        },
         "artifact": {
             "id": 456,
             "name": ARTIFACT_NAME,
@@ -78,6 +83,7 @@ class ArtifactHandoffProducerTests(unittest.TestCase):
             "L9_SDK_REVISION": SDK_REVISION,
             "L9_PRODUCER_REPOSITORY": "Quantum-L9/example",
             "L9_PRODUCER_RUN_ID": "123",
+            "L9_WORKFLOW_HEAD_SHA": HEAD_SHA,
             "L9_HANDOFF_OUTPUT": ".l9/runtime/handoffs/python-3.12.json",
         }
 
@@ -111,6 +117,7 @@ class ArtifactHandoffProducerTests(unittest.TestCase):
             "malformed digest": ("L9_ARTIFACT_DIGEST", "sha256:nope"),
             "malformed repository": ("L9_REPOSITORY", "not-a-repository"),
             "malformed revision": ("L9_REPOSITORY_REVISION", "main"),
+            "malformed workflow head": ("L9_WORKFLOW_HEAD_SHA", "main"),
             "unsafe destination": ("L9_HANDOFF_OUTPUT", "../handoff.json"),
             "noncanonical destination": ("L9_HANDOFF_OUTPUT", "a//handoff.json"),
         }
@@ -217,6 +224,7 @@ class ArtifactHandoffPreparationTests(unittest.TestCase):
             self.assertEqual("python-3.12", outputs["matrix-id"])
             self.assertEqual("semgrep", outputs["provider"])
             self.assertEqual(REVISION, outputs["repository-revision"])
+            self.assertEqual(HEAD_SHA, outputs["workflow-head-sha"])
             self.assertEqual(SDK_REVISION, outputs["sdk-revision"])
 
             environment["L9_DESTINATION"] = "download-two"
@@ -267,6 +275,7 @@ class ArtifactHandoffServerTests(unittest.TestCase):
             "L9_ARCHIVE_DIGEST": ARCHIVE_DIGEST,
             "L9_SOURCE_RUN_ID": "123",
             "L9_REPOSITORY_REVISION": REVISION,
+            "L9_WORKFLOW_HEAD_SHA": HEAD_SHA,
         }
 
     def metadata(self) -> dict[str, object]:
@@ -283,10 +292,11 @@ class ArtifactHandoffServerTests(unittest.TestCase):
             "updated_at": "2026-09-20T00:01:00Z",
             "expires_at": "2026-10-20T00:00:00Z",
             "digest": f"sha256:{ARCHIVE_DIGEST}",
-            "workflow_run": {"id": 123, "head_sha": REVISION},
+            "workflow_run": {"id": 123, "head_sha": HEAD_SHA},
         }
 
     def test_server_metadata_verifies_identity_lifecycle_and_digest(self) -> None:
+        """Workflow head may differ from the analyzed subject revision."""
         endpoint = (
             "https://api.github.com/repos/Quantum-L9/example/actions/artifacts/456"
         )

@@ -61,7 +61,11 @@ class ArtifactProtocolTests(unittest.TestCase):
         jsonschema.Draft202012Validator.check_schema(schema)
         descriptor = {
             "schema": "l9.core-artifact-handoff/v1",
-            "producer": {"repository": "Quantum-L9/example", "run_id": 123},
+            "producer": {
+                "repository": "Quantum-L9/example",
+                "run_id": 123,
+                "head_sha": "6" * 40,
+            },
             "artifact": {
                 "id": 456,
                 "name": "l9-semgrep-python-3.12-123-1",

@@ -94,7 +94,11 @@ def parse_descriptor(value: str) -> dict[str, str]:
     artifact = document["artifact"]
     subject = document["subject"]
     sdk = document["sdk"]
-    if not isinstance(producer, dict) or set(producer) != {"repository", "run_id"}:
+    if not isinstance(producer, dict) or set(producer) != {
+        "repository",
+        "run_id",
+        "head_sha",
+    }:
         raise PreparationError("descriptor producer has an invalid shape")
     if not isinstance(artifact, dict) or set(artifact) != {
         "id",
@@ -132,6 +136,9 @@ def parse_descriptor(value: str) -> dict[str, str]:
         "source-run-id": str(
             descriptor_id(producer["run_id"], field="producer.run_id")
         ),
+        "workflow-head-sha": descriptor_string(
+            producer["head_sha"], field="producer.head_sha", pattern=FULL_SHA
+        ),
         "repository": descriptor_string(
             subject["repository"], field="subject.repository", pattern=REPOSITORY
         ),
@@ -167,6 +174,7 @@ def mode_outputs() -> dict[str, str]:
         "archive-digest": "",
         "source-repository": "",
         "source-run-id": "",
+        "workflow-head-sha": "",
         "repository": checked("L9_REPOSITORY", REPOSITORY),
         "repository-revision": checked("L9_REPOSITORY_REVISION", FULL_SHA),
         "provider": checked("L9_PROVIDER", SAFE_COMPONENT),

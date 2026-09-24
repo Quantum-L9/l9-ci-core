@@ -32,9 +32,11 @@ class Phase2WorkflowTests(unittest.TestCase):
         markers = [
             "Normalize provider report",
             "Validate canonical bundle",
+            "Evaluate gate",
             "Project agent-review payload",
             "Route artifacts",
             "Revalidate routed canonical bundle",
+            "Stage gate result",
             "Build artifact manifest",
             "Upload Phase 2 artifact set",
             "Create artifact handoff descriptor",

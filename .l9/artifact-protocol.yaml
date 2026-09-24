@@ -76,6 +76,7 @@ handoff_descriptor:
     producer:
       - repository
       - workflow run id
+      - workflow head sha
     immutable_artifact:
       - artifact id
       - exact name

@@ -135,7 +135,7 @@ def verify_metadata(
     run_id = int(checked("L9_SOURCE_RUN_ID", POSITIVE_ID))
     artifact_name = checked("L9_ARTIFACT_NAME", SAFE_ARTIFACT_NAME)
     expected_digest = checked("L9_ARCHIVE_DIGEST", SHA256)
-    subject_revision = checked("L9_REPOSITORY_REVISION", FULL_SHA)
+    workflow_head_sha = checked("L9_WORKFLOW_HEAD_SHA", FULL_SHA)
 
     server_id = document.get("id")
     if isinstance(server_id, bool) or not isinstance(server_id, int):
@@ -174,7 +174,7 @@ def verify_metadata(
         raise ServerVerificationError(
             "artifact metadata workflow run does not match descriptor"
         )
-    if workflow_run.get("head_sha") != subject_revision:
+    if workflow_run.get("head_sha") != workflow_head_sha:
         raise ServerVerificationError(
             "artifact metadata workflow revision does not match descriptor"
         )

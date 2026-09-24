@@ -129,6 +129,44 @@ jobs:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.names.outputs.bundle }}
           minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
+      - id: gate
+        name: Evaluate gate
+        run: |
+          set -euo pipefail
+          # The SDK is the gate-decision authority. The manifest requires the
+          # canonical gate-result artifact; this step writes that file and
+          # accepts the same 0/1/6 exits analyze-semgrep already records.
+          args=(
+            gate evaluate
+            --bundle "${L9_BUNDLE}"
+            --output "${L9_WORK}/gate-result.json"
+          )
+          if [ "${L9_STRICT:-}" = "true" ]; then
+            args+=(--strict-unresolved)
+          else
+            args+=(--no-strict-unresolved)
+          fi
+          exit_code=0
+          "${L9_EXECUTABLE}" "${args[@]}" || exit_code=$?
+          case "${exit_code}" in
+            0) status="pass" ;;
+            1) status="fail" ;;
+            6) status="incomplete" ;;
+            *)
+              echo "gate evaluate failed with unexpected exit ${exit_code}" >&2
+              exit "${exit_code}"
+              ;;
+          esac
+          {
+            echo "gate-status=${status}"
+            echo "gate-exit-code=${exit_code}"
+          } >> "$GITHUB_OUTPUT"
+          echo "SDK gate verdict: ${status} (exit ${exit_code})"
+        env:
+          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          L9_WORK: ${{ steps.names.outputs.work }}
+          L9_BUNDLE: ${{ steps.names.outputs.bundle }}
+          L9_STRICT: ${{ inputs.strict }}
       - name: Project agent-review payload
         uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
@@ -153,6 +191,14 @@ jobs:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.route.outputs.bundle }}
           minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
+      - name: Stage gate result
+        env:
+          L9_WORK: ${{ steps.names.outputs.work }}
+          MATRIX_ID: ${{ inputs.matrix-id }}
+        run: |
+          set -euo pipefail
+          cp "${L9_WORK}/gate-result.json" \
+            "artifacts/l9/${MATRIX_ID}/gate-result.json"
       - name: Build artifact manifest
         uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@59cb364615ccd44d824bec6b71d49d2f93e465c9
         with:
