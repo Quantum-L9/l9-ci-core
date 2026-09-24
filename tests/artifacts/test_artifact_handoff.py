@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import datetime as dt
+import email.message
 import importlib.util
 import json
 import os
 import tempfile
 import unittest
+import urllib.request
+import urllib.response
+from io import BytesIO
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
@@ -350,6 +354,37 @@ class ArtifactHandoffServerTests(unittest.TestCase):
         )
         with self.assertRaises(server.ServerVerificationError):
             server.metadata_url("http://api.github.com", "Quantum-L9/example", "456")
+        with self.assertRaises(server.ServerVerificationError):
+            server.metadata_url("file:///etc/passwd", "Quantum-L9/example", "456")
+
+    def test_fetch_refuses_file_url_and_any_redirect(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            secret = Path(raw) / "secret"
+            secret.write_text("{}", encoding="utf-8")
+            with self.assertRaises(server.ServerVerificationError) as caught:
+                server.fetch_metadata(secret.as_uri(), "token")
+            self.assertIn("HTTPS", str(caught.exception))
+
+        endpoint = (
+            "https://api.github.com/repos/Quantum-L9/example/actions/artifacts/456"
+        )
+        location = "https://evil.example/stolen"
+
+        def redirecting_https(handler: object, req: urllib.request.Request):
+            del handler
+            headers = email.message.Message()
+            headers["Location"] = location
+            headers["Content-Length"] = "0"
+            response = urllib.response.addinfourl(
+                BytesIO(b""), headers, req.full_url, 302
+            )
+            response.msg = headers
+            return response
+
+        with patch.object(urllib.request.HTTPSHandler, "https_open", redirecting_https):
+            with self.assertRaises(server.ServerVerificationError) as caught:
+                server.fetch_metadata(endpoint, "token")
+        self.assertIn("refused a redirect", str(caught.exception))
 
 
 if __name__ == "__main__":
