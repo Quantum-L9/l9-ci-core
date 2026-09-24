@@ -427,7 +427,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@0480d15e908d38b3548ab0b52567452bb390cdaa
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}
@@ -436,6 +436,7 @@ jobs:
           matrix-id: ${{ inputs.matrix-id }}
           repository: ${{ github.repository }}
           repository-revision: ${{ github.sha }}
+          workflow-head-sha: ${{ github.event.pull_request.head.sha || github.sha }}
           sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
           output: .l9/runtime/handoffs/${{ inputs.matrix-id }}.json
       - id: evidence

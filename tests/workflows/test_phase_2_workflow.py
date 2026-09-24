@@ -109,6 +109,10 @@ class Phase2WorkflowTests(unittest.TestCase):
         self.assertIn("repository: ${{ github.repository }}", block)
         self.assertIn("repository-revision: ${{ github.sha }}", block)
         self.assertIn(
+            "workflow-head-sha: ${{ github.event.pull_request.head.sha || github.sha }}",
+            block,
+        )
+        self.assertIn(
             "output: .l9/runtime/handoffs/${{ inputs.matrix-id }}.json", block
         )
         header = text[: text.index("permissions:")]

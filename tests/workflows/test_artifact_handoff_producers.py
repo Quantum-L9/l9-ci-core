@@ -31,6 +31,7 @@ class ArtifactHandoffProducerWorkflowTests(unittest.TestCase):
                     "artifact-digest: ${{ steps.upload.outputs.artifact-digest }}",
                     "repository: ${{ github.repository }}",
                     "repository-revision: ${{ github.sha }}",
+                    "workflow-head-sha: ${{ github.event.pull_request.head.sha || github.sha }}",
                 ):
                     self.assertIn(value, text[handoff:])
                 self.assertIn("artifact-handoff:", text[:upload])
