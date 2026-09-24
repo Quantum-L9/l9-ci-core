@@ -56,7 +56,7 @@ class RetrieveActionTests(unittest.TestCase):
             "artifact-id",
             "artifact-name",
             "archive-digest",
-            "repository-revision",
+            "workflow-head-sha",
         ):
             self.assertIn(f"steps.prepare.outputs.{output}", block)
 
