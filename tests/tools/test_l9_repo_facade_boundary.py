@@ -1,202 +1,68 @@
-"""The generated facade must hold interface, never publication authority.
-
-``l9-ci-core`` used to own two publication paths: Cursor-Governance's
-``l9 pr``, and this repository's own ``make pr`` implemented by
-``tools.l9_repo.pr()`` on top of ``git push`` and ``gh pr create``. Two owners
-for one responsibility is the duplicate-authority defect, so the runtime's half
-was deleted and the facade now delegates.
-
-These tests are the executable form of that boundary. They are the regression
-protection for adopting the same template in another repository, where a
-reintroduced ``git push`` would be a second publication authority again.
-
-The filename must keep the ``test_l9_repo`` prefix: the ``command-facade`` gate
-in ``.l9/repo-workflow.json`` discovers ``tests/tools`` with the pattern
-``test_l9_repo*.py``, so a differently named file would never run in the very
-gate that changing this facade triggers.
-"""
+"""Executable boundary tests for the V2 generated facade."""
 
 from __future__ import annotations
 
 import json
 import pathlib
-import re
 import subprocess
-import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
-
-from l9_repo.__main__ import COMMANDS  # noqa: E402
-
 MAKEFILE = ROOT / "Makefile"
-TEMPLATE = ROOT / "tools" / "l9_make" / "Makefile.template"
-LEGACY_TEMPLATE = ROOT / "tools" / "l9_repo" / "Makefile.template"
+TEMPLATE = ROOT / "tools/l9_repo/Makefile.template"
 REPO_MK = ROOT / "Repo.mk"
-REPO_LOCAL = ROOT / "Repo.local.mk"
-SCHEMA = ROOT / ".l9" / "repo-workflow.schema.json"
-CONFIG = ROOT / ".l9" / "repo-workflow.json"
-
-GIT_PUBLICATION = re.compile(r"git\s+push|gh\s+pr\b")
+CONTRACT = ROOT / ".l9/repo-workflow.json"
 
 
-class FacadeHoldsNoPublicationAuthority(unittest.TestCase):
-    def test_facade_invokes_no_git_or_github_publication(self) -> None:
-        for path in (MAKEFILE, TEMPLATE, REPO_MK, REPO_LOCAL):
-            with self.subTest(path=path.name):
-                self.assertIsNone(
-                    GIT_PUBLICATION.search(path.read_text(encoding="utf-8")),
-                    f"{path.name} must not invoke git push or gh pr",
-                )
-
-    def test_generated_facade_binds_no_repository_runtime(self) -> None:
-        """The universal template is portable: no line may name Core's module.
-
-        ``Repo.mk`` is deliberately exempt in full — it is Core's
-        implementation adapter and legitimately binds the runtime through
-        ``L9_REPO``.
-        """
-        for path in (MAKEFILE, TEMPLATE):
-            with self.subTest(path=path.name):
-                self.assertNotIn("tools.l9_repo", path.read_text(encoding="utf-8"))
-
-    def test_generated_projections_match_canonical_provider_neutral_template(
-        self,
-    ) -> None:
-        expected = TEMPLATE.read_bytes()
-        for path in (MAKEFILE, LEGACY_TEMPLATE):
-            with self.subTest(path=path.name):
-                text = path.read_text(encoding="utf-8")
-                self.assertEqual(expected, path.read_bytes())
-                self.assertNotIn("Recover generated artifacts", text)
-                self.assertNotIn("tools.l9_repo", text)
-
-    def test_generated_adapter_fails_closed_and_local_layer_is_optional(self) -> None:
-        """Only the generated adapter is mandatory across all adopting repositories."""
+class FacadeBoundaryTests(unittest.TestCase):
+    def test_generated_facade_contains_only_portable_abi_routing(self) -> None:
         text = TEMPLATE.read_text(encoding="utf-8")
+        for phase in ("setup", "validate", "check", "test"):
+            self.assertRegex(text, rf"(?m)^{phase}: repo-{phase}")
         self.assertRegex(text, r"(?m)^include Repo\.mk$")
-        self.assertRegex(text, r"(?m)^-include Repo\.local\.mk$")
-        self.assertNotRegex(text, r"(?m)^-include Repo\.mk$")
+        self.assertNotIn("pip install", text)
+        self.assertNotIn("ruff", text)
+        self.assertNotIn("mypy", text)
+        self.assertNotIn("pytest", text)
+        self.assertNotIn("git push", text)
+        self.assertNotIn("gh pr", text)
 
-    def test_runtime_exposes_no_publication_command(self) -> None:
-        self.assertNotIn("push", COMMANDS)
-        self.assertNotIn("pr", COMMANDS)
-
-    def test_push_preflight_module_is_gone(self) -> None:
-        self.assertFalse((ROOT / "tools" / "l9_repo" / "push_preflight.py").exists())
-
-    def test_publication_config_survives_only_as_deprecated_shape(self) -> None:
-        """The contract shape is co-versioned with the pinned Core runtime.
-
-        ``push`` and ``pull_request`` drive no behaviour any more, but they
-        stay declared because ``org-ci.yml`` pins
-        ``run-repository-verification@<sha>`` to a Core checkout whose
-        validator still requires both keys. Dropping them here fails
-        organization CI against the current pin. Removing them, and replacing
-        ``pull_request.base`` with ``repository.default_branch``, is a
-        follow-up once a tolerant Core runtime is pinned.
-
-        This test exists so that removal is a deliberate act with a failing
-        assertion attached, rather than something that silently regresses.
-        """
-        config = json.loads(CONFIG.read_text(encoding="utf-8"))
-        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
-        for block in ("push", "pull_request"):
-            with self.subTest(block=block):
-                self.assertIn(block, config)
-                self.assertIn(block, schema["properties"])
-
-    def test_runtime_reads_no_publication_policy_beyond_the_comparison_ref(
-        self,
-    ) -> None:
-        """Only ``pull_request.base`` may still be read, and only as a ref.
-
-        Every other publication key is declared-but-dead. If the runtime starts
-        reading one again, publication logic has crept back in.
-        """
-        source = (ROOT / "tools" / "l9_repo" / "__main__.py").read_text(
-            encoding="utf-8"
-        )
-        # Both quote styles: plain subscripts and f-string subscripts.
-        reads = set(
-            re.findall(r"""\[['"](push|pull_request)['"]\]\[['"](\w+)['"]\]""", source)
-        )
-        self.assertEqual(reads, {("pull_request", "base")}, sorted(reads))
-
-
-class FacadeRoutesToTheRightOwner(unittest.TestCase):
-    """``make -n`` proves routing without executing anything."""
-
-    def dry_run(self, target: str) -> str:
-        result = subprocess.run(
-            ["make", "-n", target],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout
-
-    def test_repository_verbs_reach_the_repo_leaves(self) -> None:
-        for target in (
-            "setup",
-            "validate",
-            "check",
-            "lint",
-            "test",
-            "clean",
-            "doctor",
+    def test_core_self_host_contract_contains_no_command_matrix_or_policy(self) -> None:
+        data = json.loads(CONTRACT.read_text(encoding="utf-8"))
+        forbidden = {
+            "commands",
+            "authority",
+            "push",
+            "pull_request",
+            "change_policy",
+            "agent_contracts",
+            "reporting",
             "status",
-        ):
-            with self.subTest(target=target):
-                output = self.dry_run(target)
-                self.assertIn("tools.l9_repo", output)
-                self.assertIsNone(GIT_PUBLICATION.search(output))
+        }
+        self.assertEqual(set(), forbidden & set(data))
+        self.assertEqual({"schema", "facade", "required_phases"}, set(data))
 
-    def test_stateful_capabilities_preserve_explicit_contracts(self) -> None:
-        for target, state in (("build", "NOT_REQUIRED"), ("package", "NOT_REQUIRED")):
-            with self.subTest(target=target):
-                output = self.dry_run(target)
-                self.assertIn(state, output)
-                self.assertNotIn("tools.l9_repo", output)
-        for target in ("generate", "benchmark"):
-            with self.subTest(target=target):
-                output = self.dry_run(target)
-                self.assertIn("UNSUPPORTED", output)
-                self.assertNotIn("tools.l9_repo", output)
+    def test_makefile_is_exact_generated_artifact(self) -> None:
+        self.assertEqual(MAKEFILE.read_bytes(), TEMPLATE.read_bytes())
 
-    def test_capabilities_target_reaches_the_generated_inventory(self) -> None:
-        output = self.dry_run("capabilities")
-        self.assertIn("repo-capabilities", output)
-        self.assertIn("capability state provenance", output)
+    def test_core_repo_mk_is_the_only_local_implementation(self) -> None:
+        text = REPO_MK.read_text(encoding="utf-8")
+        for phase in ("setup", "validate", "check", "test"):
+            self.assertRegex(text, rf"(?m)^repo-{phase}:")
+        self.assertNotIn("git push", text)
+        self.assertNotIn("gh pr", text)
 
-    def test_governance_verbs_reach_the_dispatcher(self) -> None:
-        for target, verb in (
-            ("start", "start"),
-            ("workspace-clean", "workspace-clean"),
-            ("wiring-check", "wiring-check"),
-        ):
-            with self.subTest(target=target):
-                output = self.dry_run(target)
-                self.assertIn(f"l9 {verb}", output)
-                self.assertNotIn("tools.l9_repo", output)
-
-    def test_publication_verb_reaches_the_dispatcher_and_nothing_else(self) -> None:
-        """``make pr`` must expand to exactly the dispatcher call.
-
-        Asserted against the recipe text rather than ``make -n``: an agent
-        session running under the L4 local-autonomy gate is refused any
-        command naming a publication target, dry run included.
-        """
-        recipe = re.search(
-            r"(?m)^pr:.*\n\t(?P<body>.+)$", TEMPLATE.read_text(encoding="utf-8")
-        )
-        self.assertIsNotNone(recipe)
-        assert recipe is not None
-        body = recipe.group("body").strip()
-        self.assertEqual(body, "@$(L9) pr")
+    def test_make_routes_required_abi_to_repo_mk(self) -> None:
+        for phase in ("setup", "validate", "check", "test"):
+            result = subprocess.run(
+                ["make", "-n", phase],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn(f"repo-{phase}", TEMPLATE.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

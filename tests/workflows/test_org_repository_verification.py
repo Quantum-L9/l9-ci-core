@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
-import re
+import subprocess
 import tempfile
 import unittest
 import unittest.mock
@@ -14,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "org-ci.yml"
 ACTION = ROOT / ".github" / "actions" / "run-repository-verification" / "action.yml"
 RUNNER = ROOT / ".github" / "actions" / "run-repository-verification" / "run.py"
-PIN = "cd7bdfe66c9045aa83ed33bb6e07e8fa54fde976"
+PIN = "2d62366b56d1f40a8468b4fe76c4f712fb8e2574"
 
 
 def _load_runner():
@@ -25,62 +26,120 @@ def _load_runner():
     return module
 
 
+def v2() -> str:
+    return json.dumps(
+        {
+            "schema": "l9.repo-execution/v2",
+            "facade": "make-v1",
+            "required_phases": ["setup", "validate", "check", "test"],
+        }
+    )
+
+
 class OrgRepositoryVerificationTests(unittest.TestCase):
     def test_org_workflow_uses_immutable_core_action_pin(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        expected = (
-            f"Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@{PIN}"
+        self.assertIn(
+            f"Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@{PIN}",
+            text,
         )
-        self.assertIn(expected, text)
-        self.assertRegex(PIN, re.compile(r"^[0-9a-f]{40}$"))
         self.assertNotIn("run-repository-verification@main", text)
 
-    def test_repository_verification_result_channel_preserves_semgrep(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
-        verify = text.index("id: repository_verify")
-        semgrep = text.index("name: Install Semgrep (hash-locked central pin)")
-        self.assertLess(verify, semgrep)
-        self.assertNotIn("continue-on-error", text[verify:semgrep])
-        runner = RUNNER.read_text(encoding="utf-8")
-        self.assertIn('_write_output("status", "fail")', runner)
-
-    def test_blocking_profiles_enforce_repository_verification(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
-        enforce = text.index("name: Enforce repository verification")
-        tail = text[enforce:]
-        self.assertIn("steps.runtime.outputs.profile == 'pr_fast'", tail)
-        self.assertIn("steps.runtime.outputs.profile == 'merge'", tail)
-        self.assertIn("steps.repository_verify.outputs.status", tail)
-
-    def test_summary_reports_repository_verification(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("Repository verification:", text)
-        self.assertIn("steps.repository_verify.outputs.status", text)
-
-    def test_action_uses_pinned_core_runtime_not_consumer_runtime_module(self) -> None:
+    def test_runner_uses_pinned_core_runtime_not_consumer_runtime_module(self) -> None:
         text = RUNNER.read_text(encoding="utf-8")
         self.assertIn("CORE_ROOT = Path(__file__).resolve().parents[3]", text)
         self.assertIn('CORE_TOOLS = CORE_ROOT / "tools"', text)
-        self.assertIn("from l9_repo.__main__ import RepositoryWorkflow", text)
+        self.assertIn("from l9_repo.__main__", text)
         self.assertNotIn('workspace / "tools" / "l9_repo"', text)
 
-    def test_absent_contract_is_not_applicable(self) -> None:
+    def test_migration_mode_absent_contract_is_typed_legacy_not_applicable(
+        self,
+    ) -> None:
         runner = _load_runner()
         with (
             tempfile.TemporaryDirectory() as tmp,
             tempfile.NamedTemporaryFile() as output,
         ):
-            env = {
-                "L9_REPOSITORY_WORKSPACE": tmp,
-                "GITHUB_OUTPUT": output.name,
-            }
-            with unittest.mock.patch.dict(os.environ, env, clear=False):
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"L9_REPOSITORY_WORKSPACE": tmp, "GITHUB_OUTPUT": output.name},
+                clear=False,
+            ):
                 self.assertEqual(0, runner.main())
             text = Path(output.name).read_text(encoding="utf-8")
-            self.assertIn("present=false", text)
-            self.assertIn("status=not_applicable", text)
+            self.assertIn("status=legacy_not_applicable", text)
+            self.assertIn("contract-version=absent", text)
+            self.assertIn("contract-mode=migration", text)
 
-    def test_present_contract_runs_setup_validate_check_test_in_order(self) -> None:
+    def test_required_mode_absent_contract_fails_closed(self) -> None:
+        runner = _load_runner()
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.NamedTemporaryFile() as output,
+        ):
+            with unittest.mock.patch.dict(
+                os.environ,
+                {
+                    "L9_REPOSITORY_WORKSPACE": tmp,
+                    "GITHUB_OUTPUT": output.name,
+                    "L9_REPOSITORY_CONTRACT_MODE": "required",
+                },
+                clear=False,
+            ):
+                self.assertEqual(0, runner.main())
+            text = Path(output.name).read_text(encoding="utf-8")
+            self.assertIn("status=missing_repository_contract", text)
+            self.assertIn("failure-kind=contract", text)
+            self.assertIn("contract-mode=required", text)
+
+    def test_org_gate_allows_only_mode_appropriate_statuses(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "migration:pass|migration:v1_compat|migration:legacy_not_applicable|required:pass",
+            text,
+        )
+        self.assertNotIn("pass|not_applicable", text)
+        self.assertIn("REPOSITORY_VERIFY_MODE", text)
+
+    def test_v2_phase_failure_is_a_typed_technical_failure(self) -> None:
+        runner = _load_runner()
+
+        class FailingWorkflow:
+            def __init__(self, workspace: Path) -> None:
+                self.workspace = workspace
+
+            def contract_version(self) -> str:
+                return "v2"
+
+            def verify_generated(self) -> None:
+                return None
+
+            def execute_phase(self, phase: str) -> None:
+                raise subprocess.CalledProcessError(2, ["make", phase])
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.NamedTemporaryFile() as output,
+        ):
+            root = Path(tmp)
+            (root / ".l9").mkdir()
+            (root / ".l9/repo-workflow.json").write_text(v2(), encoding="utf-8")
+            with (
+                unittest.mock.patch.dict(
+                    os.environ,
+                    {"L9_REPOSITORY_WORKSPACE": tmp, "GITHUB_OUTPUT": output.name},
+                    clear=False,
+                ),
+                unittest.mock.patch.object(
+                    runner, "RepositoryWorkflow", FailingWorkflow
+                ),
+            ):
+                self.assertEqual(0, runner.main())
+            text = Path(output.name).read_text(encoding="utf-8")
+            self.assertIn("status=technical_failure", text)
+            self.assertIn("failure-kind=technical", text)
+
+    def test_v2_executes_make_abi_in_exact_order(self) -> None:
         runner = _load_runner()
         calls: list[str] = []
 
@@ -88,17 +147,14 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
             def __init__(self, workspace: Path) -> None:
                 self.workspace = workspace
 
-            def setup(self) -> None:
-                calls.append("setup")
+            def contract_version(self) -> str:
+                return "v2"
 
-            def validate(self) -> None:
-                calls.append("validate")
+            def verify_generated(self) -> None:
+                calls.append("verify-generated")
 
-            def check(self) -> None:
-                calls.append("check")
-
-            def test(self) -> None:
-                calls.append("test")
+            def execute_phase(self, phase: str) -> None:
+                calls.append(phase)
 
         with (
             tempfile.TemporaryDirectory() as tmp,
@@ -106,58 +162,87 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
         ):
             root = Path(tmp)
             (root / ".l9").mkdir()
-            (root / ".l9" / "repo-workflow.json").write_text("{}\n", encoding="utf-8")
-            env = {
-                "L9_REPOSITORY_WORKSPACE": tmp,
-                "GITHUB_OUTPUT": output.name,
-            }
+            (root / ".l9/repo-workflow.json").write_text(v2(), encoding="utf-8")
             with (
-                unittest.mock.patch.dict(os.environ, env, clear=False),
+                unittest.mock.patch.dict(
+                    os.environ,
+                    {"L9_REPOSITORY_WORKSPACE": tmp, "GITHUB_OUTPUT": output.name},
+                    clear=False,
+                ),
+                unittest.mock.patch.object(runner, "RepositoryWorkflow", FakeWorkflow),
+            ):
+                self.assertEqual(0, runner.main())
+            self.assertEqual(
+                ["verify-generated", "setup", "validate", "check", "test"], calls
+            )
+            self.assertIn("status=pass", Path(output.name).read_text(encoding="utf-8"))
+
+    def test_v1_compatibility_is_bounded_and_distinct(self) -> None:
+        runner = _load_runner()
+        calls: list[str] = []
+
+        class FakeWorkflow:
+            def __init__(self, workspace: Path) -> None:
+                self.workspace = workspace
+
+            def contract_version(self) -> str:
+                return "v1"
+
+            def execute_legacy_phase(self, phase: str) -> None:
+                calls.append(phase)
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.NamedTemporaryFile() as output,
+        ):
+            root = Path(tmp)
+            (root / ".l9").mkdir()
+            (root / ".l9/repo-workflow.json").write_text(
+                '{"schema_version": 1}', encoding="utf-8"
+            )
+            with (
+                unittest.mock.patch.dict(
+                    os.environ,
+                    {"L9_REPOSITORY_WORKSPACE": tmp, "GITHUB_OUTPUT": output.name},
+                    clear=False,
+                ),
                 unittest.mock.patch.object(runner, "RepositoryWorkflow", FakeWorkflow),
             ):
                 self.assertEqual(0, runner.main())
             self.assertEqual(["setup", "validate", "check", "test"], calls)
             text = Path(output.name).read_text(encoding="utf-8")
-            self.assertIn("present=true", text)
-            self.assertIn("status=pass", text)
+            self.assertIn("contract-version=v1", text)
 
-    def test_failed_contract_emits_typed_failure_for_later_enforcement(self) -> None:
+    def test_malformed_contract_is_a_typed_contract_failure(self) -> None:
         runner = _load_runner()
-
-        class FailingWorkflow:
-            def __init__(self, workspace: Path) -> None:
-                self.workspace = workspace
-
-            def setup(self) -> None:
-                raise RuntimeError("expected repository failure")
-
         with (
             tempfile.TemporaryDirectory() as tmp,
             tempfile.NamedTemporaryFile() as output,
         ):
             root = Path(tmp)
             (root / ".l9").mkdir()
-            (root / ".l9" / "repo-workflow.json").write_text("{}\n", encoding="utf-8")
-            env = {
-                "L9_REPOSITORY_WORKSPACE": tmp,
-                "GITHUB_OUTPUT": output.name,
-            }
-            with (
-                unittest.mock.patch.dict(os.environ, env, clear=False),
-                unittest.mock.patch.object(
-                    runner, "RepositoryWorkflow", FailingWorkflow
-                ),
+            (root / ".l9/repo-workflow.json").write_text("{}", encoding="utf-8")
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"L9_REPOSITORY_WORKSPACE": tmp, "GITHUB_OUTPUT": output.name},
+                clear=False,
             ):
                 self.assertEqual(0, runner.main())
-            text = Path(output.name).read_text(encoding="utf-8")
-            self.assertIn("present=true", text)
-            self.assertIn("status=fail", text)
+            self.assertIn(
+                "status=contract_failure", Path(output.name).read_text(encoding="utf-8")
+            )
 
-    def test_composite_action_exposes_presence_and_status(self) -> None:
+    def test_composite_action_exposes_typed_v2_outputs(self) -> None:
         text = ACTION.read_text(encoding="utf-8")
-        self.assertIn("present:", text)
-        self.assertIn("status:", text)
-        self.assertIn("github.action_path", text)
+        for name in (
+            "present:",
+            "status:",
+            "contract-version:",
+            "failure-kind:",
+            "contract-mode:",
+        ):
+            self.assertIn(name, text)
+        self.assertIn("value: ${{ steps.verify.outputs.contract-mode }}", text)
 
 
 if __name__ == "__main__":

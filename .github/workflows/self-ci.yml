@@ -45,8 +45,8 @@ jobs:
           pip install --only-binary :all: -r requirements-ci.txt
           pip install --only-binary :all: -r requirements-repo-runtime.txt
       # Resolve through the interpreter, not PATH, and assert what it resolved
-      # before any gate runs — the same contract `.l9/repo-workflow.json`
-      # applies to `make check`. Installing the pins is not the same as
+      # before any gate runs — Core's Repo.mk implementation of the V2 Make ABI
+      # uses the same resolution path for `make check`. Installing the pins is not the same as
       # executing them: a tool earlier on PATH decides which code runs, and a
       # nearby ruff minor passes cleanly while checking a different file set.
       - name: toolchain conformance
