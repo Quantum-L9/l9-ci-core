@@ -95,7 +95,8 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
     def test_org_gate_allows_only_mode_appropriate_statuses(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn(
-            "migration:pass|migration:legacy_not_applicable|required:pass", text
+            "migration:pass|migration:v1_compat|migration:legacy_not_applicable|required:pass",
+            text,
         )
         self.assertNotIn("pass|not_applicable", text)
         self.assertIn("REPOSITORY_VERIFY_MODE", text)

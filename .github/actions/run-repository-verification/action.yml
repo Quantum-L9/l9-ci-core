@@ -7,10 +7,15 @@ inputs:
     required: false
     default: .
   contract-mode:
-    description: migration permits absent contracts; required fails them closed
+    description: >
+      migration tolerates an absent contract and runs a valid V1 contract
+      through the bounded compatibility path; required accepts only V2
     required: false
     default: migration
 outputs:
+  result:
+    description: V2_PASS, V1_COMPAT, CONTRACT_MISSING, CONTRACT_INVALID, or TECHNICAL_FAILURE
+    value: ${{ steps.verify.outputs.result }}
   present:
     value: ${{ steps.verify.outputs.present }}
   status:

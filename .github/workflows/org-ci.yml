@@ -555,7 +555,7 @@ jobs:
         run: |
           set -euo pipefail
           case "${REPOSITORY_VERIFY_MODE}:${REPOSITORY_VERIFY_STATUS}" in
-            migration:pass|migration:legacy_not_applicable|required:pass) ;;
+            migration:pass|migration:v1_compat|migration:legacy_not_applicable|required:pass) ;;
             *)
               echo "Blocking profile: repository verification did not pass for contract mode ${REPOSITORY_VERIFY_MODE:-unavailable} (${REPOSITORY_VERIFY_STATUS:-unavailable})" >&2
               exit 1

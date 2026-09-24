@@ -44,6 +44,20 @@ MANIFEST_CHECK_ENV = "L9_MANIFEST_CHECK"
 _INFRASTRUCTURE_EXIT_CODE = 2
 _ALLOWED_LEGACY_EXECUTABLES = frozenset({"ruff", "mypy", "uv"})
 
+# Targets the generated facade owns. Repo.mk implements the repo-* leaves the
+# facade routes to; redefining a facade verb would let a repository replace the
+# organization ABI instead of implementing it.
+FACADE_TARGETS = frozenset(
+    {"help", "setup", "validate", "check", "test", "clean", "doctor"}
+)
+# Governance verbs route only to the `l9` dispatcher. No repository layer may
+# own publication or release semantics.
+RESERVED_GOVERNANCE_TARGETS = frozenset(
+    {"pr", "push", "release", "deploy", "start", "workspace-clean", "wiring-check"}
+)
+# A rule definition: not a recipe line, not a variable assignment (`:=`, `::=`).
+_MAKE_RULE = re.compile(r"^(?!\t)([^\s:=#][^:=#]*?)\s*::?(?!=)")
+
 COMMANDS = (
     "init",
     "reconcile",
@@ -250,6 +264,26 @@ def _legacy_to_repo_mk(data: Mapping[str, object]) -> str:
     return "\n".join(lines)
 
 
+def make_target_declarations(text: str) -> list[tuple[int, str]]:
+    """Return ``(line, target)`` for every explicit rule in a Make fragment.
+
+    Special targets (``.PHONY`` and friends) are not repository targets and are
+    skipped.
+    """
+
+    declarations: list[tuple[int, str]] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        match = _MAKE_RULE.match(line)
+        if not match:
+            continue
+        declarations.extend(
+            (number, name)
+            for name in match.group(1).split()
+            if not name.startswith(".")
+        )
+    return declarations
+
+
 def _make_quote(value: str) -> str:
     if re.fullmatch(r"[A-Za-z0-9_./:=+@%,-]+", value):
         return value
@@ -359,10 +393,22 @@ class RepositoryWorkflow:
         if path.is_symlink() or not path.is_file():
             _fail("missing repository implementation boundary: Repo.mk")
         text = path.read_text(encoding="utf-8", errors="replace")
+        declarations = make_target_declarations(text)
+        declared = {target for _, target in declarations}
         for phase in PHASES:
-            if not re.search(rf"(?m)^repo-{phase}\s*:", text):
+            if f"repo-{phase}" not in declared:
                 _fail(
                     f"missing required repository implementation target: repo-{phase}"
+                )
+        for number, target in declarations:
+            if target in FACADE_TARGETS:
+                _fail(
+                    f"Repo.mk:{number} defines facade target {target!r}; "
+                    f"implement repo-{target} instead"
+                )
+            if target in RESERVED_GOVERNANCE_TARGETS:
+                _fail(
+                    f"Repo.mk:{number} defines reserved Governance target {target!r}"
                 )
 
     def validate(self) -> None:

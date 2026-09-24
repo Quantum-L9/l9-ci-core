@@ -12,6 +12,7 @@ TEMPLATE = ROOT / "tools/l9_repo/Makefile.template"
 
 ABI = {"setup", "validate", "check", "test"}
 CORE_TARGETS = {
+    "lint",
     "change-policy",
     "agent-check",
     "status",
