@@ -110,8 +110,13 @@ class ResolveGovernanceTests(unittest.TestCase):
             )
 
     def test_digest_is_deterministic(self) -> None:
-        first = module.canonical_digest(self.root)
-        second = module.canonical_digest(self.root)
+        selected_policy = module.select_policy(
+            self.documents,
+            "pr_fast",
+            self.root,
+        )
+        first = module.canonical_digest(self.root, selected_policy)
+        second = module.canonical_digest(self.root, selected_policy)
         self.assertEqual(first, second)
         self.assertEqual(64, len(first))
 

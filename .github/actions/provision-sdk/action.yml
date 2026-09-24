@@ -1,8 +1,9 @@
 name: Provision immutable l9-ci-sdk
 description: >
   Creates an isolated runtime for an explicitly permitted immutable SDK
-  revision and verifies its public CLI contract. Provider executables are
-  installed separately by Core-owned provider actions.
+  revision from a Core-owned wheel lock, verifies its checkout requirements
+  bytes and public CLI contract, and never installs checkout requirements.
+  Provider executables are installed separately by Core-owned provider actions.
 inputs:
   sdk-source:
     description: SDK source type. Phase 1 permits only "git".
@@ -13,7 +14,9 @@ inputs:
     required: false
     default: https://github.com/Quantum-L9/l9-ci-sdk.git
   sdk-revision:
-    description: Full 40-character immutable SDK commit SHA.
+    description: >
+      Full 40-character immutable SDK commit SHA whose checkout requirements
+      digest and runtime platform lock are present in Core's compatibility entry.
     required: false
     default: bc678190582694f6efee08b6b7ea39be7e09bd5c
   runtime-directory:
@@ -38,6 +41,10 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Select locked SDK runtime Python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: "3.12.14"
     - id: provision
       shell: bash
       env:

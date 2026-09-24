@@ -23,7 +23,6 @@ EXPECTED_SCHEMAS = {
 }
 ALLOWED_MODES = {"blocking", "advisory", "shadow", "disabled"}
 ALLOWED_SDK_PROFILES = {"ci_fast", "ci_deep"}
-CORE_DEFAULTS_SENTINEL = "@core-defaults"
 IDENTITY_MAP_FILENAMES = ("python.yaml", "typescript.yaml")
 SDK_POLICY_SCHEMA = "l9.finding-policy/v1"
 
@@ -37,25 +36,6 @@ def required_environment(name: str) -> str:
     if not value:
         raise GovernanceError(f"{name} is required")
     return value
-
-
-def workspace_path(value: str, *, must_exist: bool = True) -> Path:
-    workspace = Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd())).resolve()
-    candidate = Path(value)
-    path = (
-        candidate.resolve()
-        if candidate.is_absolute()
-        else (workspace / candidate).resolve()
-    )
-    try:
-        path.relative_to(workspace)
-    except ValueError as error:
-        raise GovernanceError(
-            "governance path must remain inside GITHUB_WORKSPACE"
-        ) from error
-    if must_exist and not path.exists():
-        raise GovernanceError(f"path does not exist: {path}")
-    return path
 
 
 def workspace_directory(workspace: Path, relative: Path) -> Path:
@@ -93,12 +73,6 @@ def core_identity_maps_path() -> Path:
     if not path.is_dir():
         raise GovernanceError("Core bundled Semgrep identity maps missing")
     return path
-
-
-def governance_path(value: str) -> Path:
-    if value == CORE_DEFAULTS_SENTINEL:
-        return core_defaults_path()
-    return workspace_path(value)
 
 
 def load_documents(root: Path) -> dict[str, Any]:
@@ -259,8 +233,7 @@ def _validated_sdk_policy_bytes(path: Path) -> bytes:
     return payload
 
 
-def _stage_sdk_policy(source: Path, workspace: Path) -> str:
-    payload = _validated_sdk_policy_bytes(source)
+def _stage_sdk_policy(source: Path, payload: bytes, workspace: Path) -> str:
     destination = workspace_directory(
         workspace,
         Path(".l9/runtime/org-governance"),
@@ -294,9 +267,9 @@ def _stage_sdk_policy(source: Path, workspace: Path) -> str:
     return target.relative_to(workspace).as_posix()
 
 
-def resolve_policy(
+def select_policy(
     documents: dict[str, Any], profile_name: str, governance_root: Path
-) -> str:
+) -> tuple[str, bytes] | None:
     profiles = documents["quality-thresholds.yaml"].get("profiles")
     if not isinstance(profiles, dict):
         raise GovernanceError("quality-thresholds profiles must be an object")
@@ -309,14 +282,33 @@ def resolve_policy(
     if not isinstance(policy, str):
         raise GovernanceError("sdk_policy must be a string")
     if not policy:
-        return ""
+        return None
     bundled = _bundled_policy_path(governance_root, policy)
-    _validated_sdk_policy_bytes(bundled)
+    return policy, _validated_sdk_policy_bytes(bundled)
+
+
+def stage_selected_policy(
+    selected_policy: tuple[str, bytes] | None,
+    governance_root: Path,
+) -> str:
+    if selected_policy is None:
+        return ""
+    policy, payload = selected_policy
     workspace_raw = os.environ.get("GITHUB_WORKSPACE", "").strip()
+    source = _bundled_policy_path(governance_root, policy)
     if not workspace_raw:
-        return bundled.resolve().as_posix()
+        return source.resolve().as_posix()
     workspace = Path(workspace_raw).resolve()
-    return _stage_sdk_policy(bundled, workspace)
+    return _stage_sdk_policy(source, payload, workspace)
+
+
+def resolve_policy(
+    documents: dict[str, Any], profile_name: str, governance_root: Path
+) -> str:
+    return stage_selected_policy(
+        select_policy(documents, profile_name, governance_root),
+        governance_root,
+    )
 
 
 def _validate_identity_map(path: Path) -> None:
@@ -453,7 +445,11 @@ def applicable_waivers(
     return sorted(active)
 
 
-def canonical_digest(root: Path, identity_maps_root: Path | None = None) -> str:
+def canonical_digest(
+    root: Path,
+    selected_policy: tuple[str, bytes] | None,
+    identity_maps_root: Path | None = None,
+) -> str:
     digest = hashlib.sha256()
     for filename in sorted(EXPECTED_SCHEMAS):
         path = root / filename
@@ -461,6 +457,14 @@ def canonical_digest(root: Path, identity_maps_root: Path | None = None) -> str:
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
+    digest.update(b"selected-sdk-policy/filename\0")
+    if selected_policy is not None:
+        filename, payload = selected_policy
+        digest.update(filename.encode("utf-8"))
+    digest.update(b"\0selected-sdk-policy/bytes\0")
+    if selected_policy is not None:
+        digest.update(payload)
+    digest.update(b"\0")
     maps_root = identity_maps_root or core_identity_maps_path()
     for filename in IDENTITY_MAP_FILENAMES:
         path = maps_root / filename
@@ -490,12 +494,13 @@ def main() -> int:
         event_name = required_environment("L9_EVENT_NAME")
         repository = required_environment("L9_REPOSITORY")
         ref = required_environment("L9_REF")
-        governance_root = governance_path(required_environment("L9_GOVERNANCE_ROOT"))
+        governance_root = core_defaults_path()
         documents = load_documents(governance_root)
         profile = validate_profile(documents, profile_name, provider, event_name)
         mode = resolve_mode(documents, profile_name, provider, profile["default_mode"])
         required = resolve_requiredness(documents, profile_name, provider)
-        policy = resolve_policy(documents, profile_name, governance_root)
+        selected_policy = select_policy(documents, profile_name, governance_root)
+        policy = stage_selected_policy(selected_policy, governance_root)
         identity_map_directory = stage_identity_maps()
         waivers = applicable_waivers(
             documents,
@@ -516,7 +521,10 @@ def main() -> int:
         emit("sdk-policy", policy)
         emit("identity-map-directory", identity_map_directory)
         emit("waiver-ids", ",".join(waivers))
-        emit("governance-digest", canonical_digest(governance_root))
+        emit(
+            "governance-digest",
+            canonical_digest(governance_root, selected_policy),
+        )
         return 0
     except GovernanceError as error:
         print(f"resolve-governance: {error}", file=sys.stderr)

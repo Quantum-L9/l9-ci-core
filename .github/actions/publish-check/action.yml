@@ -19,6 +19,10 @@ inputs:
   preflight-only:
     required: false
     default: "false"
+  preflight-sarif-only:
+    description: Validate only the optional SDK-projected SARIF envelope locally.
+    required: false
+    default: "false"
 outputs:
   external-id:
     value: ${{ steps.publish.outputs.external-id }}
@@ -41,4 +45,5 @@ runs:
         L9_RUN_ID: ${{ inputs.run-id }}
         L9_MATRIX_ID: ${{ inputs.matrix-id }}
         L9_PREFLIGHT_ONLY: ${{ inputs.preflight-only }}
+        L9_PREFLIGHT_SARIF_ONLY: ${{ inputs.preflight-sarif-only }}
       run: python3 "${{ github.action_path }}/publish.py"

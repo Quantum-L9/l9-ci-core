@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _load_check_file():
+def _load_integrity_module():
     """Load the checker directly from its file so discovery mode
     (``unittest discover --start-directory tests``) works without
     requiring the repository root on ``sys.path``."""
@@ -27,19 +27,27 @@ def _load_check_file():
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.check_file
+    return module
 
 
-check_file = _load_check_file()
+integrity = _load_integrity_module()
 
 
 class WorkflowIntegrityCleanTests(unittest.TestCase):
-    def test_all_core_workflows_are_fail_closed(self) -> None:
-        workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
+    def test_all_core_workflows_and_actions_are_fail_closed(self) -> None:
+        workflows = sorted((ROOT / ".github/workflows").rglob("*.yml")) + sorted(
+            (ROOT / ".github/workflows").rglob("*.yaml")
+        )
+        actions = sorted((ROOT / ".github/actions").rglob("*.yml")) + sorted(
+            (ROOT / ".github/actions").rglob("*.yaml")
+        )
         self.assertTrue(workflows, "no workflows found")
+        self.assertTrue(actions, "no composite actions found")
         violations: list[str] = []
         for workflow in workflows:
-            violations.extend(check_file(workflow))
+            violations.extend(integrity.check_file(workflow))
+        for action in actions:
+            violations.extend(integrity.check_file(action, composite=True))
         self.assertEqual([], violations)
 
     def test_freshness_reports_remain_informational(self) -> None:

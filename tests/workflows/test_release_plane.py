@@ -28,6 +28,9 @@ SDK_COMPAT = ROOT / ".l9" / "sdk-compatibility.yaml"
 REPO_SPEC = ROOT / ".l9" / "repo-spec.yaml"
 ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
 RELEASE_VALIDATION = ROOT / ".github" / "workflows" / "release-validation.yml"
+CONTROL_PLANE_ATTESTATION = (
+    ROOT / ".github" / "workflows" / "control-plane-attestation.yml"
+)
 VALIDATE_RELEASE_ACTION = ROOT / ".github" / "actions" / "validate-release"
 RELEASE_README = ROOT / "docs" / "release" / "README.md"
 OPTIONAL_INTEGRATION_GUIDE = (
@@ -317,6 +320,45 @@ class ReleasePlaneAgreesWithSiblingContractsTests(unittest.TestCase):
         version = str(load(REPO_SPEC)["metadata"]["version"])
         self.assertRegex(
             version, r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"
+        )
+
+    def test_live_attestation_automation_matches_the_workflow(self) -> None:
+        attestation = self.plane["attestation"]["live_control_plane"]
+        automation = attestation["automation"]
+        self.assertEqual(CORE_REPOSITORY, automation["repository"])
+        self.assertEqual("main", automation["branch"])
+        self.assertEqual(
+            ["push", "daily_schedule", "workflow_dispatch"],
+            automation["triggers"],
+        )
+        self.assertEqual("04:17", automation["daily_schedule_utc"])
+
+        workflow = load(CONTROL_PLANE_ATTESTATION)
+        triggers = workflow[True] if True in workflow else workflow["on"]
+        self.assertEqual(["main"], triggers["push"]["branches"])
+        self.assertIn("workflow_dispatch", triggers)
+        self.assertEqual("17 4 * * *", triggers["schedule"][0]["cron"])
+
+    def test_live_attestation_credential_and_evidence_contract(self) -> None:
+        attestation = self.plane["attestation"]["live_control_plane"]
+        self.assertEqual(
+            {
+                "environment": "control-plane-attestation",
+                "secret": "L9_CONTROL_PLANE_TOKEN",
+                "verifier_step_only": True,
+                "github_token_fallback": True,
+                "external_configuration_required": True,
+            },
+            attestation["credentials"],
+        )
+        self.assertEqual(
+            {
+                "format": "json",
+                "upload_when": "always",
+                "retention_days": 30,
+                "local_contract_error_status": "FAIL",
+            },
+            attestation["evidence"],
         )
 
 

@@ -30,6 +30,9 @@ complete relocatable Core integrity index
 immutable exact-name artifact upload
         |
         v
+closed Core handoff descriptor (after upload succeeds)
+        |
+        v
 safe Core retrieval + complete verification
 ```
 
@@ -70,13 +73,41 @@ Because every recorded route and entry is relative to `artifact_root: .`, an
 artifact set may move from `artifacts/` during production to any safe download
 directory without invalidating paths or digests.
 
+## Versioned cross-run handoff
+
+After `actions/upload-artifact` succeeds, actual Phase 2 producers may invoke
+`create-artifact-handoff` to emit canonical `l9.core-artifact-handoff/v1` JSON.
+The descriptor is an **additive Core transport output**. Consumers are not
+required to accept it, and it neither replaces nor weakens the SDK-owned bundle
+and projection formats or the complete Core integrity index inside the uploaded
+artifact.
+
+The schema is closed. It binds the producer repository and workflow run, the
+immutable GitHub artifact ID and exact name, the SHA-256 digest of the uploaded
+archive, the analyzed repository and full revision, provider and matrix
+identifier, and the exact SDK repository, revision, and integration contract.
+It contains no artifact URL and no finding, raw-report, SARIF, bundle, or route
+semantics. Descriptor bytes use UTF-8, lexicographically sorted compact JSON,
+and one trailing LF. The producer rejects malformed identities and missing,
+unsafe, existing, or symlinked destinations rather than overwriting stale state.
+
+The descriptor is created outside the already uploaded artifact tree. Therefore
+it can bind the immutable server-assigned artifact ID and archive digest without
+creating a self-reference or changing the indexed content after upload.
+
 ## Safe routing and retrieval
 
 `route-artifacts` confines sources and destinations to `GITHUB_WORKSPACE`,
 rejects symlinked path components, copies SDK-owned bytes exactly, checks each
 copy's digest, and emits workspace-relative outputs.
 
-`.github/actions/retrieve-artifacts` is the Core retrieval primitive. It:
+`.github/actions/retrieve-artifacts` is the Core retrieval primitive. It has two
+mutually exclusive modes. Existing callers use **current-run exact-name mode**
+with the same artifact name and expected index identities as before. A later
+cross-run caller may instead pass the canonical handoff descriptor and a token
+with Actions read access; no descriptor is required of current consumers.
+
+In current-run mode, the action:
 
 1. requires an empty non-symlink destination;
 2. downloads one exact artifact name with a full-SHA-pinned
@@ -88,6 +119,16 @@ copy's digest, and emits workspace-relative outputs.
 6. rejects missing indexed files and any file not covered by the index; and
 7. exposes bundle, payload, raw, routing-record, and optional SARIF paths only
    after complete verification.
+
+In descriptor mode, before any download the action parses the closed canonical
+document and uses only its producer repository, run ID, and artifact ID as the
+source. There are deliberately no caller inputs for source repository, source
+run, artifact ID, or artifact URL. It queries GitHub's artifact metadata endpoint
+with the required token and verifies the immutable ID and name, producing run,
+workflow head revision, unexpired lifecycle timestamps, and SHA-256 archive
+digest. Only then does it invoke the pinned downloader by immutable artifact ID.
+After download, it runs the exact same complete index, tree, identity, digest,
+and route verification used by current-run mode before exposing outputs.
 
 The retrieval action does not run SDK validation or parse SDK formats. A caller
 that consumes a finding bundle must still provision the allowlisted SDK and run

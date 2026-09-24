@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.quantum-l9.dev/core/artifact-handoff/v1",
+  "title": "L9 Core artifact handoff descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "producer",
+    "artifact",
+    "subject",
+    "provider",
+    "matrix_id",
+    "sdk"
+  ],
+  "properties": {
+    "schema": {"const": "l9.core-artifact-handoff/v1"},
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "run_id"],
+      "properties": {
+        "repository": {"$ref": "#/$defs/repository"},
+        "run_id": {"$ref": "#/$defs/positiveId"}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "archive_digest"],
+      "properties": {
+        "id": {"$ref": "#/$defs/positiveId"},
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$"
+        },
+        "archive_digest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["algorithm", "value"],
+          "properties": {
+            "algorithm": {"const": "sha256"},
+            "value": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "revision"],
+      "properties": {
+        "repository": {"$ref": "#/$defs/repository"},
+        "revision": {"$ref": "#/$defs/fullSha"}
+      }
+    },
+    "provider": {"$ref": "#/$defs/component"},
+    "matrix_id": {"$ref": "#/$defs/component"},
+    "sdk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["integration_contract", "repository", "revision"],
+      "properties": {
+        "integration_contract": {"const": "l9.integration-contract/v1"},
+        "repository": {"const": "Quantum-L9/l9-ci-sdk"},
+        "revision": {"$ref": "#/$defs/fullSha"}
+      }
+    }
+  },
+  "$defs": {
+    "positiveId": {"type": "integer", "minimum": 1},
+    "component": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
+    },
+    "fullSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+  }
+}

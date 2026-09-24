@@ -4,7 +4,6 @@
 from __future__ import annotations
 import importlib.util
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -41,12 +40,7 @@ def validate_promotions(documents: dict[str, object]) -> None:
 
 def main() -> int:
     try:
-        root = resolver.workspace_path(
-            os.environ.get(
-                "L9_GOVERNANCE_ROOT",
-                ".github/governance",
-            )
-        )
+        root = resolver.core_defaults_path()
         documents = resolver.load_documents(root)
         profiles = documents["execution-profiles.yaml"]["profiles"]
         if set(profiles) != {
@@ -57,6 +51,7 @@ def main() -> int:
             "supply_chain",
         }:
             raise resolver.GovernanceError("execution profile set is incomplete")
+        selected_policies: dict[str, tuple[str, bytes] | None] = {}
         for profile_name, profile in profiles.items():
             for provider in profile["providers"]:
                 allowed_events = profile["allowed_events"]
@@ -77,7 +72,7 @@ def main() -> int:
                     profile_name,
                     provider,
                 )
-                resolver.resolve_policy(
+                selected_policies[profile_name] = resolver.select_policy(
                     documents,
                     profile_name,
                     root,
@@ -96,7 +91,12 @@ def main() -> int:
                 {
                     "schema": "l9.governance-validation-result/v1",
                     "status": "valid",
-                    "digest": resolver.canonical_digest(root),
+                    "digests": {
+                        profile_name: resolver.canonical_digest(root, selected_policy)
+                        for profile_name, selected_policy in sorted(
+                            selected_policies.items()
+                        )
+                    },
                 },
                 sort_keys=True,
             )

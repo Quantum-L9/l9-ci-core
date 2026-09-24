@@ -209,6 +209,11 @@ def preflight(publication: str, sarif: str) -> dict[str, Any]:
     return document
 
 
+def preflight_sarif(sarif: str) -> None:
+    sarif_path = workspace_file(sarif, label="SARIF")
+    validate_sarif_envelope(load_json(sarif_path, label="SARIF document"))
+
+
 def emit(name: str, value: str) -> None:
     target = os.environ.get("GITHUB_OUTPUT")
     if target:
@@ -347,13 +352,17 @@ def main() -> int:
         repository = required("L9_REPOSITORY")
         if not REPOSITORY.fullmatch(repository):
             raise CheckPublicationError("repository must have owner/name form")
+        sarif = os.environ.get("L9_SARIF", "").strip()
+        if os.environ.get("L9_PREFLIGHT_SARIF_ONLY", "false") == "true":
+            preflight_sarif(required("L9_SARIF"))
+            return 0
         identity = external_identity(
             required("L9_RUN_ID"),
             required("L9_MATRIX_ID"),
         )
         document = preflight(
             required("L9_PUBLICATION"),
-            os.environ.get("L9_SARIF", "").strip(),
+            sarif,
         )
         emit("external-id", identity)
         if os.environ.get("L9_PREFLIGHT_ONLY", "false") == "true":

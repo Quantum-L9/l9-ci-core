@@ -1,73 +1,144 @@
 from __future__ import annotations
 
-import re
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
-PUBLICATION = ROOT / ".github/workflows/publish-analysis.yml"
+CHECK_PUBLICATION = ROOT / ".github/workflows/publish-analysis.yml"
+SARIF_PUBLICATION = ROOT / ".github/workflows/publish-sarif.yml"
+SELF_ANALYSIS = ROOT / ".github/workflows/self-analysis.yml"
+
+
+def load(path: Path) -> dict:
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if True in document:
+        document["on"] = document.pop(True)
+    return document
 
 
 class Phase4WorkflowTests(unittest.TestCase):
-    def test_publication_has_explicit_permissions(self) -> None:
-        text = PUBLICATION.read_text(encoding="utf-8")
-        self.assertRegex(
-            text,
-            re.compile(
-                r"(?m)^permissions:\s*\n"
-                r"\s+actions:\s+read\s*\n"
-                r"\s+checks:\s+write\s*\n"
-                r"\s+contents:\s+read\s*\n"
-                r"(?:\s+#.*\n)*"
-                r"\s+security-events:\s+write\s*$"
-            ),
+    def test_publication_capabilities_default_false_and_are_permission_scoped(
+        self,
+    ) -> None:
+        check = load(CHECK_PUBLICATION)
+        sarif = load(SARIF_PUBLICATION)
+        self.assertFalse(
+            check["on"]["workflow_call"]["inputs"]["publish-check"]["default"]
+        )
+        self.assertFalse(
+            sarif["on"]["workflow_call"]["inputs"]["publish-sarif"]["default"]
         )
 
-    def test_shadow_and_disabled_do_not_publish(self) -> None:
-        text = PUBLICATION.read_text(encoding="utf-8")
-        self.assertIn("if: inputs.mode == 'shadow' || inputs.mode == 'disabled'", text)
-        self.assertIn(
-            "if: inputs.mode == 'blocking' || inputs.mode == 'advisory'", text
-        )
+        check_permissions = check["jobs"]["publish-check"]["permissions"]
+        sarif_permissions = sarif["jobs"]["publish-sarif"]["permissions"]
+        self.assertEqual("write", check_permissions["checks"])
+        self.assertNotIn("security-events", check_permissions)
+        self.assertEqual("write", sarif_permissions["security-events"])
+        self.assertNotIn("checks", sarif_permissions)
 
-    def test_local_envelopes_are_preflighted_before_remote_publication(self) -> None:
-        text = PUBLICATION.read_text(encoding="utf-8")
+    def test_shadow_and_disabled_have_no_remote_write_path(self) -> None:
+        for path, job_id, election in (
+            (CHECK_PUBLICATION, "publish-check", "inputs.publish-check"),
+            (SARIF_PUBLICATION, "publish-sarif", "inputs.publish-sarif"),
+        ):
+            with self.subTest(path=path.name):
+                document = load(path)
+                publish_if = document["jobs"][job_id]["if"]
+                self.assertIn(election, publish_if)
+                self.assertIn("inputs.mode == 'blocking'", publish_if)
+                self.assertIn("inputs.mode == 'advisory'", publish_if)
+                suppressed = document["jobs"]["suppressed"]
+                self.assertEqual({"contents": "read"}, suppressed["permissions"])
+                suppressed_if = suppressed["if"]
+                self.assertIn("inputs.mode == 'shadow'", suppressed_if)
+                self.assertIn("inputs.mode == 'disabled'", suppressed_if)
+
+    def test_check_publication_preflights_before_one_remote_write(self) -> None:
+        text = CHECK_PUBLICATION.read_text(encoding="utf-8")
         ordered_steps = (
+            "Retrieve and verify immutable analysis artifact",
             "Revalidate downloaded canonical bundle",
             "Render publication payload",
-            "Preflight publication and SARIF envelopes",
-            "Upload SDK-projected SARIF to code scanning",
+            "Preflight publication envelope",
             "Create or update GitHub check",
         )
         indexes = [text.index(step) for step in ordered_steps]
         self.assertEqual(sorted(indexes), indexes)
+        self.assertEqual(1, text.count("name: Create or update GitHub check"))
+        self.assertNotIn("upload-sarif@", text)
+        self.assertNotIn("Checkout immutable event revision", text)
+        self.assertIn(
+            "gate-result: ${{ steps.artifacts.outputs.gate-result }}",
+            text,
+        )
+
+    def test_sarif_publication_preflights_before_one_remote_write(self) -> None:
+        text = SARIF_PUBLICATION.read_text(encoding="utf-8")
+        ordered_steps = (
+            "Retrieve and verify immutable analysis artifact",
+            "Revalidate downloaded canonical bundle",
+            "Require elected SARIF route",
+            "Preflight SARIF envelope",
+            "Upload SDK-projected SARIF to code scanning",
+        )
+        indexes = [text.index(step) for step in ordered_steps]
+        self.assertEqual(sorted(indexes), indexes)
+        self.assertEqual(1, text.count("upload-sarif@"))
+        self.assertNotIn("Create or update GitHub check", text)
+        self.assertNotIn("Checkout immutable event revision", text)
 
     def test_check_identity_is_stable_across_run_attempts(self) -> None:
-        text = PUBLICATION.read_text(encoding="utf-8")
+        text = CHECK_PUBLICATION.read_text(encoding="utf-8")
         publish = text[text.index("- id: publish") :]
         self.assertIn("run-id: ${{ github.run_id }}", publish)
         self.assertIn("matrix-id: ${{ inputs.matrix-id }}", publish)
         self.assertNotIn("github.run_attempt", publish)
 
-    def test_download_and_integrity_verification_use_the_pinned_retrieval_action(
-        self,
-    ) -> None:
-        text = PUBLICATION.read_text(encoding="utf-8")
+    def test_publication_consumes_optional_handoff_descriptor(self) -> None:
+        for path in (CHECK_PUBLICATION, SARIF_PUBLICATION):
+            with self.subTest(path=path.name):
+                text = path.read_text(encoding="utf-8")
+                self.assertIn("artifact-handoff:", text)
+                self.assertIn(
+                    "handoff-descriptor: ${{ inputs.artifact-handoff }}", text
+                )
+                self.assertIn(
+                    "retrieve-artifacts@59cb364615ccd44d824bec6b71d49d2f93e465c9",
+                    text,
+                )
+
+    def test_trusted_caller_publishes_terminal_blocking_result(self) -> None:
+        text = SELF_ANALYSIS.read_text(encoding="utf-8")
+        job = load(SELF_ANALYSIS)["jobs"]["publish-check"]
+        self.assertIn("always()", job["if"])
+        self.assertIn("needs.analyze.outputs.evidence-ready == 'true'", job["if"])
         self.assertIn(
-            "Quantum-L9/l9-ci-core/.github/actions/"
-            "retrieve-artifacts@def55c54ff4ba654c2ebea088dde71db0b5f7135",
-            text,
+            "github.event.pull_request.head.repo.full_name == github.repository",
+            job["if"],
         )
-        for value in (
-            "artifact-name: ${{ inputs.artifact-name }}",
-            "repository-revision: ${{ inputs.repository-revision }}",
-            "sdk-revision: ${{ inputs.sdk-revision }}",
-        ):
-            self.assertIn(value, text)
-        self.assertNotIn(
-            "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
-            text,
-        )
+        self.assertEqual("write", job["permissions"]["checks"])
+        self.assertNotIn("security-events", job["permissions"])
+        self.assertEqual("${{ needs.analyze.result }}", job["with"]["workflow-result"])
+        self.assertTrue(job["with"]["publish-check"])
+        self.assertNotIn("pull_request_target:", text)
+
+    def test_local_reusable_calls_pass_only_declared_inputs(self) -> None:
+        # GitHub rejects an undeclared `with:` key at startup, before any job
+        # runs, so the caller produces no check run to fail.
+        workflows = ROOT / ".github/workflows"
+        for caller in sorted(workflows.glob("*.y*ml")):
+            for job_id, job in load(caller).get("jobs", {}).items():
+                uses = job.get("uses", "")
+                if not uses.startswith("./.github/workflows/"):
+                    continue
+                callee = load(ROOT / uses[2:])
+                declared = set(
+                    (callee["on"].get("workflow_call") or {}).get("inputs") or {}
+                )
+                with self.subTest(caller=caller.name, job=job_id):
+                    self.assertEqual(set(), set(job.get("with") or {}) - declared)
 
 
 if __name__ == "__main__":

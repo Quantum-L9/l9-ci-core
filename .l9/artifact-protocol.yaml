@@ -64,12 +64,60 @@ integrity_index:
     Core hashes bytes and records routes only. It never parses, reconstructs,
     merges, or reserializes SDK-owned finding bundles, agent-review payloads,
     or SARIF logs.
+handoff_descriptor:
+  schema: l9.core-artifact-handoff/v1
+  schema_document: .l9/core-artifact-handoff.schema.json
+  owner: Core
+  semantic_scope: transport_only
+  closed: true
+  canonical_serialization: utf8_sorted_compact_json_single_lf
+  emitted_after: successful_upload_artifact
+  binds:
+    producer:
+      - repository
+      - workflow run id
+    immutable_artifact:
+      - artifact id
+      - exact name
+      - sha256 archive digest
+    subject:
+      - repository
+      - full revision
+    analysis:
+      - provider
+      - matrix_id
+    sdk:
+      - repository
+      - full revision
+      - integration contract
+  exclusions: >-
+    The descriptor contains no SDK finding, raw-report, SARIF, canonical-bundle,
+    or route semantics and does not replace the SDK-owned artifact content or
+    the Core complete integrity index.
 retrieval:
   action: .github/actions/retrieve-artifacts
   downloader: actions/download-artifact
-  artifact_selection: exact_name_current_run
+  modes:
+    current_run:
+      artifact_selection: exact_name
+      behavior: preserved
+    descriptor_cross_run:
+      descriptor_schema: l9.core-artifact-handoff/v1
+      token_required: true
+      source_authority: descriptor_only
+      server_preflight:
+        - artifact id and exact name
+        - producer repository and workflow run
+        - workflow head revision
+        - unexpired lifecycle timestamps
+        - sha256 archive digest
+      artifact_selection: immutable_id
   destination_must_be_empty: true
   fail_closed_on:
+    - ambiguous or incomplete retrieval mode
+    - malformed or non-canonical descriptor
+    - missing descriptor-mode token
+    - server artifact identity, lifecycle, or digest mismatch
     - artifact identity mismatch
     - repository or revision mismatch
     - provider, matrix, or SDK mismatch
@@ -93,6 +141,9 @@ rules:
   - Core artifact-index paths and routes must be relative to the artifact root.
   - Core retrieval must verify the complete index before exposing any route.
   - Core must reject symlinks, path escapes, stale destinations, and unindexed files.
+  - Core emits a handoff descriptor only from successful immutable upload outputs.
+  - Descriptor retrieval must ignore caller source identities and URLs.
+  - Descriptor retrieval must verify GitHub metadata before immutable-ID download.
 phase_2_outputs:
   - raw provider report
   - validated finding bundle
@@ -101,3 +152,4 @@ phase_2_outputs:
   - Core technical gate and capability records when emitted
   - Core routing record
   - complete relocatable Core artifact integrity index
+  - optional additive Core artifact handoff descriptor output after upload

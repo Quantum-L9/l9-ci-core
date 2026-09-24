@@ -141,18 +141,43 @@ Three outcomes exist and only one is success: **PASS**, **FAIL**, and
 **UNKNOWN**. Absent credentials, a 403, an unreachable API, and an
 unrecognised response body are all UNKNOWN, and UNKNOWN is never PASS — the
 process exits `2` on any FAIL, `3` on any UNKNOWN, `0` only when every check
-passes.
+passes. A local contract read or validation error exits `4` and, when `--json`
+is selected, still emits the `l9.control-plane-attestation/v1` JSON envelope
+with a FAIL check instead of leaving the caller with stderr-only evidence.
 
-Credentials are read from `L9_CONTROL_PLANE_TOKEN`, `GH_TOKEN`, or
-`GITHUB_TOKEN`. The workflow-scoped `GITHUB_TOKEN` can see the ruleset
-binding and branch rules but **not** the immutable-releases setting, which
-needs repository `administration: read`; with only that token the third check
-is correctly UNKNOWN. That is why the attestation is
-`.github/workflows/control-plane-attestation.yml`, run on demand, rather than
-a job inside `release-validation.yml`: wiring it into the release gate would
-make every release depend on an admin credential being present. It is Core
-governance assurance — no governed downstream repository runs it, and none
-needs organization-admin credentials to be governed.
+`.github/workflows/control-plane-attestation.yml` runs automatically after a
+push to Core `main`, every day at **04:17 UTC** (deliberately not at the top of
+the hour), and by manual dispatch. A job-level guard limits every path to
+`Quantum-L9/l9-ci-core` at `refs/heads/main`; there is no pull-request or
+reusable-workflow trigger. The workflow remains globally `contents: read`,
+requests no `id-token` or write permission, and uploads the JSON evidence on
+`always()` with 30-day retention. It initializes a FAIL envelope before
+checkout and setup, so even an early infrastructure failure leaves a
+machine-readable artifact.
+
+The privileged `L9_CONTROL_PLANE_TOKEN` is read only by the verifier step and
+must be stored as an Environment secret in the GitHub Environment named
+`control-plane-attestation`. Do **not** expose it at workflow, job, checkout,
+dependency-install, or artifact-upload scope. The verifier also recognizes
+`GH_TOKEN` and `GITHUB_TOKEN` for local use; in Actions, the read-only
+workflow-scoped `GITHUB_TOKEN` is the fallback. It can see the ruleset binding
+and branch rules but **not** the immutable-releases setting, which needs
+repository `administration: read`; with only that token the third check is
+correctly UNKNOWN.
+
+> **External configuration blocker:** repository code cannot create or
+> configure the `control-plane-attestation` Environment or its secret. An
+> authorized GitHub operator must create that Environment, add
+> `L9_CONTROL_PLANE_TOKEN` with the read access needed by all four verifier
+> endpoints, and apply any deployment-branch/reviewer policy required by the
+> organization. Until that is done, automatic runs fail closed with UNKNOWN
+> evidence rather than silently passing. This repository change deliberately
+> does not perform that configuration.
+
+The attestation stays separate from `release-validation.yml`: wiring it into
+the release gate would make every release depend on an admin credential being
+present. It is Core governance assurance — no governed downstream repository
+runs it, and none needs organization-admin credentials to be governed.
 
 ## Who may write a release tag
 

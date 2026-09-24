@@ -231,6 +231,7 @@ def main() -> int:
         expected_raw = f"raw/{provider}/{matrix_id}"
         expected_bundle = f"l9/{matrix_id}/finding-bundle.json"
         expected_payload = f"l9/{matrix_id}/agent-review-payload.json"
+        expected_gate = f"l9/{matrix_id}/gate-result.json"
         expected_routing = f"metadata/{matrix_id}/routing-record.json"
         try:
             raw_relative = raw_directory.relative_to(artifact_root).as_posix()
@@ -256,7 +257,12 @@ def main() -> int:
         raw_prefix = f"{expected_raw}/"
         if not any(path.startswith(raw_prefix) for path in indexed_paths):
             raise ManifestError("raw directory contains no regular files")
-        required_paths = {expected_bundle, expected_payload, expected_routing}
+        required_paths = {
+            expected_bundle,
+            expected_gate,
+            expected_payload,
+            expected_routing,
+        }
         missing = sorted(required_paths - indexed_paths)
         if missing:
             raise ManifestError(f"required routed artifacts are not indexed: {missing}")
@@ -264,6 +270,7 @@ def main() -> int:
         routes = {
             "agent_review_payload": expected_payload,
             "finding_bundle": expected_bundle,
+            "gate_result": expected_gate,
             "raw_directory": expected_raw,
             "routing_record": expected_routing,
         }
