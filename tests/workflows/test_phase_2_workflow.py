@@ -32,9 +32,11 @@ class Phase2WorkflowTests(unittest.TestCase):
         markers = [
             "Normalize provider report",
             "Validate canonical bundle",
+            "Evaluate gate",
             "Project agent-review payload",
             "Route artifacts",
             "Revalidate routed canonical bundle",
+            "Stage gate result",
             "Build artifact manifest",
             "Upload Phase 2 artifact set",
             "Create artifact handoff descriptor",
@@ -106,6 +108,10 @@ class Phase2WorkflowTests(unittest.TestCase):
         )
         self.assertIn("repository: ${{ github.repository }}", block)
         self.assertIn("repository-revision: ${{ github.sha }}", block)
+        self.assertIn(
+            "workflow-head-sha: ${{ github.event.pull_request.head.sha || github.sha }}",
+            block,
+        )
         self.assertIn(
             "output: .l9/runtime/handoffs/${{ inputs.matrix-id }}.json", block
         )

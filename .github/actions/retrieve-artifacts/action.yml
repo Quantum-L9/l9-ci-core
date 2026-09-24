@@ -86,7 +86,7 @@ runs:
         L9_ARTIFACT_ID: ${{ steps.prepare.outputs.artifact-id }}
         L9_ARTIFACT_NAME: ${{ steps.prepare.outputs.artifact-name }}
         L9_ARCHIVE_DIGEST: ${{ steps.prepare.outputs.archive-digest }}
-        L9_REPOSITORY_REVISION: ${{ steps.prepare.outputs.repository-revision }}
+        L9_WORKFLOW_HEAD_SHA: ${{ steps.prepare.outputs.workflow-head-sha }}
       run: python3 "${{ github.action_path }}/verify_server.py"
     - name: Download exact current-run analysis artifact
       if: steps.prepare.outputs.mode == 'current-run'
@@ -107,7 +107,9 @@ runs:
       name: Verify complete artifact integrity index
       shell: bash
       env:
-        L9_ARTIFACT_ROOT: ${{ inputs.destination }}
+        # <destination> for a current-run download; <destination>/<artifact
+        # name> for a descriptor (artifact-ids) download.
+        L9_ARTIFACT_ROOT: ${{ steps.prepare.outputs.artifact-root }}
         L9_ARTIFACT_NAME: ${{ steps.prepare.outputs.artifact-name }}
         L9_MATRIX_ID: ${{ steps.prepare.outputs.matrix-id }}
         L9_PROVIDER: ${{ steps.prepare.outputs.provider }}

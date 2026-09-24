@@ -18,10 +18,11 @@
     "producer": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "run_id"],
+      "required": ["repository", "run_id", "head_sha"],
       "properties": {
         "repository": {"$ref": "#/$defs/repository"},
-        "run_id": {"$ref": "#/$defs/positiveId"}
+        "run_id": {"$ref": "#/$defs/positiveId"},
+        "head_sha": {"$ref": "#/$defs/fullSha"}
       }
     },
     "artifact": {

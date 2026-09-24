@@ -83,17 +83,60 @@ def normalize_digest(value: Any) -> str:
     return normalized
 
 
-def metadata_url(api_url: str, repository: str, artifact_id: str) -> str:
-    parsed = urllib.parse.urlsplit(api_url)
+def trusted_https(url: str, *, reason: str) -> None:
+    parsed = urllib.parse.urlsplit(url)
     if (
         parsed.scheme != "https"
-        or not parsed.netloc
+        or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
         or parsed.query
         or parsed.fragment
     ):
-        raise ServerVerificationError("GITHUB_API_URL is not a trusted HTTPS base URL")
+        raise ServerVerificationError(reason)
+
+
+class _RefuseRedirect(urllib.request.HTTPRedirectHandler):
+    """A metadata GET is one HTTPS response. Never follow a redirect."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ServerVerificationError(
+            "GitHub artifact metadata request refused a redirect"
+        )
+
+
+class _RefuseNonHttps(urllib.request.HTTPHandler):
+    def http_open(self, req: urllib.request.Request):
+        raise ServerVerificationError("artifact metadata URL is not HTTPS")
+
+
+class _RefuseFile(urllib.request.FileHandler):
+    def file_open(self, req: urllib.request.Request):
+        raise ServerVerificationError("artifact metadata URL is not HTTPS")
+
+
+class _RefuseFTP(urllib.request.FTPHandler):
+    def ftp_open(self, req: urllib.request.Request):
+        raise ServerVerificationError("artifact metadata URL is not HTTPS")
+
+
+class _RefuseData(urllib.request.DataHandler):
+    def data_open(self, req: urllib.request.Request):
+        raise ServerVerificationError("artifact metadata URL is not HTTPS")
+
+
+def _https_opener() -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(
+        _RefuseRedirect,
+        _RefuseNonHttps,
+        _RefuseFile,
+        _RefuseFTP,
+        _RefuseData,
+    )
+
+
+def metadata_url(api_url: str, repository: str, artifact_id: str) -> str:
+    trusted_https(api_url, reason="GITHUB_API_URL is not a trusted HTTPS base URL")
     base = api_url.rstrip("/")
     owner, name = repository.split("/", 1)
     return (
@@ -103,6 +146,7 @@ def metadata_url(api_url: str, repository: str, artifact_id: str) -> str:
 
 
 def fetch_metadata(url: str, token: str) -> dict[str, Any]:
+    trusted_https(url, reason="artifact metadata URL is not a trusted HTTPS URL")
     request = urllib.request.Request(
         url,
         headers={
@@ -114,8 +158,15 @@ def fetch_metadata(url: str, token: str) -> dict[str, Any]:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with _https_opener().open(request, timeout=30) as response:
+            final = response.geturl()
+            if final != url:
+                raise ServerVerificationError(
+                    "GitHub artifact metadata request refused a redirect"
+                )
             content = response.read(MAX_RESPONSE_BYTES + 1)
+    except ServerVerificationError:
+        raise
     except (OSError, urllib.error.HTTPError, urllib.error.URLError) as error:
         raise ServerVerificationError(
             f"GitHub artifact metadata request failed: {error}"
@@ -135,7 +186,7 @@ def verify_metadata(
     run_id = int(checked("L9_SOURCE_RUN_ID", POSITIVE_ID))
     artifact_name = checked("L9_ARTIFACT_NAME", SAFE_ARTIFACT_NAME)
     expected_digest = checked("L9_ARCHIVE_DIGEST", SHA256)
-    subject_revision = checked("L9_REPOSITORY_REVISION", FULL_SHA)
+    workflow_head_sha = checked("L9_WORKFLOW_HEAD_SHA", FULL_SHA)
 
     server_id = document.get("id")
     if isinstance(server_id, bool) or not isinstance(server_id, int):
@@ -174,7 +225,7 @@ def verify_metadata(
         raise ServerVerificationError(
             "artifact metadata workflow run does not match descriptor"
         )
-    if workflow_run.get("head_sha") != subject_revision:
+    if workflow_run.get("head_sha") != workflow_head_sha:
         raise ServerVerificationError(
             "artifact metadata workflow revision does not match descriptor"
         )

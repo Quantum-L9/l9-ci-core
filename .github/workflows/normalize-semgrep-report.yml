@@ -102,13 +102,13 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
       - id: sdk
         name: Provision immutable SDK
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@0480d15e908d38b3548ab0b52567452bb390cdaa
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: 0c487747b0fcd172edaefe9e843dac818de8fc12  # supported rollback; default pin lives in sdk-compatibility.yaml
       - name: Normalize provider report
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@0480d15e908d38b3548ab0b52567452bb390cdaa
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-normalize
@@ -124,13 +124,51 @@ jobs:
           dirty: ${{ inputs.dirty }}
           revision: ${{ github.sha }}
       - name: Validate canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@0480d15e908d38b3548ab0b52567452bb390cdaa
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.names.outputs.bundle }}
           minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
+      - id: gate
+        name: Evaluate gate
+        run: |
+          set -euo pipefail
+          # The SDK is the gate-decision authority. The manifest requires the
+          # canonical gate-result artifact; this step writes that file and
+          # accepts the same 0/1/6 exits analyze-semgrep already records.
+          args=(
+            gate evaluate
+            --bundle "${L9_BUNDLE}"
+            --output "${L9_WORK}/gate-result.json"
+          )
+          if [ "${L9_STRICT:-}" = "true" ]; then
+            args+=(--strict-unresolved)
+          else
+            args+=(--no-strict-unresolved)
+          fi
+          exit_code=0
+          "${L9_EXECUTABLE}" "${args[@]}" || exit_code=$?
+          case "${exit_code}" in
+            0) status="pass" ;;
+            1) status="fail" ;;
+            6) status="incomplete" ;;
+            *)
+              echo "gate evaluate failed with unexpected exit ${exit_code}" >&2
+              exit "${exit_code}"
+              ;;
+          esac
+          {
+            echo "gate-status=${status}"
+            echo "gate-exit-code=${exit_code}"
+          } >> "$GITHUB_OUTPUT"
+          echo "SDK gate verdict: ${status} (exit ${exit_code})"
+        env:
+          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          L9_WORK: ${{ steps.names.outputs.work }}
+          L9_BUNDLE: ${{ steps.names.outputs.bundle }}
+          L9_STRICT: ${{ inputs.strict }}
       - name: Project agent-review payload
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@0480d15e908d38b3548ab0b52567452bb390cdaa
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -139,7 +177,7 @@ jobs:
           strict: ${{ inputs.strict }}
       - id: route
         name: Route artifacts
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@0480d15e908d38b3548ab0b52567452bb390cdaa
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
@@ -148,13 +186,21 @@ jobs:
           agent-payload: ${{ steps.names.outputs.payload }}
           destination-root: artifacts
       - name: Revalidate routed canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@0480d15e908d38b3548ab0b52567452bb390cdaa
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.route.outputs.bundle }}
           minimum-sdk-version: ${{ inputs.minimum-sdk-version }}
+      - name: Stage gate result
+        env:
+          L9_WORK: ${{ steps.names.outputs.work }}
+          MATRIX_ID: ${{ inputs.matrix-id }}
+        run: |
+          set -euo pipefail
+          cp "${L9_WORK}/gate-result.json" \
+            "artifacts/l9/${MATRIX_ID}/gate-result.json"
       - name: Build artifact manifest
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@0480d15e908d38b3548ab0b52567452bb390cdaa
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
@@ -181,7 +227,7 @@ jobs:
           include-hidden-files: true
       - id: handoff
         name: Create artifact handoff descriptor
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@0480d15e908d38b3548ab0b52567452bb390cdaa
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs.artifact-name }}
@@ -190,5 +236,6 @@ jobs:
           matrix-id: ${{ inputs.matrix-id }}
           repository: ${{ github.repository }}
           repository-revision: ${{ github.sha }}
+          workflow-head-sha: ${{ github.event.pull_request.head.sha || github.sha }}
           sdk-revision: ${{ steps.sdk.outputs.sdk-revision }}
           output: .l9/runtime/handoffs/${{ inputs.matrix-id }}.json

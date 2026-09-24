@@ -105,7 +105,7 @@ class Phase4WorkflowTests(unittest.TestCase):
                     "handoff-descriptor: ${{ inputs.artifact-handoff }}", text
                 )
                 self.assertIn(
-                    "retrieve-artifacts@59cb364615ccd44d824bec6b71d49d2f93e465c9",
+                    "retrieve-artifacts@c6f256a1c06dcb837b377d58b0247e2892a3ef0f",
                     text,
                 )
 
