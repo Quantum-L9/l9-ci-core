@@ -49,8 +49,10 @@ def simple_repo_mk(
     check: str = leaf(),
     test: str = leaf(),
 ) -> str:
+    # Unconditional and absolute: a parent make may export a PYTHON that is
+    # relative to the real repository root, which is meaningless in a fixture.
     return (
-        "PYTHON ?= python3\n"
+        f"PYTHON := {sys.executable}\n"
         ".PHONY: repo-setup repo-validate repo-check repo-test\n"
         f"repo-setup:\n{leaf()}\n"
         f"repo-validate:\n{validate}\n"

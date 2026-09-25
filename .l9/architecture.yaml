@@ -63,6 +63,10 @@ owned_by_core:
   - GitHub check publication
   - workflow summaries and annotations
   - rollout-compatible public runtime interface
+  - repository-execution ABI (setup, validate, check, test)
+  - l9.repo-execution/v2 contract validation
+  - released make-v1 facade and generated-Makefile drift verification
+  - Repo.mk structural ABI validation
 
 owned_by_github_org_rulesets:
   - repository targeting
@@ -89,6 +93,8 @@ owned_by_sdk:
 consumer_repository_may_own:
   - source code
   - native project configuration
+  - .l9/repo-workflow.json V2 declaration
+  - Repo.mk repository-execution implementation
   - optional .l9/ci.json ownership pointer
   - optional repo_class consistency pointer
   - optional centrally issued waiver references
@@ -98,6 +104,8 @@ consumer_repository_may_not_own:
   - Core or SDK revision for required organization CI
   - provider requiredness
   - governance mode
+  - executable command matrices in the repository execution declaration
+  - vendored Core repository-execution runtime or facade
   - central tool versions
   - organization policy
   - workflow permissions

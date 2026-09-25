@@ -79,10 +79,13 @@ class CorePhaseParityTests(unittest.TestCase):
                     position = found
 
     def test_check_resolves_tools_through_the_interpreter(self) -> None:
+        # $(PYTHON) may be a bare name or an absolute interpreter path; either
+        # way the first token is the interpreter, never a bare ruff/mypy.
         for line in self.dry_run("check").splitlines():
             with self.subTest(line=line):
-                self.assertTrue(line.startswith("python"), line)
-                self.assertFalse(line.startswith(("ruff", "mypy")), line)
+                interpreter = pathlib.PurePosixPath(line.split()[0]).name
+                self.assertTrue(interpreter.startswith("python"), line)
+                self.assertNotIn(interpreter, {"ruff", "mypy"})
 
     def test_check_runs_the_toolchain_preflight_first(self) -> None:
         first = self.dry_run("check").splitlines()[0]
