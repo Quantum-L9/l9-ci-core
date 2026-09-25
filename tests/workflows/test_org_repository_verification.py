@@ -14,7 +14,11 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "org-ci.yml"
 ACTION = ROOT / ".github" / "actions" / "run-repository-verification" / "action.yml"
 RUNNER = ROOT / ".github" / "actions" / "run-repository-verification" / "run.py"
-PIN = "cd7bdfe66c9045aa83ed33bb6e07e8fa54fde976"
+PIN = "b5849b151cb2b3362a465bfade42ffc574190614"
+# The mocked V1 tests below only need the classifier to route to the V1
+# runtime; the full V1 document validation belongs to RepositoryWorkflow and is
+# covered by tests/tools/test_l9_repo.py.
+V1_CONTRACT = '{"schema_version": 1}\n'
 
 
 def _load_runner():
@@ -106,7 +110,9 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
         ):
             root = Path(tmp)
             (root / ".l9").mkdir()
-            (root / ".l9" / "repo-workflow.json").write_text("{}\n", encoding="utf-8")
+            (root / ".l9" / "repo-workflow.json").write_text(
+                V1_CONTRACT, encoding="utf-8"
+            )
             env = {
                 "L9_REPOSITORY_WORKSPACE": tmp,
                 "GITHUB_OUTPUT": output.name,
@@ -137,7 +143,9 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
         ):
             root = Path(tmp)
             (root / ".l9").mkdir()
-            (root / ".l9" / "repo-workflow.json").write_text("{}\n", encoding="utf-8")
+            (root / ".l9" / "repo-workflow.json").write_text(
+                V1_CONTRACT, encoding="utf-8"
+            )
             env = {
                 "L9_REPOSITORY_WORKSPACE": tmp,
                 "GITHUB_OUTPUT": output.name,
