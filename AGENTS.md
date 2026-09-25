@@ -387,6 +387,84 @@ Contract: `.l9/release-plane.yaml` (`l9.release-plane/v1`), asserted by
 
 <!-- BEGIN L9 FORMATTER OWNERSHIP (generated — do not edit) -->
 
+## 13. Repository Execution V2 (2026-09-25) — supersedes §11's generated-adapter text
+
+This section supersedes, in §11, "The generated adapter and local extension
+layers", "The contract shape is pinned", and the two invariants naming
+`tools/l9_make` and `make capabilities`. The completion sequence at the top of
+§11 (`make validate`, `make change-policy`, `make check`, the full `unittest`
+suite, `make agent-check`) is unchanged.
+
+### The consumer contract
+
+`.l9/repo-workflow.json` is the exact three-field Repository Execution V2
+declaration and nothing else:
+
+```json
+{
+  "schema": "l9.repo-execution/v2",
+  "facade": "make-v1",
+  "required_phases": ["setup", "validate", "check", "test"]
+}
+```
+
+It carries no commands, no policy, and no metadata. Any additional field,
+another schema, an unsupported facade, or a phase list that is not exactly
+`setup, validate, check, test` in that order fails closed, both in the
+organization admission bridge (`.github/actions/run-repository-verification`)
+and in `tools/l9_repo`. `.l9/repo-workflow.schema.json` is retired; validation
+is standard-library only.
+
+### The Make ownership model
+
+```text
+Makefile   generated, Core-owned: the released make-v1 facade, byte-for-byte
+           setup -> repo-setup   validate -> repo-validate
+           check -> repo-check   test     -> repo-test
+Repo.mk    repository-owned, hand-maintained, never generated or rewritten
+```
+
+`make-v1` is a real version: `tools/l9_repo/facades/make-v1.mk` is mapped
+explicitly by `FACADE_TEMPLATES` in `tools/l9_repo/contract.py` and is
+immutable once released. An incompatible facade change is `make-v2`, never a
+silent edit of `make-v1`. The portable facade exposes exactly `help` plus the
+four phases. It contains no publication or Governance target and no `l9`
+dispatcher variable: Cursor-Governance owns its own commands, and
+`l9-ci-core` does not proxy them. `Repo.local.mk`, the capability-plan
+compiler (`tools/l9_make`), the generated `Repo.mk`, and the
+`tools/l9_repo/Makefile.template` projection are retired.
+
+`Repo.mk` must declare `repo-setup`, `repo-validate`, `repo-check`, and
+`repo-test`, each `.PHONY`, and may not redefine a facade verb. Everything
+else in it is this repository's business: Core keeps `lint`, `doctor`,
+`clean`, `status`, `change-policy`, `agent-check`, `core-validate`,
+`reconcile`, `attest-control-plane`, and `check-release-writers` there as
+Core-local targets outside the portable ABI. `python3 -m tools.l9_repo
+reconcile` regenerates only `Makefile`, idempotently; it never writes
+`Repo.mk`.
+
+### Core-local policy
+
+Policy that is Core's and not a consumer's — the comparison ref, clean paths,
+the reconcile lock, change gates and companion rules, agent-contract wiring,
+evidence reporting, and authority paths — lives in
+`.l9/core-repo-policy.json` (`l9.core-repository-policy/v1`). `make validate`
+runs the portable V2 validation (`validate`) and then `core-validate`, which
+adds the checksum manifest, contract wiring, and authority-path checks. The
+Repository Execution V2 test suite is `tests/repo_execution/`; the
+`repository-execution` change gate runs it whenever `tools/l9_repo/`,
+`tests/repo_execution/`, `.l9/repo-workflow.json`, `.l9/core-repo-policy.json`,
+`Makefile`, or `Repo.mk` changes.
+
+### The V1 compatibility path
+
+`RepositoryWorkflow` in `tools/l9_repo/__main__.py` is retained only for the
+pinned admission bridge, which delegates a repository still declaring
+`schema_version: 1` to it. It runs that contract's `commands` matrices
+argv-only under the executable allowlist and nothing more; the superseded V1
+structural validation is retired with the compiler it depended on. Core itself
+is a V2 consumer.
+
 ## Formatter ownership
 
 Workspace class: `biome_default` — Default for every governed workspace: Biome owns JS/TS/JSON, VS Code JSON language features owns JSONC (the Biome extension cannot format jsonc), Ruff owns Python, Prettier owns Markdown (format-on-save off so governance docs do not churn).

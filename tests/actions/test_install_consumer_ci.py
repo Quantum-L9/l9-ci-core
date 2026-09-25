@@ -45,7 +45,7 @@ class InstallConsumerCiTests(unittest.TestCase):
         """Core's own gate toolchain must come from the same canonical owner.
 
         ``requirements-repo-runtime.txt`` provisions the interpreter that
-        ``.l9/repo-workflow.json`` runs ruff and mypy through, and
+        Core's ``Repo.mk`` ``repo-check`` leaf runs ruff and mypy through, and
         ``tools/check_toolchain_versions.py`` asserts that interpreter against
         ``toolchain-lock.json``. If this file could drift from the lock, the
         preflight would fail for a repository that had correctly installed
@@ -62,7 +62,7 @@ class InstallConsumerCiTests(unittest.TestCase):
             {"ruff", "mypy"},
             set(runtime),
             "requirements-repo-runtime.txt must pin exactly ruff and mypy; "
-            "the gate imports those two through `@python -m`",
+            "the gate imports those two through `$(PYTHON) -m`",
         )
         for tool in ("ruff", "mypy"):
             with self.subTest(tool=tool):
