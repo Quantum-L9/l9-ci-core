@@ -34,7 +34,7 @@ CORE_CONTRACT = ROOT / ".l9" / "repo-workflow.json"
 
 sys.path.insert(0, str(ROOT / "tools"))
 
-from l9_repo.__main__ import validate_config_data  # noqa: E402
+from l9_repo.contract import validate_v2_contract_data  # noqa: E402
 
 V2_PHASES = ["setup", "validate", "check", "test"]
 
@@ -116,10 +116,10 @@ class ContractClassificationTests(unittest.TestCase):
     def test_existing_v1_contract_is_recognized(self) -> None:
         self.assertEqual("v1", self.runner.classify_contract({"schema_version": 1}))
 
-    def test_core_current_v1_contract_stays_v1_and_valid(self) -> None:
+    def test_core_contract_is_admitted_as_v2_by_bridge_and_runtime(self) -> None:
         document = json.loads(CORE_CONTRACT.read_text(encoding="utf-8"))
-        self.assertEqual("v1", self.runner.classify_contract(document))
-        validate_config_data(document)
+        self.assertEqual("v2", self.runner.classify_contract(document))
+        validate_v2_contract_data(document)
 
     def test_v2_rejections_fail_closed(self) -> None:
         cases: dict[str, object] = {
@@ -357,11 +357,13 @@ class V2RealMakeTests(unittest.TestCase):
 class BridgeScopeTripwires(unittest.TestCase):
     """PR A builds the bridge; it must not cross it."""
 
-    def test_core_itself_remains_a_v1_consumer(self) -> None:
+    def test_core_itself_is_a_v2_consumer_of_the_bridge(self) -> None:
+        """PR A built the bridge; the V2 adoption crossed it. Both sides hold."""
+
         document = json.loads(CORE_CONTRACT.read_text(encoding="utf-8"))
-        self.assertEqual(1, document.get("schema_version"))
-        self.assertNotEqual("l9.repo-execution/v2", document.get("schema"))
-        self.assertIn('"schema_version": 1', CORE_CONTRACT.read_text(encoding="utf-8"))
+        self.assertEqual("l9.repo-execution/v2", document.get("schema"))
+        self.assertNotIn("schema_version", document)
+        self.assertEqual({"schema", "facade", "required_phases"}, set(document))
 
     def test_bridge_dispatches_no_publication_or_governance_command(self) -> None:
         text = RUNNER.read_text(encoding="utf-8")

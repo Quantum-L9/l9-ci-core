@@ -1,18 +1,26 @@
+"""Core-local policy: change gates, companion rules, wiring, reporting."""
+
 from __future__ import annotations
 
+import copy
 import json
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
 
-import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
+from v2_fixtures import ROOT, init_repo  # noqa: E402
 
+from l9_repo.__main__ import (  # noqa: E402
+    CORE_POLICY_PATH,
+    WorkflowError,
+    validate_core_policy_data,
+)
 from l9_repo.change_policy import (  # noqa: E402
     ChangePolicyError,
     companion_findings,
@@ -25,7 +33,8 @@ from l9_repo.contract_wiring import (  # noqa: E402
 )
 from l9_repo.reporting import StepEvidence, write_reports  # noqa: E402
 
-POLICY = json.loads((ROOT / ".l9/repo-workflow.json").read_text())["change_policy"]
+POLICY_DOCUMENT = json.loads((ROOT / CORE_POLICY_PATH).read_text(encoding="utf-8"))
+POLICY = POLICY_DOCUMENT["change_policy"]
 
 
 def run_git(root: pathlib.Path, *args: str) -> str:
@@ -35,8 +44,6 @@ def run_git(root: pathlib.Path, *args: str) -> str:
         text=True,
         capture_output=True,
         check=False,
-        # Keep the developer's ~/.gitconfig out of the fixture; see the
-        # matching helper in test_l9_repo.py.
         env={
             **os.environ,
             "GIT_CONFIG_GLOBAL": os.devnull,
@@ -51,13 +58,77 @@ def run_git(root: pathlib.Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def init_repo(root: pathlib.Path) -> None:
-    run_git(root, "init", "-b", "main")
-    run_git(root, "config", "user.email", "tests@example.com")
-    run_git(root, "config", "user.name", "Tests")
+def seed_repo(root: pathlib.Path) -> None:
+    init_repo(root)
     (root / "base.txt").write_text("base\n", encoding="utf-8")
     run_git(root, "add", "base.txt")
     run_git(root, "commit", "-m", "base")
+
+
+class CorePolicyDocumentTests(unittest.TestCase):
+    def policy(self) -> dict[str, object]:
+        return copy.deepcopy(POLICY_DOCUMENT)
+
+    def test_core_policy_is_valid(self) -> None:
+        data = self.policy()
+        self.assertIs(validate_core_policy_data(data), data)
+
+    def test_policy_is_not_the_consumer_contract(self) -> None:
+        for consumer_key in ("commands", "push", "pull_request", "metadata"):
+            self.assertNotIn(consumer_key, POLICY_DOCUMENT)
+
+    def test_unknown_top_level_key_is_rejected(self) -> None:
+        data = self.policy()
+        data["surprise"] = True
+        with self.assertRaisesRegex(WorkflowError, "unsupported keys"):
+            validate_core_policy_data(data)
+
+    def test_unsafe_clean_path_is_rejected(self) -> None:
+        data = self.policy()
+        data["clean_paths"] = ["../escape"]
+        with self.assertRaisesRegex(WorkflowError, "safe relative path"):
+            validate_core_policy_data(data)
+
+    def test_unsafe_lock_name_is_rejected(self) -> None:
+        data = self.policy()
+        data["automation"]["lock"]["name"] = ".."  # type: ignore[index]
+        with self.assertRaisesRegex(WorkflowError, "safe simple file name"):
+            validate_core_policy_data(data)
+
+    def test_gate_command_rejects_unallowlisted_executable(self) -> None:
+        data = self.policy()
+        data["change_policy"]["gates"]["workflow"]["commands"] = [  # type: ignore[index]
+            ["arbitrary-script"]
+        ]
+        with self.assertRaisesRegex(WorkflowError, "argv-only allowlist"):
+            validate_core_policy_data(data)
+
+    def test_gate_command_rejects_shell_strings(self) -> None:
+        data = self.policy()
+        data["change_policy"]["gates"]["workflow"]["commands"] = [  # type: ignore[index]
+            "python -m unittest"
+        ]
+        with self.assertRaisesRegex(WorkflowError, "argv array"):
+            validate_core_policy_data(data)
+
+    def test_companion_rule_requires_at_least_one_requirement(self) -> None:
+        data = self.policy()
+        rule = data["change_policy"]["companion_rules"][0]  # type: ignore[index]
+        rule.pop("require_all_paths")
+        with self.assertRaisesRegex(WorkflowError, "must declare"):
+            validate_core_policy_data(data)
+
+    def test_reporting_paths_cannot_escape_root(self) -> None:
+        data = self.policy()
+        data["reporting"]["agent_check_json"] = "../evidence.json"  # type: ignore[index]
+        with self.assertRaisesRegex(WorkflowError, "safe relative path"):
+            validate_core_policy_data(data)
+
+    def test_authority_paths_are_safe(self) -> None:
+        data = self.policy()
+        data["authority"]["derived_documents"] = ["../escape.md"]  # type: ignore[index]
+        with self.assertRaisesRegex(WorkflowError, "safe relative path"):
+            validate_core_policy_data(data)
 
 
 class ChangePolicyTests(unittest.TestCase):
@@ -65,13 +136,37 @@ class ChangePolicyTests(unittest.TestCase):
         selected = select_gates(POLICY, [".github/workflows/self-ci.yml"])
         self.assertEqual([gate.gate_id for gate in selected], ["workflow"])
 
+    def test_repository_execution_files_select_their_gate(self) -> None:
+        for path in (
+            "tools/l9_repo/contract.py",
+            "tools/l9_repo/facades/make-v1.mk",
+            "tests/repo_execution/test_facade.py",
+            ".l9/repo-workflow.json",
+            ".l9/core-repo-policy.json",
+            "Makefile",
+            "Repo.mk",
+        ):
+            with self.subTest(path=path):
+                selected = select_gates(POLICY, [path])
+                self.assertEqual(
+                    [gate.gate_id for gate in selected], ["repository-execution"]
+                )
+                self.assertEqual(
+                    ("tests/repo_execution",),
+                    tuple(
+                        token
+                        for token in selected[0].commands[0]
+                        if token.startswith("tests/")
+                    ),
+                )
+
     def test_multiple_gates_preserve_declared_order(self) -> None:
         selected = select_gates(
             POLICY,
             ["tools/l9_repo/__main__.py", ".github/actions/x/action.yml"],
         )
         self.assertEqual(
-            [gate.gate_id for gate in selected], ["actions", "command-facade"]
+            [gate.gate_id for gate in selected], ["actions", "repository-execution"]
         )
 
     def test_workflow_change_requires_test_and_manifest(self) -> None:
@@ -103,26 +198,16 @@ class ChangePolicyTests(unittest.TestCase):
         self.assertIn(".github/actions/provision-sdk/provision.py", sdk.missing_all)
         self.assertIn(".github/workflows/publish-analysis.yml", sdk.missing_all)
 
-    def test_sdk_pin_full_mirror_set_satisfies_rule(self) -> None:
-        sdk_rule = next(
-            rule
-            for rule in POLICY["companion_rules"]
-            if rule["id"] == "sdk-pin-mirrors"
-        )
-        files = [
-            ".l9/sdk-compatibility.yaml",
-            "tests/provisioning/test_compatibility_manifest.py",
-            "tests/workflows/test_phase_3_workflows.py",
-            *sdk_rule["require_all_paths"],
-        ]
-        self.assertEqual(companion_findings(POLICY, files), [])
-
-    def test_facade_requires_tests_docs_agents_and_manifest(self) -> None:
+    def test_repository_execution_requires_suite_docs_agents_and_manifest(
+        self,
+    ) -> None:
         findings = companion_findings(POLICY, ["tools/l9_repo/__main__.py"])
-        facade = next(item for item in findings if item.rule_id == "facade-contract")
-        self.assertEqual(facade.required_any, ("tests/tools/",))
+        rule = next(
+            item for item in findings if item.rule_id == "repository-execution-evidence"
+        )
+        self.assertEqual(rule.required_any, ("tests/repo_execution/",))
         self.assertEqual(
-            set(facade.missing_all),
+            set(rule.missing_all),
             {"AGENTS.md", "docs/repository-execution-runtime.md", "MANIFEST.sha256"},
         )
 
@@ -140,7 +225,7 @@ class ChangePolicyTests(unittest.TestCase):
     def test_rename_exposes_old_and_new_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
-            init_repo(root)
+            seed_repo(root)
             old = root / ".github/workflows/old.yml"
             old.parent.mkdir(parents=True, exist_ok=True)
             old.write_text("name: old\n", encoding="utf-8")
@@ -160,7 +245,7 @@ class ChangePolicyTests(unittest.TestCase):
     def test_clean_feature_branch_uses_merge_base_context(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
-            init_repo(root)
+            seed_repo(root)
             run_git(root, "checkout", "-b", "feature")
             (root / "feature.txt").write_text("feature\n", encoding="utf-8")
             run_git(root, "add", "feature.txt")
@@ -172,7 +257,7 @@ class ChangePolicyTests(unittest.TestCase):
     def test_working_tree_and_committed_changes_are_unioned(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
-            init_repo(root)
+            seed_repo(root)
             run_git(root, "checkout", "-b", "feature")
             (root / "committed.txt").write_text("committed\n", encoding="utf-8")
             run_git(root, "add", "committed.txt")
@@ -184,21 +269,21 @@ class ChangePolicyTests(unittest.TestCase):
     def test_no_context_on_clean_repo_is_usage_error(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
-            init_repo(root)
+            seed_repo(root)
             with self.assertRaisesRegex(ChangePolicyError, "no changed-file context"):
                 resolve_changed_files(root)
 
     def test_unavailable_base_is_error_when_tree_is_clean(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
-            init_repo(root)
+            seed_repo(root)
             with self.assertRaisesRegex(ChangePolicyError, "comparison ref"):
                 resolve_changed_files(root, base_ref="origin/missing")
 
     def test_unavailable_base_uses_working_tree_when_present(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
-            init_repo(root)
+            seed_repo(root)
             (root / "working.txt").write_text("working\n", encoding="utf-8")
             resolution = resolve_changed_files(root, base_ref="origin/missing")
             self.assertEqual(resolution.files, ("working.txt",))
@@ -286,34 +371,23 @@ class ReportingTests(unittest.TestCase):
                     stderr="err\n",
                 )
             ]
-            write_reports(
-                json_path,
-                md_path,
-                files=["a.py"],
-                change_source="comparison+working-tree",
-                base_ref="origin/main",
-                head_ref="HEAD",
-                findings=[],
-                steps=steps,
-                overall_exit_code=1,
-                subject_sha="abc123",
-                policy_sha256="f" * 64,
-            )
-            first_json = json_path.read_text()
-            first_md = md_path.read_text()
-            write_reports(
-                json_path,
-                md_path,
-                files=["a.py"],
-                change_source="comparison+working-tree",
-                base_ref="origin/main",
-                head_ref="HEAD",
-                findings=[],
-                steps=steps,
-                overall_exit_code=1,
-                subject_sha="abc123",
-                policy_sha256="f" * 64,
-            )
+            for _ in range(2):
+                write_reports(
+                    json_path,
+                    md_path,
+                    files=["a.py"],
+                    change_source="comparison+working-tree",
+                    base_ref="origin/main",
+                    head_ref="HEAD",
+                    findings=[],
+                    steps=steps,
+                    overall_exit_code=1,
+                    subject_sha="abc123",
+                    policy_sha256="f" * 64,
+                )
+                if _ == 0:
+                    first_json = json_path.read_text()
+                    first_md = md_path.read_text()
             self.assertEqual(json_path.read_text(), first_json)
             self.assertEqual(md_path.read_text(), first_md)
             payload = json.loads(first_json)

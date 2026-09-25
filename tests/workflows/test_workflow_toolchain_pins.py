@@ -138,31 +138,35 @@ class ProviderProvenanceTests(unittest.TestCase):
 class GateResolutionTests(unittest.TestCase):
     """The resolution contract must not be revertible in silence.
 
-    Restoring `commands.check` to `["ruff", "check", "."]` is schema-valid and
-    passes the executable allowlist, so without this nothing would notice the
-    guarantee disappearing. The same applies to the CI lint job, which is the
-    step that actually gates a merge.
+    Restoring the ``repo-check`` leaf to a bare ``ruff check .`` is valid Make
+    and passes every structural check, so without this nothing would notice
+    the guarantee disappearing. The same applies to the CI lint job, which is
+    the step that actually gates a merge.
     """
 
-    CONTRACT = ROOT / ".l9" / "repo-workflow.json"
+    REPO_MK = ROOT / "Repo.mk"
     SELF_CI = WORKFLOWS / "self-ci.yml"
-    PREFLIGHT = ["@python", "tools/check_toolchain_versions.py"]
+    PREFLIGHT = "$(PYTHON) tools/check_toolchain_versions.py"
+
+    def check_recipe(self) -> list[str]:
+        text = self.REPO_MK.read_text(encoding="utf-8")
+        match = re.search(r"(?m)^repo-check:.*\n((?:\t.*\n)+)", text)
+        self.assertIsNotNone(match, "Repo.mk must implement repo-check")
+        assert match is not None
+        return [line.strip().lstrip("@") for line in match.group(1).splitlines()]
 
     def test_check_runs_the_preflight_first(self) -> None:
-        commands = json.loads(self.CONTRACT.read_text(encoding="utf-8"))["commands"]
         self.assertEqual(
             self.PREFLIGHT,
-            commands["check"][0],
+            self.check_recipe()[0],
             "the toolchain preflight must run before any gate it protects",
         )
 
     def test_every_check_command_resolves_through_the_interpreter(self) -> None:
-        commands = json.loads(self.CONTRACT.read_text(encoding="utf-8"))["commands"]
-        for argv in commands["check"]:
-            with self.subTest(argv=argv):
-                self.assertEqual(
-                    "@python",
-                    argv[0],
+        for command in self.check_recipe():
+            with self.subTest(command=command):
+                self.assertTrue(
+                    command.startswith("$(PYTHON) "),
                     "a bare executable lets PATH decide which code the gate "
                     "runs; resolve through the interpreter instead",
                 )
