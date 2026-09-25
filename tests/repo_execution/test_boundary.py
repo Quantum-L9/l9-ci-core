@@ -135,6 +135,52 @@ class RepositoryLayerBoundaryTests(unittest.TestCase):
                 self.assertNotIn("shlex", text)
                 self.assertNotIn("eval(", text)
 
+    def test_one_make_authority_no_superseded_compiler_reference(self) -> None:
+        """Prose may name the superseded model to forbid it; code may not."""
+
+        self.assertFalse((ROOT / "tools" / "l9_make").exists())
+        self.assertFalse((ROOT / "Repo.local.mk").exists())
+        self.assertFalse((ROOT / "tools" / "l9_repo" / "Makefile.template").exists())
+        offenders = []
+        for path in ROOT.rglob("*"):
+            if not path.is_file() or path.is_symlink():
+                continue
+            rel = path.relative_to(ROOT).as_posix()
+            if rel.startswith(
+                (
+                    ".git/",
+                    ".venv/",
+                    ".l9/runtime/",
+                    ".l9/pr/",
+                    ".l9/autonomy/",
+                    ".l9/memory/",
+                    "artifacts/",
+                )
+            ):
+                continue
+            if (
+                rel.startswith("tests/repo_execution/")
+                or rel.endswith((".md", ".sha256"))
+                or "__pycache__" in rel
+            ):
+                continue
+            if rel.startswith((".mypy_cache/", ".ruff_cache/", ".pytest_cache/")):
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for marker in (
+                "l9.make-plan",
+                "tools.l9_make",
+                "tools/l9_make",
+                "default-capability-plan",
+                "Repo.local.mk",
+                "make-render",
+                "repo-capabilities",
+                "L9_REPO_CAPABILITIES",
+            ):
+                if marker in text:
+                    offenders.append(f"{rel}: {marker}")
+        self.assertEqual([], offenders)
+
     def test_admission_bridge_is_untouched_by_adoption(self) -> None:
         text = BRIDGE.read_text(encoding="utf-8")
         self.assertIn("from l9_repo.__main__ import RepositoryWorkflow", text)
