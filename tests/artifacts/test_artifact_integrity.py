@@ -135,7 +135,9 @@ class ArtifactIntegrityTests(unittest.TestCase):
             environment["L9_REPOSITORY"] = "Quantum-L9/.github"
             with patch.dict(os.environ, environment, clear=True):
                 self.assertEqual(0, manifest.main())
-            index_path = workspace / "artifacts/metadata/python-3.12/artifact-index.json"
+            index_path = (
+                workspace / "artifacts/metadata/python-3.12/artifact-index.json"
+            )
             index = json.loads(index_path.read_text(encoding="utf-8"))
             self.assertEqual("Quantum-L9/.github", index["subject"]["repository"])
 
