@@ -128,6 +128,40 @@ class ArtifactIntegrityTests(unittest.TestCase):
                     entry["sha256"],
                 )
 
+    def test_index_accepts_dot_prefixed_repository_name(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            environment = self.create_tree(workspace)
+            environment["L9_REPOSITORY"] = "Quantum-L9/.github"
+            with patch.dict(os.environ, environment, clear=True):
+                self.assertEqual(0, manifest.main())
+            index_path = (
+                workspace / "artifacts/metadata/python-3.12/artifact-index.json"
+            )
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+            self.assertEqual("Quantum-L9/.github", index["subject"]["repository"])
+
+    def test_repository_identity_admits_github_name_character_set(self) -> None:
+        for repository in (
+            "Quantum-L9/.github",
+            "Quantum-L9/Gate_SDK",
+            "Quantum-L9/foo.bar",
+            "Quantum-L9/foo_bar",
+            "Quantum-L9/foo-bar",
+        ):
+            with self.subTest(repository=repository):
+                self.assertIsNotNone(manifest.REPOSITORY.fullmatch(repository))
+        for repository in (
+            "Quantum-L9/",
+            "Quantum-L9/foo/bar",
+            "/invalid",
+            ".Quantum-L9/example",
+            "Quantum-L9",
+            "Quantum-L9/" + "a" * 101,
+        ):
+            with self.subTest(repository=repository):
+                self.assertIsNone(manifest.REPOSITORY.fullmatch(repository))
+
     def test_index_rejects_output_outside_fixed_metadata_route(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
