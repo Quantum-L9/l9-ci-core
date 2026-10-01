@@ -32,6 +32,12 @@ core_owns:
     - optional .l9/ci.json schema
     - consumer metadata validation
     - fail-closed consistency checks against SDK detection
+  repository_execution:
+    - setup/validate/check/test ABI and invocation order
+    - V2 contract schema and validation
+    - canonical Makefile template and generated-artifact verification
+    - initialization, reconciliation, and V1 migration tooling
+    - bounded V1 compatibility and missing-contract enforcement
   publication:
     - artifact retention
     - artifact transport handoff descriptors
@@ -74,6 +80,8 @@ organization_rulesets_own:
 consumer_repositories_own:
   - source code
   - native tool and project configuration
+  - .l9/repo-workflow.json V2 declaration
+  - Repo.mk setup/validate/check/test implementation
   - optional ownership/repo-class/waiver pointers
 
 prohibited_in_core:
@@ -98,3 +106,5 @@ prohibited_in_consumers:
   - Core or SDK version selection for required CI
   - central tool-version selection
   - workflow permission escalation
+  - executable command matrices in repository execution declarations
+  - vendored Core repository-execution schema, template, or runtime

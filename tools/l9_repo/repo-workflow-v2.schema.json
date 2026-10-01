@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantum-l9.dev/schemas/repository-execution/v2",
+  "title": "L9 Repository Execution Contract V2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "facade",
+    "required_phases"
+  ],
+  "properties": {
+    "schema": {
+      "const": "l9.repo-execution/v2"
+    },
+    "facade": {
+      "const": "make-v1"
+    },
+    "required_phases": {
+      "type": "array",
+      "const": [
+        "setup",
+        "validate",
+        "check",
+        "test"
+      ]
+    }
+  }
+}

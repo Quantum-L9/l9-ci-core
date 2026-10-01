@@ -364,9 +364,10 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@cd7bdfe66c9045aa83ed33bb6e07e8fa54fde976
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@2d62366b56d1f40a8468b4fe76c4f712fb8e2574
         with:
           workspace: .
+          contract-mode: migration
 
       # The provider toolchain is a locked contract, not a resolution. Core
       # selects the setup-python action by full SHA, the interpreter by exact
@@ -570,12 +571,13 @@ jobs:
         if: always() && (steps.runtime.outputs.profile == 'pr_fast' || steps.runtime.outputs.profile == 'merge')
         env:
           REPOSITORY_VERIFY_STATUS: ${{ steps.repository_verify.outputs.status }}
+          REPOSITORY_VERIFY_MODE: ${{ steps.repository_verify.outputs.contract-mode }}
         run: |
           set -euo pipefail
-          case "${REPOSITORY_VERIFY_STATUS}" in
-            pass|not_applicable) ;;
+          case "${REPOSITORY_VERIFY_MODE}:${REPOSITORY_VERIFY_STATUS}" in
+            migration:pass|migration:v1_compat|migration:legacy_not_applicable|required:pass) ;;
             *)
-              echo "Blocking profile: repository verification did not pass (${REPOSITORY_VERIFY_STATUS:-unavailable})" >&2
+              echo "Blocking profile: repository verification did not pass for contract mode ${REPOSITORY_VERIFY_MODE:-unavailable} (${REPOSITORY_VERIFY_STATUS:-unavailable})" >&2
               exit 1
               ;;
           esac

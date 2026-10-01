@@ -1,74 +1,48 @@
+# ruff: noqa: E402
 from __future__ import annotations
 
 import json
 import pathlib
 import sys
-import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from l9_repo.authority import AuthorityError, validate_authority  # noqa: E402
+from l9_repo.__main__ import (
+    CoreRepositoryWorkflow,
+    WorkflowError,
+    validate_core_policy_data,
+)  # noqa: E402
 
 
-def config() -> dict[str, object]:
-    return json.loads((ROOT / ".l9/repo-workflow.json").read_text(encoding="utf-8"))
-
-
-def write_required(root: pathlib.Path, data: dict[str, object]) -> None:
-    authority = data["authority"]
-    assert isinstance(authority, dict)
-    metadata = data["metadata"]
-    assert isinstance(metadata, dict)
-    for key in ("target_authorities", "generated_artifacts"):
-        for relative in authority[key]:
-            path = root / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("fixture\n", encoding="utf-8")
-    for relative in authority["derived_documents"]:
-        path = root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            f"{metadata['artifact_id']} {metadata['artifact_version']}\n",
-            encoding="utf-8",
+class CoreLocalPolicyTests(unittest.TestCase):
+    def test_policy_is_valid_and_explicitly_core_local(self) -> None:
+        policy = json.loads(
+            (ROOT / ".l9/core-repo-policy.json").read_text(encoding="utf-8")
         )
-    manifests = authority["dependency_manifests"]
-    for key in ("target_required", "component_bundled"):
-        for relative in manifests[key]:
-            path = root / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("fixture\n", encoding="utf-8")
+        self.assertIs(validate_core_policy_data(policy), policy)
+        self.assertIn("change_policy", policy)
+        self.assertIn("agent_contracts", policy)
 
+    def test_core_policy_unknown_fields_fail_closed(self) -> None:
+        policy = json.loads(
+            (ROOT / ".l9/core-repo-policy.json").read_text(encoding="utf-8")
+        )
+        policy["surprise"] = True
+        with self.assertRaisesRegex(WorkflowError, "unsupported keys"):
+            validate_core_policy_data(policy)
 
-class AuthorityTests(unittest.TestCase):
-    def test_target_root_release_docs_are_not_required(self) -> None:
-        data = config()
-        with tempfile.TemporaryDirectory() as temporary:
-            root = pathlib.Path(temporary)
-            write_required(root, data)
-            validate_authority(root, data)
-            self.assertFalse((root / "AUTHORITY.md").exists())
-            self.assertFalse((root / "MANIFEST.md").exists())
-
-    def test_missing_target_authority_fails(self) -> None:
-        data = config()
-        with tempfile.TemporaryDirectory() as temporary:
-            root = pathlib.Path(temporary)
-            write_required(root, data)
-            (root / ".l9/ownership.yaml").unlink()
-            with self.assertRaisesRegex(AuthorityError, "missing target authority"):
-                validate_authority(root, data)
-
-    def test_derived_document_requires_component_identity(self) -> None:
-        data = config()
-        with tempfile.TemporaryDirectory() as temporary:
-            root = pathlib.Path(temporary)
-            write_required(root, data)
-            derived = root / "docs/repository-execution-runtime.md"
-            derived.write_text("# runtime\n", encoding="utf-8")
-            with self.assertRaisesRegex(AuthorityError, "authoritative token"):
-                validate_authority(root, data)
+    def test_core_self_host_structural_validation_uses_v2_and_local_policy(
+        self,
+    ) -> None:
+        workflow = CoreRepositoryWorkflow(ROOT)
+        with self.subTest("v2"):
+            workflow.verify_generated()
+        with self.subTest("core-policy"):
+            self.assertEqual(
+                "l9.core-repository-policy/v1", workflow.policy()["schema"]
+            )
 
 
 if __name__ == "__main__":
