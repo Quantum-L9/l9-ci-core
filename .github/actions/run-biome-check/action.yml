@@ -40,7 +40,7 @@ runs:
         L9_BIOME_ROOT: ${{ inputs.root }}
       run: |
         set -euo pipefail
-        python3 -I "${{ github.action_path }}/check_biome.py" \
+        python3 -I "${GITHUB_ACTION_PATH}/check_biome.py" \
           --executable "${L9_BIOME_EXECUTABLE}" \
           --provider-version "${L9_BIOME_VERSION}" \
           --mode "${L9_BIOME_MODE}" \

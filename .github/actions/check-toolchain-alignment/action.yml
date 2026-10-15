@@ -22,4 +22,4 @@ runs:
       shell: bash
       env:
         L9_ALIGNMENT_OUTPUT: ${{ inputs.output }}
-      run: python3 -I "${{ github.action_path }}/align.py" --output "${L9_ALIGNMENT_OUTPUT}"
+      run: python3 -I "${GITHUB_ACTION_PATH}/align.py" --output "${L9_ALIGNMENT_OUTPUT}"

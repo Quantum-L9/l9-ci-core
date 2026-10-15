@@ -30,4 +30,4 @@ runs:
       shell: bash
       env:
         L9_BIOME_VERSION: ${{ inputs.biome-version }}
-      run: bash "${{ github.action_path }}/install.sh"
+      run: bash "${GITHUB_ACTION_PATH}/install.sh"

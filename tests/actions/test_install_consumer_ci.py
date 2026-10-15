@@ -110,7 +110,7 @@ class InstallConsumerCiTests(unittest.TestCase):
         )
         excluded = set(tools["non_dependency_lock_keys"])
         self.assertEqual({"pip", "python"}, excluded)
-        self.assertTrue(excluded <= set(lock))
+        self.assertLessEqual(excluded, set(lock))
         names = [tool["name"] for tool in tools["tools"]]
         self.assertEqual(sorted(names), names, "keep tools sorted by name")
         self.assertEqual(set(lock) - excluded, set(names))

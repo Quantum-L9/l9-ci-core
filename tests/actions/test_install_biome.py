@@ -209,9 +209,7 @@ class ActionContractTests(unittest.TestCase):
                     action["outputs"][name]["value"],
                 )
         (step,) = action["runs"]["steps"]
-        self.assertEqual(
-            'bash "${{ github.action_path }}/install.sh"', step["run"].strip()
-        )
+        self.assertEqual('bash "${GITHUB_ACTION_PATH}/install.sh"', step["run"].strip())
         self.assertNotIn("uses", step)
 
     def test_installer_verifies_before_it_makes_anything_executable(self) -> None:
