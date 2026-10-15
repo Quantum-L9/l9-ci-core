@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ACTION = ROOT / ".github" / "actions" / "install-consumer-ci"
 PINS = ACTION / "requirements-consumer-ci.txt"
 LOCK = ACTION / "toolchain-lock.json"
+TOOLS = ACTION / "core-owned-tools.json"
 INSTALL = ACTION / "install.sh"
 PRECOMMIT = ROOT / ".pre-commit-config.yaml"
 BIOME = ROOT / "presets" / "typescript" / "biome.json"
@@ -95,6 +96,38 @@ class InstallConsumerCiTests(unittest.TestCase):
             text,
         )
         self.assertIsNone(PIN_RE.search(text))
+
+    def test_core_owned_tools_are_exactly_the_lock_dependencies(self) -> None:
+        """``core-owned-tools.json`` is the version-free list a Dependabot
+        renderer ignores (lane 3). It must name every lock key that a consumer
+        can declare as a dependency, and nothing the lock does not own.
+        """
+        lock = json.loads(LOCK.read_text(encoding="utf-8"))
+        tools = json.loads(TOOLS.read_text(encoding="utf-8"))
+        self.assertEqual("l9.core-owned-tools/v1", tools["schema"])
+        self.assertEqual(
+            ".github/actions/install-consumer-ci/toolchain-lock.json", tools["lock"]
+        )
+        excluded = set(tools["non_dependency_lock_keys"])
+        self.assertEqual({"pip", "python"}, excluded)
+        self.assertLessEqual(excluded, set(lock))
+        names = [tool["name"] for tool in tools["tools"]]
+        self.assertEqual(sorted(names), names, "keep tools sorted by name")
+        self.assertEqual(set(lock) - excluded, set(names))
+
+    def test_core_owned_tools_carry_identifiers_and_no_versions(self) -> None:
+        tools = json.loads(TOOLS.read_text(encoding="utf-8"))
+        ecosystems = {"npm", "pip", "pre-commit", "uv"}
+        for tool in tools["tools"]:
+            with self.subTest(tool=tool["name"]):
+                self.assertEqual({"ecosystems", "name"}, set(tool))
+                self.assertTrue(tool["ecosystems"])
+                self.assertLessEqual(set(tool["ecosystems"]), ecosystems)
+                for identifiers in tool["ecosystems"].values():
+                    self.assertTrue(identifiers)
+                    for identifier in identifiers:
+                        self.assertNotRegex(identifier, r"[=<>~^]|@\d")
+        self.assertNotRegex(TOOLS.read_text(encoding="utf-8"), r"\d+\.\d+\.\d+")
 
     def test_install_sh_rejects_unpinned_ruff(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -28,6 +28,8 @@ core_owns:
     - wheel-only hash-locked SDK runtime closure selection
     - SDK public-contract probing
     - exact CI tool pins
+    - toolchain-alignment reporting
+    - consumer-facing Biome version selection, verified install, and execution
   consumer_contract:
     - optional .l9/ci.json schema
     - consumer metadata validation
