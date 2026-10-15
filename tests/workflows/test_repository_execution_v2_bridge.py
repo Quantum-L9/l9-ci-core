@@ -400,6 +400,45 @@ class V2ExecutionTests(unittest.TestCase):
 
         self._assert_rejected_before_execution(hijack, "redefines facade target")
 
+    def test_conditionally_declared_phase_counts_as_missing(self) -> None:
+        # GNU make treats a .PHONY target without a rule as satisfied, so a
+        # leaf hidden behind a false conditional would pass without running.
+        def hide(wrapper: tuple[str, str]):
+            opener, closer = wrapper
+
+            def mutate(root: Path) -> None:
+                text = (root / "Repo.mk").read_text(encoding="utf-8")
+                leaf = "repo-test:\n\t@printf 'test\\n' >> phases.log\n"
+                self.assertIn(leaf, text)
+                (root / "Repo.mk").write_text(
+                    text.replace(leaf, f"{opener}\n{leaf}{closer}\n"),
+                    encoding="utf-8",
+                )
+
+            return mutate
+
+        for wrapper in (
+            ("ifdef NEVER", "endif"),
+            ("ifeq ($(CI),never)", "else\nendif"),
+            ("define HIDDEN", "endef"),
+        ):
+            with self.subTest(wrapper=wrapper[0]):
+                self._assert_rejected_before_execution(
+                    hide(wrapper),
+                    "missing required implementation target: repo-test",
+                )
+
+    def test_conditional_phony_does_not_satisfy_the_abi(self) -> None:
+        def hide_phony(root: Path) -> None:
+            text = (root / "Repo.mk").read_text(encoding="utf-8")
+            first, rest = text.split("\n", 1)
+            self.assertTrue(first.startswith(".PHONY: "))
+            (root / "Repo.mk").write_text(
+                f"ifdef NEVER\n{first}\nendif\n{rest}", encoding="utf-8"
+            )
+
+        self._assert_rejected_before_execution(hide_phony, "must be declared .PHONY")
+
     def test_missing_make_is_an_infrastructure_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
