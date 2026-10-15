@@ -261,6 +261,67 @@ class ClassificationTests(WorkspaceCase):
         )
 
 
+class MalformedConsumerDataTests(WorkspaceCase):
+    """Malformed consumer files are findings; the advisory job never crashes."""
+
+    def assert_unparseable(self, path: str) -> None:
+        proc = self.run_action()
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        classes = {
+            (item["path"], item["class"])
+            for item in self.report()["findings"]  # type: ignore[union-attr]
+        }
+        self.assertIn((path, "unparseable"), classes)
+
+    def test_pyproject_with_non_table_sections(self) -> None:
+        for text in (
+            'project = "broken"\n',
+            "tool = 1\n",
+            '[project]\noptional-dependencies = "x"\n',
+            "[tool]\nuv = []\n",
+            '[dependency-groups]\ndev = "ruff==0.1.0"\n',
+            "dependency-groups = [1]\n",
+        ):
+            with self.subTest(text=text):
+                self.write("pyproject.toml", text)
+                self.assert_unparseable("pyproject.toml")
+
+    def test_malformed_tables_do_not_hide_valid_declarations(self) -> None:
+        self.write(
+            "pyproject.toml",
+            'tool = 1\n[dependency-groups]\nlint = ["ruff==0.1.0"]\n',
+        )
+        self.run_action()
+        self.assertEqual(
+            {
+                ("pyproject.toml", 1, "*", "unparseable"),
+                ("pyproject.toml", 3, "ruff", "exact_drift"),
+            },
+            self.findings(),
+        )
+
+    def test_package_json_that_is_not_an_object(self) -> None:
+        for text in ("[]\n", '"x"\n', "{not json\n"):
+            with self.subTest(text=text):
+                self.write("package.json", text)
+                self.assert_unparseable("package.json")
+
+    def test_non_utf8_files(self) -> None:
+        for name in (
+            "requirements.txt",
+            "uv.lock",
+            ".pre-commit-config.yaml",
+            "biome.json",
+            "pyproject.toml",
+            "package.json",
+        ):
+            with self.subTest(name=name):
+                (self.workspace / name).write_bytes(b"ruff==\xff\xfe\n")
+                self.assert_unparseable(name)
+                (self.workspace / name).unlink()
+
+
 class ContainmentTests(WorkspaceCase):
     def test_symlink_out_of_the_workspace_is_never_read(self) -> None:
         outside = self.tmp / "outside.txt"
@@ -270,6 +331,14 @@ class ContainmentTests(WorkspaceCase):
         proc = self.run_action()
         self.assertEqual(0, proc.returncode, proc.stderr)
         self.assertEqual([], self.report()["findings"])
+
+    def test_symlinked_report_directory_cannot_write_outside(self) -> None:
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        (self.workspace / ".l9").symlink_to(outside, target_is_directory=True)
+        proc = self.run_action()
+        self.assertEqual(2, proc.returncode)
+        self.assertEqual([], sorted(outside.rglob("*")))
 
     def test_output_outside_the_workspace_is_refused(self) -> None:
         proc = self.run_action("--output", "../escape.json")

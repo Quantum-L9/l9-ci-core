@@ -137,6 +137,30 @@ class RunBiomeCheckTests(unittest.TestCase):
         self.assertEqual(2, proc.returncode)
         self.assertIn("only advisory", proc.stderr)
 
+    def test_symlinked_report_directory_cannot_write_outside(self) -> None:
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        (self.workspace / ".l9").symlink_to(outside, target_is_directory=True)
+        for configured in (False, True):
+            with self.subTest(configured=configured):
+                if configured:
+                    self._configured()
+                proc = self._run(
+                    "--mode", "advisory", "--executable", str(self._biome(0))
+                )
+                self.assertEqual(2, proc.returncode, proc.stderr)
+                self.assertIn("escapes the workspace", proc.stderr)
+                self.assertEqual([], sorted(outside.rglob("*")))
+
+    def test_symlinked_report_file_cannot_write_outside(self) -> None:
+        outside = self.tmp / "outside.json"
+        report = self.workspace / REPORT
+        report.parent.mkdir(parents=True)
+        report.symlink_to(outside)
+        proc = self._run("--mode", "advisory")
+        self.assertEqual(2, proc.returncode, proc.stderr)
+        self.assertFalse(outside.exists())
+
     def test_root_outside_the_workspace_is_refused(self) -> None:
         proc = self._run("--mode", "advisory", "--root", "..")
         self.assertNotEqual(0, proc.returncode)

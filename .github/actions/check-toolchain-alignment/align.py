@@ -227,6 +227,19 @@ def _safe_file(root: pathlib.Path, relative: str) -> pathlib.Path | None:
     return path
 
 
+def _read_text(path: pathlib.Path) -> str | None:
+    """Consumer bytes; None when they are not UTF-8 text (reported unparseable)."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _table(value: Any) -> dict[str, Any] | None:
+    """A TOML/JSON table, or None when the consumer wrote another type."""
+    return value if isinstance(value, dict) else None
+
+
 def _line_of(lines: list[str], needle: str, default: int = 1) -> int:
     for number, line in enumerate(lines, start=1):
         if needle in line:
@@ -256,22 +269,43 @@ def scan_pyproject(
         return
     import tomllib
 
-    text = path.read_text(encoding="utf-8")
+    unparseable = _finding("*", "pyproject.toml", 1, "pyproject", "", "", "unparseable")
+    text = _read_text(path)
+    if text is None:
+        yield unparseable
+        return
     lines = text.splitlines()
     try:
         data = tomllib.loads(text)
     except tomllib.TOMLDecodeError:
-        yield _finding("*", "pyproject.toml", 1, "pyproject", "", "", "unparseable")
+        yield unparseable
         return
+    # Valid TOML can still put a string where a table belongs. That is a
+    # consumer finding, never a Core failure: report it and scan the rest.
+    malformed = False
+
+    def table(parent: dict[str, Any], key: str) -> dict[str, Any]:
+        nonlocal malformed
+        value = _table(parent.get(key, {}))
+        if value is None:
+            malformed = True
+            return {}
+        return value
+
     groups: list[tuple[str, Any]] = []
-    project = data.get("project", {})
-    for name, deps in sorted(project.get("optional-dependencies", {}).items()):
+    project = table(data, "project")
+    for name, deps in sorted(table(project, "optional-dependencies").items()):
         groups.append((f"project.optional-dependencies.{name}", deps))
-    for name, deps in sorted(data.get("dependency-groups", {}).items()):
+    for name, deps in sorted(table(data, "dependency-groups").items()):
         groups.append((f"dependency-groups.{name}", deps))
-    uv = data.get("tool", {}).get("uv", {})
+    uv = table(table(data, "tool"), "uv")
     if "dev-dependencies" in uv:
         groups.append(("tool.uv.dev-dependencies", uv["dev-dependencies"]))
+    for _source, deps in groups:
+        if not isinstance(deps, list):
+            malformed = True
+    if malformed:
+        yield unparseable
     for source, deps in groups:
         if not isinstance(deps, list):
             continue
@@ -297,8 +331,12 @@ def scan_uv_lock(
     path = _safe_file(root, "uv.lock")
     if path is None:
         return
+    text = _read_text(path)
+    if text is None:
+        yield _finding("*", "uv.lock", 1, "uv.lock", "", "", "unparseable")
+        return
     current: str | None = None
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for number, line in enumerate(text.splitlines(), 1):
         stripped = line.strip()
         if stripped.startswith("["):
             current = None
@@ -329,7 +367,11 @@ def scan_requirements(
         path = _safe_file(root, relative)
         if path is None:
             continue
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        content = _read_text(path)
+        if content is None:
+            yield _finding("*", relative, 1, "requirements", "", "", "unparseable")
+            continue
+        for number, line in enumerate(content.splitlines(), 1):
             text = line.split(" #", 1)[0].strip().rstrip("\\").strip()
             if not text or text.startswith(("#", "-")):
                 continue
@@ -353,8 +395,12 @@ def scan_pre_commit(
     path = _safe_file(root, relative)
     if path is None:
         return
+    text = _read_text(path)
+    if text is None:
+        yield _finding("*", relative, 1, "pre-commit", "", "", "unparseable")
+        return
     current: str | None = None
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for number, line in enumerate(text.splitlines(), 1):
         stripped = line.split(" #", 1)[0].strip()
         match = re.match(r"^-?\s*repo:\s*['\"]?([^'\"\s]+)['\"]?$", stripped)
         if match:
@@ -385,8 +431,11 @@ def scan_biome(
         path = _safe_file(root, relative)
         if path is None:
             continue
-        lines = path.read_text(encoding="utf-8").splitlines()
-        for number, line in enumerate(lines, 1):
+        content = _read_text(path)
+        if content is None:
+            yield _finding(tool, relative, 1, "$schema", "", lock[tool], "unparseable")
+            continue
+        for number, line in enumerate(content.splitlines(), 1):
             match = BIOME_SCHEMA.search(line)
             if match:
                 declared = match.group(1)
@@ -400,10 +449,12 @@ def scan_biome(
     path = _safe_file(root, "package.json")
     if path is None:
         return
-    text = path.read_text(encoding="utf-8")
+    text = _read_text(path)
     try:
-        manifest = json.loads(text)
+        manifest = _table(json.loads(text)) if text is not None else None
     except ValueError:
+        manifest = None
+    if text is None or manifest is None:
         yield _finding(
             tool, "package.json", 1, "package.json", "", lock[tool], "unparseable"
         )

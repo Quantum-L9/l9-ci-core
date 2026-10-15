@@ -19,10 +19,12 @@ Exit-code classes, observed from the Biome 2.5.8 binary:
 A consumer without ``biome.json``/``biome.jsonc`` at the checkout root is
 ``not_applicable``: Core cannot require a consumer file.
 
-    python3 run.py --executable PATH --mode advisory [--root .] [--output FILE]
+    python3 check_biome.py --executable PATH --mode advisory [--root .] [--output FILE]
 
 Exit codes: ``0`` recorded (any Biome result in advisory mode), ``2`` invalid
-invocation, ``3`` Core contract/infrastructure failure.
+invocation or a root/output path that resolves outside the workspace (checked
+before any write, so a committed ``.l9`` symlink cannot redirect the report),
+``3`` Core contract/infrastructure failure.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ import os
 import pathlib
 import subprocess
 import sys
+from typing import NoReturn
 
 SCHEMA = "l9.biome-check/v1"
 CONFIG_FILES = ("biome.json", "biome.jsonc")
@@ -40,12 +43,26 @@ MODES = ("advisory",)
 FINDINGS_EXIT = 1
 
 
-def _workspace(root: str) -> pathlib.Path:
-    workspace = pathlib.Path(os.environ.get("GITHUB_WORKSPACE") or ".").resolve()
-    candidate = (workspace / root).resolve()
-    if candidate != workspace and workspace not in candidate.parents:
-        raise SystemExit(f"run-biome-check: root {root!r} escapes the workspace")
-    return candidate
+def _refuse(message: str) -> NoReturn:
+    """Invalid invocation or a containment breach: exit 2 before any write."""
+    print(f"run-biome-check: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def _workspace() -> pathlib.Path:
+    return pathlib.Path(os.environ.get("GITHUB_WORKSPACE") or ".").resolve()
+
+
+def _contained(workspace: pathlib.Path, path: pathlib.Path, label: str) -> pathlib.Path:
+    """Resolve ``path`` and refuse it unless it stays inside the workspace.
+
+    Resolution follows symlinks, so a consumer-committed ``.l9`` (or report
+    file) linking outside the checkout is caught here, before any write.
+    """
+    resolved = path.resolve()
+    if resolved != workspace and workspace not in resolved.parents:
+        _refuse(f"{label} escapes the workspace")
+    return resolved
 
 
 def _write(output: pathlib.Path, record: dict[str, object]) -> None:
@@ -85,8 +102,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    root = _workspace(args.root)
-    output = root / args.output
+    workspace = _workspace()
+    root = _contained(workspace, workspace / args.root, f"root {args.root!r}")
+    output = _contained(workspace, root / args.output, f"output {args.output!r}")
+    if output == workspace:
+        _refuse("output must name a file")
     record: dict[str, object] = {
         "schema": SCHEMA,
         "mode": args.mode,
