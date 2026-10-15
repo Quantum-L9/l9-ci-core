@@ -181,12 +181,18 @@ class RepositoryLayerBoundaryTests(unittest.TestCase):
                     offenders.append(f"{rel}: {marker}")
         self.assertEqual([], offenders)
 
-    def test_admission_bridge_is_untouched_by_adoption(self) -> None:
+    def test_admission_bridge_stays_an_execution_only_admission_point(self) -> None:
+        # The bridge's enforcement mode and typed outputs are #202's admission
+        # contract; adoption only requires that it still delegates V1, records
+        # failures as typed evidence, and reaches no retired compiler.
         text = BRIDGE.read_text(encoding="utf-8")
         self.assertIn("from l9_repo.__main__ import RepositoryWorkflow", text)
-        self.assertIn('_write_output("status", "fail")', text)
-        self.assertNotIn("contract-mode", text)
-        self.assertNotIn("migration", text)
+        self.assertIn("from l9_repo.contract import", text)
+        self.assertIn('status="fail"', text)
+        self.assertNotIn("l9_make", text)
+        action = (BRIDGE.parent / "action.yml").read_text(encoding="utf-8")
+        inputs = action.split("inputs:", 1)[1].split("outputs:", 1)[0]
+        self.assertNotIn("contract-mode", inputs)
 
 
 if __name__ == "__main__":

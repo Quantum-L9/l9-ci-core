@@ -110,11 +110,14 @@ class BridgeAgreementTests(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
-    def test_bridge_constants_match_the_runtime(self) -> None:
+    def test_bridge_uses_the_runtime_contract_authority(self) -> None:
+        # One V2 authority: the bridge binds the runtime's own objects rather
+        # than mirroring constants that could drift.
         bridge = self.bridge()
         self.assertEqual(tuple(PHASES), bridge.V2_REQUIRED_PHASES)
-        self.assertEqual("make-v1", bridge.V2_FACADE)
-        self.assertIn(bridge.V2_FACADE, FACADE_TEMPLATES)
+        self.assertIs(ContractError, bridge.ContractError)
+        self.assertIs(validate_v2_contract_data, bridge.validate_v2_contract_data)
+        self.assertIn("make-v1", FACADE_TEMPLATES)
 
     def test_bridge_and_runtime_agree_on_rejections(self) -> None:
         bridge = self.bridge()

@@ -387,13 +387,49 @@ Contract: `.l9/release-plane.yaml` (`l9.release-plane/v1`), asserted by
 
 <!-- BEGIN L9 FORMATTER OWNERSHIP (generated — do not edit) -->
 
-## 13. Repository Execution V2 (2026-09-25) — supersedes §11's generated-adapter text
+## Formatter ownership
 
-This section supersedes, in §11, "The generated adapter and local extension
-layers", "The contract shape is pinned", and the two invariants naming
-`tools/l9_make` and `make capabilities`. The completion sequence at the top of
-§11 (`make validate`, `make change-policy`, `make check`, the full `unittest`
-suite, `make agent-check`) is unchanged.
+Workspace class: `biome_default` — Default for every governed workspace: Biome owns JS/TS/JSON, VS Code JSON language features owns JSONC (the Biome extension cannot format jsonc), Ruff owns Python, Prettier owns Markdown (format-on-save off so governance docs do not churn).
+
+Exactly one formatter owns each language. Do not reformat a file with a tool other than its owner, and do not add config for a competing formatter: the result is a diff that churns on every save.
+
+| Languages | Owner | Note |
+|---|---|---|
+| `javascript`, `javascriptreact`, `typescript`, `typescriptreact`, `json` | **biome** | bound by the governed IDE profile |
+| `jsonc` | **vscode-json** | bound by the governed IDE profile |
+| `python` | **ruff** | bound by the governed IDE profile |
+| `markdown` | **prettier** | bound by the governed IDE profile |
+
+Generated from `environment/ide/policy.json` in the governance clone by `ops/scripts/adapters/agentdocs.sh`. Edit the policy, not this block.
+
+<!-- END L9 FORMATTER OWNERSHIP -->
+
+## 13. Repository contract admission (2026-10-15)
+
+`.github/actions/run-repository-verification` is the organization admission
+point for `.l9/repo-workflow.json` and owns three decisions; see
+`docs/repository-execution-runtime.md` § Organization admission of repository
+contracts.
+
+- Contract generation is classified by Core: a `schema` key means Repository
+  Execution V2, validated only by `tools/l9_repo/contract.py`; it never falls
+  through to V1. Do not add a second V2 validator.
+- A V2 consumer is admitted only with a byte-exact `make-v1` facade and an
+  unconditional `Repo.mk` ABI, verified before any phase runs.
+- Whether a contract is required is `contract-policy.json` in the pinned
+  action, keyed by `github.repository`. Never add an action input, consumer
+  metadata field, or contract field that selects or weakens the mode.
+
+## 14. Repository Execution V2 (2026-09-25) — supersedes §11 except its completion sequence
+
+This section supersedes all of §11 except the completion sequence at its top
+(`make validate`, `make change-policy`, `make check`, the full `unittest`
+suite, `make agent-check`) and the Cursor-Governance ownership list, which are
+unchanged. Superseded in particular: the contract being "validated by
+`.l9/repo-workflow.schema.json`", `commands.check`, the parity invariant
+naming `tools/l9_make/Makefile.template`, "The generated adapter and local
+extension layers", and "The contract shape is pinned". Toolchain resolution
+through the interpreter now lives in `Repo.mk`'s `repo-check` leaf.
 
 ### The consumer contract
 
@@ -459,41 +495,11 @@ Repository Execution V2 test suite is `tests/repo_execution/`; the
 ### The V1 compatibility path
 
 `RepositoryWorkflow` in `tools/l9_repo/__main__.py` is retained only for the
-pinned admission bridge, which delegates a repository still declaring
-`schema_version: 1` to it. It runs that contract's `commands` matrices
-argv-only under the executable allowlist and nothing more; the superseded V1
-structural validation is retired with the compiler it depended on. Core itself
-is a V2 consumer.
-
-## Formatter ownership
-
-Workspace class: `biome_default` — Default for every governed workspace: Biome owns JS/TS/JSON, VS Code JSON language features owns JSONC (the Biome extension cannot format jsonc), Ruff owns Python, Prettier owns Markdown (format-on-save off so governance docs do not churn).
-
-Exactly one formatter owns each language. Do not reformat a file with a tool other than its owner, and do not add config for a competing formatter: the result is a diff that churns on every save.
-
-| Languages | Owner | Note |
-|---|---|---|
-| `javascript`, `javascriptreact`, `typescript`, `typescriptreact`, `json` | **biome** | bound by the governed IDE profile |
-| `jsonc` | **vscode-json** | bound by the governed IDE profile |
-| `python` | **ruff** | bound by the governed IDE profile |
-| `markdown` | **prettier** | bound by the governed IDE profile |
-
-Generated from `environment/ide/policy.json` in the governance clone by `ops/scripts/adapters/agentdocs.sh`. Edit the policy, not this block.
-
-<!-- END L9 FORMATTER OWNERSHIP -->
-
-## 13. Repository contract admission (2026-10-15)
-
-`.github/actions/run-repository-verification` is the organization admission
-point for `.l9/repo-workflow.json` and owns three decisions; see
-`docs/repository-execution-runtime.md` § Organization admission of repository
-contracts.
-
-- Contract generation is classified by Core: a `schema` key means Repository
-  Execution V2, validated only by `tools/l9_repo/contract.py`; it never falls
-  through to V1. Do not add a second V2 validator.
-- A V2 consumer is admitted only with a byte-exact `make-v1` facade and an
-  unconditional `Repo.mk` ABI, verified before any phase runs.
-- Whether a contract is required is `contract-policy.json` in the pinned
-  action, keyed by `github.repository`. Never add an action input, consumer
-  metadata field, or contract field that selects or weakens the mode.
+admission bridge, which delegates a repository still declaring
+`schema_version: 1` to it in `migration` mode (§13). The bridge pinned in
+`org-ci.yml` imports its *own* checkout's `RepositoryWorkflow`, so this bounded
+executor takes effect for V1 consumers only once the pin advances to a
+revision of this tree. It runs that contract's `commands` matrices argv-only
+under the executable allowlist and nothing more; the superseded V1 structural
+validation is retired with the compiler it depended on. Core itself is a V2
+consumer.

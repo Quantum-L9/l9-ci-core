@@ -16,9 +16,11 @@ Three layers live here, deliberately separated:
     never part of the consumer protocol.
 
 ``RepositoryWorkflow``
-    The bounded V1 compatibility executor consumed by the pinned admission
-    bridge (``.github/actions/run-repository-verification/run.py``) for a
-    repository that still declares ``schema_version: 1``. It runs that
+    The bounded V1 compatibility executor the admission bridge
+    (``.github/actions/run-repository-verification/run.py``) delegates to, in
+    ``migration`` mode, for a repository that still declares
+    ``schema_version: 1``. The bridge pinned in ``org-ci.yml`` imports its own
+    checkout's executor, so this one applies once that pin advances. It runs that
     contract's ``commands`` matrices argv-only under the same executable
     allowlist and nothing more; the superseded V1 structural validation and
     the generated-adapter compiler it depended on are retired.

@@ -28,10 +28,10 @@ Cursor-Governance. Nothing in the generated facade, `Repo.mk`, or
 It carries no commands, no policy, and no metadata. Validation is standard
 library only and fails closed on any additional field, another `schema`, a
 facade that is not a released one, or a `required_phases` list that is not
-exactly `setup, validate, check, test` in that order. The organization
-admission bridge (`.github/actions/run-repository-verification/run.py`) and
-`tools/l9_repo/contract.py` apply the same rule and are tested against the
-same rejection cases.
+exactly `setup, validate, check, test` in that order. There is one
+implementation of that rule, `tools/l9_repo/contract.py`; the organization
+admission bridge (`.github/actions/run-repository-verification/run.py`)
+validates through it rather than keeping its own copy.
 
 ## The Make ownership model
 
@@ -51,13 +51,15 @@ repository-owned Repo.mk
 - **`Makefile`** is generated: the bytes of the released facade named by the
   contract, reproduced byte-for-byte. It declares exactly `help` plus the four
   phases, includes `Repo.mk` by ordinary composition, and contains no
-  publication or Governance target and no dispatcher variable. Regenerate it
-  with `python3 -m tools.l9_repo reconcile`; that command is one-directional
-  (facade specification to `Makefile`), idempotent, and never writes
-  `Repo.mk`.
+  publication or Governance target and no dispatcher variable. In Core,
+  regenerate it with `python3 -m tools.l9_repo reconcile`; that command is
+  one-directional (facade specification to `Makefile`), idempotent, and never
+  writes `Repo.mk`. A consumer receives the facade from the Factory install;
+  Core never writes into a consumer, it only verifies the bytes at admission.
 - **`Repo.mk`** is repository-owned: hand-maintained, never generated, never
   carrying generated provenance, never requiring an extension file. It must
-  declare the four `repo-*` leaves, each `.PHONY` so a same-named file can never
+  declare the four `repo-*` leaves unconditionally (a leaf only inside a
+  conditional or `define` block counts as missing), each `.PHONY` so a same-named file can never
   suppress a phase, and may not redefine a facade verb. Everything else in it
   is the repository's business. Core does not parse GNU Make; it proves only
   those structural properties.
@@ -135,8 +137,11 @@ interpreter running the tool) or one of the pinned toolchain `ruff`, `mypy`,
 ## The V1 compatibility path
 
 `RepositoryWorkflow` in `tools/l9_repo/__main__.py` exists for one caller: the
-pinned admission bridge, which delegates a repository still declaring
-`schema_version: 1` to it. It runs that contract's `commands` matrices for
+admission bridge, which delegates a repository still declaring
+`schema_version: 1` to it in `migration` mode. The bridge pinned in
+`org-ci.yml` imports its own checkout's `RepositoryWorkflow`, so this bounded
+executor reaches V1 consumers only once that pin advances to a revision of
+this tree. It runs that contract's `commands` matrices for
 `setup`, `validate`, `check`, and `test` argv-only under the same executable
 allowlist, and nothing more. The superseded V1 structural validation
 (JSON schema, capability plan, generated-adapter parity) is retired with the
@@ -258,12 +263,13 @@ and invokes the verified SDK executable directly through its bundled adapter.
 ## Admission through the organization workflow
 
 `.github/workflows/org-ci.yml` invokes `run-repository-verification` at an
-immutable Core SHA. That bridge reads `.l9/repo-workflow.json` once, runs
-`make setup`, `make validate`, `make check`, `make test` for a V2 contract
-(stopping at the first failure), delegates a `schema_version: 1` contract to
-the bounded V1 path, and records `present` / `status` for the workflow's
-existing enforcement step. Adopting V2 in Core changed nothing in that action
-or its outputs; Core is simply now verified through the V2 branch of it.
+immutable Core SHA; its classification, V2 admission (facade bytes and
+`Repo.mk` ABI before any phase), policy-owned enforcement mode, and typed
+outputs are described in "Organization admission of repository contracts"
+above. Adopting V2 in Core changed nothing in that action, its pin, or its
+outputs; Core is verified through its V2 branch, and
+`tests/workflows/test_repository_execution_v2_bridge.py` proves Core's own
+tree passes that admission.
 
 ## Invariants
 

@@ -124,7 +124,12 @@ class LegacyExecutionTests(unittest.TestCase):
 
 
 class BridgeLegacyEndToEndTests(unittest.TestCase):
-    """The pinned admission bridge still passes a real V1 consumer on main."""
+    """This tree's bridge, with this tree's bounded V1 executor, end to end.
+
+    The bridge pinned in ``org-ci.yml`` runs its own checkout's V1 runtime;
+    this is what a later repin to a revision of this tree carries for V1
+    consumers in migration mode.
+    """
 
     def run_bridge(self, root: pathlib.Path) -> dict[str, str]:
         spec = importlib.util.spec_from_file_location("l9_bridge_for_v1", BRIDGE)
@@ -133,7 +138,11 @@ class BridgeLegacyEndToEndTests(unittest.TestCase):
         spec.loader.exec_module(bridge)
         outputs: dict[str, str] = {}
         with tempfile.NamedTemporaryFile() as output:
-            env = {"L9_REPOSITORY_WORKSPACE": str(root), "GITHUB_OUTPUT": output.name}
+            env = {
+                "L9_REPOSITORY_WORKSPACE": str(root),
+                "GITHUB_OUTPUT": output.name,
+                "L9_REPOSITORY_IDENTITY": "Quantum-L9/example-v1-consumer",
+            }
             with unittest.mock.patch.dict(os.environ, env, clear=False):
                 self.assertEqual(0, bridge.main())
             for line in (
@@ -148,7 +157,14 @@ class BridgeLegacyEndToEndTests(unittest.TestCase):
             root = pathlib.Path(tmp)
             write_v1_consumer(root, v1_contract())
             self.assertEqual(
-                {"present": "true", "status": "pass"}, self.run_bridge(root)
+                {
+                    "present": "true",
+                    "status": "pass",
+                    "contract-mode": "migration",
+                    "contract-version": "v1",
+                    "failure-kind": "none",
+                },
+                self.run_bridge(root),
             )
             for phase in PHASES:
                 self.assertTrue((root / f"{phase}.log").is_file(), phase)
@@ -162,7 +178,14 @@ class BridgeLegacyEndToEndTests(unittest.TestCase):
             }
             write_v1_consumer(root, v1_contract(commands=commands))
             self.assertEqual(
-                {"present": "true", "status": "fail"}, self.run_bridge(root)
+                {
+                    "present": "true",
+                    "status": "fail",
+                    "contract-mode": "migration",
+                    "contract-version": "v1",
+                    "failure-kind": "command",
+                },
+                self.run_bridge(root),
             )
             self.assertFalse((root / "test.log").exists())
 
