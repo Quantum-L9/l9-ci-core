@@ -130,7 +130,7 @@ jobs:
           TEST_DIR: ${{ inputs.test-dir }}
         run: |
           set -euo pipefail
-          python -m pip install --upgrade "pip==26.1.2"
+          python -m pip install --upgrade "pip==26.2.1"
           if [ -f "$REQUIREMENTS_FILE" ]; then
             pip install -r "$REQUIREMENTS_FILE"
           elif [ -f "pyproject.toml" ]; then
