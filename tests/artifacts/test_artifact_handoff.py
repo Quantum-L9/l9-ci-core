@@ -5,6 +5,7 @@ import email.message
 import importlib.util
 import json
 import os
+import re
 import tempfile
 import unittest
 import urllib.request
@@ -18,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[2]
 HANDOFF_PATH = ROOT / ".github/actions/create-artifact-handoff/handoff.py"
 PREPARE_PATH = ROOT / ".github/actions/retrieve-artifacts/prepare.py"
 SERVER_PATH = ROOT / ".github/actions/retrieve-artifacts/verify_server.py"
+RETRIEVE_PATH = ROOT / ".github/actions/retrieve-artifacts/retrieve.py"
+MANIFEST_PATH = ROOT / ".github/actions/build-artifact-manifest/manifest.py"
 REVISION = "1" * 40
 SDK_REVISION = "2" * 40
 HEAD_SHA = "6" * 40
@@ -36,6 +39,8 @@ def load(name: str, path: Path) -> ModuleType:
 handoff = load("create_artifact_handoff", HANDOFF_PATH)
 prepare = load("prepare_artifact_handoff", PREPARE_PATH)
 server = load("verify_artifact_server", SERVER_PATH)
+retrieve = load("retrieve_artifact_handoff", RETRIEVE_PATH)
+manifest = load("build_artifact_manifest_grammar", MANIFEST_PATH)
 
 
 def document() -> dict[str, object]:
@@ -114,12 +119,48 @@ class ArtifactHandoffProducerTests(unittest.TestCase):
             )
             self.assertRegex(outputs["descriptor-digest"], r"^[0-9a-f]{64}$")
 
+    def test_admits_dot_prefixed_repository_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            environment = self.environment(workspace)
+            environment["L9_REPOSITORY"] = "Quantum-L9/.github"
+            environment["L9_PRODUCER_REPOSITORY"] = "Quantum-L9/.github"
+            with patch.dict(os.environ, environment, clear=True):
+                self.assertEqual(0, handoff.main())
+            descriptor = json.loads(
+                (workspace / environment["L9_HANDOFF_OUTPUT"]).read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual("Quantum-L9/.github", descriptor["subject"]["repository"])
+            self.assertEqual("Quantum-L9/.github", descriptor["producer"]["repository"])
+
+    def test_repository_grammar_matches_the_manifest_and_schema(self) -> None:
+        schema = json.loads(
+            (ROOT / ".l9/core-artifact-handoff.schema.json").read_text(encoding="utf-8")
+        )
+        schema_pattern = re.compile(schema["$defs"]["repository"]["pattern"])
+        modules = (handoff, prepare, server, retrieve, manifest)
+        for repository in ("Quantum-L9/.github", "Quantum-L9/example"):
+            for module in modules:
+                with self.subTest(repository=repository, module=module.__name__):
+                    self.assertIsNotNone(module.REPOSITORY.fullmatch(repository))
+            self.assertIsNotNone(schema_pattern.fullmatch(repository))
+        for repository in ("Quantum-L9/.", "Quantum-L9/..", "Quantum-L9//x"):
+            for module in modules:
+                with self.subTest(repository=repository, module=module.__name__):
+                    self.assertIsNone(module.REPOSITORY.fullmatch(repository))
+            self.assertIsNone(schema_pattern.fullmatch(repository))
+
     def test_rejects_missing_malformed_or_unsafe_inputs(self) -> None:
         mutations = {
             "missing upload id": ("L9_ARTIFACT_ID", ""),
             "malformed upload id": ("L9_ARTIFACT_ID", "0"),
             "malformed digest": ("L9_ARTIFACT_DIGEST", "sha256:nope"),
             "malformed repository": ("L9_REPOSITORY", "not-a-repository"),
+            "reserved dot repository": ("L9_REPOSITORY", "Quantum-L9/."),
+            "reserved dot-dot repository": ("L9_REPOSITORY", "Quantum-L9/.."),
+            "reserved producer repository": ("L9_PRODUCER_REPOSITORY", "Quantum-L9/.."),
             "malformed revision": ("L9_REPOSITORY_REVISION", "main"),
             "malformed workflow head": ("L9_WORKFLOW_HEAD_SHA", "main"),
             "unsafe destination": ("L9_HANDOFF_OUTPUT", "../handoff.json"),
