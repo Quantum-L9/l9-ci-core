@@ -86,7 +86,7 @@ jobs:
     # The completed Core revision exports artifact-only analysis. GitHub checks
     # and SARIF are separate false-default capabilities that an explicit
     # trusted caller may elect; nightly receives neither write scope.
-    uses: Quantum-L9/l9-ci-core/.github/workflows/analyze-semgrep.yml@59cb364615ccd44d824bec6b71d49d2f93e465c9
+    uses: Quantum-L9/l9-ci-core/.github/workflows/analyze-semgrep.yml@ed84dcf91e539cbbdd9e2ae5303dcc42dd84ea3d
     permissions:
       contents: read
     with:

@@ -20,7 +20,13 @@ inputs:
     description: owner/name identity of the analyzed repository.
     required: true
   repository-revision:
-    description: Full immutable revision of the analyzed repository.
+    description: Full immutable revision of the analyzed repository tree.
+    required: true
+  workflow-head-sha:
+    description: >
+      Full SHA GitHub records as workflow_run.head_sha for this run. On
+      pull_request that is the PR head, not the synthetic merge commit in
+      github.sha.
     required: true
   sdk-revision:
     description: Full immutable SDK revision used for the analysis.
@@ -52,6 +58,7 @@ runs:
         L9_MATRIX_ID: ${{ inputs.matrix-id }}
         L9_REPOSITORY: ${{ inputs.repository }}
         L9_REPOSITORY_REVISION: ${{ inputs.repository-revision }}
+        L9_WORKFLOW_HEAD_SHA: ${{ inputs.workflow-head-sha }}
         L9_SDK_REVISION: ${{ inputs.sdk-revision }}
         L9_PRODUCER_REPOSITORY: ${{ github.repository }}
         L9_PRODUCER_RUN_ID: ${{ github.run_id }}
