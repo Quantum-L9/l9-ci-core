@@ -481,3 +481,19 @@ Exactly one formatter owns each language. Do not reformat a file with a tool oth
 Generated from `environment/ide/policy.json` in the governance clone by `ops/scripts/adapters/agentdocs.sh`. Edit the policy, not this block.
 
 <!-- END L9 FORMATTER OWNERSHIP -->
+
+## 13. Repository contract admission (2026-10-15)
+
+`.github/actions/run-repository-verification` is the organization admission
+point for `.l9/repo-workflow.json` and owns three decisions; see
+`docs/repository-execution-runtime.md` § Organization admission of repository
+contracts.
+
+- Contract generation is classified by Core: a `schema` key means Repository
+  Execution V2, validated only by `tools/l9_repo/contract.py`; it never falls
+  through to V1. Do not add a second V2 validator.
+- A V2 consumer is admitted only with a byte-exact `make-v1` facade and an
+  unconditional `Repo.mk` ABI, verified before any phase runs.
+- Whether a contract is required is `contract-policy.json` in the pinned
+  action, keyed by `github.repository`. Never add an action input, consumer
+  metadata field, or contract field that selects or weakens the mode.

@@ -217,6 +217,37 @@ promotion is two-commit activation: first land the lock, digest binding, and
 tests; only a successor commit may change workflow pins to select the new
 primitive. The first commit must therefore be inert for already pinned callers.
 
+## Organization admission of repository contracts
+
+`run-repository-verification`, pinned by full SHA in `org-ci.yml`, is the only
+organization admission point for `.l9/repo-workflow.json`. It loads every
+decision from its own Core checkout, never from the consumer:
+
+- **Generation.** A document carrying `schema` is judged as Repository
+  Execution V2 only (`tools/l9_repo/contract.py`): exactly `schema`,
+  `facade: make-v1`, and `required_phases: [setup, validate, check, test]`.
+  It never falls through to the V1 parser. `schema_version: 1` (an integer,
+  not a boolean) runs the V1 runtime. Anything else is an invalid contract.
+- **V2 admission.** Before any phase runs, the consumer's root `Makefile` must
+  equal the Core-owned `tools/l9_repo/facades/make-v1.mk` byte-for-byte, and
+  `Repo.mk` must declare `repo-setup`, `repo-validate`, `repo-check`, and
+  `repo-test` unconditionally and `.PHONY`, without redefining a facade verb.
+  GNU make treats a `.PHONY` target with no rule as satisfied, so a leaf that
+  exists only inside a conditional or `define` block counts as missing. The
+  phases then run as `make <phase>`, argv-only, stopping at the first failure.
+- **Enforcement mode is Core policy.** `contract-policy.json`, shipped with the
+  pinned action, resolves `migration` (default) or `required` from the
+  runner-supplied `github.repository`. No action input, consumer metadata, or
+  contract field selects it. `migration` tolerates an absent contract and
+  admits V1 and V2; `required` fails an absent contract and refuses V1.
+  Enrolling a repository in `required` is a Core policy change plus a repin.
+- **Typed outputs.** `present`, `status` (`pass`, `not_applicable`, `fail`),
+  `contract-mode`, `contract-version` (`absent`, `v1`, `v2`, `invalid`), and
+  `failure-kind` (`none`, `contract`, `command`, `infrastructure`). The
+  blocking-profile enforcement step in `org-ci.yml` accepts
+  `migration:pass`, `migration:not_applicable`, and `required:pass` only; an
+  empty or unresolved mode fails closed.
+
 `tools/check_workflow_integrity.py` recursively scans both
 `.github/workflows/**/*.{yml,yaml}` and `.github/actions/**/*.{yml,yaml}`. Every
 remote `uses:` edge must be a full lowercase 40-character SHA. Composite actions

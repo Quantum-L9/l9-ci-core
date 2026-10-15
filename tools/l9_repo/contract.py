@@ -172,17 +172,61 @@ def make_phony_targets(text: str) -> set[str]:
     return phony
 
 
+def _unconditional_text(text: str) -> str:
+    """Blank every line inside a conditional or ``define`` block.
+
+    GNU Make treats a ``.PHONY`` target that has no rule as already satisfied,
+    so a required leaf declared only inside ``ifdef NEVER ... endif`` would
+    make its phase pass without running anything. Only unconditional,
+    top-level text may satisfy the ABI. Directive lines never begin with a
+    tab, which would make them recipe lines.
+    """
+
+    kept: list[str] = []
+    conditional = 0
+    defining = 0
+    for raw in text.splitlines():
+        words = raw.split("#", 1)[0].split() if not raw.startswith("\t") else []
+        directive = words[0] if words else ""
+        while directive in {"override", "export", "private"} and len(words) > 1:
+            words = words[1:]
+            directive = words[0]
+        if defining:
+            if directive == "endef":
+                defining -= 1
+            elif directive == "define":
+                defining += 1
+            kept.append("")
+            continue
+        if directive == "define":
+            defining += 1
+            kept.append("")
+            continue
+        if directive in {"ifdef", "ifndef", "ifeq", "ifneq"}:
+            conditional += 1
+            kept.append("")
+            continue
+        if directive == "endif" and conditional:
+            conditional -= 1
+            kept.append("")
+            continue
+        kept.append("" if conditional else raw)
+    return "\n".join(kept)
+
+
 def validate_repo_mk_text(text: str) -> None:
     """Structural ABI validation of a repository-owned ``Repo.mk``.
 
-    Required leaves must be declared and ``.PHONY`` (so a same-named file can
-    never suppress a phase), and the facade's own verbs may not be redefined.
-    Everything else in the file is the repository's business.
+    Required leaves must be declared unconditionally and ``.PHONY`` (so a
+    same-named file can never suppress a phase), and the facade's own verbs
+    may not be redefined anywhere, conditionally or not. Everything else in
+    the file is the repository's business.
     """
 
     declarations = make_target_declarations(text)
-    declared = {target for _, target in declarations}
-    phony = make_phony_targets(text)
+    unconditional = _unconditional_text(text)
+    declared = {target for _, target in make_target_declarations(unconditional)}
+    phony = make_phony_targets(unconditional)
     for leaf in REQUIRED_LEAVES:
         if leaf not in declared:
             _fail(f"Repo.mk is missing required implementation target: {leaf}")
