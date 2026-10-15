@@ -164,6 +164,7 @@ def main() -> int:
             "producer": {
                 "repository": checked("L9_PRODUCER_REPOSITORY", REPOSITORY),
                 "run_id": int(run_id_text),
+                "head_sha": full_sha("L9_WORKFLOW_HEAD_SHA"),
             },
             "artifact": {
                 "id": int(artifact_id_text),
