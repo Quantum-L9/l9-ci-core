@@ -46,7 +46,7 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
         self.assertLess(verify, semgrep)
         self.assertNotIn("continue-on-error", text[verify:semgrep])
         runner = RUNNER.read_text(encoding="utf-8")
-        self.assertIn('_write_output("status", "fail")', runner)
+        self.assertIn('status="fail"', runner)
 
     def test_blocking_profiles_enforce_repository_verification(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
