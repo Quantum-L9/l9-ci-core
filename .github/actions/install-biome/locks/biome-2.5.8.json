@@ -1,0 +1,11 @@
+{
+  "platforms": {
+    "linux-x64": {
+      "asset": "biome-linux-x64",
+      "sha256": "17abac7ef72e7a1aaccd89892f7e2e62c9919d27473defe772be04ad78400ac2"
+    }
+  },
+  "release": "https://github.com/biomejs/biome/releases/tag/%40biomejs%2Fbiome%402.5.8",
+  "schema": "l9.biome-binary-lock/v1",
+  "version": "2.5.8"
+}

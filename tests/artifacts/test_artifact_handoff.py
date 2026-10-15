@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import datetime as dt
+import email.message
 import importlib.util
 import json
 import os
+import re
 import tempfile
 import unittest
+import urllib.request
+import urllib.response
+from io import BytesIO
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
@@ -14,8 +19,11 @@ ROOT = Path(__file__).resolve().parents[2]
 HANDOFF_PATH = ROOT / ".github/actions/create-artifact-handoff/handoff.py"
 PREPARE_PATH = ROOT / ".github/actions/retrieve-artifacts/prepare.py"
 SERVER_PATH = ROOT / ".github/actions/retrieve-artifacts/verify_server.py"
+RETRIEVE_PATH = ROOT / ".github/actions/retrieve-artifacts/retrieve.py"
+MANIFEST_PATH = ROOT / ".github/actions/build-artifact-manifest/manifest.py"
 REVISION = "1" * 40
 SDK_REVISION = "2" * 40
+HEAD_SHA = "6" * 40
 ARCHIVE_DIGEST = "3" * 64
 ARTIFACT_NAME = "l9-semgrep-python-3.12-123-1"
 
@@ -31,12 +39,18 @@ def load(name: str, path: Path) -> ModuleType:
 handoff = load("create_artifact_handoff", HANDOFF_PATH)
 prepare = load("prepare_artifact_handoff", PREPARE_PATH)
 server = load("verify_artifact_server", SERVER_PATH)
+retrieve = load("retrieve_artifact_handoff", RETRIEVE_PATH)
+manifest = load("build_artifact_manifest_grammar", MANIFEST_PATH)
 
 
 def document() -> dict[str, object]:
     return {
         "schema": "l9.core-artifact-handoff/v1",
-        "producer": {"repository": "Quantum-L9/example", "run_id": 123},
+        "producer": {
+            "repository": "Quantum-L9/example",
+            "run_id": 123,
+            "head_sha": HEAD_SHA,
+        },
         "artifact": {
             "id": 456,
             "name": ARTIFACT_NAME,
@@ -78,6 +92,7 @@ class ArtifactHandoffProducerTests(unittest.TestCase):
             "L9_SDK_REVISION": SDK_REVISION,
             "L9_PRODUCER_REPOSITORY": "Quantum-L9/example",
             "L9_PRODUCER_RUN_ID": "123",
+            "L9_WORKFLOW_HEAD_SHA": HEAD_SHA,
             "L9_HANDOFF_OUTPUT": ".l9/runtime/handoffs/python-3.12.json",
         }
 
@@ -104,13 +119,50 @@ class ArtifactHandoffProducerTests(unittest.TestCase):
             )
             self.assertRegex(outputs["descriptor-digest"], r"^[0-9a-f]{64}$")
 
+    def test_admits_dot_prefixed_repository_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            environment = self.environment(workspace)
+            environment["L9_REPOSITORY"] = "Quantum-L9/.github"
+            environment["L9_PRODUCER_REPOSITORY"] = "Quantum-L9/.github"
+            with patch.dict(os.environ, environment, clear=True):
+                self.assertEqual(0, handoff.main())
+            descriptor = json.loads(
+                (workspace / environment["L9_HANDOFF_OUTPUT"]).read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual("Quantum-L9/.github", descriptor["subject"]["repository"])
+            self.assertEqual("Quantum-L9/.github", descriptor["producer"]["repository"])
+
+    def test_repository_grammar_matches_the_manifest_and_schema(self) -> None:
+        schema = json.loads(
+            (ROOT / ".l9/core-artifact-handoff.schema.json").read_text(encoding="utf-8")
+        )
+        schema_pattern = re.compile(schema["$defs"]["repository"]["pattern"])
+        modules = (handoff, prepare, server, retrieve, manifest)
+        for repository in ("Quantum-L9/.github", "Quantum-L9/example"):
+            for module in modules:
+                with self.subTest(repository=repository, module=module.__name__):
+                    self.assertIsNotNone(module.REPOSITORY.fullmatch(repository))
+            self.assertIsNotNone(schema_pattern.fullmatch(repository))
+        for repository in ("Quantum-L9/.", "Quantum-L9/..", "Quantum-L9//x"):
+            for module in modules:
+                with self.subTest(repository=repository, module=module.__name__):
+                    self.assertIsNone(module.REPOSITORY.fullmatch(repository))
+            self.assertIsNone(schema_pattern.fullmatch(repository))
+
     def test_rejects_missing_malformed_or_unsafe_inputs(self) -> None:
         mutations = {
             "missing upload id": ("L9_ARTIFACT_ID", ""),
             "malformed upload id": ("L9_ARTIFACT_ID", "0"),
             "malformed digest": ("L9_ARTIFACT_DIGEST", "sha256:nope"),
             "malformed repository": ("L9_REPOSITORY", "not-a-repository"),
+            "reserved dot repository": ("L9_REPOSITORY", "Quantum-L9/."),
+            "reserved dot-dot repository": ("L9_REPOSITORY", "Quantum-L9/.."),
+            "reserved producer repository": ("L9_PRODUCER_REPOSITORY", "Quantum-L9/.."),
             "malformed revision": ("L9_REPOSITORY_REVISION", "main"),
+            "malformed workflow head": ("L9_WORKFLOW_HEAD_SHA", "main"),
             "unsafe destination": ("L9_HANDOFF_OUTPUT", "../handoff.json"),
             "noncanonical destination": ("L9_HANDOFF_OUTPUT", "a//handoff.json"),
         }
@@ -217,6 +269,7 @@ class ArtifactHandoffPreparationTests(unittest.TestCase):
             self.assertEqual("python-3.12", outputs["matrix-id"])
             self.assertEqual("semgrep", outputs["provider"])
             self.assertEqual(REVISION, outputs["repository-revision"])
+            self.assertEqual(HEAD_SHA, outputs["workflow-head-sha"])
             self.assertEqual(SDK_REVISION, outputs["sdk-revision"])
 
             environment["L9_DESTINATION"] = "download-two"
@@ -267,6 +320,7 @@ class ArtifactHandoffServerTests(unittest.TestCase):
             "L9_ARCHIVE_DIGEST": ARCHIVE_DIGEST,
             "L9_SOURCE_RUN_ID": "123",
             "L9_REPOSITORY_REVISION": REVISION,
+            "L9_WORKFLOW_HEAD_SHA": HEAD_SHA,
         }
 
     def metadata(self) -> dict[str, object]:
@@ -283,10 +337,11 @@ class ArtifactHandoffServerTests(unittest.TestCase):
             "updated_at": "2026-09-20T00:01:00Z",
             "expires_at": "2026-10-20T00:00:00Z",
             "digest": f"sha256:{ARCHIVE_DIGEST}",
-            "workflow_run": {"id": 123, "head_sha": REVISION},
+            "workflow_run": {"id": 123, "head_sha": HEAD_SHA},
         }
 
     def test_server_metadata_verifies_identity_lifecycle_and_digest(self) -> None:
+        """Workflow head may differ from the analyzed subject revision."""
         endpoint = (
             "https://api.github.com/repos/Quantum-L9/example/actions/artifacts/456"
         )
@@ -340,6 +395,37 @@ class ArtifactHandoffServerTests(unittest.TestCase):
         )
         with self.assertRaises(server.ServerVerificationError):
             server.metadata_url("http://api.github.com", "Quantum-L9/example", "456")
+        with self.assertRaises(server.ServerVerificationError):
+            server.metadata_url("file:///etc/passwd", "Quantum-L9/example", "456")
+
+    def test_fetch_refuses_file_url_and_any_redirect(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            secret = Path(raw) / "secret"
+            secret.write_text("{}", encoding="utf-8")
+            with self.assertRaises(server.ServerVerificationError) as caught:
+                server.fetch_metadata(secret.as_uri(), "token")
+            self.assertIn("HTTPS", str(caught.exception))
+
+        endpoint = (
+            "https://api.github.com/repos/Quantum-L9/example/actions/artifacts/456"
+        )
+        location = "https://evil.example/stolen"
+
+        def redirecting_https(handler: object, req: urllib.request.Request):
+            del handler
+            headers = email.message.Message()
+            headers["Location"] = location
+            headers["Content-Length"] = "0"
+            response = urllib.response.addinfourl(
+                BytesIO(b""), headers, req.full_url, 302
+            )
+            response.msg = headers
+            return response
+
+        with patch.object(urllib.request.HTTPSHandler, "https_open", redirecting_https):
+            with self.assertRaises(server.ServerVerificationError) as caught:
+                server.fetch_metadata(endpoint, "token")
+        self.assertIn("refused a redirect", str(caught.exception))
 
 
 if __name__ == "__main__":

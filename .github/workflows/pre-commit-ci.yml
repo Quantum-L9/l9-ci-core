@@ -61,7 +61,7 @@ jobs:
           CONFIG_PATH: ${{ inputs.config-path }}
         run: |
           set -euo pipefail
-          python -m pip install --upgrade "pip==26.1.2"
+          python -m pip install --upgrade "pip==26.2.1"
           pip install "pre-commit==$PRE_COMMIT_VERSION"
           if [ -n "$INSTALL_COMMAND" ]; then
             bash -c "$INSTALL_COMMAND"
