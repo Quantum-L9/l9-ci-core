@@ -1,0 +1,33 @@
+name: Install Biome (digest-locked)
+description: >
+  Install the centrally selected Biome binary. The version comes from Core's
+  toolchain lock and the bytes from a per-version SHA-256 lock, both shipped
+  inside this pinned Core revision; organization CI runs in the consumer
+  checkout, so neither can be a consumer file. A version without a lock, a
+  platform without a digest, or a digest mismatch fails closed.
+inputs:
+  biome-version:
+    description: >
+      Exact x.y.z Biome version. Empty selects the `biome` key of Core's
+      toolchain lock; callers should leave it empty rather than restate it.
+    required: false
+    default: ""
+outputs:
+  executable:
+    description: Absolute path to the verified Core-installed Biome executable.
+    value: ${{ steps.install.outputs.executable }}
+  provider-version:
+    description: Verified Biome version selected by Core.
+    value: ${{ steps.install.outputs.provider-version }}
+  binary-sha256:
+    description: SHA-256 digest of the verified Biome binary.
+    value: ${{ steps.install.outputs.binary-sha256 }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      name: Install digest-locked Biome binary
+      shell: bash
+      env:
+        L9_BIOME_VERSION: ${{ inputs.biome-version }}
+      run: bash "${{ github.action_path }}/install.sh"
