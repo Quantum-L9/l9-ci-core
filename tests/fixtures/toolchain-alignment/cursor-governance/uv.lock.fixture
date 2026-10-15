@@ -1,0 +1,21 @@
+version = 1
+
+[[package]]
+name = "mypy"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "pre-commit"
+version = "4.6.2"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "pytest"
+version = "9.1.1"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "ruff"
+version = "0.16.1"
+source = { registry = "https://pypi.org/simple" }
