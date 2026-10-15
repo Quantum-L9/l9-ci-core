@@ -117,6 +117,9 @@ on:
       sdk-revision:
         description: Provisioned immutable SDK revision.
         value: ${{ jobs.analyze.outputs.sdk-revision }}
+      governance-digest:
+        description: Digest of the resolved central governance bundle.
+        value: ${{ jobs.analyze.outputs.governance-digest }}
 permissions:
   contents: read
 jobs:
