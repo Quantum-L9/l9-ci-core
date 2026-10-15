@@ -24,6 +24,8 @@ import re
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
 LOCK = ROOT / ".github" / "actions" / "install-consumer-ci" / "toolchain-lock.json"
@@ -76,6 +78,134 @@ class InlinePinTests(unittest.TestCase):
                     f"{name}:{number} pins pytest=={version} but the lock says "
                     f"{lock['pytest']}; bump the lock and follow it here",
                 )
+
+
+class LockBindingTests(unittest.TestCase):
+    """Every Core-selected tool literal in a workflow is a copy of a lock key.
+
+    ``toolchain-lock.json`` is the single organization toolchain-version
+    authority. Workflow YAML cannot read JSON at parse time, so the literals
+    stay where GitHub needs them; these tests make each one a bound copy, so a
+    bump that edits the lock but misses a site — or edits a site but not the
+    lock — fails here instead of drifting. They scan every workflow rather
+    than naming sites, so a new copy is bound the moment it is written.
+    """
+
+    SEMGREP_LOCKS = ROOT / ".github" / "actions" / "install-semgrep" / "locks"
+    BIOME_LOCKS = ROOT / ".github" / "actions" / "install-biome" / "locks"
+    SDK_RUNTIME_LOCKS = ROOT / ".github" / "actions" / "provision-sdk" / "locks"
+
+    #: Keys Core actually installs or selects. `uv` and `node` are deliberately
+    #: absent: no Core workflow installs uv, and node is only a non-exact "20".
+    EXPECTED_KEYS = {
+        "biome",
+        "mypy",
+        "pip",
+        "pre-commit",
+        "pytest",
+        "python",
+        "ruff",
+        "semgrep",
+    }
+
+    def setUp(self) -> None:
+        self.lock = json.loads(LOCK.read_text(encoding="utf-8"))
+
+    def _literals(self, pattern: re.Pattern[str]) -> list[tuple[str, int, str]]:
+        return [
+            (path.name, number, match.group(1))
+            for path in workflow_sources()
+            for number, line in significant_lines(path)
+            for match in pattern.finditer(line)
+        ]
+
+    def _assert_bound(
+        self, key: str, found: list[tuple[str, int, str]], minimum: int
+    ) -> None:
+        self.assertGreaterEqual(
+            len(found),
+            minimum,
+            f"expected at least {minimum} {key} literal(s) to bind; the scan "
+            "pattern no longer matches the workflows",
+        )
+        for name, number, version in found:
+            with self.subTest(tool=key, workflow=name, line=number):
+                self.assertEqual(
+                    self.lock[key],
+                    version,
+                    f"{name}:{number} selects {key} {version} but the lock "
+                    f"says {self.lock[key]}; bump the lock and follow it here",
+                )
+
+    def test_lock_is_flat_and_carries_every_core_selected_tool(self) -> None:
+        self.assertEqual(self.EXPECTED_KEYS, set(self.lock))
+        for key, value in self.lock.items():
+            with self.subTest(tool=key):
+                self.assertIsInstance(value, str)
+                self.assertRegex(value, r"^[0-9]+\.[0-9]+\.[0-9]+$")
+
+    def test_semgrep_input_defaults_match_the_lock(self) -> None:
+        # Input defaults (`default: "x.y.z"` under `semgrep-version:`) are
+        # bound through YAML so the line need not mention semgrep.
+        found: list[tuple[str, int, str]] = []
+        for path in workflow_sources():
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+            triggers = document.get(True, document.get("on")) or {}
+            if not isinstance(triggers, dict):
+                continue
+            for trigger, spec in sorted(triggers.items(), key=str):
+                inputs = (
+                    (spec or {}).get("inputs", {}) if isinstance(spec, dict) else {}
+                )
+                default = (inputs.get("semgrep-version") or {}).get("default")
+                if default is not None:
+                    found.append((path.name, 0, f"{default}"))
+        self._assert_bound("semgrep", found, minimum=3)
+
+    def test_semgrep_inline_literals_match_the_lock(self) -> None:
+        pattern = re.compile(
+            r"(?i)semgrep[-_]version[^\n]*?[\"']([0-9]+\.[0-9]+\.[0-9]+)[\"']"
+        )
+        self._assert_bound("semgrep", self._literals(pattern), minimum=2)
+
+    def test_semgrep_lock_version_has_a_hash_locked_install_contract(self) -> None:
+        lock = self.SEMGREP_LOCKS / f"semgrep-{self.lock['semgrep']}.txt"
+        self.assertTrue(lock.is_file(), f"missing {lock.relative_to(ROOT)}")
+
+    def test_exact_python_versions_match_the_lock(self) -> None:
+        # Only exact x.y.z selections are Core's interpreter pin; a bare
+        # "3.12" is a reusable-workflow input default, not a lock copy.
+        pattern = re.compile(r"python-version:\s*[\"']?([0-9]+\.[0-9]+\.[0-9]+)\b")
+        self._assert_bound("python", self._literals(pattern), minimum=3)
+
+    def test_python_lock_matches_the_sdk_runtime_closure(self) -> None:
+        closure = self.SDK_RUNTIME_LOCKS / (
+            f"cpython-{self.lock['python']}-linux-x86_64.txt"
+        )
+        self.assertTrue(
+            closure.is_file(),
+            f"no SDK runtime closure for the locked interpreter: {closure.name}",
+        )
+
+    def test_pre_commit_selection_matches_the_lock(self) -> None:
+        document = yaml.safe_load(
+            (WORKFLOWS / "pre-commit-ci.yml").read_text(encoding="utf-8")
+        )
+        triggers = document.get(True, document.get("on"))
+        default = triggers["workflow_call"]["inputs"]["pre-commit-version"]["default"]
+        self.assertEqual(self.lock["pre-commit"], f"{default}")
+        inline = re.compile(r"pre-commit==([0-9][^\s\"'$]*)")
+        for name, number, version in self._literals(inline):
+            with self.subTest(workflow=name, line=number):
+                self.assertEqual(self.lock["pre-commit"], version)
+
+    def test_pip_bootstrap_literals_match_the_lock(self) -> None:
+        pattern = re.compile(r"pip==([0-9][^\s\"']*)")
+        self._assert_bound("pip", self._literals(pattern), minimum=5)
+
+    def test_biome_lock_version_has_a_verified_binary_contract(self) -> None:
+        lock = self.BIOME_LOCKS / f"biome-{self.lock['biome']}.json"
+        self.assertTrue(lock.is_file(), f"missing {lock.relative_to(ROOT)}")
 
 
 class SemgrepInstallPathTests(unittest.TestCase):

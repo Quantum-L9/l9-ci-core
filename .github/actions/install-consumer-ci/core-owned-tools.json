@@ -1,0 +1,53 @@
+{
+  "lock": ".github/actions/install-consumer-ci/toolchain-lock.json",
+  "non_dependency_lock_keys": {
+    "pip": "installer bootstrap Core pins inside its own workflows; not a consumer dependency",
+    "python": "interpreter selected by setup-python; not a package-manager dependency"
+  },
+  "schema": "l9.core-owned-tools/v1",
+  "tools": [
+    {
+      "ecosystems": {
+        "npm": ["@biomejs/biome"]
+      },
+      "name": "biome"
+    },
+    {
+      "ecosystems": {
+        "pip": ["mypy"],
+        "pre-commit": ["https://github.com/pre-commit/mirrors-mypy"],
+        "uv": ["mypy"]
+      },
+      "name": "mypy"
+    },
+    {
+      "ecosystems": {
+        "pip": ["pre-commit"],
+        "uv": ["pre-commit"]
+      },
+      "name": "pre-commit"
+    },
+    {
+      "ecosystems": {
+        "pip": ["pytest"],
+        "uv": ["pytest"]
+      },
+      "name": "pytest"
+    },
+    {
+      "ecosystems": {
+        "pip": ["ruff"],
+        "pre-commit": ["https://github.com/astral-sh/ruff-pre-commit"],
+        "uv": ["ruff"]
+      },
+      "name": "ruff"
+    },
+    {
+      "ecosystems": {
+        "pip": ["semgrep"],
+        "uv": ["semgrep"]
+      },
+      "name": "semgrep"
+    }
+  ]
+}

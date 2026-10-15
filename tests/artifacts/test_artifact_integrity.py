@@ -128,6 +128,72 @@ class ArtifactIntegrityTests(unittest.TestCase):
                     entry["sha256"],
                 )
 
+    def test_index_accepts_dot_prefixed_repository_name(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            environment = self.create_tree(workspace)
+            environment["L9_REPOSITORY"] = "Quantum-L9/.github"
+            with patch.dict(os.environ, environment, clear=True):
+                self.assertEqual(0, manifest.main())
+            index_path = (
+                workspace / "artifacts/metadata/python-3.12/artifact-index.json"
+            )
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+            self.assertEqual("Quantum-L9/.github", index["subject"]["repository"])
+
+    def test_index_rejects_dot_only_and_traversal_repository_names(self) -> None:
+        for repository in (
+            "Quantum-L9/.",
+            "Quantum-L9/..",
+            "Quantum-L9/../example",
+            "Quantum-L9//example",
+            "Quantum-L9/.github/",
+        ):
+            with self.subTest(repository=repository):
+                with tempfile.TemporaryDirectory() as directory:
+                    workspace = Path(directory)
+                    environment = self.create_tree(workspace)
+                    environment["L9_REPOSITORY"] = repository
+                    with patch.dict(os.environ, environment, clear=True):
+                        self.assertEqual(2, manifest.main())
+                    index_path = (
+                        workspace / "artifacts/metadata/python-3.12/artifact-index.json"
+                    )
+                    self.assertFalse(index_path.exists())
+
+    def test_repository_identity_admits_github_name_character_set(self) -> None:
+        for repository in (
+            "Quantum-L9/.github",
+            "Quantum-L9/.well-known",
+            "Quantum-L9/...github",
+            "Quantum-L9/a",
+            "Quantum-L9/Gate_SDK",
+            "Quantum-L9/foo.bar",
+            "Quantum-L9/foo_bar",
+            "Quantum-L9/foo-bar",
+            "Quantum-L9/" + "a" * 100,
+        ):
+            with self.subTest(repository=repository):
+                self.assertIsNotNone(manifest.REPOSITORY.fullmatch(repository))
+        for repository in (
+            "",
+            "Quantum-L9/",
+            "Quantum-L9/.",
+            "Quantum-L9/..",
+            "Quantum-L9/../example",
+            "Quantum-L9/./example",
+            "Quantum-L9//example",
+            "Quantum-L9/foo/bar",
+            "Quantum-L9/.github/",
+            "Quantum-L9/..\n",
+            "/invalid",
+            ".Quantum-L9/example",
+            "Quantum-L9",
+            "Quantum-L9/" + "a" * 101,
+        ):
+            with self.subTest(repository=repository):
+                self.assertIsNone(manifest.REPOSITORY.fullmatch(repository))
+
     def test_index_rejects_output_outside_fixed_metadata_route(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
@@ -240,6 +306,96 @@ class ArtifactIntegrityTests(unittest.TestCase):
                 clear=True,
             ):
                 self.assertEqual(2, retrieve.main())
+
+    def test_descriptor_download_is_verified_at_the_artifact_subdirectory(
+        self,
+    ) -> None:
+        # actions/download-artifact extracts an `artifact-ids` download into
+        # <path>/<artifact name>/ (it extracts into <path> itself only for a
+        # `name` download), so descriptor mode must verify that subdirectory.
+        descriptor = json.dumps(
+            {
+                "schema": "l9.core-artifact-handoff/v1",
+                "producer": {
+                    "repository": "Quantum-L9/example",
+                    "run_id": 123,
+                    "head_sha": "7" * 40,
+                },
+                "artifact": {
+                    "id": 456,
+                    "name": ARTIFACT_NAME,
+                    "archive_digest": {"algorithm": "sha256", "value": "3" * 64},
+                },
+                "subject": {"repository": "Quantum-L9/example", "revision": REVISION},
+                "provider": "semgrep",
+                "matrix_id": "python-3.12",
+                "sdk": {
+                    "integration_contract": "l9.integration-contract/v1",
+                    "repository": "Quantum-L9/l9-ci-sdk",
+                    "revision": SDK_REVISION,
+                },
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            prepared = workspace / "prepared"
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_WORKSPACE": str(workspace),
+                    "GITHUB_OUTPUT": str(prepared),
+                    "L9_DESTINATION": "download",
+                    "L9_ARTIFACT_NAME": "",
+                    "L9_HANDOFF_DESCRIPTOR": descriptor,
+                    "L9_TOKEN": "token",
+                },
+                clear=True,
+            ):
+                self.assertEqual(0, prepare.main())
+            outputs = dict(
+                line.split("=", 1)
+                for line in prepared.read_text(encoding="utf-8").splitlines()
+            )
+            self.assertEqual(f"download/{ARTIFACT_NAME}", outputs["artifact-root"])
+
+            self.build(workspace)
+            (workspace / "download").rmdir()
+            (workspace / "download").mkdir()
+            (workspace / "artifacts").rename(workspace / "download" / ARTIFACT_NAME)
+
+            environment = self.retrieve_environment(workspace)
+            environment["GITHUB_OUTPUT"] = str(workspace / "outputs")
+            environment["L9_ARTIFACT_ROOT"] = "download"
+            with patch.dict(os.environ, environment, clear=True):
+                self.assertEqual(2, retrieve.main())
+            environment["L9_ARTIFACT_ROOT"] = outputs["artifact-root"]
+            with patch.dict(os.environ, environment, clear=True):
+                self.assertEqual(0, retrieve.main())
+
+    def test_current_run_download_is_verified_at_the_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            prepared = workspace / "prepared"
+            environment = {
+                "GITHUB_WORKSPACE": str(workspace),
+                "GITHUB_OUTPUT": str(prepared),
+                "L9_DESTINATION": "download",
+                "L9_ARTIFACT_NAME": ARTIFACT_NAME,
+                "L9_MATRIX_ID": "python-3.12",
+                "L9_PROVIDER": "semgrep",
+                "L9_REPOSITORY": "Quantum-L9/example",
+                "L9_REPOSITORY_REVISION": REVISION,
+                "L9_SDK_REVISION": SDK_REVISION,
+            }
+            with patch.dict(os.environ, environment, clear=True):
+                self.assertEqual(0, prepare.main())
+            outputs = dict(
+                line.split("=", 1)
+                for line in prepared.read_text(encoding="utf-8").splitlines()
+            )
+            self.assertEqual("download", outputs["artifact-root"])
 
     def test_prepare_requires_empty_non_symlink_destination(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

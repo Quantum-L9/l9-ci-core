@@ -143,6 +143,11 @@ Core owns:
 - immutable SDK provisioning and compatibility probing;
 - central execution/profile/provider governance;
 - exact CI tool pins;
+- the single toolchain-version authority,
+  `.github/actions/install-consumer-ci/toolchain-lock.json`, every Core copy of
+  which is test-bound to it;
+- the consumer-facing Biome check (`install-biome`, `run-biome-check`) and
+  advisory toolchain-alignment reporting (`check-toolchain-alignment`);
 - artifact routing, retention, and publication;
 - organization enforcement of the SDK technical gate.
 
@@ -364,6 +369,11 @@ Contract: `.l9/release-plane.yaml` (`l9.release-plane/v1`), asserted by
 - **SDK promotion is one governed Core PR** editing
   `.l9/sdk-compatibility.yaml` at an exact 40-character SHA. Never a
   downstream change.
+- **A tool-version bump is one human pin-file PR** editing
+  `toolchain-lock.json` together with its test-bound copies and any new
+  `install-semgrep` / `install-biome` lock file. Merging it is production for
+  `org-ci.yml`; `tools/publish_consumer_ci_tag.sh` then moves `v2` for
+  `install-consumer-ci@v2` users. No Dependabot entry maintains the lock.
 - The L9-ORG-008 clarification (ruleset source-branch binding is not a
   reusable-workflow `@main` reference) is recorded in the contract as a
   proposal. It is organization law only once Cursor-Governance records it.
