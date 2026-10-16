@@ -15,9 +15,11 @@ FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 POSITIVE_ID = re.compile(r"^[1-9][0-9]{0,19}$")
 SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SAFE_ARTIFACT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
+# Same grammar as build-artifact-manifest: GitHub admits dot-prefixed names
+# (``.github``) and reserves the dot-only names ``.`` and ``..``.
 REPOSITORY = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})/"
-    r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$"
+    r"(?!\.\.?\Z)[A-Za-z0-9._-]{1,100}$"
 )
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -164,6 +166,7 @@ def main() -> int:
             "producer": {
                 "repository": checked("L9_PRODUCER_REPOSITORY", REPOSITORY),
                 "run_id": int(run_id_text),
+                "head_sha": full_sha("L9_WORKFLOW_HEAD_SHA"),
             },
             "artifact": {
                 "id": int(artifact_id_text),

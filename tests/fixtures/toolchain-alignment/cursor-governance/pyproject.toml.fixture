@@ -1,0 +1,26 @@
+# Excerpt of Quantum-L9/Cursor-Governance@0bb60d7 pyproject.toml lines 39-59 (redacted to the toolchain table).
+[project]
+name = "fixture"
+version = "0"
+
+[project.optional-dependencies]
+# Analysis toolchain — ruff/mypy/pytest match Core install-consumer-ci pins.
+dev = [
+    "ruff==0.16.1",
+    "mypy==2.3.0",
+    "types-PyYAML==6.0.12.20260906",
+    # jsonschema ships no inline types; the Program Execution validators
+    # (environment/program-execution/core) type-check against Draft202012Validator.
+    # Pinned to the live l9-ci-sdk requirements-ci.txt stub version.
+    "types-jsonschema==4.26.0.20260518",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    # CI-only test plugins — the canonical suite runner uses -n auto (xdist) and
+    # --timeout=300 (pytest-timeout) in its ci profile. Locked here so CI no longer
+    # installs them through floating fallback pip commands outside uv.lock.
+    "pytest-xdist==3.8.0",
+    "pytest-timeout==2.4.0",
+    "bandit==1.9.4",
+    "pip-audit==2.10.1",
+    "pre-commit==4.6.2",
+]

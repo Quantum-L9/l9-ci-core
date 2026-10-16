@@ -164,7 +164,7 @@ jobs:
           EXTRA_INSTALL_COMMAND: ${{ inputs.extra-install-command }}
         run: |
           set -euo pipefail
-          python -m pip install --upgrade --only-binary :all: "pip==26.1.2"
+          python -m pip install --upgrade --only-binary :all: "pip==26.2.1"
           if [ -f "$REQUIREMENTS_FILE" ]; then
             pip install --only-binary :all: -r "$REQUIREMENTS_FILE"
           elif [ -f "pyproject.toml" ]; then

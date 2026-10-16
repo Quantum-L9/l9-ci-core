@@ -14,9 +14,11 @@ FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 POSITIVE_ID = re.compile(r"^[1-9][0-9]{0,19}$")
 SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SAFE_ARTIFACT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
+# Same grammar as build-artifact-manifest: GitHub admits dot-prefixed names
+# (``.github``) and reserves the dot-only names ``.`` and ``..``.
 REPOSITORY = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})/"
-    r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$"
+    r"(?!\.\.?\Z)[A-Za-z0-9._-]{1,100}$"
 )
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -94,7 +96,11 @@ def parse_descriptor(value: str) -> dict[str, str]:
     artifact = document["artifact"]
     subject = document["subject"]
     sdk = document["sdk"]
-    if not isinstance(producer, dict) or set(producer) != {"repository", "run_id"}:
+    if not isinstance(producer, dict) or set(producer) != {
+        "repository",
+        "run_id",
+        "head_sha",
+    }:
         raise PreparationError("descriptor producer has an invalid shape")
     if not isinstance(artifact, dict) or set(artifact) != {
         "id",
@@ -132,6 +138,9 @@ def parse_descriptor(value: str) -> dict[str, str]:
         "source-run-id": str(
             descriptor_id(producer["run_id"], field="producer.run_id")
         ),
+        "workflow-head-sha": descriptor_string(
+            producer["head_sha"], field="producer.head_sha", pattern=FULL_SHA
+        ),
         "repository": descriptor_string(
             subject["repository"], field="subject.repository", pattern=REPOSITORY
         ),
@@ -167,6 +176,7 @@ def mode_outputs() -> dict[str, str]:
         "archive-digest": "",
         "source-repository": "",
         "source-run-id": "",
+        "workflow-head-sha": "",
         "repository": checked("L9_REPOSITORY", REPOSITORY),
         "repository-revision": checked("L9_REPOSITORY_REVISION", FULL_SHA),
         "provider": checked("L9_PROVIDER", SAFE_COMPONENT),
@@ -233,6 +243,15 @@ def main() -> int:
             resolved.relative_to(workspace)
         except ValueError as error:
             raise PreparationError("destination escapes GITHUB_WORKSPACE") from error
+        # actions/download-artifact extracts an `artifact-ids` download into
+        # <path>/<artifact name>/ but a `name` download into <path> itself, so
+        # descriptor mode verifies the artifact subdirectory. The artifact name
+        # is already validated as a single safe path component.
+        outputs["artifact-root"] = (
+            os.path.join(value, outputs["artifact-name"])
+            if outputs["mode"] == "descriptor"
+            else value
+        )
         for name, output in outputs.items():
             emit(name, output)
         return 0

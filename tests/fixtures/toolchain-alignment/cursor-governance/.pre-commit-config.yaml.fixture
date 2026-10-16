@@ -1,0 +1,9 @@
+# Excerpt of Quantum-L9/Cursor-Governance@0bb60d7 .pre-commit-config.yaml lines 136-142.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Pin must match Core ruff== in install-consumer-ci/requirements-consumer-ci.txt.
+    rev: v0.16.1
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
