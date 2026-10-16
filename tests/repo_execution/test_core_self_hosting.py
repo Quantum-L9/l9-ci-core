@@ -128,8 +128,8 @@ class CoreConsumerTests(unittest.TestCase):
         text = REPO_MK.read_text(encoding="utf-8")
         declared = {target for _, target in make_target_declarations(text)}
         phony = make_phony_targets(text)
-        self.assertTrue(set(REQUIRED_LEAVES) <= declared)
-        self.assertTrue(set(REQUIRED_LEAVES) <= phony)
+        self.assertLessEqual(set(REQUIRED_LEAVES), declared)
+        self.assertLessEqual(set(REQUIRED_LEAVES), phony)
         self.assertEqual(set(), declared & FACADE_TARGETS)
         self.assertEqual(declared, phony, "every Core-local target is .PHONY")
 
