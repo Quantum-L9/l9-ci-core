@@ -271,6 +271,15 @@ jobs:
           git checkout --detach FETCH_HEAD
           git remote set-url origin "https://github.com/${REPOSITORY}.git"
 
+      # Advisory: reports consumer tool pins that drift from Core's
+      # toolchain-lock.json with file:line annotations. A consumer finding never
+      # fails the job; only an unreadable Core lock (a Core contract failure)
+      # does. The lock ships inside this pinned Core revision.
+      - id: toolchain
+        name: Report toolchain alignment (advisory)
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#212 merge revision)
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@b5acce06a9f4439739f31435804671c571f44661
+
       - name: Validate native push event context
         if: github.event_name == 'push'
         env:
@@ -360,6 +369,26 @@ jobs:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
           root: .
+
+      # Core owns the consumer-facing Biome check end to end: the version is
+      # the `biome` key of Core's toolchain lock, the binary is digest-locked,
+      # and the run is advisory (findings annotate, never fail). It is
+      # independent of Semgrep governance; a consumer without biome.json or
+      # biome.jsonc is not_applicable and nothing is downloaded.
+      - id: biome
+        name: Install Biome (digest-locked central pin)
+        if: hashFiles('biome.json', 'biome.jsonc') != ''
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#212 merge revision)
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@b5acce06a9f4439739f31435804671c571f44661
+
+      - id: biome_check
+        name: Run Biome check (advisory)
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#212 merge revision)
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@b5acce06a9f4439739f31435804671c571f44661
+        with:
+          executable: ${{ steps.biome.outputs.executable }}
+          provider-version: ${{ steps.biome.outputs['provider-version'] }}
+          mode: advisory
 
       - id: repository_verify
         name: Run repository verification contract
@@ -553,6 +582,8 @@ jobs:
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status || steps.repository_verify.outcome }}
           GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
           ARTIFACT_NAME: ${{ steps.names.outputs['artifact-name'] }}
+          TOOLCHAIN_ALIGNMENT: ${{ steps.toolchain.outcome }}
+          BIOME_STATUS: ${{ steps.biome_check.outputs.status || steps.biome_check.outcome }}
         run: |
           {
             echo "### L9 central CI"
@@ -565,6 +596,8 @@ jobs:
             echo "- Repository verification: \`${REPOSITORY_VERIFY:-unavailable}\`"
             echo "- Technical gate: \`${GATE_STATUS:-unavailable}\`"
             echo "- Artifact set: \`${ARTIFACT_NAME:-unavailable}\`"
+            echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
+            echo "- Biome (advisory): \`${BIOME_STATUS:-unavailable}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce repository verification

@@ -65,6 +65,13 @@ declaration as `exact_match`, `exact_drift`, `range_admits_lock`,
 `file:line`; the job never fails on a consumer finding. The report is
 `l9.toolchain-alignment/v1` JSON at `.l9/runtime/toolchain-alignment.json`.
 
+Both advisory steps run in the organization workflow (`org-ci.yml`, job
+`Analyze (central Core)`) for every governed repository: the alignment report
+right after the consumer checkout, and the Biome check (install skipped when
+the root has no `biome.json`/`biome.jsonc`) after language detection. Their
+results appear in the job summary; neither can fail the job on a consumer
+finding.
+
 ## Bumping a tool version
 
 1. One human pin-file PR in Core edits `toolchain-lock.json` and every bound
