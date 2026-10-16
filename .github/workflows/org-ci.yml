@@ -314,12 +314,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@81199d8ebdef55047db92dc4fedd47fe7123ac15
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@81199d8ebdef55047db92dc4fedd47fe7123ac15
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -354,7 +354,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@81199d8ebdef55047db92dc4fedd47fe7123ac15
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -393,7 +393,7 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@cd7bdfe66c9045aa83ed33bb6e07e8fa54fde976
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@ad2970d214261ced398de07a4696370b0b9c5609
         with:
           workspace: .
 
@@ -422,7 +422,7 @@ jobs:
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@81199d8ebdef55047db92dc4fedd47fe7123ac15
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -440,7 +440,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@81199d8ebdef55047db92dc4fedd47fe7123ac15
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -481,7 +481,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@81199d8ebdef55047db92dc4fedd47fe7123ac15
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -492,7 +492,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@81199d8ebdef55047db92dc4fedd47fe7123ac15
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -504,7 +504,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@81199d8ebdef55047db92dc4fedd47fe7123ac15
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -526,7 +526,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@81199d8ebdef55047db92dc4fedd47fe7123ac15
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -558,7 +558,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@81199d8ebdef55047db92dc4fedd47fe7123ac15
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}
@@ -604,12 +604,16 @@ jobs:
         if: always() && (steps.runtime.outputs.profile == 'pr_fast' || steps.runtime.outputs.profile == 'merge')
         env:
           REPOSITORY_VERIFY_STATUS: ${{ steps.repository_verify.outputs.status }}
+          REPOSITORY_VERIFY_MODE: ${{ steps.repository_verify.outputs.contract-mode }}
+          REPOSITORY_VERIFY_FAILURE: ${{ steps.repository_verify.outputs.failure-kind }}
         run: |
           set -euo pipefail
-          case "${REPOSITORY_VERIFY_STATUS}" in
-            pass|not_applicable) ;;
+          # An absent contract is tolerated only where Core's bundled policy
+          # resolved migration mode; required mode accepts pass only.
+          case "${REPOSITORY_VERIFY_MODE}:${REPOSITORY_VERIFY_STATUS}" in
+            migration:pass|migration:not_applicable|required:pass) ;;
             *)
-              echo "Blocking profile: repository verification did not pass (${REPOSITORY_VERIFY_STATUS:-unavailable})" >&2
+              echo "Blocking profile: repository verification did not pass (mode ${REPOSITORY_VERIFY_MODE:-unavailable}; status ${REPOSITORY_VERIFY_STATUS:-unavailable}; failure ${REPOSITORY_VERIFY_FAILURE:-unavailable})" >&2
               exit 1
               ;;
           esac

@@ -2,6 +2,8 @@ name: Run repository verification
 description: >
   Runs the canonical repository-execution contract with immutable Core runtime
   code. Consumer workflow/runtime code is never imported as execution authority.
+  Contract enforcement mode is resolved from this action's bundled
+  contract-policy.json for the runner-supplied repository; no input selects it.
 inputs:
   workspace:
     required: false
@@ -10,7 +12,17 @@ outputs:
   present:
     value: ${{ steps.verify.outputs.present }}
   status:
+    description: pass, not_applicable (migration mode, contract absent), or fail
     value: ${{ steps.verify.outputs.status }}
+  contract-mode:
+    description: migration or required, resolved from Core's bundled policy
+    value: ${{ steps.verify.outputs.contract-mode }}
+  contract-version:
+    description: absent, v1, v2, or invalid
+    value: ${{ steps.verify.outputs.contract-version }}
+  failure-kind:
+    description: none, contract, command, or infrastructure
+    value: ${{ steps.verify.outputs.failure-kind }}
 runs:
   using: composite
   steps:
@@ -18,4 +30,5 @@ runs:
       shell: bash
       env:
         L9_REPOSITORY_WORKSPACE: ${{ inputs.workspace }}
+        L9_REPOSITORY_IDENTITY: ${{ github.repository }}
       run: python3 "${{ github.action_path }}/run.py"
