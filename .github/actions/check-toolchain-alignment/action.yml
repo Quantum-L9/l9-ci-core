@@ -1,0 +1,25 @@
+name: Check toolchain alignment (Core, advisory)
+description: >
+  Report consumer tool-version declarations (pyproject.toml, uv.lock,
+  requirements*.txt, .pre-commit-config.yaml, biome.json, package.json) that
+  drift from Core's toolchain lock, with file:line annotations, a step summary,
+  and `l9.toolchain-alignment/v1` JSON. Core data ships with this pinned
+  action; the consumer checkout is only read. Consumer findings never fail the
+  job; an unreadable Core lock is a Core contract failure and does.
+inputs:
+  output:
+    description: Workspace-relative path for the JSON report.
+    required: false
+    default: .l9/runtime/toolchain-alignment.json
+outputs:
+  report:
+    description: Workspace-relative path of the JSON report.
+    value: ${{ inputs.output }}
+runs:
+  using: composite
+  steps:
+    - name: Report toolchain drift against the Core lock
+      shell: bash
+      env:
+        L9_ALIGNMENT_OUTPUT: ${{ inputs.output }}
+      run: python3 -I "${GITHUB_ACTION_PATH}/align.py" --output "${L9_ALIGNMENT_OUTPUT}"

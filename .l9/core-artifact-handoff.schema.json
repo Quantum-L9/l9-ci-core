@@ -18,10 +18,11 @@
     "producer": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "run_id"],
+      "required": ["repository", "run_id", "head_sha"],
       "properties": {
         "repository": {"$ref": "#/$defs/repository"},
-        "run_id": {"$ref": "#/$defs/positiveId"}
+        "run_id": {"$ref": "#/$defs/positiveId"},
+        "head_sha": {"$ref": "#/$defs/fullSha"}
       }
     },
     "artifact": {
@@ -75,7 +76,7 @@
     },
     "repository": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}/(?!\\.\\.?$)[A-Za-z0-9._-]{1,100}$"
     },
     "fullSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
   }

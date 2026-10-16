@@ -1,0 +1,32 @@
+# Synthetic: reproduces the declaration shape and line positions cited for
+# gate_sdk@d3241de pyproject.toml:27,31 (mypy>=1.11.0, ruff>=0.6.0) in the
+# compiled CG-TOOLCHAIN-SSOT-01 prompt. gate_sdk was not readable from the
+# authoring session, so only the cited shapes are reproduced.
+[project]
+name = "gate-sdk-shape"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = []
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "mypy>=1.11.0",
+    "pytest-cov>=5.0",
+    "types-requests",
+    "bandit",
+    "ruff>=0.6.0",
+]

@@ -1,0 +1,50 @@
+name: Run Biome check (Core, advisory)
+description: >
+  Run `biome ci` with Biome's own GitHub reporter against the consumer
+  checkout using the executable verified by `install-biome`. Core records the
+  exit code and never parses Biome's report. No biome.json/biome.jsonc at the
+  root is `not_applicable`. Findings never fail advisory mode; a missing or
+  corrupt executable or a Biome crash is a Core infrastructure failure and is
+  always fatal.
+inputs:
+  executable:
+    description: Absolute path from `install-biome` outputs.executable.
+    required: false
+    default: ""
+  provider-version:
+    description: Verified Biome version from `install-biome` outputs.provider-version.
+    required: false
+    default: ""
+  mode:
+    description: Rollout mode. Only `advisory` is defined in this Core revision.
+    required: false
+    default: advisory
+  root:
+    description: Workspace-relative project root containing biome.json.
+    required: false
+    default: .
+outputs:
+  status:
+    description: not_applicable, pass, findings, or error.
+    value: ${{ steps.run.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - id: run
+      name: Run biome ci (advisory)
+      shell: bash
+      env:
+        L9_BIOME_EXECUTABLE: ${{ inputs.executable }}
+        L9_BIOME_VERSION: ${{ inputs.provider-version }}
+        L9_BIOME_MODE: ${{ inputs.mode }}
+        L9_BIOME_ROOT: ${{ inputs.root }}
+      run: |
+        set -euo pipefail
+        python3 -I "${GITHUB_ACTION_PATH}/check_biome.py" \
+          --executable "${L9_BIOME_EXECUTABLE}" \
+          --provider-version "${L9_BIOME_VERSION}" \
+          --mode "${L9_BIOME_MODE}" \
+          --root "${L9_BIOME_ROOT}" \
+          --output .l9/runtime/biome-check.json
+        status="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["status"])' "${L9_BIOME_ROOT}/.l9/runtime/biome-check.json")"
+        echo "status=${status}" >> "$GITHUB_OUTPUT"

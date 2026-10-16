@@ -268,6 +268,35 @@ class ToolchainConformanceTests(unittest.TestCase):
             self.assertEqual([], violations)
             self.assertTrue(all(entry["conforming"] for entry in report))
 
+    def test_lock_keys_this_gate_cannot_observe_are_tolerated(self) -> None:
+        """The lock is the org-wide authority and carries tools this gate
+        never imports (Biome, Semgrep, the interpreter, pre-commit, pip).
+        Their presence must neither fail the check nor widen what it asserts.
+        """
+        pins = {name: "1.2.3" for name in GATE_DISTRIBUTIONS}
+        lock = {
+            **pins,
+            "biome": "2.5.8",
+            "pip": "26.2.1",
+            "pre-commit": "4.4.0",
+            "pytest": "9.1.1",
+            "python": "3.12.14",
+            "semgrep": "1.171.0",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            _write_lock(root, lock)
+
+            self.assertEqual(pins, load_lock(root))
+            with _interpreter_reporting(pins):
+                violations, report = check(root)
+                self.assertEqual(0, main(["--root", str(root)]))
+
+            self.assertEqual([], violations)
+            self.assertEqual(
+                set(GATE_DISTRIBUTIONS), {entry["distribution"] for entry in report}
+            )
+
     @REQUIRES_REAL_TOOLCHAIN
     def test_shipped_tree_conforms(self) -> None:
         """The real repository must satisfy its own gate.
