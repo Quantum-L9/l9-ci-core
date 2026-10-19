@@ -56,7 +56,7 @@ jobs:
         name: Retrieve and verify immutable analysis artifact
         # CORE_ACTIONS_PIN; descriptor mode selects producer/run/artifact identity
         # from the closed handoff. Current-run exact-name mode remains compatible.
-        uses: Quantum-L9/l9-ci-core/.github/actions/retrieve-artifacts@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/retrieve-artifacts@c6f256a1c06dcb837b377d58b0247e2892a3ef0f
         with:
           artifact-name: ${{ inputs.artifact-name }}
           handoff-descriptor: ${{ inputs.artifact-handoff }}

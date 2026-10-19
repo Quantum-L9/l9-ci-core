@@ -15,9 +15,11 @@ from typing import Any
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SAFE_ARTIFACT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
+# GitHub admits dot-prefixed repository names (``.github``) but reserves the
+# dot-only names ``.`` and ``..``, which would also read as path traversal.
 REPOSITORY = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})/"
-    r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$"
+    r"(?!\.\.?\Z)[A-Za-z0-9._-]{1,100}$"
 )
 
 

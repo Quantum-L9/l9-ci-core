@@ -125,8 +125,15 @@ document and uses only its producer repository, run ID, and artifact ID as the
 source. There are deliberately no caller inputs for source repository, source
 run, artifact ID, or artifact URL. It queries GitHub's artifact metadata endpoint
 with the required token and verifies the immutable ID and name, producing run,
-workflow head revision, unexpired lifecycle timestamps, and SHA-256 archive
-digest. Only then does it invoke the pinned downloader by immutable artifact ID.
+workflow head SHA, unexpired lifecycle timestamps, and SHA-256 archive digest.
+The workflow head SHA is `producer.head_sha`, the revision GitHub stores as
+`workflow_run.head_sha`. On `pull_request` that is the pull request head, and
+it is independent of `subject.revision`, which remains the analyzed tree.
+Only then does it invoke the pinned downloader by immutable artifact ID.
+The downloader extracts an artifact-ID download into
+`<destination>/<artifact name>/` rather than into the destination itself, so
+descriptor mode verifies that subdirectory as the artifact root; current-run
+mode verifies the destination directly.
 After download, it runs the exact same complete index, tree, identity, digest,
 and route verification used by current-run mode before exposing outputs.
 
