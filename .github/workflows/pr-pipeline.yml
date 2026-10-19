@@ -178,7 +178,7 @@ jobs:
           fi
       - name: Install consumer CI toolchain
         if: steps.detect.outputs.python == 'true'
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@2a7354ed590008cd59d254df08f10d6207933366  # main@7148fc7
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@48514e0691a462e1691389409bce3f5ea980ea20  # main@48514e0
       - name: Lint (ruff)
         if: steps.detect.outputs.python == 'true'
         env:
