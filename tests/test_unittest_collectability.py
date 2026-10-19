@@ -15,14 +15,6 @@ class CorpusMissingError(RuntimeError):
     """The scan found nothing to inspect, so it cannot vouch for anything."""
 
 
-def _is_testcase_base(node: ast.expr) -> bool:
-    if isinstance(node, ast.Name):
-        return node.id == "TestCase"
-    if isinstance(node, ast.Attribute):
-        return node.attr == "TestCase"
-    return False
-
-
 def _module_level_test_functions(tests_root: Path) -> list[str]:
     """Return every module-level ``test_*`` function under ``tests_root``.
 
