@@ -14,7 +14,11 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "org-ci.yml"
 ACTION = ROOT / ".github" / "actions" / "run-repository-verification" / "action.yml"
 RUNNER = ROOT / ".github" / "actions" / "run-repository-verification" / "run.py"
-PIN = "cd7bdfe66c9045aa83ed33bb6e07e8fa54fde976"
+PIN = "ad2970d214261ced398de07a4696370b0b9c5609"
+# The mocked V1 tests below only need the classifier to route to the V1
+# runtime; the full V1 document validation belongs to RepositoryWorkflow and is
+# covered by tests/tools/test_l9_repo.py.
+V1_CONTRACT = '{"schema_version": 1}\n'
 
 
 def _load_runner():
@@ -42,7 +46,7 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
         self.assertLess(verify, semgrep)
         self.assertNotIn("continue-on-error", text[verify:semgrep])
         runner = RUNNER.read_text(encoding="utf-8")
-        self.assertIn('_write_output("status", "fail")', runner)
+        self.assertIn('status="fail"', runner)
 
     def test_blocking_profiles_enforce_repository_verification(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -51,6 +55,15 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
         self.assertIn("steps.runtime.outputs.profile == 'pr_fast'", tail)
         self.assertIn("steps.runtime.outputs.profile == 'merge'", tail)
         self.assertIn("steps.repository_verify.outputs.status", tail)
+        self.assertIn("steps.repository_verify.outputs.contract-mode", tail)
+
+    def test_enforcement_accepts_absence_only_in_migration_mode(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        enforce = text.index("name: Enforce repository verification")
+        step = text[enforce : text.index("- name:", enforce + 1)]
+        self.assertIn('"${REPOSITORY_VERIFY_MODE}:${REPOSITORY_VERIFY_STATUS}"', step)
+        self.assertIn("migration:pass|migration:not_applicable|required:pass) ;;", step)
+        self.assertIn("exit 1", step)
 
     def test_summary_reports_repository_verification(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -106,7 +119,9 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
         ):
             root = Path(tmp)
             (root / ".l9").mkdir()
-            (root / ".l9" / "repo-workflow.json").write_text("{}\n", encoding="utf-8")
+            (root / ".l9" / "repo-workflow.json").write_text(
+                V1_CONTRACT, encoding="utf-8"
+            )
             env = {
                 "L9_REPOSITORY_WORKSPACE": tmp,
                 "GITHUB_OUTPUT": output.name,
@@ -137,7 +152,9 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
         ):
             root = Path(tmp)
             (root / ".l9").mkdir()
-            (root / ".l9" / "repo-workflow.json").write_text("{}\n", encoding="utf-8")
+            (root / ".l9" / "repo-workflow.json").write_text(
+                V1_CONTRACT, encoding="utf-8"
+            )
             env = {
                 "L9_REPOSITORY_WORKSPACE": tmp,
                 "GITHUB_OUTPUT": output.name,

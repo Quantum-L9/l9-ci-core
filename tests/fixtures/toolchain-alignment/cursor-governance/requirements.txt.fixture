@@ -1,0 +1,15 @@
+# Excerpt of Quantum-L9/Cursor-Governance@0bb60d7 requirements.txt lines 39-52.
+# --- Core-owned consumer CI toolchain (exact pins) ---------------------------
+ruff==0.16.1
+mypy==2.3.0
+types-PyYAML==6.0.12.20260906
+types-jsonschema==4.26.0.20260518
+pytest==9.1.1
+pytest-cov==7.1.0
+
+# --- CI-only pytest plugins (neither SDK nor core pins these) -----------------
+#   Consumed by the canonical suite runner's ci profile (-n auto / --timeout=300).
+#   Locked into uv.lock so CI installs them from the lockfile, not floating pip.
+pytest-xdist==3.8.0
+pytest-timeout==2.4.0
+pre-commit==4.6.2

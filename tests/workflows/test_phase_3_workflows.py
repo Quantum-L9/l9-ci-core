@@ -21,7 +21,7 @@ class Phase3WorkflowTests(unittest.TestCase):
         text = path.read_text(encoding="utf-8")
         self.assertIn(
             "uses: Quantum-L9/l9-ci-core/.github/workflows/"
-            "normalize-semgrep-report.yml@def55c54ff4ba654c2ebea088dde71db0b5f7135",
+            "normalize-semgrep-report.yml@ed84dcf91e539cbbdd9e2ae5303dcc42dd84ea3d",
             text,
         )
         self.assertIn(
