@@ -107,8 +107,9 @@ interpreter running the tool) or one of the pinned toolchain `ruff`, `mypy`,
 
 - `make setup`: install Core's pinned gate toolchain.
 - `make validate`: `validate` (contract, facade drift, `Repo.mk` ABI), then
-  `core-validate` (checksum manifest, agent-contract wiring, authority paths),
-  then the workflow-integrity checker.
+  `core-validate` (agent-contract wiring, authority paths; the checksum
+  manifest only when `L9_MANIFEST_CHECK=1`), then the workflow-integrity
+  checker.
 - `make check`: toolchain preflight, `ruff check`, `ruff format --check`,
   `mypy`.
 - `make test`: the complete `unittest` suite.
@@ -294,15 +295,13 @@ tree passes that admission.
   worktree, and untracked-file set.
 - Shell-string command execution and hidden bypasses are prohibited.
 - Single-flight locking guards `reconcile`, the one mutating target.
-- `MANIFEST.sha256` must be regenerated for every tracked change. Two surfaces
-  verify it: `make validate` via `core-validate`, and
-  `tests/tools/test_manifest_integrity.py` on the pull-request path, because
-  `self-ci.yml` and `governance-ci.yml` run `unittest discover` and never
-  invoke the facade.
-- `L9_MANIFEST_CHECK=0` disables both, for bisects and salvage work on a
-  knowingly drifted tree. While disabled the manifest is recorded but
-  unverified and provides no tamper-detection, so keep the window to the single
-  command that needs it.
+- `MANIFEST.sha256` is no longer tracked (retired 2026-10-20). Every
+  concurrent pull request rewrote adjacent lines of the digest ledger, and the
+  merge conflicts it caused outweighed what it added on top of SHA-pinned
+  actions and the hash-locked toolchain. Verification is opt-in:
+  `L9_MANIFEST_CHECK=1` makes `core-validate` and
+  `tests/tools/test_manifest_integrity.py` verify a locally generated manifest
+  during a salvage or bisect. No CI job and no companion rule requires one.
 - The Repository Execution V2 suite is `tests/repo_execution/`, and the
   `repository-execution` change gate runs it whenever `tools/l9_repo/`,
   `tests/repo_execution/`, `.l9/repo-workflow.json`,

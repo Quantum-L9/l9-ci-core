@@ -194,17 +194,22 @@ class CoreValidateTests(unittest.TestCase):
         temporary, self.root = make_fixture()
         self.addCleanup(temporary.cleanup)
 
-    def test_checksum_manifest_mismatch_is_rejected_by_default(self) -> None:
+    def test_checksum_manifest_is_not_verified_by_default(self) -> None:
+        # Retired 2026-10-20: no tracked manifest, no default verification.
         (self.root / "SECURITY.md").write_text("tampered\n", encoding="utf-8")
         with mock.patch.dict(os.environ):
             os.environ.pop(MANIFEST_CHECK_ENV, None)
+            CoreRepositoryExecution(self.root).core_validate()
+        (self.root / "MANIFEST.sha256").unlink(missing_ok=True)
+        with mock.patch.dict(os.environ):
+            os.environ.pop(MANIFEST_CHECK_ENV, None)
+            CoreRepositoryExecution(self.root).core_validate()
+
+    def test_checksum_manifest_is_verified_only_when_opted_in(self) -> None:
+        (self.root / "SECURITY.md").write_text("tampered\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {MANIFEST_CHECK_ENV: "1"}):
             with self.assertRaisesRegex(WorkflowError, "checksum mismatch"):
                 CoreRepositoryExecution(self.root).core_validate()
-
-    def test_checksum_manifest_is_skipped_only_when_switched_off(self) -> None:
-        (self.root / "SECURITY.md").write_text("tampered\n", encoding="utf-8")
-        with mock.patch.dict(os.environ, {MANIFEST_CHECK_ENV: "0"}):
-            CoreRepositoryExecution(self.root).core_validate()
         with self.assertRaisesRegex(WorkflowError, "checksum mismatch"):
             verify_checksum_manifest(self.root)
 
@@ -368,9 +373,12 @@ class AgentCheckTests(unittest.TestCase):
         self.assertIn("worktree content changed", check["stderr"])
 
     def test_structural_failure_is_infrastructure_not_a_finding(self) -> None:
-        (self.root / "SECURITY.md").write_text("tampered\n", encoding="utf-8")
+        # A missing target authority fails core-validate before any gate runs.
+        (self.root / ".l9/ownership.yaml").unlink()
         with self.assertRaisesRegex(WorkflowError, "infrastructure"):
-            CoreRepositoryExecution(self.root).agent_check(explicit=["MANIFEST.sha256"])
+            CoreRepositoryExecution(self.root).agent_check(
+                explicit=[".l9/ownership.yaml"]
+            )
         self.assertEqual(self.evidence()["overall_exit_code"], 2)
 
 

@@ -114,7 +114,8 @@ class CorePolicyDocumentTests(unittest.TestCase):
     def test_companion_rule_requires_at_least_one_requirement(self) -> None:
         data = self.policy()
         rule = data["change_policy"]["companion_rules"][0]  # type: ignore[index]
-        rule.pop("require_all_paths")
+        rule.pop("require_all_paths", None)
+        rule.pop("require_any_prefix", None)
         with self.assertRaisesRegex(WorkflowError, "must declare"):
             validate_core_policy_data(data)
 
@@ -169,12 +170,20 @@ class ChangePolicyTests(unittest.TestCase):
             [gate.gate_id for gate in selected], ["actions", "repository-execution"]
         )
 
-    def test_workflow_change_requires_test_and_manifest(self) -> None:
+    def test_workflow_change_requires_a_workflow_test(self) -> None:
         findings = companion_findings(POLICY, [".github/workflows/self-ci.yml"])
         self.assertEqual(
             [finding.rule_id for finding in findings],
-            ["manifest-integrity", "workflow-tests"],
+            ["workflow-tests"],
         )
+
+    def test_no_companion_rule_requires_a_checksum_manifest(self) -> None:
+        # Retired 2026-10-20: the tracked digest ledger conflicted on every
+        # concurrent pull request. No rule may reintroduce it as a merge gate.
+        for rule in POLICY["companion_rules"]:
+            with self.subTest(rule=rule["id"]):
+                self.assertNotEqual("manifest-integrity", rule["id"])
+                self.assertNotIn("MANIFEST.sha256", rule.get("require_all_paths", []))
 
     def test_workflow_companions_satisfy_rules(self) -> None:
         findings = companion_findings(
@@ -182,7 +191,6 @@ class ChangePolicyTests(unittest.TestCase):
             [
                 ".github/workflows/self-ci.yml",
                 "tests/workflows/test_self_ci.py",
-                "MANIFEST.sha256",
             ],
         )
         self.assertEqual(findings, [])
@@ -191,16 +199,13 @@ class ChangePolicyTests(unittest.TestCase):
         files = [
             ".l9/sdk-compatibility.yaml",
             "tests/provisioning/test_compatibility_manifest.py",
-            "MANIFEST.sha256",
         ]
         findings = companion_findings(POLICY, files)
         sdk = next(item for item in findings if item.rule_id == "sdk-pin-mirrors")
         self.assertIn(".github/actions/provision-sdk/provision.py", sdk.missing_all)
         self.assertIn(".github/workflows/publish-analysis.yml", sdk.missing_all)
 
-    def test_repository_execution_requires_suite_docs_agents_and_manifest(
-        self,
-    ) -> None:
+    def test_repository_execution_requires_suite_docs_and_agents(self) -> None:
         findings = companion_findings(POLICY, ["tools/l9_repo/__main__.py"])
         rule = next(
             item for item in findings if item.rule_id == "repository-execution-evidence"
@@ -208,7 +213,7 @@ class ChangePolicyTests(unittest.TestCase):
         self.assertEqual(rule.required_any, ("tests/repo_execution/",))
         self.assertEqual(
             set(rule.missing_all),
-            {"AGENTS.md", "docs/repository-execution-runtime.md", "MANIFEST.sha256"},
+            {"AGENTS.md", "docs/repository-execution-runtime.md"},
         )
 
     def test_explicit_files_are_deduplicated_and_sorted(self) -> None:
