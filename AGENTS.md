@@ -249,6 +249,19 @@ Both `make validate` and `tests/tools/test_manifest_integrity.py` verify the
 manifest. `L9_MANIFEST_CHECK=0` exists only for a bounded salvage/bisect command;
 it is not an acceptance path.
 
+### 10.1 Retired (2026-10-20) — supersedes §10 above and the manifest sentence in §14
+
+`MANIFEST.sha256` is no longer tracked and no acceptance path verifies it.
+Every concurrent pull request rewrote adjacent lines of the digest ledger, and
+the resulting merge conflicts outweighed what it added on top of SHA-pinned
+actions and the hash-locked toolchain. `L9_MANIFEST_CHECK` is now opt-in:
+`L9_MANIFEST_CHECK=1` makes `core-validate` and
+`tests/tools/test_manifest_integrity.py` verify a locally generated manifest
+during a salvage or bisect. The `manifest-integrity` companion rule and the
+manifest entries of the other companion rules in `.l9/core-repo-policy.json`
+are gone; the `self-ci.yml` reconciliation-hints step is gone. Do not
+reintroduce a tracked digest ledger as a merge requirement.
+
 ## 11. Repository execution runtime
 
 The repository execution contract is `.l9/repo-workflow.json`, validated by
@@ -429,6 +442,12 @@ contracts.
 - Whether a contract is required is `contract-policy.json` in the pinned
   action, keyed by `github.repository`. Never add an action input, consumer
   metadata field, or contract field that selects or weakens the mode.
+- (2026-10-20) "Unconditional `Repo.mk` ABI" includes implementation, not
+  only declaration: each required leaf must carry an unconditional recipe or
+  prerequisite. A bare `.PHONY` leaf with neither, or one whose only recipe is
+  inside a conditional, exits zero without doing anything and is rejected at
+  admission. This remains structural; proving that a recipe did real test
+  work is a separate Core enforcement concern, never a `Repo.mk` text rule.
 
 ## 14. Repository Execution V2 (2026-09-25) — supersedes §11 except its completion sequence
 

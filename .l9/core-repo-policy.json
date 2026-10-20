@@ -115,16 +115,6 @@
     },
     "companion_rules": [
       {
-        "id": "manifest-integrity",
-        "match_any_prefix": [
-          ""
-        ],
-        "require_all_paths": [
-          "MANIFEST.sha256"
-        ],
-        "message": "every tracked change requires a regenerated MANIFEST.sha256"
-      },
-      {
         "id": "workflow-tests",
         "match_any_prefix": [
           ".github/workflows/"
@@ -159,8 +149,7 @@
           ".github/workflows/publish-analysis.yml",
           ".github/workflows/sdk-contract-check.yml",
           ".l9/architecture.yaml",
-          ".l9/artifact-protocol.yaml",
-          "MANIFEST.sha256"
+          ".l9/artifact-protocol.yaml"
         ],
         "message": "SDK compatibility changes require every documented Core pin mirror and provisioning tests"
       },
@@ -178,10 +167,9 @@
         ],
         "require_all_paths": [
           "AGENTS.md",
-          "docs/repository-execution-runtime.md",
-          "MANIFEST.sha256"
+          "docs/repository-execution-runtime.md"
         ],
-        "message": "repository execution changes require the repo_execution suite, agent instructions, operator documentation, and manifest refresh"
+        "message": "repository execution changes require the repo_execution suite, agent instructions, and operator documentation"
       }
     ]
   },

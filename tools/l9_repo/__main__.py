@@ -215,18 +215,21 @@ def render_argv(argv: Sequence[str]) -> list[str]:
 
 
 def manifest_check_enabled() -> bool:
-    """Whether `MANIFEST.sha256` is verified.
+    """Whether a `MANIFEST.sha256` is verified.
 
-    Enabled unless ``L9_MANIFEST_CHECK`` explicitly disables it. The escape
-    hatch exists for bisects and salvage work on a knowingly drifted tree; it
-    is not a way to land a change without regenerating the manifest.
+    Opt-in since 2026-10-20: the tracked digest ledger was retired because
+    every concurrent pull request rewrote adjacent lines of it and the merge
+    conflicts it caused outweighed the tamper evidence it added on top of
+    SHA-pinned actions and the hash-locked toolchain. Set
+    ``L9_MANIFEST_CHECK=1`` to verify a locally generated manifest during a
+    salvage or bisect; nothing in CI or the facade sets it.
     """
 
-    return os.environ.get(MANIFEST_CHECK_ENV, "").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
+    return os.environ.get(MANIFEST_CHECK_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
     }
 
 
