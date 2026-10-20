@@ -429,6 +429,12 @@ contracts.
 - Whether a contract is required is `contract-policy.json` in the pinned
   action, keyed by `github.repository`. Never add an action input, consumer
   metadata field, or contract field that selects or weakens the mode.
+- (2026-10-20) "Unconditional `Repo.mk` ABI" includes implementation, not
+  only declaration: each required leaf must carry an unconditional recipe or
+  prerequisite. A bare `.PHONY` leaf with neither, or one whose only recipe is
+  inside a conditional, exits zero without doing anything and is rejected at
+  admission. This remains structural; proving that a recipe did real test
+  work is a separate Core enforcement concern, never a `Repo.mk` text rule.
 
 ## 14. Repository Execution V2 (2026-09-25) — supersedes §11 except its completion sequence
 

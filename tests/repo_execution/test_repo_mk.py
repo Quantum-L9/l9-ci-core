@@ -16,10 +16,23 @@ from l9_repo.contract import (  # noqa: E402
     REQUIRED_LEAVES,
     ContractError,
     RepositoryExecution,
+    implemented_leaves,
     make_phony_targets,
     make_target_declarations,
     validate_repo_mk_text,
 )
+
+PHONY_LINE = ".PHONY: " + " ".join(REQUIRED_LEAVES) + "\n"
+
+
+def leaves_with(implementation: dict[str, str]) -> str:
+    """A Repo.mk whose leaves are implemented as given; others get a recipe."""
+
+    parts = [PHONY_LINE]
+    for leaf in REQUIRED_LEAVES:
+        parts.append(implementation.get(leaf, f"{leaf}:\n\t@:\n"))
+        parts.append("\n")
+    return "".join(parts)
 
 
 class RepoMkAbiTests(unittest.TestCase):
@@ -97,6 +110,112 @@ class RepoMkAbiTests(unittest.TestCase):
             make_target_declarations(text),
         )
         self.assertEqual({"repo-setup"}, make_phony_targets(text))
+
+
+class RepoMkImplementationTests(unittest.TestCase):
+    """A declared leaf is not an implemented leaf.
+
+    GNU Make runs a ``.PHONY`` rule with neither prerequisites nor recipe and
+    exits zero, so such a leaf would let its phase pass with zero work. The
+    structural validator rejects that shape and the shape where the only
+    recipe sits inside a conditional. It does not judge what a recipe does:
+    ``@:`` is admitted here and is the concern of actual-work evidence.
+    """
+
+    def test_bare_phony_leaf_with_no_recipe_or_prerequisite_is_rejected(self) -> None:
+        for leaf in REQUIRED_LEAVES:
+            with self.subTest(leaf=leaf):
+                text = leaves_with({leaf: f"{leaf}:\n"})
+                with self.assertRaisesRegex(
+                    ContractError,
+                    rf"{leaf} declares no unconditional recipe or prerequisite",
+                ):
+                    validate_repo_mk_text(text)
+
+    def test_all_four_leaves_bare_names_the_first_leaf(self) -> None:
+        text = PHONY_LINE + "".join(f"{leaf}:\n" for leaf in REQUIRED_LEAVES)
+        with self.assertRaisesRegex(ContractError, "repo-setup declares no"):
+            validate_repo_mk_text(text)
+
+    def test_recipe_only_inside_an_inactive_conditional_is_rejected(self) -> None:
+        text = leaves_with({"repo-test": "repo-test:\nifdef NEVER\n\t@pytest\nendif\n"})
+        with self.assertRaisesRegex(
+            ContractError, "repo-test declares no unconditional recipe"
+        ):
+            validate_repo_mk_text(text)
+
+    def test_recipe_split_across_both_conditional_branches_is_rejected(self) -> None:
+        text = leaves_with(
+            {
+                "repo-test": (
+                    "repo-test:\nifeq ($(CI),1)\n\t@pytest -x\nelse\n\t@pytest\nendif\n"
+                )
+            }
+        )
+        with self.assertRaisesRegex(ContractError, "repo-test declares no"):
+            validate_repo_mk_text(text)
+
+    def test_target_specific_variable_is_not_an_implementation(self) -> None:
+        text = leaves_with({"repo-test": "repo-test: PYTEST_ARGS = -x\n"})
+        with self.assertRaisesRegex(ContractError, "repo-test declares no"):
+            validate_repo_mk_text(text)
+
+    def test_dependency_only_aggregate_is_a_valid_implementation(self) -> None:
+        text = leaves_with(
+            {
+                "repo-test": (
+                    ".PHONY: unit integration\n"
+                    "repo-test: unit integration\n"
+                    "unit:\n\t@pytest tests/unit\n"
+                    "integration:\n\t@pytest tests/integration\n"
+                )
+            }
+        )
+        validate_repo_mk_text(text)
+        self.assertEqual(set(REQUIRED_LEAVES), implemented_leaves(text))
+
+    def test_inline_semicolon_recipe_is_an_implementation(self) -> None:
+        validate_repo_mk_text(leaves_with({"repo-test": "repo-test: ; @pytest\n"}))
+
+    def test_continued_rule_line_and_comment_lines_are_tolerated(self) -> None:
+        text = leaves_with(
+            {
+                "repo-test": (
+                    "repo-test: \\\n"
+                    "\tunit\n"
+                    "# a comment between rule and recipe\n"
+                    "\n"
+                    "\t@pytest\n"
+                    ".PHONY: unit\nunit:\n\t@true\n"
+                )
+            }
+        )
+        validate_repo_mk_text(text)
+
+    def test_leaf_declared_twice_counts_either_rule(self) -> None:
+        text = leaves_with(
+            {
+                "repo-test": "repo-test:\n\n.PHONY: unit\nrepo-test: unit\nunit:\n\t@true\n"
+            }
+        )
+        validate_repo_mk_text(text)
+
+    def test_trivial_success_recipe_is_structurally_admitted(self) -> None:
+        # Known limitation, by design: structure cannot see that ``@:`` tests
+        # nothing. Actual-work evidence is a separate enforcement concern.
+        validate_repo_mk_text(leaves_with({"repo-test": "repo-test:\n\t@:\n"}))
+
+    def test_no_work_leaf_fails_full_admission_though_make_exits_zero(self) -> None:
+        from v2_fixtures import make
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            write_consumer(
+                root, repo_mk=leaves_with({"repo-test": "repo-test:\n"}), init_git=False
+            )
+            self.assertEqual(0, make(root, "test").returncode)
+            with self.assertRaisesRegex(ContractError, "repo-test declares no"):
+                RepositoryExecution(root).validate()
 
 
 class RepoMkOwnershipTests(unittest.TestCase):

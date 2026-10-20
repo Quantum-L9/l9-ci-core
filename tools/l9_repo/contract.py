@@ -214,24 +214,90 @@ def _unconditional_text(text: str) -> str:
     return "\n".join(kept)
 
 
+def implemented_leaves(text: str) -> set[str]:
+    """Return the required leaves that carry an unconditional implementation.
+
+    ``text`` must already be the unconditional projection (see
+    ``_unconditional_text``). A rule implements the leaves it names when it
+    lists at least one prerequisite, carries an inline ``;`` recipe, or is
+    followed by at least one recipe line (a tab-indented line; blank and
+    comment lines may sit between them, as GNU Make allows). A target-specific
+    variable assignment (``repo-test: VAR = x``) is neither a prerequisite nor
+    a recipe.
+
+    GNU Make runs a ``.PHONY`` rule with no prerequisites and no recipe
+    successfully without doing anything, so such a leaf would let its phase
+    pass with zero work. A recipe that exists only inside a conditional was
+    blanked by the unconditional projection and therefore does not count: put
+    the variation in a variable, not around the recipe. This is still a
+    structural property, not a judgement about what the recipe does.
+    """
+
+    implemented: set[str] = set()
+    physical = text.splitlines()
+    index = 0
+    while index < len(physical):
+        logical = physical[index]
+        while logical.endswith("\\") and index + 1 < len(physical):
+            index += 1
+            logical = logical[:-1] + " " + physical[index]
+        index += 1
+        match = _MAKE_RULE.match(logical)
+        if not match:
+            continue
+        leaves = {
+            name
+            for name in match.group(1).split()
+            if not name.startswith(".") and name in REQUIRED_LEAVES
+        }
+        if not leaves:
+            continue
+        remainder = logical[match.end() :]
+        inline_recipe = ""
+        if ";" in remainder:
+            remainder, inline_recipe = remainder.split(";", 1)
+        prerequisites = remainder.split("#", 1)[0].strip()
+        has_prerequisite = bool(prerequisites) and "=" not in prerequisites
+        has_recipe = bool(inline_recipe.strip())
+        scan = index
+        while scan < len(physical) and not has_recipe:
+            line = physical[scan]
+            if line.startswith("\t"):
+                has_recipe = bool(line.strip())
+            elif line.strip() and not line.lstrip().startswith("#"):
+                break
+            scan += 1
+        if has_prerequisite or has_recipe:
+            implemented.update(leaves)
+    return implemented
+
+
 def validate_repo_mk_text(text: str) -> None:
     """Structural ABI validation of a repository-owned ``Repo.mk``.
 
     Required leaves must be declared unconditionally and ``.PHONY`` (so a
-    same-named file can never suppress a phase), and the facade's own verbs
-    may not be redefined anywhere, conditionally or not. Everything else in
-    the file is the repository's business.
+    same-named file can never suppress a phase), must carry an unconditional
+    recipe or prerequisite (so a leaf cannot satisfy its phase by doing
+    nothing), and the facade's own verbs may not be redefined anywhere,
+    conditionally or not. Everything else in the file is the repository's
+    business; in particular nothing here judges what a recipe does.
     """
 
     declarations = make_target_declarations(text)
     unconditional = _unconditional_text(text)
     declared = {target for _, target in make_target_declarations(unconditional)}
     phony = make_phony_targets(unconditional)
+    implemented = implemented_leaves(unconditional)
     for leaf in REQUIRED_LEAVES:
         if leaf not in declared:
             _fail(f"Repo.mk is missing required implementation target: {leaf}")
         if leaf not in phony:
             _fail(f"Repo.mk required target {leaf} must be declared .PHONY")
+        if leaf not in implemented:
+            _fail(
+                f"Repo.mk required target {leaf} declares no unconditional recipe "
+                "or prerequisite; a leaf that does nothing cannot implement a phase"
+            )
     for number, target in declarations:
         if target in FACADE_TARGETS:
             _fail(
