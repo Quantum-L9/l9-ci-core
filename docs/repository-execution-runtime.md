@@ -60,9 +60,15 @@ repository-owned Repo.mk
   carrying generated provenance, never requiring an extension file. It must
   declare the four `repo-*` leaves unconditionally (a leaf only inside a
   conditional or `define` block counts as missing), each `.PHONY` so a same-named file can never
-  suppress a phase, and may not redefine a facade verb. Everything else in it
+  suppress a phase, each with an unconditional recipe or prerequisite (a bare
+  `repo-test:` with neither does nothing and is rejected; a recipe hidden
+  inside a conditional does not count, so vary a variable, not the recipe;
+  a variable-only prerequisite counts only when `Repo.mk` assigns it a
+  literal target above the rule, because GNU make expands prerequisites as
+  it reads the rule and `repo-test: $(UNDEFINED)` does nothing),
+  and may not redefine a facade verb. Everything else in it
   is the repository's business. Core does not parse GNU Make; it proves only
-  those structural properties.
+  those structural properties, and it never judges what a recipe does.
 - **`make-v1` is a real version.** `tools/l9_repo/facades/make-v1.mk` is mapped
   explicitly by `FACADE_TEMPLATES` in `tools/l9_repo/contract.py`. Once
   released, its behavior is immutable; an incompatible facade change is a new
@@ -237,9 +243,18 @@ decision from its own Core checkout, never from the consumer:
 - **V2 admission.** Before any phase runs, the consumer's root `Makefile` must
   equal the Core-owned `tools/l9_repo/facades/make-v1.mk` byte-for-byte, and
   `Repo.mk` must declare `repo-setup`, `repo-validate`, `repo-check`, and
-  `repo-test` unconditionally and `.PHONY`, without redefining a facade verb.
+  `repo-test` unconditionally and `.PHONY`, each with an unconditional recipe
+  or prerequisite, without redefining a facade verb.
   GNU make treats a `.PHONY` target with no rule as satisfied, so a leaf that
-  exists only inside a conditional or `define` block counts as missing. The
+  exists only inside a conditional or `define` block counts as missing, and a
+  leaf declared with neither recipe nor prerequisite (or whose only recipe sits
+  inside a conditional) is rejected as doing nothing. So is a leaf whose only
+  prerequisites are variables that `Repo.mk` does not prove non-empty above
+  the rule: undefined, assigned after the rule, emptied, or set by `?=`, `!=`,
+  `define`, a function call, or outside `Repo.mk`. Admission still proves
+  structure only: a recipe that runs and exits zero without testing anything
+  passes this check, which is why actual-work evidence is a separate,
+  Core-owned enforcement concern. The
   phases then run as `make <phase>`, argv-only, stopping at the first failure.
 - **Enforcement mode is Core policy.** `contract-policy.json`, shipped with the
   pinned action, resolves `migration` (default) or `required` from the
