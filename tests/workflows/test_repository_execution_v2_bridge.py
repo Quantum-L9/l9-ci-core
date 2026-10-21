@@ -1,7 +1,7 @@
 """Repository Execution V2 admission bridge: dual-read V1 + V2 verification.
 
-``run-repository-verification`` must admit both contract generations while
-Core itself stays a V1 consumer:
+``run-repository-verification`` must admit both contract generations; Core
+itself is admitted through the V2 branch:
 
 - a ``schema_version == 1`` contract still delegates to the unchanged
   ``RepositoryWorkflow`` V1 runtime;
@@ -16,9 +16,9 @@ Core itself stays a V1 consumer:
 - every result is typed: ``contract-mode``, ``contract-version`` and
   ``failure-kind`` distinguish an invalid contract from a failed command.
 
-The final section holds tripwires proving this bridge did not become the V2
-adoption change: Core's own contract remains V1 and the bridge dispatches no
-publication or Governance command.
+The final section holds tripwires: Core's own contract is the exact V2
+declaration, Core's own tree passes the bridge's V2 admission, and the bridge
+dispatches no publication or Governance command.
 """
 
 from __future__ import annotations
@@ -42,8 +42,8 @@ CORE_CONTRACT = ROOT / ".l9" / "repo-workflow.json"
 
 sys.path.insert(0, str(ROOT / "tools"))
 
-from l9_repo.__main__ import WorkflowError, validate_config_data  # noqa: E402
-from l9_repo.contract import render_facade  # noqa: E402
+from l9_repo.__main__ import WorkflowError  # noqa: E402
+from l9_repo.contract import render_facade, validate_v2_contract_data  # noqa: E402
 
 V2_PHASES = ["setup", "validate", "check", "test"]
 POLICY = RUNNER.parent / "contract-policy.json"
@@ -153,10 +153,10 @@ class ContractClassificationTests(unittest.TestCase):
     def test_existing_v1_contract_is_recognized(self) -> None:
         self.assertEqual("v1", self.runner.classify_contract({"schema_version": 1}))
 
-    def test_core_current_v1_contract_stays_v1_and_valid(self) -> None:
+    def test_core_contract_is_admitted_as_v2_by_bridge_and_runtime(self) -> None:
         document = json.loads(CORE_CONTRACT.read_text(encoding="utf-8"))
-        self.assertEqual("v1", self.runner.classify_contract(document))
-        validate_config_data(document)
+        self.assertEqual("v2", self.runner.classify_contract(document))
+        validate_v2_contract_data(document)
 
     def test_v2_rejections_fail_closed(self) -> None:
         cases: dict[str, object] = {
@@ -641,13 +641,18 @@ class V2RealMakeTests(unittest.TestCase):
 
 
 class BridgeScopeTripwires(unittest.TestCase):
-    """PR A builds the bridge; it must not cross it."""
+    """The bridge admits Core as V2 and stays an execution-only admission point."""
 
-    def test_core_itself_remains_a_v1_consumer(self) -> None:
+    def test_core_itself_is_a_v2_consumer_of_the_bridge(self) -> None:
         document = json.loads(CORE_CONTRACT.read_text(encoding="utf-8"))
-        self.assertEqual(1, document.get("schema_version"))
-        self.assertNotEqual("l9.repo-execution/v2", document.get("schema"))
-        self.assertIn('"schema_version": 1', CORE_CONTRACT.read_text(encoding="utf-8"))
+        self.assertEqual("l9.repo-execution/v2", document.get("schema"))
+        self.assertNotIn("schema_version", document)
+        self.assertEqual({"schema", "facade", "required_phases"}, set(document))
+
+    def test_core_tree_passes_the_bridge_v2_admission(self) -> None:
+        # The facade bytes and Repo.mk ABI the bridge checks before any phase.
+        runner = _load_runner()
+        runner.verify_v2(ROOT)
 
     def test_bridge_dispatches_no_publication_or_governance_command(self) -> None:
         text = RUNNER.read_text(encoding="utf-8")

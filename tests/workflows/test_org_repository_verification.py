@@ -16,8 +16,8 @@ ACTION = ROOT / ".github" / "actions" / "run-repository-verification" / "action.
 RUNNER = ROOT / ".github" / "actions" / "run-repository-verification" / "run.py"
 PIN = "ad2970d214261ced398de07a4696370b0b9c5609"
 # The mocked V1 tests below only need the classifier to route to the V1
-# runtime; the full V1 document validation belongs to RepositoryWorkflow and is
-# covered by tests/tools/test_l9_repo.py.
+# runtime; the bounded V1 executor is covered end to end by
+# tests/repo_execution/test_legacy_v1.py.
 V1_CONTRACT = '{"schema_version": 1}\n'
 
 

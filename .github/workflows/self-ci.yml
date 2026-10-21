@@ -45,8 +45,8 @@ jobs:
           pip install --only-binary :all: -r requirements-ci.txt
           pip install --only-binary :all: -r requirements-repo-runtime.txt
       # Resolve through the interpreter, not PATH, and assert what it resolved
-      # before any gate runs — the same contract `.l9/repo-workflow.json`
-      # applies to `make check`. Installing the pins is not the same as
+      # before any gate runs — the same resolution `Repo.mk`'s `repo-check`
+      # leaf applies to `make check`. Installing the pins is not the same as
       # executing them: a tool earlier on PATH decides which code runs, and a
       # nearby ruff minor passes cleanly while checking a different file set.
       - name: toolchain conformance
@@ -80,47 +80,6 @@ jobs:
               -c "http.https://github.com/.extraheader=${auth_header}" \
               fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
-      - name: Emit checksum-manifest reconciliation hints
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import hashlib
-          import pathlib
-          import subprocess
-
-          root = pathlib.Path.cwd()
-          manifest_path = root / "MANIFEST.sha256"
-          manifest: dict[str, str] = {}
-          for raw in manifest_path.read_text(encoding="utf-8").splitlines():
-              line = raw.strip()
-              if not line or line.startswith("#"):
-                  continue
-              digest, name = line.split(None, 1)
-              manifest[name.strip()] = digest
-
-          tracked = {
-              item
-              for item in subprocess.check_output(
-                  ["git", "ls-files"], text=True
-              ).splitlines()
-              if item and item != "MANIFEST.sha256"
-          }
-
-          for name, expected in sorted(manifest.items()):
-              path = root / name
-              if not path.is_file():
-                  print(f"MANIFEST_DELETE {name}")
-                  continue
-              actual = hashlib.sha256(path.read_bytes()).hexdigest()
-              if actual != expected:
-                  print(f"MANIFEST_SET {actual}  {name}")
-
-          for name in sorted(tracked - set(manifest)):
-              path = root / name
-              if path.is_file():
-                  actual = hashlib.sha256(path.read_bytes()).hexdigest()
-                  print(f"MANIFEST_ADD {actual}  {name}")
-          PY
       - name: Run Phase 1 validation
         run: |
           set -euo pipefail
