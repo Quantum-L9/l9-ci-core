@@ -250,6 +250,93 @@ class RepoMkImplementationTests(unittest.TestCase):
                 RepositoryExecution(root).validate()
 
 
+UNIT_RAN = "unit-target-ran"
+UNIT_RULE = f".PHONY: unit\nunit:\n\t@echo {UNIT_RAN}\n"
+
+# Variable-only prerequisites that GNU Make expands to nothing when it reads
+# the rule line, so the phase "passes" with "Nothing to be done".
+EXPANDS_EMPTY = {
+    "undefined": "repo-test: $(UNDEFINED_PREREQUISITE)\n",
+    "assigned_empty": "TESTS :=\nrepo-test: $(TESTS)\n",
+    "defined_after_rule": "repo-test: $(TESTS)\nTESTS := unit\n",
+    "emptied_before_rule": "TESTS := unit\nTESTS :=\nrepo-test: $(TESTS)\n",
+    "undefined_before_rule": "TESTS := unit\nundefine TESTS\nrepo-test: $(TESTS)\n",
+    "recursive_to_undefined": "TESTS = $(LATER)\nrepo-test: ${TESTS}\nLATER := unit\n",
+}
+
+
+class RepoMkVariablePrerequisiteTests(unittest.TestCase):
+    """A variable-only prerequisite is an implementation only when Repo.mk
+    proves it non-empty above the rule (GNU Make expands it on that line)."""
+
+    def test_variable_that_expands_empty_is_rejected(self) -> None:
+        for case, rule in EXPANDS_EMPTY.items():
+            with self.subTest(case=case):
+                text = leaves_with({"repo-test": rule + UNIT_RULE})
+                with self.assertRaisesRegex(ContractError, "repo-test declares no"):
+                    validate_repo_mk_text(text)
+
+    def test_unprovable_variable_fails_closed(self) -> None:
+        cases = {
+            # The environment may supply TESTS, possibly empty.
+            "conditional_default": "TESTS ?= unit\nrepo-test: $(TESTS)\n",
+            "shell_assignment": "TESTS != echo unit\nrepo-test: $(TESTS)\n",
+            "only_inside_conditional": (
+                "ifdef CI\nTESTS := unit\nendif\nrepo-test: $(TESTS)\n"
+            ),
+            "only_inside_define": "define TESTS\nunit\nendef\nrepo-test: $(TESTS)\n",
+            "function_call": "repo-test: $(wildcard tests/unit)\n",
+            "substitution_reference": "SRC := unit.c\nrepo-test: $(SRC:.c=)\n",
+            "automatic_variable": "repo-test: $@\n",
+            "reference_cycle": "A = $(B)\nB = $(A)\nrepo-test: $(A)\n",
+        }
+        for case, rule in cases.items():
+            with self.subTest(case=case):
+                text = leaves_with({"repo-test": rule + UNIT_RULE})
+                with self.assertRaisesRegex(ContractError, "repo-test declares no"):
+                    validate_repo_mk_text(text)
+
+    def test_variable_proven_non_empty_above_the_rule_is_an_implementation(
+        self,
+    ) -> None:
+        cases = {
+            "simple": "TESTS := unit\nrepo-test: $(TESTS)\n",
+            "recursive": "TESTS = unit\nrepo-test: $(TESTS)\n",
+            "braces": "TESTS := unit\nrepo-test: ${TESTS}\n",
+            "chained": "INNER := unit\nTESTS = $(INNER)\nrepo-test: $(TESTS)\n",
+            "append": "TESTS :=\nTESTS += unit\nrepo-test: $(TESTS)\n",
+            "append_after_default": "TESTS ?=\nTESTS += unit\nrepo-test: $(TESTS)\n",
+            "override_export": "override export TESTS := unit\nrepo-test: $(TESTS)\n",
+            "comment_after_value": "TESTS := unit # the suite\nrepo-test: $(TESTS)\n",
+            "literal_beside_variable": "repo-test: unit $(UNDEFINED)\n",
+            "literal_around_variable": "repo-test: un$(EMPTY)it\n",
+        }
+        for case, rule in cases.items():
+            with self.subTest(case=case):
+                text = leaves_with({"repo-test": rule + UNIT_RULE})
+                validate_repo_mk_text(text)
+                self.assertIn("repo-test", implemented_leaves(text))
+
+    def test_expands_empty_leaf_fails_full_admission_though_make_exits_zero(
+        self,
+    ) -> None:
+        from v2_fixtures import make
+
+        for case in ("undefined", "defined_after_rule", "emptied_before_rule"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root = pathlib.Path(tmp)
+                write_consumer(
+                    root,
+                    repo_mk=leaves_with({"repo-test": EXPANDS_EMPTY[case] + UNIT_RULE}),
+                    init_git=False,
+                )
+                completed = make(root, "test")
+                self.assertEqual(0, completed.returncode)
+                self.assertNotIn(UNIT_RAN, completed.stdout)
+                with self.assertRaisesRegex(ContractError, "repo-test declares no"):
+                    RepositoryExecution(root).validate()
+
+
 class RepoMkOwnershipTests(unittest.TestCase):
     def test_missing_repo_mk_fails_validation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

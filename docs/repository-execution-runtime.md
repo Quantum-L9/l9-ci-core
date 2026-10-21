@@ -62,7 +62,10 @@ repository-owned Repo.mk
   conditional or `define` block counts as missing), each `.PHONY` so a same-named file can never
   suppress a phase, each with an unconditional recipe or prerequisite (a bare
   `repo-test:` with neither does nothing and is rejected; a recipe hidden
-  inside a conditional does not count, so vary a variable, not the recipe),
+  inside a conditional does not count, so vary a variable, not the recipe;
+  a variable-only prerequisite counts only when `Repo.mk` assigns it a
+  literal target above the rule, because GNU make expands prerequisites as
+  it reads the rule and `repo-test: $(UNDEFINED)` does nothing),
   and may not redefine a facade verb. Everything else in it
   is the repository's business. Core does not parse GNU Make; it proves only
   those structural properties, and it never judges what a recipe does.
@@ -245,7 +248,10 @@ decision from its own Core checkout, never from the consumer:
   GNU make treats a `.PHONY` target with no rule as satisfied, so a leaf that
   exists only inside a conditional or `define` block counts as missing, and a
   leaf declared with neither recipe nor prerequisite (or whose only recipe sits
-  inside a conditional) is rejected as doing nothing. Admission still proves
+  inside a conditional) is rejected as doing nothing. So is a leaf whose only
+  prerequisites are variables that `Repo.mk` does not prove non-empty above
+  the rule: undefined, assigned after the rule, emptied, or set by `?=`, `!=`,
+  `define`, a function call, or outside `Repo.mk`. Admission still proves
   structure only: a recipe that runs and exits zero without testing anything
   passes this check, which is why actual-work evidence is a separate,
   Core-owned enforcement concern. The
