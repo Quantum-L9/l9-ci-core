@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import unittest
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "analyze-semgrep.yml"
-GOVERNANCE_RESOLVER_PIN = "94e5debc412a7fd0618fc7968ecf3e622b68ad98"
+GOVERNANCE_RESOLVER_PIN = "59cb364615ccd44d824bec6b71d49d2f93e465c9"
 
 
 def _workflow() -> dict:
@@ -17,13 +18,6 @@ def _workflow() -> dict:
         document["on"] = document.pop(True)
     assert isinstance(document, dict)
     return document
-
-
-def _governance_event_expression(document: dict) -> str:
-    for step in document["jobs"]["analyze"]["steps"]:
-        if step.get("id") == "gov":
-            return str(step["with"]["event-name"])
-    raise AssertionError("analyze-semgrep.yml has no governance resolver step")
 
 
 def _semgrep_run_step(document: dict) -> dict:
@@ -40,40 +34,41 @@ def _governance_step(document: dict) -> dict:
     raise AssertionError("analyze-semgrep.yml has no governance resolver step")
 
 
-def test_reusable_kernel_accepts_an_explicit_governance_event_class() -> None:
-    document = _workflow()
-    event_input = document["on"]["workflow_call"]["inputs"]["event"]
-    assert event_input["required"] is False
-    assert event_input["default"] == ""
+class AnalyzeSemgrepEventClassTests(unittest.TestCase):
+    def test_reusable_kernel_accepts_an_explicit_governance_event_class(self) -> None:
+        document = _workflow()
+        event_input = document["on"]["workflow_call"]["inputs"]["event"]
+        assert event_input["required"] is False
+        assert event_input["default"] == ""
+        text = WORKFLOW.read_text(encoding="utf-8")
+        assert "EVENT_OVERRIDE: ${{ inputs.event }}" in text
+        assert 'source_event="${EVENT_OVERRIDE:-${TRIGGER_EVENT}}"' in text
 
-    expression = _governance_event_expression(document)
-    assert "inputs.event != ''" in expression
-    assert "inputs.event" in expression
+    def test_manual_dispatch_without_an_override_stays_a_nightly_canary(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        assert "TRIGGER_EVENT: ${{ github.event_name }}" in text
+        assert "schedule|workflow_dispatch|nightly)" in text
+        assert 'event="nightly"' in text
 
+    def test_explicit_event_precedes_the_manual_nightly_fallback(self) -> None:
+        text = " ".join(WORKFLOW.read_text(encoding="utf-8").split())
+        override = text.index("EVENT_OVERRIDE: ${{ inputs.event }}")
+        fallback = text.index("schedule|workflow_dispatch|nightly)")
+        assert override < fallback
 
-def test_manual_dispatch_without_an_override_stays_a_nightly_canary() -> None:
-    expression = _governance_event_expression(_workflow())
-    assert "github.event_name == 'workflow_dispatch'" in expression
-    assert "'nightly'" in expression
+    def test_semgrep_run_uses_the_core_staged_map_for_its_bounded_language(
+        self,
+    ) -> None:
+        step = _semgrep_run_step(_workflow())
+        assert step["with"]["identity-map"] == (
+            "${{ steps.gov.outputs['identity-map-directory'] }}/"
+            "${{ steps.language.outputs.language }}.yaml"
+        )
 
-
-def test_explicit_event_precedes_the_manual_nightly_fallback() -> None:
-    expression = " ".join(_governance_event_expression(_workflow()).split())
-    explicit = expression.index("inputs.event != ''")
-    fallback = expression.index("github.event_name == 'workflow_dispatch'")
-    assert explicit < fallback
-
-
-def test_semgrep_run_uses_the_core_staged_map_for_its_bounded_language() -> None:
-    step = _semgrep_run_step(_workflow())
-    assert step["with"]["identity-map"] == (
-        "${{ steps.gov.outputs['identity-map-directory'] }}/${{ inputs.language }}.yaml"
-    )
-
-
-def test_governance_resolver_pin_exports_the_identity_map_output() -> None:
-    step = _governance_step(_workflow())
-    assert step["uses"] == (
-        "Quantum-L9/l9-ci-core/.github/actions/resolve-governance"
-        f"@{GOVERNANCE_RESOLVER_PIN}"
-    )
+    def test_governance_resolver_pin_exports_the_identity_map_output(self) -> None:
+        step = _governance_step(_workflow())
+        assert step["uses"] == (
+            "Quantum-L9/l9-ci-core/.github/actions/resolve-governance"
+            f"@{GOVERNANCE_RESOLVER_PIN}"
+        )
+        assert step["with"]["event-name"] == "${{ steps.contract.outputs.event }}"

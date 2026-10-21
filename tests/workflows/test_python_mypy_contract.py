@@ -9,6 +9,7 @@ plugin. Consumer tool pins live in the install-consumer-ci action.
 from __future__ import annotations
 
 import re
+import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,83 +50,78 @@ def _noncomment_code(text: str) -> str:
     return "\n".join(line.split("#", 1)[0] for line in text.splitlines())
 
 
-def test_no_surface_uses_global_ignore_missing_imports() -> None:
-    for path in PYTHON_MYPY_SURFACES:
-        code = _noncomment_code(path.read_text(encoding="utf-8"))
-        assert "--ignore-missing-imports" not in code, (
-            f"{path.relative_to(ROOT)} passes a global --ignore-missing-imports; "
-            "repository-owned mypy config must decide per-module import handling"
-        )
-
-
-def test_pr_pipeline_declares_explicit_required_mypy_input() -> None:
-    text = PR_PIPELINE.read_text(encoding="utf-8")
-    assert "mypy-required:" in text, "pr-pipeline must expose a mypy-required input"
-    # The input must default to blocking (required). Scan to the next input key
-    # so the window always includes this input's `default:` line.
-    block = text.split("mypy-required:", 1)[1]
-    block = re.split(r"(?m)^      \w[\w-]*:", block, maxsplit=1)[0]
-    assert re.search(r"default:\s*true", block), (
-        "mypy-required must default to true (blocking)"
-    )
-
-
-def test_pr_pipeline_mypy_is_blocking_not_silently_swallowed() -> None:
-    text = PR_PIPELINE.read_text(encoding="utf-8")
-    # The old always-on swallow must be gone.
-    assert "non-blocking in the v1 compat layer" not in text, (
-        "pr-pipeline must not silently convert required mypy failures to a notice"
-    )
-    # A blocking invocation (bare `mypy "$SOURCE_DIR"` with no fail-open) exists.
-    assert re.search(r'(?m)^\s*mypy "\$SOURCE_DIR"\s*$', text), (
-        "pr-pipeline must run mypy as a blocking step when required"
-    )
-    # No fail-open `|| true` / `|| exit 0` on any mypy line.
-    for line in text.splitlines():
-        if "mypy " in line:
-            assert not re.search(r"\|\|\s*(true|exit\s+0)\b", line), (
-                f"fail-open mypy line: {line.strip()}"
+class PythonMypyContractTests(unittest.TestCase):
+    def test_no_surface_uses_global_ignore_missing_imports(self) -> None:
+        for path in PYTHON_MYPY_SURFACES:
+            code = _noncomment_code(path.read_text(encoding="utf-8"))
+            assert "--ignore-missing-imports" not in code, (
+                f"{path.relative_to(ROOT)} passes a global --ignore-missing-imports; "
+                "repository-owned mypy config must decide per-module import handling"
             )
 
-
-def test_consumer_ci_pins_manifest_exists_and_pins_mypy() -> None:
-    assert CONSUMER_CI_PINS.is_file(), "action pin file must exist"
-    text = CONSUMER_CI_PINS.read_text(encoding="utf-8")
-    assert re.search(r"(?m)^mypy==", text), "consumer CI pins must pin mypy exactly"
-    assert re.search(r"(?m)^ruff==", text)
-    assert re.search(r"(?m)^pytest==", text)
-
-
-def test_surfaces_call_the_installer_action() -> None:
-    for path in PYTHON_MYPY_SURFACES:
-        text = path.read_text(encoding="utf-8")
-        assert INSTALLER_ACTION in text, (
-            f"{path.relative_to(ROOT)} must call {INSTALLER_ACTION}"
+    def test_pr_pipeline_declares_explicit_required_mypy_input(self) -> None:
+        text = PR_PIPELINE.read_text(encoding="utf-8")
+        assert "mypy-required:" in text, "pr-pipeline must expose a mypy-required input"
+        # The input must default to blocking (required). Scan to the next input key
+        # so the window always includes this input's `default:` line.
+        block = text.split("mypy-required:", 1)[1]
+        block = re.split(r"(?m)^      \w[\w-]*:", block, maxsplit=1)[0]
+        assert re.search(r"default:\s*true", block), (
+            "mypy-required must default to true (blocking)"
         )
 
+    def test_pr_pipeline_mypy_is_blocking_not_silently_swallowed(self) -> None:
+        text = PR_PIPELINE.read_text(encoding="utf-8")
+        # The old always-on swallow must be gone.
+        assert "non-blocking in the v1 compat layer" not in text, (
+            "pr-pipeline must not silently convert required mypy failures to a notice"
+        )
+        # A blocking invocation (bare `mypy "$SOURCE_DIR"` with no fail-open) exists.
+        assert re.search(r'(?m)^\s*mypy "\$SOURCE_DIR"\s*$', text), (
+            "pr-pipeline must run mypy as a blocking step when required"
+        )
+        # No fail-open `|| true` / `|| exit 0` on any mypy line.
+        for line in text.splitlines():
+            if "mypy " in line:
+                assert not re.search(r"\|\|\s*(true|exit\s+0)\b", line), (
+                    f"fail-open mypy line: {line.strip()}"
+                )
 
-def test_surfaces_pin_the_installer_by_sha() -> None:
-    """Every reference must be SHA-pinned, not tagged.
+    def test_consumer_ci_pins_manifest_exists_and_pins_mypy(self) -> None:
+        assert CONSUMER_CI_PINS.is_file(), "action pin file must exist"
+        text = CONSUMER_CI_PINS.read_text(encoding="utf-8")
+        assert re.search(r"(?m)^mypy==", text), "consumer CI pins must pin mypy exactly"
+        assert re.search(r"(?m)^ruff==", text)
+        assert re.search(r"(?m)^pytest==", text)
 
-    Split from the call assertion above so a surface that calls the installer
-    with a floating tag fails as a pinning violation, naming the offending
-    reference, rather than as "does not call the installer".
-    """
-    for path in PYTHON_MYPY_SURFACES:
-        text = _noncomment_code(path.read_text(encoding="utf-8"))
-        references = re.findall(rf"{re.escape(INSTALLER_ACTION)}@\S+", text)
-        assert references, f"{path.relative_to(ROOT)} must call {INSTALLER_ACTION}"
-        for reference in references:
-            assert SHA_PINNED_INSTALLER.fullmatch(reference), (
-                f"{path.relative_to(ROOT)} references {reference}; the installer "
-                "must be pinned to a 40-character commit SHA. audit-pins-org.yml "
-                "rates an unpinned first-party ref HIGH, and `@v2` resolved to "
-                "nothing for every consumer until fa0ba1e SHA-pinned it."
+    def test_surfaces_call_the_installer_action(self) -> None:
+        for path in PYTHON_MYPY_SURFACES:
+            text = path.read_text(encoding="utf-8")
+            assert INSTALLER_ACTION in text, (
+                f"{path.relative_to(ROOT)} must call {INSTALLER_ACTION}"
             )
 
+    def test_surfaces_pin_the_installer_by_sha(self) -> None:
+        """Every reference must be SHA-pinned, not tagged.
 
-def test_dependabot_does_not_own_consumer_ci_pins() -> None:
-    text = DEPENDABOT.read_text(encoding="utf-8")
-    assert not re.search(r'package-ecosystem:\s*"pip"', text), (
-        "dependabot must not have a pip ecosystem on consumer CI pins"
-    )
+        Split from the call assertion above so a surface that calls the installer
+        with a floating tag fails as a pinning violation, naming the offending
+        reference, rather than as "does not call the installer".
+        """
+        for path in PYTHON_MYPY_SURFACES:
+            text = _noncomment_code(path.read_text(encoding="utf-8"))
+            references = re.findall(rf"{re.escape(INSTALLER_ACTION)}@\S+", text)
+            assert references, f"{path.relative_to(ROOT)} must call {INSTALLER_ACTION}"
+            for reference in references:
+                assert SHA_PINNED_INSTALLER.fullmatch(reference), (
+                    f"{path.relative_to(ROOT)} references {reference}; the installer "
+                    "must be pinned to a 40-character commit SHA. audit-pins-org.yml "
+                    "rates an unpinned first-party ref HIGH, and `@v2` resolved to "
+                    "nothing for every consumer until fa0ba1e SHA-pinned it."
+                )
+
+    def test_dependabot_does_not_own_consumer_ci_pins(self) -> None:
+        text = DEPENDABOT.read_text(encoding="utf-8")
+        assert not re.search(r'package-ecosystem:\s*"pip"', text), (
+            "dependabot must not have a pip ecosystem on consumer CI pins"
+        )
