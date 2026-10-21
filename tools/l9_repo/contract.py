@@ -57,6 +57,11 @@ REQUIRED_LEAVES: tuple[str, ...] = tuple(f"repo-{phase}" for phase in PHASES)
 # assignment (':=' / '::='), not a recipe line (leading tab), not a comment.
 _MAKE_RULE = re.compile(r"^(?!\t)([^\s:=#][^:=#]*?)\s*(?:::(?!=)|:(?![:=]))")
 _PHONY_RULE = re.compile(r"^\.PHONY\s*:\s*(.*)$")
+# `.RECIPEPREFIX = >` (any assignment operator) changes the recipe prefix from
+# that point on; an empty value restores the tab.
+_RECIPEPREFIX_ASSIGNMENT = re.compile(
+    r"^\.RECIPEPREFIX\s*(?:::=|:=|\+=|\?=|!=|=)\s*(.*)$"
+)
 
 
 class ContractError(ValueError):
@@ -235,6 +240,11 @@ def implemented_leaves(text: str) -> set[str]:
 
     implemented: set[str] = set()
     physical = text.splitlines()
+    # GNU Make lets a file change the recipe-introducing character with
+    # `.RECIPEPREFIX`, any number of times while parsing; track it in order so
+    # a `>@pytest` recipe under `.RECIPEPREFIX = >` counts and is never
+    # mistaken for a rule line.
+    prefix = "\t"
     index = 0
     while index < len(physical):
         logical = physical[index]
@@ -242,6 +252,13 @@ def implemented_leaves(text: str) -> set[str]:
             index += 1
             logical = logical[:-1] + " " + physical[index]
         index += 1
+        if logical.startswith(prefix):
+            continue
+        prefix_match = _RECIPEPREFIX_ASSIGNMENT.match(logical)
+        if prefix_match:
+            value = prefix_match.group(1).split("#", 1)[0].strip()
+            prefix = value[0] if value else "\t"
+            continue
         match = _MAKE_RULE.match(logical)
         if not match:
             continue
@@ -256,14 +273,17 @@ def implemented_leaves(text: str) -> set[str]:
         inline_recipe = ""
         if ";" in remainder:
             remainder, inline_recipe = remainder.split(";", 1)
-        prerequisites = remainder.split("#", 1)[0].strip()
-        has_prerequisite = bool(prerequisites) and "=" not in prerequisites
+        prerequisites = remainder.split("#", 1)[0]
+        # `|` only separates normal from order-only prerequisites; a bare
+        # separator names nothing, and `make` reports "Nothing to be done".
+        prerequisite_tokens = prerequisites.replace("|", " ").split()
+        has_prerequisite = bool(prerequisite_tokens) and "=" not in prerequisites
         has_recipe = bool(inline_recipe.strip())
         scan = index
         while scan < len(physical) and not has_recipe:
             line = physical[scan]
-            if line.startswith("\t"):
-                has_recipe = bool(line.strip())
+            if line.startswith(prefix):
+                has_recipe = bool(line[len(prefix) :].strip())
             elif line.strip() and not line.lstrip().startswith("#"):
                 break
             scan += 1

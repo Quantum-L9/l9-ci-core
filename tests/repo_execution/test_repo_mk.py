@@ -160,6 +160,38 @@ class RepoMkImplementationTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "repo-test declares no"):
             validate_repo_mk_text(text)
 
+    def test_bare_order_only_separator_is_not_a_prerequisite(self) -> None:
+        # `repo-test: |` names nothing on either side of the separator; GNU
+        # make reports "Nothing to be done" and exits zero.
+        text = leaves_with({"repo-test": "repo-test: |\n"})
+        with self.assertRaisesRegex(ContractError, "repo-test declares no"):
+            validate_repo_mk_text(text)
+        text = leaves_with({"repo-test": "repo-test: |  # order-only, empty\n"})
+        with self.assertRaisesRegex(ContractError, "repo-test declares no"):
+            validate_repo_mk_text(text)
+
+    def test_order_only_prerequisite_is_an_implementation(self) -> None:
+        text = leaves_with(
+            {"repo-test": ".PHONY: unit\nrepo-test: | unit\nunit:\n\t@pytest\n"}
+        )
+        validate_repo_mk_text(text)
+
+    def test_recipe_under_a_custom_recipe_prefix_is_an_implementation(self) -> None:
+        text = ".RECIPEPREFIX = >\n" + leaves_with(
+            {"repo-test": "repo-test:\n>@pytest\n"}
+        ).replace("\t@:", ">@:")
+        validate_repo_mk_text(text)
+        self.assertEqual(set(REQUIRED_LEAVES), implemented_leaves(text))
+
+    def test_recipe_prefix_reset_to_tab_is_honoured(self) -> None:
+        text = (
+            ".RECIPEPREFIX = >\n"
+            ".RECIPEPREFIX =\n"  # empty value restores the tab
+            + leaves_with({"repo-test": "repo-test:\n>@pytest\n"})
+        )
+        with self.assertRaisesRegex(ContractError, "repo-test declares no"):
+            validate_repo_mk_text(text)
+
     def test_dependency_only_aggregate_is_a_valid_implementation(self) -> None:
         text = leaves_with(
             {
