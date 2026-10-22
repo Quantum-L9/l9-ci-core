@@ -38,13 +38,16 @@ Add exactly these three files. Nothing else is read.
 any Core checkout; never hand-edit it:
 
 ```bash
+CONSUMER="$(pwd)"                      # your repository root (a Git repository root)
 git clone --depth=1 https://github.com/Quantum-L9/l9-ci-core.git /tmp/l9-ci-core
-python3 -m tools.l9_repo --workspace "$(pwd)" reconcile   # run from /tmp/l9-ci-core
-python3 -m tools.l9_repo --workspace "$(pwd)" validate    # contract + facade + Repo.mk ABI
+cd /tmp/l9-ci-core                     # the module is importable only from the Core checkout
+python3 -m tools.l9_repo --workspace "$CONSUMER" reconcile   # writes $CONSUMER/Makefile
+python3 -m tools.l9_repo --workspace "$CONSUMER" validate    # contract + facade + Repo.mk ABI
+cd "$CONSUMER"
 ```
 
-(`cd /tmp/l9-ci-core` first; `--workspace` names your repository root, which
-must be a Git repository root.)
+`--workspace` always names the consumer, never the Core clone; `reconcile`
+writes only the consumer's `Makefile` and never touches `Repo.mk`.
 
 `Repo.mk` — repository-owned, hand-maintained. It must declare the four
 leaves, each `.PHONY`, each with an unconditional recipe or prerequisite, and

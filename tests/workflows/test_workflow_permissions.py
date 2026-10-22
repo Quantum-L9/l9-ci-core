@@ -52,7 +52,8 @@ class WorkflowPermissionTests(unittest.TestCase):
         ``l9-ci-sdk/.github/workflows/l9-biome-scan.yml`` were retired on
         2026-10-22; no Core workflow may reintroduce that dependency edge.
         """
-        for workflow in WORKFLOWS.glob("*.yml"):
+        # GitHub loads a workflow from either spelling (AGENTS.md §12).
+        for workflow in sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")]):
             with self.subTest(workflow=workflow.name):
                 self.assertNotIn("l9-biome-scan", workflow.read_text(encoding="utf-8"))
 
