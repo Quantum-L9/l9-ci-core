@@ -25,7 +25,8 @@ RETIRED_TREES = (
     "presets/typescript/.github",
     "starter-workflows",
     "docs/templates",
-    "skills",
+    "skills/l9-ci-activation",
+    "skills/l9-ci-activation-typescript",
     ".github/governance",
 )
 
