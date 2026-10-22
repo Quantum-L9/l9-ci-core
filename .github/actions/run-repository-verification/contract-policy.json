@@ -1,5 +1,7 @@
 {
   "schema": "l9.repository-contract-enforcement/v1",
   "default_mode": "migration",
-  "required_repositories": []
+  "required_repositories": [
+    "Quantum-L9/l9-ci-core"
+  ]
 }

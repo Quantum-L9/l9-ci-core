@@ -115,9 +115,23 @@ jobs:
             echo "== ${lang}: bundle validate =="
             ( cd "${work}" && "${SDK_EXECUTABLE}" bundle validate finding-bundle.json )
             echo "== ${lang}: gate evaluate (emits gate-result.json) =="
+            # The central policy classifies the fixture finding as blocking, so
+            # the SDK gate must FAIL (exit 1) here: that is the verdict this
+            # smoke proves end to end. Any other exit is a contract failure.
+            gate_rc=0
             ( cd "${work}" && "${SDK_EXECUTABLE}" gate evaluate \
                 --bundle finding-bundle.json --output gate-result.json \
-                --no-strict-unresolved )
+                --no-strict-unresolved ) || gate_rc=$?
+            python3 -I - "${work}/gate-result.json" "${gate_rc}" <<'PYG'
+          import json, sys
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          rc = int(sys.argv[2])
+          if result.get("status") != "fail" or rc != 1:
+              raise SystemExit(f"smoke expects a blocking FAIL verdict (exit 1); got {result.get('status')!r} exit {rc}")
+          if len(result.get("blocking_finding_ids", [])) != 1:
+              raise SystemExit(f"smoke expects exactly one blocking finding; got {result.get('blocking_finding_ids')}")
+          print("gate verdict: fail with one blocking finding (as classified by the central policy)")
+          PYG
             echo "== ${lang}: project agent-review payload =="
             ( cd "${work}" && "${SDK_EXECUTABLE}" bundle project-agent-payload \
                 --input finding-bundle.json --output agent-review-payload.json )

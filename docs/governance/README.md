@@ -21,7 +21,7 @@ action under `.github/actions/resolve-governance/`:
 | `defaults/quality-thresholds.yaml` | which bundled finding policy a profile hands the SDK |
 | `defaults/waivers.yaml` | centrally issued, scoped, time-bounded waivers |
 | `defaults/promotion-policy.yaml` | admitted mode transitions and their evidence requirements |
-| `semgrep-policy.yaml` | the `l9.finding-policy/v1` the SDK classifies Semgrep findings with |
+| `semgrep-policy.yaml` | the `l9.finding-policy/v1` the SDK classifies Semgrep findings with: `blocking` by default, advisory only by explicit reviewed entry (`AGENTS.md` §16) |
 | `identity-maps/<language>.yaml` | provider rule id → canonical rule id |
 
 A consumer checkout carries none of these. `org-ci.yml` resolves

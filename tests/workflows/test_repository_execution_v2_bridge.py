@@ -481,10 +481,16 @@ class EnforcementPolicyTests(unittest.TestCase):
                     repository=repository,
                 )
 
-    def test_bundled_policy_enrolls_no_repository_in_required_mode(self) -> None:
+    def test_bundled_policy_enrolls_core_in_required_mode(self) -> None:
+        """Core is the first required V2 consumer; the fleet default stays
+        migration until each repository declares its contract
+        (docs/ACTIVATION.md)."""
         policy = self.runner.load_policy()
         self.assertEqual("migration", policy["default_mode"])
-        self.assertEqual([], policy["required_repositories"])
+        self.assertEqual(["Quantum-L9/l9-ci-core"], policy["required_repositories"])
+        self.assertEqual(
+            "required", self.runner.resolve_mode(policy, "Quantum-L9/l9-ci-core")
+        )
 
     def test_required_mode_fails_an_absent_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

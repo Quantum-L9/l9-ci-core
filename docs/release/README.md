@@ -93,7 +93,11 @@ Rules:    pull request required; independent approval for governed paths
           required checks taken from real successful self-CI runs
 ```
 
-Required check context strings are deliberately not written here. Per
+Required check context strings are deliberately not written here. The
+evidence-backed payload that satisfies this block — contexts taken from
+real successful runs on `main`, dated — is `docs/release/rulesets/core-main-protection.json`
+(`docs/release/rulesets/README.md`); applying it is an organization-admin
+action and `make attest-control-plane` is the proof. Per
 Cursor-Governance L9-ORG-009, blocking enforcement must be evidence-backed;
 take the names from successful Actions runs before binding.
 
