@@ -1,10 +1,8 @@
 """Core's own workflows must satisfy the fail-closed integrity checker.
 
-Locks in the remediation of the last fail-open constructs (`|| true`
-suffixes guarding whole-command outcomes in ``nightly.yml`` and
-``trio-governance.yml``). ``make validate`` runs the same checker, but this
-test makes the guarantee part of the workflow test suite so any future
-fail-open regression is caught by targeted workflow gates as well.
+``make validate`` runs the same checker, but this test makes the guarantee
+part of the workflow test suite so any future fail-open regression is caught
+by targeted workflow gates as well.
 """
 
 from __future__ import annotations
@@ -49,14 +47,6 @@ class WorkflowIntegrityCleanTests(unittest.TestCase):
         for action in actions:
             violations.extend(integrity.check_file(action, composite=True))
         self.assertEqual([], violations)
-
-    def test_freshness_reports_remain_informational(self) -> None:
-        """The nightly freshness reports must keep never-fail semantics
-        via checker-exempt command-substitution capture, not bare
-        fail-open suffixes."""
-        nightly = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
-        self.assertIn('report="$(pip list --outdated || true)"', nightly)
-        self.assertIn('report="$(npm outdated || true)"', nightly)
 
 
 if __name__ == "__main__":

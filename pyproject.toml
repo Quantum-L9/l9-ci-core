@@ -12,7 +12,7 @@ license = { text = "Proprietary" }
 # Mirrors requirements-ci.txt exactly (the toolchain this repo's own
 # self-validation/mypy gate installs) so Dependabot's uv ecosystem can see
 # and bump it via uv.lock instead of only requirements-ci.txt drifting
-# silently. Does NOT cover the ruff/mypy/pytest versions pr-pipeline.yml
+# silently. Does NOT cover the ruff/mypy/pytest versions install-consumer-ci
 # pins for *downstream consumer* repos — that is a deliberate, org-wide
 # toolchain pin with a much larger blast radius, out of scope here.
 [project.optional-dependencies]

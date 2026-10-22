@@ -25,7 +25,8 @@ Authority files in Core:
   it by a test.
 - `.github/actions/install-consumer-ci/requirements-consumer-ci.txt` (ruff, mypy,
   pytest installer pins; test-bound copy)
-- `presets/typescript/biome.json` `$schema` (frozen preset; test-bound copy)
+- `presets/typescript/biome.json` `$schema` (the locked consumer Biome
+  contract stamped by `presets/typescript/stamp.sh`; test-bound copy)
 - `.github/actions/install-semgrep/locks/semgrep-<v>.txt` and
   `.github/actions/install-biome/locks/biome-<v>.json` (hash/digest locks for the
   bytes of the locked version)
@@ -51,8 +52,9 @@ language produces a diff that churns on every save.
 | `javascript`, `typescript`, `json`, `jsonc` | **Biome** | Core-owned: `install-biome` (digest-locked binary at the lock's version) then `run-biome-check` (`biome ci --reporter=github`, advisory) |
 | `python` | **ruff** | `ruff check` + `ruff format --check` after `install-consumer-ci@v2` |
 
-The frozen TypeScript preset and starter still call the SDK reusable workflow
-`l9-biome-scan.yml` at a full SHA until they are retired; no new surface does.
+No Core surface calls the SDK reusable workflow `l9-biome-scan.yml`: the
+copy-first preset and starter callers were retired on 2026-10-22
+(`AGENTS.md` §15). The organization workflow runs Core's own Biome check.
 
 ## Toolchain alignment (advisory)
 
@@ -87,17 +89,20 @@ references, not a JSON version map or digest locks.
 
 ## Consumer type-check contract (Python / mypy)
 
-- **Required, blocking by default.** `pr-pipeline.yml` `mypy-required` defaults to `true`.
+- **Required, blocking.** Run mypy as a plain step with no fail-open suffix;
+  the organization workflow executes it through the repository's own
+  `make check` leaf (`Repo.mk` → `repo-check`) once the repository declares
+  the Repository Execution V2 contract (`docs/ACTIVATION.md`).
 - **Repository-owned configuration.** No global `--ignore-missing-imports`.
 - **Pydantic is opt-in** in the consumer's own mypy config.
 - **Versions** come from the installer action, not Dependabot, not a copied pin file.
 
 ## Adopt it
 
-1. Copy [`templates/l9-lint-test.yml`](./templates/l9-lint-test.yml) or call the
-   installer from your existing lint job.
-2. Keep the `env:` knobs (`PYTHON_VERSION`, `SOURCE_DIR`, `TEST_DIR`,
-   `COVERAGE_THRESHOLD`).
+1. Call the installer from your existing lint job (or from `Repo.mk`'s
+   `repo-setup` leaf); the retired copy-first templates are not distributed.
+2. Keep repository-owned knobs (`SOURCE_DIR`, `TEST_DIR`, coverage threshold)
+   in the repository's own workflow or `Repo.mk`.
 3. Do not add `requirements-consumer-ci.txt` to the consumer.
 
 ## Pairing with the analysis pipeline

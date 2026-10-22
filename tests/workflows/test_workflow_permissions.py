@@ -45,37 +45,17 @@ class WorkflowPermissionTests(unittest.TestCase):
                 expected = self.WRITE_EXCEPTIONS.get(workflow.name, [])
                 self.assertEqual(expected, matches)
 
-    BIOME_LINT_TEST_WORKFLOWS = (
-        "presets/typescript/.github/workflows/l9-lint-test.yml",
-        "starter-workflows/typescript/l9-lint-test.yml",
-    )
+    def test_no_workflow_references_the_sdk_biome_workflow(self) -> None:
+        """Core owns the consumer-facing Biome check (AGENTS-ADDENDUM.md).
 
-    def test_biome_lint_test_presets_are_read_only(self) -> None:
-        write_pattern = re.compile(
-            r"(?m)^\s+(actions|checks|contents|deployments|discussions|"
-            r"id-token|issues|packages|pages|pull-requests|"
-            r"repository-projects|security-events|statuses):\s+write"
-        )
-        for relative in self.BIOME_LINT_TEST_WORKFLOWS:
-            workflow = ROOT / relative
-            with self.subTest(workflow=relative):
-                text = workflow.read_text(encoding="utf-8")
-                self.assertRegex(text, re.compile(r"(?m)^\s*contents:\s+read\s*$"))
-                self.assertEqual(
-                    [],
-                    write_pattern.findall(text),
-                    f"{relative} invokes a reusable workflow and must stay "
-                    "least-privilege (contents: read only)",
-                )
-                self.assertRegex(
-                    text,
-                    re.compile(
-                        r"uses:\s*Quantum-L9/l9-ci-sdk/\.github/workflows/"
-                        r"l9-biome-scan\.yml@[0-9a-f]{40}"
-                    ),
-                    f"{relative} must pin the SDK Biome reusable workflow to a "
-                    "full 40-char SHA",
-                )
+        The copy-first preset and starter callers of
+        ``l9-ci-sdk/.github/workflows/l9-biome-scan.yml`` were retired on
+        2026-10-22; no Core workflow may reintroduce that dependency edge.
+        """
+        # GitHub loads a workflow from either spelling (AGENTS.md §12).
+        for workflow in sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")]):
+            with self.subTest(workflow=workflow.name):
+                self.assertNotIn("l9-biome-scan", workflow.read_text(encoding="utf-8"))
 
     def test_write_scoped_workflows_are_not_pull_request_triggered(self) -> None:
         trigger_pattern = re.compile(r"(?m)^\s*(pull_request|pull_request_target):")
@@ -83,7 +63,6 @@ class WorkflowPermissionTests(unittest.TestCase):
             "publish-analysis.yml",
             "publish-sarif.yml",
             "analyze-semgrep.yml",
-            "nightly.yml",
         }
         audited_pr_callers = {"self-analysis.yml"}
         for name in self.WRITE_EXCEPTIONS:

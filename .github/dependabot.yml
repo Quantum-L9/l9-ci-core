@@ -18,14 +18,13 @@ updates:
     commit-message:
       prefix: "deps(uv)"
 
-  # GitHub Actions. Dependabot's github-actions ecosystem only scans
-  # `<directory>/.github/workflows`, so the preset consumed by downstream repos
-  # (presets/python/.github/workflows/l9-lint-test.yml) needs its own explicit
-  # directory entry alongside this repo's own workflows -- "/" alone would miss it.
+  # GitHub Actions. Dependabot's github-actions ecosystem scans
+  # `<directory>/.github/workflows`; Core's own workflows live at "/". The
+  # copy-first `presets/python` tree it used to scan was retired on
+  # 2026-10-22 (AGENTS.md §15).
   - package-ecosystem: "github-actions"
     directories:
       - "/"
-      - "/presets/python"
     schedule:
       interval: "weekly"
     # Wait for newly published versions to age before proposing them; a

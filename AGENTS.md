@@ -532,3 +532,47 @@ revision of this tree. It runs that contract's `commands` matrices argv-only
 under the executable allowlist and nothing more; the superseded V1 structural
 validation is retired with the compiler it depended on. Core itself is a V2
 consumer.
+
+## 15. Legacy surfaces retired (2026-10-22) — supersedes §7 paragraphs 3–4, the §2 trigger list, and the §9 publication-job sentence
+
+The central required-workflow canary is proven: organization ruleset
+`L9 canonical CI required` (id 21895545) has been `active` since 2026-08-31,
+binding every governed repository's default branch to
+`Quantum-L9/l9-ci-core` / `main` / `.github/workflows/org-ci.yml` with the
+required check `Analyze (central Core)`, and that check has been green on
+`pull_request` and `push` evaluations across the fleet. The copy-first
+surfaces §7 froze are therefore removed rather than evolved:
+
+- `presets/python`, `presets/typescript/.github`, `starter-workflows/`,
+  `docs/templates/`, and `skills/l9-ci-activation*` are gone. Only the locked
+  consumer Biome contract (`presets/typescript/biome.json`, `stamp.sh`)
+  remains; see `docs/ACTIVATION.md` for how a consumer activates.
+- The v1 reusable kernels `pr-pipeline.yml`, `pre-commit-ci.yml`,
+  `nightly.yml`, `release-publish.yml`, `trio-governance.yml`,
+  `scorecard.yml`, `sbom.yml`, and the consumer-concept `baseline-ratchet.yml`
+  are deleted from `main`. A consumer that pinned one at a full SHA keeps
+  resolving that revision; none may be referenced from Core again.
+- The dead `.github/governance/` dogfood pack (which overrode `pr_fast` and
+  `merge` Semgrep to advisory and was read by no runtime path) is deleted.
+  The one governance pack is `.github/actions/resolve-governance/` (§4);
+  `self-analysis.yml` resolves the same `@core-defaults` consumers get.
+- `tests/workflows/test_phase_scope.py` locks the reduced inventory and
+  asserts the retired names and trees do not return.
+- Historical migration evidence (`docs/central-ci-bridge/`,
+  `docs/org-runtime/baseline-inventory.md`, `docs/v1-compatibility.md`,
+  `docs/pipeline-runs/`) is removed from the tree; git history keeps it.
+
+§2 is corrected: `org-ci.yml` also declares a native `push` trigger, narrowed
+at runtime to the repository's own default branch and resolved to the `merge`
+profile (`.l9/org-runtime-contract.yaml`). §9's "publication job with
+`always()`" describes `analyze-semgrep.yml` / `publish-analysis.yml`; the
+required `org-ci.yml` surface is read-only on `pull_request` and its job
+conclusion is the enforcement signal.
+
+Still retained, deliberately: `security.yml` (dogfooded by
+`self-security.yml`), `analyze-semgrep.yml` + `publish-analysis.yml` (the
+self-analysis dogfood and the bounded Cognitive Runtime `v2` channel in
+`.l9/release-plane.yaml`), and the Phase 2/4 reusable surfaces
+`normalize-semgrep-report.yml`, `profile-normalize-semgrep.yml`,
+`publish-sarif.yml` (declared capabilities of `.l9/publication-contract.yaml`;
+retire them only with a contract change).

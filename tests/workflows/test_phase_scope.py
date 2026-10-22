@@ -5,9 +5,34 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# Retired on 2026-10-22 (AGENTS.md §15): the v1 reusable kernels and the
+# consumer-concept ratchet. SHA-pinned external callers keep resolving the
+# revision they pinned; nothing on main may reference these names again.
+RETIRED_WORKFLOWS = {
+    "pr-pipeline.yml",
+    "pre-commit-ci.yml",
+    "nightly.yml",
+    "release-publish.yml",
+    "trio-governance.yml",
+    "scorecard.yml",
+    "sbom.yml",
+    "baseline-ratchet.yml",
+}
+
+# Copy-first distribution trees retired with them.
+RETIRED_TREES = (
+    "presets/python",
+    "presets/typescript/.github",
+    "starter-workflows",
+    "docs/templates",
+    "skills/l9-ci-activation",
+    "skills/l9-ci-activation-typescript",
+    ".github/governance",
+)
+
 
 class PhaseScopeTests(unittest.TestCase):
-    def test_phase_1_through_phase_4_workflows_exist(self) -> None:
+    def test_workflow_inventory_is_exact(self) -> None:
         actual = {path.name for path in (ROOT / ".github/workflows").glob("*.yml")}
         expected = {
             "self-ci.yml",
@@ -19,17 +44,9 @@ class PhaseScopeTests(unittest.TestCase):
             "publish-analysis.yml",
             "publish-sarif.yml",
             "release-validation.yml",
-            "baseline-ratchet.yml",
             "self-analysis.yml",
             "self-security.yml",
-            "pr-pipeline.yml",
-            "pre-commit-ci.yml",
-            "nightly.yml",
-            "release-publish.yml",
-            "trio-governance.yml",
             "security.yml",
-            "scorecard.yml",
-            "sbom.yml",
             # Central organization required-workflow source. GitHub org
             # rulesets target repositories and require this workflow directly;
             # consumers do not copy an L9 workflow or governance pack.
@@ -41,6 +58,15 @@ class PhaseScopeTests(unittest.TestCase):
             "control-plane-attestation.yml",
         }
         self.assertEqual(expected, actual)
+
+    def test_retired_workflows_do_not_return(self) -> None:
+        present = {path.name for path in (ROOT / ".github/workflows").glob("*.yml")}
+        self.assertEqual(set(), RETIRED_WORKFLOWS & present)
+
+    def test_retired_copy_first_trees_do_not_return(self) -> None:
+        for relative in RETIRED_TREES:
+            with self.subTest(tree=relative):
+                self.assertFalse((ROOT / relative).exists(), f"{relative} is retired")
 
     def test_phase_4_actions_exist(self) -> None:
         required = {
