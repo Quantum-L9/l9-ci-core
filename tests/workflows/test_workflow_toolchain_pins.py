@@ -67,9 +67,10 @@ class InlinePinTests(unittest.TestCase):
                 if match:
                     found.append((path.name, number, match.group(1)))
 
-        self.assertTrue(
-            found, "expected at least one inline pytest pin to guard against drift"
-        )
+        # No Core workflow carries an inline pytest literal since the v1
+        # kernels were retired (AGENTS.md §15); the lock's `pytest` key is
+        # bound by tests/actions/test_install_consumer_ci.py. Any literal that
+        # reappears here must still be a copy of the lock.
         for name, number, version in found:
             with self.subTest(workflow=name, line=number):
                 self.assertEqual(
@@ -188,12 +189,9 @@ class LockBindingTests(unittest.TestCase):
         )
 
     def test_pre_commit_selection_matches_the_lock(self) -> None:
-        document = yaml.safe_load(
-            (WORKFLOWS / "pre-commit-ci.yml").read_text(encoding="utf-8")
-        )
-        triggers = document.get(True, document.get("on"))
-        default = triggers["workflow_call"]["inputs"]["pre-commit-version"]["default"]
-        self.assertEqual(self.lock["pre-commit"], f"{default}")
+        # The v1 pre-commit kernel is retired (AGENTS.md §15); the lock key
+        # remains the authority for any inline pre-commit literal a workflow
+        # still carries.
         inline = re.compile(r"pre-commit==([0-9][^\s\"'$]*)")
         for name, number, version in self._literals(inline):
             with self.subTest(workflow=name, line=number):
@@ -201,7 +199,7 @@ class LockBindingTests(unittest.TestCase):
 
     def test_pip_bootstrap_literals_match_the_lock(self) -> None:
         pattern = re.compile(r"pip==([0-9][^\s\"']*)")
-        self._assert_bound("pip", self._literals(pattern), minimum=5)
+        self._assert_bound("pip", self._literals(pattern), minimum=1)
 
     def test_biome_lock_version_has_a_verified_binary_contract(self) -> None:
         lock = self.BIOME_LOCKS / f"biome-{self.lock['biome']}.json"

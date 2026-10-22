@@ -8,21 +8,16 @@ declares `strict: true` while selecting `sdk_policy: ""` is not a strict gate
 — it is a gate that aborts with `unresolved_strict_contract` on the first
 finding of any severity, INFO included.
 
-That is not hypothetical. The repository's own dogfood pack shipped exactly
-that combination alongside a `semgrep-policy.yaml` nothing selected, and it
-read as healthy for as long as the finding set happened to be empty. The
-first INFO-level advisory finding failed `self-analysis.yml` while
-`org-ci.yml` — same tree, same provider, policy correctly wired — passed.
+That is not hypothetical. A former dogfood pack shipped exactly that
+combination alongside a `semgrep-policy.yaml` nothing selected, and it read
+as healthy for as long as the finding set happened to be empty.
 
 An empty finding set is what hides this, so the test is written against the
-declarations rather than against a scan result.
-
-Scope is the two packs that govern live execution. `docs/templates/` and
-`presets/` carry the same class of defect — the templates declare strict with
-no policy at all, and both presets name `.github/governance/semgrep-policy.yaml`
-where `_bundled_policy_path` accepts only a bare filename — but AGENTS.md
-section 7 freezes those copy-first surfaces, so they are reported rather than
-repaired here. Widen `PACKS` if they are ever unfrozen.
+declarations rather than against a scan result. There is exactly one pack
+now: the Core defaults bundled with the pinned `resolve-governance` action.
+The former `.github/governance/` dogfood copy was retired on 2026-10-22
+(`AGENTS.md` §15); `self-analysis.yml` resolves the same `@core-defaults`
+every governed repository gets, so it cannot grade findings differently.
 """
 
 from __future__ import annotations
@@ -33,7 +28,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKS = {
-    "self-analysis dogfood": ROOT / ".github" / "governance",
     "core defaults": ROOT / ".github" / "actions" / "resolve-governance" / "defaults",
 }
 
@@ -80,28 +74,9 @@ class StrictProfilesSelectAPolicyTests(unittest.TestCase):
                         "is neither in the pack nor beside it",
                     )
 
-    def test_dogfood_policy_matches_the_central_posture(self) -> None:
-        """The dogfood caller must not classify findings differently.
-
-        `self-analysis.yml` exists to run Core through the same path offered
-        to consumers. A policy that graded findings more leniently than the
-        organization's would make that dogfood a weaker signal than the thing
-        it stands in for; one that graded more harshly would fail Core on
-        findings the organization accepts. Only the note may differ.
-        """
-        dogfood = load(PACKS["self-analysis dogfood"], "semgrep-policy.yaml")
-        central = json.loads(
-            (
-                ROOT
-                / ".github"
-                / "actions"
-                / "resolve-governance"
-                / "semgrep-policy.yaml"
-            ).read_text(encoding="utf-8")
-        )
-        for document in (dogfood, central):
-            document.pop("note", None)
-        self.assertEqual(central, dogfood)
+    def test_no_second_governance_pack_is_shipped(self) -> None:
+        """One pack, bundled with the pinned action (AGENTS.md §4, §15)."""
+        self.assertFalse((ROOT / ".github" / "governance").exists())
 
 
 if __name__ == "__main__":

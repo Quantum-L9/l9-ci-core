@@ -87,11 +87,13 @@ jobs:
           set -euo pipefail
           # Prove BEHAVIOUR, not just argparse registration: drive a committed
           # raw Semgrep report through the SDK-owned pipeline under strict mode,
-          # loading each preset's finding-policy and identity-map so both are
-          # exercised against the released SDK loader (not assumed compatible
-          # just because both are YAML). Uses `semgrep normalize` with a
-          # committed fixture rather than `semgrep run`, so no live semgrep
-          # binary is required and the smoke stays deterministic.
+          # loading Core's bundled organization finding-policy and each
+          # language identity-map (the same documents resolve-governance ships
+          # to every governed repository) so both are exercised against the
+          # released SDK loader (not assumed compatible just because both are
+          # YAML). Uses `semgrep normalize` with a committed fixture rather
+          # than `semgrep run`, so no live semgrep binary is required and the
+          # smoke stays deterministic.
           for lang in python typescript; do
             case "${lang}" in
               python) ext=py ;;
@@ -102,9 +104,9 @@ jobs:
             printf 'x\n' > "${work}/src/example.${ext}"
             cp "${WORKSPACE}/tests/fixtures/smoke/${lang}-report.json" \
               "${work}/report.json"
-            policy="${WORKSPACE}/presets/${lang}/.github/governance/semgrep-policy.yaml"
-            identity="${WORKSPACE}/presets/${lang}/.github/governance/semgrep-identity-map.yaml"
-            echo "== ${lang}: normalize (strict; preset policy + identity map) =="
+            policy="${WORKSPACE}/.github/actions/resolve-governance/semgrep-policy.yaml"
+            identity="${WORKSPACE}/.github/actions/resolve-governance/identity-maps/${lang}.yaml"
+            echo "== ${lang}: normalize (strict; central policy + identity map) =="
             ( cd "${work}" && "${SDK_EXECUTABLE}" semgrep normalize \
                 --input report.json --output finding-bundle.json \
                 --provider-version 1.171.0 --root . \
