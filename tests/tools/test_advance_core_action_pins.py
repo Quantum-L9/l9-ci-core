@@ -91,6 +91,19 @@ class CliTests(unittest.TestCase):
                 self.assertIn("40 lowercase hex", err)
         self.assertEqual(SAMPLE, self.workflow.read_text(encoding="utf-8"))
 
+    def test_floating_core_reference_is_reported_and_fails_every_mode(self) -> None:
+        """A `@main` edge must be seen and rejected, never skipped (Codex P2)."""
+        text = SAMPLE.replace(f"install-biome@{OTHER}", "install-biome@main")
+        self.workflow.write_text(text, encoding="utf-8")
+        self.assertEqual([(8, "main")], module.floating(text))
+        for extra in ((), ("--check",), ("--dry-run",)):
+            with self.subTest(mode=extra or ("rewrite",)):
+                code, out, _ = run(NEW, "--workflow", str(self.workflow), *extra)
+                self.assertEqual(1, code)
+                self.assertIn("'main' is not a full lowercase SHA", out)
+        # Nothing was rewritten around the offending edge.
+        self.assertEqual(text, self.workflow.read_text(encoding="utf-8"))
+
     def test_workflow_without_core_pins_is_an_error(self) -> None:
         empty = self.tmp / "none.yml"
         empty.write_text("name: none\n", encoding="utf-8")
@@ -111,6 +124,7 @@ class LiveWorkflowTests(unittest.TestCase):
         )
         self.assertGreater(expected, 0)
         self.assertEqual(expected, len(module.pins(text)))
+        self.assertEqual([], module.floating(text))
 
 
 if __name__ == "__main__":

@@ -20,8 +20,9 @@ runs one revision. The SHA is required to be 40 lowercase hex characters;
 nothing else (a branch, a tag, ``main``) is accepted, because a floating
 reference is forbidden (AGENTS.md §8).
 
-Exit codes: ``0`` done or verified, ``1`` ``--check`` found a differing pin,
-``2`` invalid invocation.
+Exit codes: ``0`` done or verified, ``1`` ``--check`` found a differing pin
+or any mode found a Core action reference that is not a full SHA (reported,
+never rewritten), ``2`` invalid invocation.
 """
 
 from __future__ import annotations
@@ -31,22 +32,47 @@ import re
 import sys
 from pathlib import Path
 
+# Any Core action reference, whatever follows the `@`: a floating or
+# malformed reference must be *seen* so it can be rejected, never skipped.
 CORE_ACTION_PIN = re.compile(
     r"^(?P<prefix>\s*(?:-\s*)?uses:\s*Quantum-L9/l9-ci-core/\.github/actions/"
-    r"[A-Za-z0-9._-]+@)(?P<sha>[0-9a-f]{40})(?P<suffix>\s*(?:#.*)?)$"
+    r"[A-Za-z0-9._-]+@)(?P<sha>[^\s#]+)(?P<suffix>\s*(?:#.*)?)$"
 )
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 DEFAULT_WORKFLOW = Path(".github/workflows/org-ci.yml")
 
 
+def floating(text: str) -> list[tuple[int, str]]:
+    """Core action references that are not a full lowercase SHA.
+
+    A branch, tag or short revision on a Core action edge is forbidden
+    (AGENTS.md §8); the tool reports every one and refuses to proceed, so a
+    verification can never pass over an unpinned edge by not matching it.
+    """
+
+    return [
+        (number, reference)
+        for number, reference in pins(text)
+        if not FULL_SHA.fullmatch(reference)
+    ]
+
+
 def rewrite(text: str, sha: str) -> tuple[str, list[tuple[int, str, str]]]:
-    """Return the rewritten text and ``(line, old_sha, new_sha)`` per change."""
+    """Return the rewritten text and ``(line, old_sha, new_sha)`` per change.
+
+    Only full-SHA pins are rewritten; a floating reference is reported by
+    :func:`floating` and never silently replaced.
+    """
 
     changed: list[tuple[int, str, str]] = []
     lines = text.split("\n")
     for index, line in enumerate(lines):
         match = CORE_ACTION_PIN.match(line)
-        if match is None or match.group("sha") == sha:
+        if (
+            match is None
+            or match.group("sha") == sha
+            or not FULL_SHA.fullmatch(match.group("sha"))
+        ):
             continue
         changed.append((index + 1, match.group("sha"), sha))
         lines[index] = f"{match.group('prefix')}{sha}{match.group('suffix')}"
@@ -54,7 +80,7 @@ def rewrite(text: str, sha: str) -> tuple[str, list[tuple[int, str, str]]]:
 
 
 def pins(text: str) -> list[tuple[int, str]]:
-    """Every Core action pin in ``text`` as ``(line, sha)``."""
+    """Every Core action reference in ``text`` as ``(line, reference)``."""
 
     return [
         (number, match.group("sha"))
@@ -98,6 +124,15 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+
+    unpinned = floating(text)
+    for number, reference in unpinned:
+        print(
+            f"{workflow}:{number}: Core action reference {reference!r} is not a "
+            "full lowercase SHA (floating references are forbidden, AGENTS.md §8)"
+        )
+    if unpinned:
+        return 1
 
     if args.check:
         drift = [(number, sha) for number, sha in found if sha != args.sha]
