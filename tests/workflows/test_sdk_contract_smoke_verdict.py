@@ -58,6 +58,25 @@ class SmokeVerdictTests(unittest.TestCase):
                 ids[0], policy["rules"], f"{language} fixture must hit the default"
             )
 
+    def test_smoke_asserts_a_clean_pass_verdict_under_strict_unresolved(
+        self,
+    ) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("${lang}-clean-report.json", text)
+        self.assertIn("|| clean_rc=$?", text)
+        self.assertIn('result.get("status") != "pass" or rc != 0', text)
+        clean_gate = text[text.index("--bundle clean-bundle.json") :]
+        self.assertIn(
+            "--strict-unresolved",
+            clean_gate[: clean_gate.index("|| clean_rc=$?")],
+        )
+        for language in ("python", "typescript"):
+            report = json.loads(
+                (FIXTURES / f"{language}-clean-report.json").read_text("utf-8")
+            )
+            self.assertEqual([], report["results"], language)
+            self.assertEqual([], report["errors"], language)
+
 
 if __name__ == "__main__":
     unittest.main()
