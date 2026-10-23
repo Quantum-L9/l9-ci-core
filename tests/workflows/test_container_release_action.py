@@ -8,6 +8,8 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / ".github/actions/container-release/release.py"
 spec = importlib.util.spec_from_file_location("container_release", MODULE_PATH)
@@ -141,6 +143,27 @@ class ContainerReleaseTests(unittest.TestCase):
         self.assertIn("repos/Quantum-L9/l9-deploy/dispatches", text)
         self.assertIn("source-revision-build-arg-name", text)
         self.assertNotIn("l9-deployment-platform/dispatches", text)
+
+    def test_build_step_sets_no_docker_cli_reserved_variable(self) -> None:
+        # The Docker CLI reads DOCKER_* / BUILDX_* from the environment as its
+        # own configuration: DOCKER_CONTEXT=. aborted the release build with
+        # `no builder "." found` (release-staging run 39899542355).
+        document = yaml.safe_load(
+            (ROOT / ".github/actions/container-release/action.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        build = next(s for s in document["runs"]["steps"] if s.get("id") == "build")
+        reserved = [
+            name
+            for name in build["env"]
+            if name.startswith(("DOCKER_", "BUILDX_", "BUILDKIT_"))
+        ]
+        self.assertEqual([], reserved)
+        self.assertEqual(
+            "${{ inputs.docker-context }}", build["env"]["L9_BUILD_CONTEXT"]
+        )
+        self.assertIn('args+=("$L9_BUILD_CONTEXT")', build["run"])
 
 
 if __name__ == "__main__":

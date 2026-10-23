@@ -76,7 +76,10 @@ runs:
       shell: bash
       env:
         IMAGE_REPOSITORY: ${{ inputs.image-repository }}
-        DOCKER_CONTEXT: ${{ inputs.docker-context }}
+        # Not DOCKER_CONTEXT: the Docker CLI reads that name as the docker
+        # context to use, so a build-context path there aborts the build
+        # with `no builder "." found` before anything is built.
+        L9_BUILD_CONTEXT: ${{ inputs.docker-context }}
         DOCKERFILE: ${{ inputs.dockerfile }}
         SOURCE_REVISION_ARG: ${{ inputs.source-revision-build-arg-name }}
       run: |
@@ -98,7 +101,7 @@ runs:
           [[ "$SOURCE_REVISION_ARG" =~ ^[A-Z][A-Z0-9_]*$ ]]
           args+=(--build-arg "${SOURCE_REVISION_ARG}=${GITHUB_SHA}")
         fi
-        args+=("$DOCKER_CONTEXT")
+        args+=("$L9_BUILD_CONTEXT")
         "${args[@]}"
         digest=$(jq -er '."containerimage.digest"' .l9/release/build-metadata.json)
         [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
