@@ -9,7 +9,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "analyze-semgrep.yml"
-GOVERNANCE_RESOLVER_PIN = "59cb364615ccd44d824bec6b71d49d2f93e465c9"
+GOVERNANCE_RESOLVER_PIN = "a0c717893a444778c8a6993ec4db5d5fd9ce28d5"
 
 
 def _workflow() -> dict:
