@@ -142,5 +142,33 @@ jobs:
             test -s "${work}/gate-result.json"
             test -s "${work}/agent-review-payload.json"
             test -s "${work}/results.sarif"
+            echo "== ${lang}: clean report (strict release semantics) =="
+            # The other half of the verdict: a report with no findings must
+            # PASS (exit 0) under the same policy and identity map, and under
+            # --strict-unresolved, which is what the strict `release` profile
+            # selects in analyze-semgrep.yml. A gate that failed everything
+            # would satisfy the known-bad assertion above; this one cannot.
+            cp "${WORKSPACE}/tests/fixtures/smoke/${lang}-clean-report.json" \
+              "${work}/clean-report.json"
+            ( cd "${work}" && "${SDK_EXECUTABLE}" semgrep normalize \
+                --input clean-report.json --output clean-bundle.json \
+                --provider-version 1.171.0 --root . \
+                --snapshot-id smoke-sha --revision smoke-sha \
+                --policy "${policy}" --identity-map "${identity}" --strict )
+            ( cd "${work}" && "${SDK_EXECUTABLE}" bundle validate clean-bundle.json )
+            clean_rc=0
+            ( cd "${work}" && "${SDK_EXECUTABLE}" gate evaluate \
+                --bundle clean-bundle.json --output clean-gate-result.json \
+                --strict-unresolved ) || clean_rc=$?
+            python3 -I - "${work}/clean-gate-result.json" "${clean_rc}" <<'PYC'
+          import json, sys
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          rc = int(sys.argv[2])
+          if result.get("status") != "pass" or rc != 0:
+              raise SystemExit(f"smoke expects a clean PASS verdict (exit 0); got {result.get('status')!r} exit {rc}")
+          if result.get("blocking_finding_ids", []):
+              raise SystemExit(f"smoke expects no blocking findings; got {result.get('blocking_finding_ids')}")
+          print("gate verdict: pass with no blocking findings (clean report, strict-unresolved)")
+          PYC
             rm -rf "${work}"
           done
