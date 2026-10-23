@@ -86,6 +86,11 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
             env = {
                 "L9_REPOSITORY_WORKSPACE": tmp,
                 "GITHUB_OUTPUT": output.name,
+                # These cases assert migration semantics. Name an unenrolled
+                # consumer explicitly: in organization CI the step inherits
+                # L9_REPOSITORY_IDENTITY=Quantum-L9/l9-ci-core, which the
+                # bundled policy enrols in required mode (AGENTS.md §16).
+                "L9_REPOSITORY_IDENTITY": "Quantum-L9/example-consumer",
             }
             with unittest.mock.patch.dict(os.environ, env, clear=False):
                 self.assertEqual(0, runner.main())
@@ -125,6 +130,11 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
             env = {
                 "L9_REPOSITORY_WORKSPACE": tmp,
                 "GITHUB_OUTPUT": output.name,
+                # These cases assert migration semantics. Name an unenrolled
+                # consumer explicitly: in organization CI the step inherits
+                # L9_REPOSITORY_IDENTITY=Quantum-L9/l9-ci-core, which the
+                # bundled policy enrols in required mode (AGENTS.md §16).
+                "L9_REPOSITORY_IDENTITY": "Quantum-L9/example-consumer",
             }
             with (
                 unittest.mock.patch.dict(os.environ, env, clear=False),
@@ -158,6 +168,11 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
             env = {
                 "L9_REPOSITORY_WORKSPACE": tmp,
                 "GITHUB_OUTPUT": output.name,
+                # These cases assert migration semantics. Name an unenrolled
+                # consumer explicitly: in organization CI the step inherits
+                # L9_REPOSITORY_IDENTITY=Quantum-L9/l9-ci-core, which the
+                # bundled policy enrols in required mode (AGENTS.md §16).
+                "L9_REPOSITORY_IDENTITY": "Quantum-L9/example-consumer",
             }
             with (
                 unittest.mock.patch.dict(os.environ, env, clear=False),

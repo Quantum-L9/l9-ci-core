@@ -1,4 +1,4 @@
-"""Run Core's consumer-facing Biome check (advisory).
+"""Run Core's consumer-facing Biome check (advisory or blocking).
 
 Core owns the Biome check end to end: the version (toolchain lock), the
 verified binary (``install-biome``), and this execution. Core does not parse
@@ -19,12 +19,18 @@ Exit-code classes, observed from the Biome 2.5.8 binary:
 A consumer without ``biome.json``/``biome.jsonc`` at the checkout root is
 ``not_applicable``: Core cannot require a consumer file.
 
-    python3 check_biome.py --executable PATH --mode advisory [--root .] [--output FILE]
+    python3 check_biome.py --executable PATH --mode advisory|blocking [--root .] [--output FILE]
 
-Exit codes: ``0`` recorded (any Biome result in advisory mode), ``2`` invalid
-invocation or a root/output path that resolves outside the workspace (checked
-before any write, so a committed ``.l9`` symlink cannot redirect the report),
-``3`` Core contract/infrastructure failure.
+Modes are a Core rollout decision (``org-ci.yml`` sets the mode; a consumer
+cannot): ``advisory`` records findings and exits ``0``; ``blocking`` records
+the same findings and exits ``1`` so the required job fails. The record is
+written before the exit in both modes, so the summary always carries it.
+
+Exit codes: ``0`` recorded and passing (or any Biome result in advisory
+mode), ``1`` findings in blocking mode, ``2`` invalid invocation or a
+root/output path that resolves outside the workspace (checked before any
+write, so a committed ``.l9`` symlink cannot redirect the report), ``3`` Core
+contract/infrastructure failure (fatal in every mode).
 """
 
 from __future__ import annotations
@@ -39,7 +45,7 @@ from typing import NoReturn
 
 SCHEMA = "l9.biome-check/v1"
 CONFIG_FILES = ("biome.json", "biome.jsonc")
-MODES = ("advisory",)
+MODES = ("advisory", "blocking")
 FINDINGS_EXIT = 1
 
 
@@ -75,7 +81,7 @@ def _summary(record: dict[str, object]) -> None:
     if not path:
         return
     lines = [
-        "### Biome (Core, advisory)",
+        f"### Biome (Core, {record['mode']})",
         "",
         f"- Status: `{record['status']}`",
         f"- Biome version: `{record['provider_version'] or 'unknown'}`",
@@ -96,8 +102,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.mode not in MODES:
         print(
-            f"run-biome-check: mode {args.mode!r} is not supported; only "
-            f"{', '.join(MODES)} is defined for this Core revision",
+            f"run-biome-check: mode {args.mode!r} is not supported; defined "
+            f"modes: {', '.join(MODES)}",
             file=sys.stderr,
         )
         return 2
@@ -168,6 +174,13 @@ def main(argv: list[str] | None = None) -> int:
     _write(output, record)
     _summary(record)
     if record["status"] == "findings":
+        if args.mode == "blocking":
+            print(
+                "::error title=Biome (blocking)::Biome reported diagnostics; "
+                "blocking mode fails the required job (fix them or run "
+                "`biome check --write .`)"
+            )
+            return FINDINGS_EXIT
         print(
             "::notice title=Biome (advisory)::Biome reported diagnostics; "
             "advisory mode records them without failing the job"

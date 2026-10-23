@@ -14,9 +14,9 @@ What the organization workflow does to a repository, in order:
 |---|---|---|---|
 | toolchain alignment | Core | consumer tool pins vs `toolchain-lock.json`, annotated `file:line` | advisory |
 | consumer metadata | Core | optional `.l9/ci.json` (`owner`, `repo_class`, `waiver_refs` only) | fatal if invalid |
-| Biome | Core | `biome ci` against the root `biome.json` / `biome.jsonc` | per `run-biome-check` mode |
+| Biome | Core | `biome ci` against the root `biome.json` / `biome.jsonc` | yes once `org-ci.yml` sets `mode: blocking` (`AGENTS.md` §16) |
 | repository verification | Core | `.l9/repo-workflow.json` → `make setup → validate → check → test` | yes (`pr_fast`, `merge`) |
-| Semgrep | SDK | provider run, canonical findings, technical gate | yes when the gate fails |
+| Semgrep | SDK | provider run, canonical findings, technical gate | yes: every finding is blocking unless the central policy classifies its rule advisory |
 
 Three things a repository can do, all optional, all declarative:
 

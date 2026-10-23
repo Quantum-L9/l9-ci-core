@@ -576,3 +576,67 @@ self-analysis dogfood and the bounded Cognitive Runtime `v2` channel in
 `normalize-semgrep-report.yml`, `profile-normalize-semgrep.yml`,
 `publish-sarif.yml` (declared capabilities of `.l9/publication-contract.yaml`;
 retire them only with a contract change).
+
+## 16. Enforcement capability and the pin-advance step (2026-10-22)
+
+Organization CI is merge-blocking only where every layer says so: the
+organization ruleset (`active`, strict required status checks — recorded as
+code in `Quantum-L9/.github` `rulesets/l9-canonical-ci-required.json`), the
+central rule mode (`blocking` for `pr_fast`/`merge`), the finding policy's
+`mode` for the rule that fired, and the step that enforces the result. Before
+this section the finding policy defaulted every Semgrep finding to `advisory`,
+so "blocking mode" could never fail a job on a finding; the Biome check had
+only an `advisory` mode; and repository verification tolerated an absent
+contract everywhere. This section records the capability that closes those
+gaps and the one step that activates it.
+
+- `.github/actions/resolve-governance/semgrep-policy.yaml` (version 2):
+  `defaults.mode: blocking`. A rule is advisory only by explicit entry with
+  a `policy_key`, after org review; the entries and their reasons are in the
+  file. Fleet evidence at the flip (latest `org-ci.yml` bundles): Core 1
+  finding (the env-sourced-argv audit rule, classified advisory),
+  `l9-ci-sdk` 0, `l9-deploy` 2 (`broad-except`, advisory),
+  `l9-semantic-compiler-engine` 2 medium `insecure-hash-algorithm-sha1`
+  findings that will block that repository's next evaluation unless fixed or
+  classified. `sdk-contract-check.yml` now proves the blocking verdict end to
+  end (`tests/workflows/test_sdk_contract_smoke_verdict.py`).
+- `run-biome-check` defines `advisory` and `blocking`; `blocking` fails the
+  step on findings after the record and summary are written, and
+  infrastructure failures stay fatal in both. The mode is set in
+  `org-ci.yml` by Core, never by a consumer (AGENTS-ADDENDUM.md).
+- `run-repository-verification/contract-policy.json` enrols
+  `Quantum-L9/l9-ci-core` in `required` mode: Core's own contract must be
+  present, valid, and pass `make setup → validate → check → test`. The fleet
+  default stays `migration`; a repository is enrolled by a Core PR once it
+  declares the contract (`docs/ACTIVATION.md`).
+- `docs/release/rulesets/core-main-protection.json` is the evidence-backed
+  payload for the Core `main` ruleset `.l9/release-plane.yaml` expects
+  (`pull_request` with code-owner review, strict required self-CI checks).
+  Applying it is an organization-admin action; `make attest-control-plane`
+  proves it.
+
+### Activation is a pin advance
+
+Composite actions and their bundled data reach the fleet only at the
+revision `org-ci.yml` pins (§8). The changes above are therefore inert until
+the pins advance to a `main` revision that carries them. The procedure is
+one mechanical PR, after this section's change has merged:
+
+```bash
+python3 tools/advance_core_action_pins.py <merge sha of this change>
+# and, in the same PR, switch run-biome-check to blocking:
+#   org-ci.yml:  mode: advisory  ->  mode: blocking
+python3 tools/advance_core_action_pins.py <merge sha> --check
+make validate && make change-policy    # workflow gate + tests/workflows
+```
+
+`tools/advance_core_action_pins.py` rewrites only the SHA on
+`uses: Quantum-L9/l9-ci-core/.github/actions/<name>@<sha>` lines, refuses
+anything but a full lowercase SHA, and `--check` proves every Core action pin
+is at one revision. Never pin a branch or tag; never advance to a revision
+that is not an ancestor of `main`.
+
+What stays advisory on purpose: toolchain-alignment reporting
+(`check-toolchain-alignment`) — it reports consumer pin drift against the
+lock and is a drift *report*, not a test of the repository. Promote it only
+with a governed change to the action and this section.

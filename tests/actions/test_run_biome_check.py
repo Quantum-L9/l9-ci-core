@@ -1,10 +1,10 @@
-"""Core-run advisory Biome check (``.github/actions/run-biome-check``).
+"""Core-run Biome check (``.github/actions/run-biome-check``).
 
 The executable is a shim with a chosen exit code, so these tests pin the exit
 class contract without network or a real Biome: ``0`` pass, ``1`` findings
-(advisory exit 0), anything else or an unstartable file is a Core
-infrastructure failure (non-zero). They also pin that Core never captures or
-parses Biome's report.
+(advisory exit 0; blocking exit 1 after the record is written), anything else
+or an unstartable file is a Core infrastructure failure (non-zero in every
+mode). They also pin that Core never captures or parses Biome's report.
 """
 
 from __future__ import annotations
@@ -133,9 +133,41 @@ class RunBiomeCheckTests(unittest.TestCase):
 
     def test_undefined_mode_is_refused(self) -> None:
         self._configured()
+        for mode in ("shadow", "disabled", "strict", ""):
+            with self.subTest(mode=mode):
+                proc = self._run("--mode", mode, "--executable", str(self._biome(0)))
+                self.assertEqual(2, proc.returncode)
+                self.assertIn("defined modes: advisory, blocking", proc.stderr)
+
+    def test_blocking_mode_passes_a_clean_run(self) -> None:
+        self._configured()
         proc = self._run("--mode", "blocking", "--executable", str(self._biome(0)))
-        self.assertEqual(2, proc.returncode)
-        self.assertIn("only advisory", proc.stderr)
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertEqual("pass", self._record()["status"])
+        self.assertIn("### Biome (Core, blocking)", self.summary.read_text("utf-8"))
+
+    def test_blocking_mode_fails_on_findings_after_recording_them(self) -> None:
+        self._configured()
+        proc = self._run("--mode", "blocking", "--executable", str(self._biome(1)))
+        self.assertEqual(1, proc.returncode, proc.stderr)
+        record = self._record()
+        self.assertEqual(
+            {"status": "findings", "biome_exit_code": 1, "mode": "blocking"},
+            {key: record[key] for key in ("status", "biome_exit_code", "mode")},
+        )
+        self.assertIn("::error title=Biome (blocking)", proc.stdout)
+        self.assertIn("findings", self.summary.read_text("utf-8"))
+
+    def test_blocking_mode_keeps_infrastructure_failures_fatal(self) -> None:
+        self._configured()
+        proc = self._run("--mode", "blocking", "--executable", str(self._biome(101)))
+        self.assertEqual(3, proc.returncode)
+        self.assertEqual("error", self._record()["status"])
+
+    def test_blocking_mode_is_not_applicable_without_a_config(self) -> None:
+        proc = self._run("--mode", "blocking")
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertEqual("not_applicable", self._record()["status"])
 
     def test_symlinked_report_directory_cannot_write_outside(self) -> None:
         outside = self.tmp / "outside"
@@ -182,6 +214,11 @@ class NoReportParsingTests(unittest.TestCase):
         self.assertEqual("advisory", action["inputs"]["mode"]["default"])
         for step in action["runs"]["steps"]:
             self.assertNotIn("uses", step)
+        # The status output is written before the step exits, so a blocking
+        # failure still reaches the job summary.
+        run = action["runs"]["steps"][0]["run"]
+        self.assertIn("|| rc=$?", run)
+        self.assertLess(run.index('echo "status='), run.index('exit "${rc}"'))
         self.assertNotIn("l9-biome-scan", (ACTION / "action.yml").read_text("utf-8"))
 
 
