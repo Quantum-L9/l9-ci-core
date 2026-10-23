@@ -436,6 +436,10 @@ jobs:
           strict: ${{ steps.gov.outputs.strict }}
           required: ${{ steps.gov.outputs['required-provider'] }}
           policy: ${{ steps.gov.outputs['sdk-policy'] }}
+          # The Core-staged identity map for the detected language. Without it
+          # a strict profile (`release`) cannot resolve third-party rule
+          # identities and `semgrep run --strict` refuses the run outright.
+          identity-map: ${{ steps.gov.outputs['identity-map-directory'] }}/${{ steps.language.outputs.language }}.yaml
 
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'

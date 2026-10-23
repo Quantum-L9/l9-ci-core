@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
 DEFAULTS_ROOT = ROOT / ".github" / "actions" / "resolve-governance" / "defaults"
 ANALYZE = ROOT / ".github" / "workflows" / "analyze-semgrep.yml"
+ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
 
 spec = importlib.util.spec_from_file_location("resolve_governance", MODULE_PATH)
 assert spec and spec.loader
@@ -143,6 +144,26 @@ class ReleaseProfileStrictTests(unittest.TestCase):
         self.assertIn(
             '[ "${GATE_STATUS}" != "pass" ] && [ "${MODE}" = "blocking" ]',
             enforce["run"],
+        )
+
+    def test_org_ci_gives_strict_runs_the_staged_identity_map(self) -> None:
+        # org-ci.yml admits `release` by manual dispatch. A strict run without
+        # the identity map fails in the SDK (`unresolved_strict_contract`)
+        # instead of producing a policy verdict, so both entrypoints must pass
+        # the same staged map.
+        document = yaml.safe_load(ORG_CI.read_text(encoding="utf-8"))
+        runs = [
+            step
+            for job in document["jobs"].values()
+            for step in job.get("steps", [])
+            if step.get("with", {}).get("operation") == "semgrep-run"
+        ]
+        self.assertEqual(1, len(runs))
+        self.assertEqual("${{ steps.gov.outputs.strict }}", runs[0]["with"]["strict"])
+        self.assertEqual(
+            "${{ steps.gov.outputs['identity-map-directory'] }}/"
+            "${{ steps.language.outputs.language }}.yaml",
+            runs[0]["with"]["identity-map"],
         )
 
 
