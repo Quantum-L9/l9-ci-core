@@ -57,17 +57,20 @@ class ContainerReleaseTests(unittest.TestCase):
         profile.write_text("schema: l9.deployment-profile/v1\n", encoding="utf-8")
         return workspace / "analysis"
 
-    def _build(self, workspace: Path, *, gate_status: str = "pass") -> dict[str, str]:
+    def _build(
+        self,
+        workspace: Path,
+        *,
+        gate_status: str = "pass",
+        deployment_profile: str = ".l9/deployment.yaml",
+    ) -> dict[str, str]:
         analysis_root = self._fixture(workspace, gate_status=gate_status)
         return module.build_release_documents(
             workspace=workspace,
             analysis_root=analysis_root,
             analysis_artifact="l9-semgrep-release-42-1",
             matrix_id="release-semgrep",
-            deployment_profile=".l9/deployment.yaml",
-            registered_profile_path=(
-                "integrations/consumers/l9-cognitive-runtime.deployment.yaml"
-            ),
+            deployment_profile=deployment_profile,
             image_repository=IMAGE_REPOSITORY,
             image_digest=IMAGE_DIGEST,
             image_ref=IMAGE_REF,
@@ -101,24 +104,58 @@ class ContainerReleaseTests(unittest.TestCase):
                 gate["workflow"]["analysis_artifact_name"],
             )
 
-    def test_request_uses_registered_profile_path_and_local_profile_digest(
-        self,
-    ) -> None:
+    def test_request_matches_l9_deploy_v2_contract(self) -> None:
+        # Key sets mirror Quantum-L9/l9-deploy
+        # schemas/v2/deployment-request.schema.json (additionalProperties: false).
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
-            self._build(workspace)
+            result = self._build(workspace)
             request = json.loads(
                 (workspace / ".l9/release/deployment-request.json").read_text()
             )
+            self.assertEqual("l9.deployment-request/v2", request["schema"])
             self.assertEqual(
-                "integrations/consumers/l9-cognitive-runtime.deployment.yaml",
-                request["profile"]["path"],
+                {
+                    "schema",
+                    "request_id",
+                    "idempotency_key",
+                    "source",
+                    "artifact",
+                    "profile",
+                    "evidence",
+                    "target",
+                    "requested_by",
+                    "requested_at",
+                },
+                set(request),
             )
+            self.assertEqual(
+                {"repository", "commit_sha", "ref", "run_id"}, set(request["source"])
+            )
+            self.assertEqual(
+                {"image", "digest", "image_ref", "architecture"},
+                set(request["artifact"]),
+            )
+            self.assertEqual({"path", "digest"}, set(request["profile"]))
+            self.assertEqual({"environment"}, set(request["target"]))
+            self.assertEqual(
+                "l9.release-evidence-reference/v1", request["evidence"]["schema"]
+            )
+            self.assertEqual(
+                request["source"]["run_id"], request["evidence"]["workflow_run_id"]
+            )
+            self.assertEqual(result["deployment_request_id"], request["request_id"])
+            self.assertEqual(".l9/deployment.yaml", request["profile"]["path"])
             self.assertEqual(
                 sha256_file(workspace / ".l9/deployment.yaml"),
                 request["profile"]["digest"],
             )
             self.assertEqual("Quantum-L9/l9-deploy", module._DEPLOYMENT_REPOSITORY)
+
+    def test_profile_outside_v2_contract_path_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "must be .l9/deployment.yaml"):
+                self._build(Path(directory), deployment_profile="deploy/profile.yaml")
 
     def test_artifact_binding_digest_matches_l9_deploy_canonicalization(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -143,6 +180,23 @@ class ContainerReleaseTests(unittest.TestCase):
         self.assertIn("repos/Quantum-L9/l9-deploy/dispatches", text)
         self.assertIn("source-revision-build-arg-name", text)
         self.assertNotIn("l9-deployment-platform/dispatches", text)
+
+    def test_action_dispatches_the_event_l9_deploy_listens_for(self) -> None:
+        # l9-deploy deploy-dispatch.yml: repository_dispatch types
+        # [l9.release.requested.v2]; its parser rejects any other action.
+        document = yaml.safe_load(
+            (ROOT / ".github/actions/container-release/action.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        dispatch = next(
+            s
+            for s in document["runs"]["steps"]
+            if s.get("name") == "Dispatch bounded deployment request"
+        )
+        self.assertIn("--arg event_type 'l9.release.requested.v2'", dispatch["run"])
+        self.assertNotIn("requested.v1", dispatch["run"])
+        self.assertNotIn("registered-profile-path", document["inputs"])
 
     def test_build_step_sets_no_docker_cli_reserved_variable(self) -> None:
         # The Docker CLI reads DOCKER_* / BUILDX_* from the environment as its
