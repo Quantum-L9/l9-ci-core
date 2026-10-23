@@ -5,10 +5,9 @@ description: >
   Quantum-L9/l9-deploy. The caller owns all write permissions and secrets.
 inputs:
   deployment-profile:
-    description: Consumer-local deployment profile used for the bound digest.
-    required: true
-  registered-profile-path:
-    description: Canonical profile path registered in l9-deploy fleet inventory.
+    description: >
+      Consumer-local deployment profile used for the bound digest. Must be
+      .l9/deployment.yaml, the path l9.deployment-request/v2 fixes.
     required: true
   image-repository:
     description: GHCR image repository without tag or digest.
@@ -39,7 +38,7 @@ inputs:
     description: Caller GITHUB_TOKEN with packages/attestations permissions.
     required: true
   deployment-broker-token:
-    description: Token authorized to dispatch l9.release.requested.v1 to l9-deploy.
+    description: Token authorized to dispatch l9.release.requested.v2 to l9-deploy.
     required: true
 outputs:
   image-digest:
@@ -125,7 +124,6 @@ runs:
         L9_ANALYSIS_ARTIFACT: ${{ inputs.analysis-artifact }}
         L9_MATRIX_ID: ${{ inputs.matrix-id }}
         L9_DEPLOYMENT_PROFILE: ${{ inputs.deployment-profile }}
-        L9_REGISTERED_PROFILE_PATH: ${{ inputs.registered-profile-path }}
         L9_IMAGE_REPOSITORY: ${{ inputs.image-repository }}
         L9_IMAGE_DIGEST: ${{ steps.build.outputs.image-digest }}
         L9_IMAGE_REF: ${{ steps.build.outputs.image-ref }}
@@ -148,7 +146,7 @@ runs:
         set -euo pipefail
         test -n "$GH_TOKEN"
         jq -n \
-          --arg event_type 'l9.release.requested.v1' \
+          --arg event_type 'l9.release.requested.v2' \
           --slurpfile payload .l9/release/deployment-request.json \
           '{event_type:$event_type,client_payload:$payload[0]}' \
           > .l9/release/dispatch.json
