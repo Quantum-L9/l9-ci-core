@@ -277,7 +277,7 @@ jobs:
       # does. The lock ships inside this pinned Core revision.
       - id: toolchain
         name: Report toolchain alignment (advisory)
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#212 merge revision)
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
         uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@1bc4df6910b932d82d70bded7b9edab5e5623fc6
 
       - name: Validate native push event context
@@ -363,7 +363,7 @@ jobs:
       - id: language
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
-        # CORE_ACTIONS_PIN — detect-language first-commit SHA
+        # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
         uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@1bc4df6910b932d82d70bded7b9edab5e5623fc6
         with:
           executable: ${{ steps.sdk.outputs.executable }}
@@ -379,12 +379,12 @@ jobs:
       - id: biome
         name: Install Biome (digest-locked central pin)
         if: hashFiles('biome.json', 'biome.jsonc') != ''
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#212 merge revision)
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
         uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@1bc4df6910b932d82d70bded7b9edab5e5623fc6
 
       - id: biome_check
         name: Run Biome check (blocking)
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#212 merge revision)
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
         uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@1bc4df6910b932d82d70bded7b9edab5e5623fc6
         with:
           executable: ${{ steps.biome.outputs.executable }}
