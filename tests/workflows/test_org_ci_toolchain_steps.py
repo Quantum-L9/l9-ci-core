@@ -93,10 +93,11 @@ class ToolchainActivationTests(unittest.TestCase):
         self.assertLess(language, install)
         self.assertEqual(install + 1, run)
 
-    def test_biome_is_advisory_and_independent_of_semgrep_governance(self) -> None:
+    def test_biome_is_blocking_and_independent_of_semgrep_governance(self) -> None:
+        """Biome blocks on findings fleet-wide (AGENTS.md §16 activation)."""
         install = self.steps[step_index(self.steps, "install-biome")]
         run = self.steps[step_index(self.steps, "run-biome-check")]
-        self.assertEqual("advisory", run["with"]["mode"])
+        self.assertEqual("blocking", run["with"]["mode"])
         self.assertEqual(
             "${{ steps.biome.outputs.executable }}", run["with"]["executable"]
         )
