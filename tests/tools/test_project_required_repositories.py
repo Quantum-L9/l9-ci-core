@@ -8,8 +8,8 @@ import json
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -136,8 +136,8 @@ class ShippedProjectionTests(unittest.TestCase):
                 projection.RECEIPT.read_text(encoding="utf-8"), encoding="utf-8"
             )
             with (
-                mock.patch.object(projection, "POLICY", policy),
-                mock.patch.object(projection, "RECEIPT", receipt),
+                unittest.mock.patch.object(projection, "POLICY", policy),
+                unittest.mock.patch.object(projection, "RECEIPT", receipt),
             ):
                 self.assertIn(
                     "policy required_repositories differs from the receipt's projected members",
