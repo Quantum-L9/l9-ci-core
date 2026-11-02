@@ -482,12 +482,16 @@ class EnforcementPolicyTests(unittest.TestCase):
                 )
 
     def test_bundled_policy_enrolls_core_in_required_mode(self) -> None:
-        """Core is the first required V2 consumer; the fleet default stays
-        migration until each repository declares its contract
-        (docs/ACTIVATION.md)."""
+        """The required list is the Quantum-L9/.github registry projection
+        (AGENTS.md §17); Core is a member, non-members stay in migration."""
         policy = self.runner.load_policy()
+        receipt = json.loads(
+            (RUNNER.parent / "required-repositories.receipt.json").read_text(
+                encoding="utf-8"
+            )
+        )
         self.assertEqual("migration", policy["default_mode"])
-        self.assertEqual(["Quantum-L9/l9-ci-core"], policy["required_repositories"])
+        self.assertEqual(receipt["members"], policy["required_repositories"])
         self.assertEqual(
             "required", self.runner.resolve_mode(policy, "Quantum-L9/l9-ci-core")
         )
