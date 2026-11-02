@@ -640,3 +640,32 @@ What stays advisory on purpose: toolchain-alignment reporting
 (`check-toolchain-alignment`) — it reports consumer pin drift against the
 lock and is a drift *report*, not a test of the repository. Promote it only
 with a governed change to the action and this section.
+
+## 17. Required repositories are a projection of the L9 registry (2026-11-02) — supersedes the §16 enrolment sentence
+
+`run-repository-verification/contract-policy.json` `required_repositories` is
+no longer enrolled by hand. It is a projection of the canonical L9 member list,
+`semantics/repository_registry.yaml` in `Quantum-L9/.github`
+(`l9.repository-registry/global@1`), where "a repository is a member because it
+is listed here with a class_ref" and an unlisted repository has no implied
+membership. Every member whose `lifecycle` is `current` is required;
+`superseded` and `retired` coordinates are historical and are not. The policy's
+`schema` and `default_mode` (`migration`, for non-members) are unchanged.
+
+- Generate with `python3 tools/project_required_repositories.py --ref main`; it
+  reads the registry over git at an exact commit, fails closed on any entry it
+  cannot classify, and writes the policy plus
+  `required-repositories.receipt.json` (source repository, path, commit,
+  sha256, rule, members, members digest). The receipt is a non-canonical
+  projection record; the registry stays the authority.
+- `--ref <sha> --check` compares the shipped files with the registry at that
+  commit; `--verify` checks offline that the policy list is exactly the
+  receipt's members (`tests/tools/test_project_required_repositories.py`).
+  Never hand-edit `required_repositories`: change the registry, then
+  re-project.
+- `required` admits only a valid V2 contract (§14) and fails an absent one.
+  Projecting a member therefore makes its organization CI fail until it
+  declares that contract. As projected from `Quantum-L9/.github@133f243`,
+  33 members are required; at that time only Core declared V2.
+- Activation is still the §16 pin advance, to the merge revision of the
+  projection, never to an unmerged commit.
