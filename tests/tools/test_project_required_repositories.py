@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import importlib.util
+import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -119,6 +122,28 @@ class ProjectionRuleTests(unittest.TestCase):
         )
         with self.assertRaises(projection.ProjectionError):
             projection.render(["Quantum-L9/a"], policy, b"x", "main")
+
+
+class FetchFailureTests(unittest.TestCase):
+    def test_an_unreadable_source_exits_two_not_drift(self) -> None:
+        """A git timeout or failure is an unreadable source (exit 2), never drift (1)."""
+        failures = (
+            subprocess.TimeoutExpired(["git", "fetch"], 120),
+            subprocess.CalledProcessError(128, ["git", "rev-parse"]),
+        )
+        for failure in failures:
+            for extra in ([], ["--check"]):
+                with (
+                    self.subTest(failure=type(failure).__name__, args=extra),
+                    unittest.mock.patch.object(
+                        projection.subprocess, "run", side_effect=failure
+                    ),
+                    contextlib.redirect_stderr(io.StringIO()) as err,
+                ):
+                    self.assertEqual(2, projection.main(["--ref", "main", *extra]))
+                    self.assertIn(
+                        "FAIL: cannot read Quantum-L9/.github@main", err.getvalue()
+                    )
 
 
 class ShippedProjectionTests(unittest.TestCase):

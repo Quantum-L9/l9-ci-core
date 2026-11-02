@@ -159,8 +159,19 @@ def render(
 
 
 def fetch(ref: str) -> tuple[bytes, str]:
-    """Read the registry at ``ref`` over git; return its bytes and exact commit."""
+    """Read the registry at ``ref`` over git; return its bytes and exact commit.
 
+    Every git failure, a timeout included, is a ProjectionError, so an
+    unreadable source exits 2 and is never mistaken for drift.
+    """
+
+    try:
+        return _fetch(ref)
+    except subprocess.SubprocessError as exc:
+        raise ProjectionError(f"cannot read {SOURCE_REPOSITORY}@{ref}: {exc}") from exc
+
+
+def _fetch(ref: str) -> tuple[bytes, str]:
     with tempfile.TemporaryDirectory(prefix="l9-registry-") as tmp:
         store = Path(tmp) / "store.git"
         steps = (
