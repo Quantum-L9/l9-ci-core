@@ -107,6 +107,14 @@ class ToolchainActivationTests(unittest.TestCase):
             self.assertNotIn("steps.gov.outputs", str(step.get("if", "")))
             self.assertNotIn("continue-on-error", step)
 
+    def test_biome_summary_label_names_the_enforced_mode(self) -> None:
+        """A blocking failure must not be summarised as informational."""
+        mode = self.steps[step_index(self.steps, "run-biome-check")]["with"]["mode"]
+        text = ORG_CI.read_text(encoding="utf-8")
+        self.assertIn(f"- Biome ({mode}):", text)
+        other = {"advisory": "blocking", "blocking": "advisory"}[mode]
+        self.assertNotIn(f"- Biome ({other}):", text)
+
     def test_toolchain_steps_precede_every_enforcement_step(self) -> None:
         last = max(step_index(self.steps, action) for action in ACTIONS)
         enforcement = [

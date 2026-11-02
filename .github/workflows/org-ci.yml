@@ -372,9 +372,10 @@ jobs:
 
       # Core owns the consumer-facing Biome check end to end: the version is
       # the `biome` key of Core's toolchain lock, the binary is digest-locked,
-      # and the run is advisory (findings annotate, never fail). It is
-      # independent of Semgrep governance; a consumer without biome.json or
-      # biome.jsonc is not_applicable and nothing is downloaded.
+      # and the run is blocking (findings annotate, then fail the step;
+      # infrastructure failures are fatal). It is independent of Semgrep
+      # governance; a consumer without biome.json or biome.jsonc is
+      # not_applicable and nothing is downloaded.
       - id: biome
         name: Install Biome (digest-locked central pin)
         if: hashFiles('biome.json', 'biome.jsonc') != ''
@@ -601,7 +602,7 @@ jobs:
             echo "- Technical gate: \`${GATE_STATUS:-unavailable}\`"
             echo "- Artifact set: \`${ARTIFACT_NAME:-unavailable}\`"
             echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
-            echo "- Biome (advisory): \`${BIOME_STATUS:-unavailable}\`"
+            echo "- Biome (blocking): \`${BIOME_STATUS:-unavailable}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce repository verification
