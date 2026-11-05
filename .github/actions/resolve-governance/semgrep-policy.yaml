@@ -1,7 +1,7 @@
 {
   "schema": "l9.finding-policy/v1",
   "metadata": {
-    "version": "2"
+    "version": "3"
   },
   "defaults": {
     "mode": "blocking"
@@ -14,7 +14,11 @@
     "python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args": {
       "policy_key": "actions.env-sourced-argv",
       "mode": "advisory"
+    },
+    "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure": {
+      "policy_key": "logging.credential-word-in-format-string",
+      "mode": "advisory"
     }
   },
-  "note": "Org default for required Organization CI (version 2, 2026-10-22): every finding is blocking unless a provider_rule_id is classified here. Advisory: the SDK baseline broad-except hygiene rule (informational; no security effect), and the Semgrep audit rule that taints every os.environ value reaching subprocess argv \u2014 composite GitHub Actions receive their inputs only through env, Core passes argv lists with shell=False after validating paths, and the rule's sole sanitizer (shlex.quote) is for shell strings, so the rule cannot be satisfied structurally and is reviewed per finding instead. Promote or demote a rule here after org review; a consumer cannot replace this file."
+  "note": "Org default for required Organization CI (version 3, 2026-11-05): every finding is blocking unless a provider_rule_id is classified here. Advisory: the SDK baseline broad-except hygiene rule (informational; no security effect), and the Semgrep audit rule that taints every os.environ value reaching subprocess argv \u2014 composite GitHub Actions receive their inputs only through env, Core passes argv lists with shell=False after validating paths, and the rule's sole sanitizer (shlex.quote) is for shell strings, so the rule cannot be satisfied structurally and is reviewed per finding instead. Advisory since version 3: the Semgrep audit rule python-logger-credential-disclosure, whose only test is a regex over the logger call's FORMAT STRING (a secret word anywhere before a %s); it never inspects the logged arguments, so it blocks on prose such as \"Invalid API key: %s %s from %s\" logging the method, path and host, and on \"Token refresh scheduled in %s seconds\" logging an int. Blocking detection of a secret VALUE reaching a logger stays with the L9-owned SDK rules AST-LOGGING-001/002/003 (l9-ci-sdk l9_ci/rulesets/semgrep/python/l9-logging.yml), which default to blocking here and inspect the argument expressions; this rule's findings are still reported and reviewed per finding. Promote or demote a rule here after org review; a consumer cannot replace this file."
 }
