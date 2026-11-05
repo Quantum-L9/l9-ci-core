@@ -6,8 +6,38 @@ metadata:
 default:
   source: git
   repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-  revision: bc678190582694f6efee08b6b7ea39be7e09bd5c
+  revision: 6d70e829cdd9987279f5e48eed340b2b67881662
 supported:
+  # 6d70e829 (l9-ci-sdk#107): packaged Semgrep rule precision fixes for
+  # AST-LOGGING-001/002/003 and AST-ROUTING-004 (SDK ADR-0018: precision by
+  # code position and dispatch), Biome `.l9` exclusion, and the SDK's adoption of
+  # the l9.repo-execution/v2 make-v1 execution contract. No public API, CLI path,
+  # integration-contract, artifact-protocol or schema change; requirements.txt is
+  # byte-identical to bc678190, so requirements_sha256 is unchanged.
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: 6d70e829cdd9987279f5e48eed340b2b67881662
+    integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+      - l9.sarif-log/v1
+    required_cli_paths:
+      - providers detect
+      - semgrep run
+      - semgrep normalize
+      - gate evaluate
+      - bundle validate
+      - bundle project-agent-payload
+      - bundle project-sarif
+      - compatibility check
+      - baseline compare-tests
+      - baseline scan-packet-envelope
+      - baseline compare-scan
+      - baseline validate-ledger
   - source: git
     repository: https://github.com/Quantum-L9/l9-ci-sdk.git
     revision: bc678190582694f6efee08b6b7ea39be7e09bd5c
