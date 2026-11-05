@@ -692,3 +692,34 @@ so every Semgrep-installing workflow keeps one locked install path
 identical between `def55c5` and `1bc4df6`, so nothing it installs changes.
 
 Prove the pins with `python3 tools/advance_core_action_pins.py <sha> --check`.
+
+## 19. SDK `6d70e829` activation (2026-11-05) — the §16 pin advance, applied
+
+Two-step promotion per §16, never to an unmerged commit. Step 1
+(`0e23a1b`, PR #232) made `l9-ci-sdk` `6d70e829` the default compatible
+revision in `.l9/sdk-compatibility.yaml` (bc678190 kept as the rollback) and
+regenerated the provision-sdk runtime lock. This step activates it:
+
+- `org-ci.yml`'s 16 Core action pins advance to `0e23a1b`, an ancestor of
+  `main`, and its `sdk-revision` fallback moves from `bc678190` to `6d70e829`;
+- `analyze-semgrep.yml`'s `install-semgrep` pin moves with it, to `0e23a1b`,
+  keeping one locked Semgrep install path. Its bytes and `invoke-sdk`'s are
+  identical between `1bc4df6` and `0e23a1b`, so nothing it installs changes.
+
+Between `1bc4df6` and `0e23a1b` the only action changes are `provision-sdk`
+(it now admits `6d70e829`) and `resolve-governance/semgrep-policy.yaml` v3
+(PR #231: `python-logger-credential-disclosure` is advisory). What this makes
+live for every governed repository's next evaluation:
+
+- `l9-ci-sdk` `6d70e829` rulesets (its ADR-0018): AST-LOGGING-001/002/003
+  match secret-like names in code positions, not message prose, and
+  AST-ROUTING-004 reports outbound `/execute` dispatch, not a node's own
+  ingress route. Detection of real secret logging and outbound dispatch is
+  kept or widened;
+- the format-string credential heuristic no longer blocks; its findings are
+  still reported.
+
+`publish-analysis.yml`, `publish-sarif.yml` and `normalize-semgrep-report.yml`
+keep their own pins; they are not part of required Organization CI.
+
+Prove the pins with `python3 tools/advance_core_action_pins.py 0e23a1b9404babacb87481289b694d860076d5f6 --check`.
