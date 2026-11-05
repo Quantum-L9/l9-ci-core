@@ -14,7 +14,7 @@ assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
-SDK_REVISION = "bc678190582694f6efee08b6b7ea39be7e09bd5c"
+SDK_REVISION = "6d70e829cdd9987279f5e48eed340b2b67881662"
 REQUIREMENTS_SHA256 = "96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3"
 LOCK_NAME = "cpython-3.12.14-linux-x86_64.txt"
 
@@ -98,7 +98,7 @@ class RuntimeLockTests(unittest.TestCase):
             "pip==26.2.1",
             "pyyaml==6.0.3",
             "referencing==0.37.0",
-            "rpds-py==2026.6.3",
+            "rpds-py==2026.9.1",
             "typing-extensions==4.16.0",
         ):
             self.assertIn(requirement, text)
