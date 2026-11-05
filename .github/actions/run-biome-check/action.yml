@@ -1,11 +1,13 @@
-name: Run Biome check (Core, advisory)
+name: Run Biome check (Core)
 description: >
   Run `biome ci` with Biome's own GitHub reporter against the consumer
   checkout using the executable verified by `install-biome`. Core records the
   exit code and never parses Biome's report. No biome.json/biome.jsonc at the
-  root is `not_applicable`. Findings never fail advisory mode; a missing or
-  corrupt executable or a Biome crash is a Core infrastructure failure and is
-  always fatal.
+  root is `not_applicable`. In `advisory` mode findings never fail the step;
+  in `blocking` mode findings fail it (exit 1) after the record and summary
+  are written. A missing or corrupt executable or a Biome crash is a Core
+  infrastructure failure and is always fatal. The mode is set by Core in
+  org-ci.yml, never by a consumer.
 inputs:
   executable:
     description: Absolute path from `install-biome` outputs.executable.
@@ -16,7 +18,7 @@ inputs:
     required: false
     default: ""
   mode:
-    description: Rollout mode. Only `advisory` is defined in this Core revision.
+    description: Rollout mode, `advisory` or `blocking` (Core-selected).
     required: false
     default: advisory
   root:
@@ -31,7 +33,7 @@ runs:
   using: composite
   steps:
     - id: run
-      name: Run biome ci (advisory)
+      name: Run biome ci
       shell: bash
       env:
         L9_BIOME_EXECUTABLE: ${{ inputs.executable }}
@@ -40,11 +42,18 @@ runs:
         L9_BIOME_ROOT: ${{ inputs.root }}
       run: |
         set -euo pipefail
+        rc=0
         python3 -I "${GITHUB_ACTION_PATH}/check_biome.py" \
           --executable "${L9_BIOME_EXECUTABLE}" \
           --provider-version "${L9_BIOME_VERSION}" \
           --mode "${L9_BIOME_MODE}" \
           --root "${L9_BIOME_ROOT}" \
-          --output .l9/runtime/biome-check.json
-        status="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["status"])' "${L9_BIOME_ROOT}/.l9/runtime/biome-check.json")"
+          --output .l9/runtime/biome-check.json || rc=$?
+        report="${L9_BIOME_ROOT}/.l9/runtime/biome-check.json"
+        if [ -f "${report}" ]; then
+          status="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["status"])' "${report}")"
+        else
+          status="error"
+        fi
         echo "status=${status}" >> "$GITHUB_OUTPUT"
+        exit "${rc}"

@@ -27,7 +27,7 @@
     },
     "release": {
       "sdk_profile": "ci_deep",
-      "strict": false,
+      "strict": true,
       "default_mode": "blocking",
       "providers": ["semgrep"],
       "policy": "",

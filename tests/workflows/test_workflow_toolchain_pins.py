@@ -32,7 +32,7 @@ LOCK = ROOT / ".github" / "actions" / "install-consumer-ci" / "toolchain-lock.js
 
 LOCKED_SEMGREP_ACTION = (
     "Quantum-L9/l9-ci-core/.github/actions/install-semgrep@"
-    "def55c54ff4ba654c2ebea088dde71db0b5f7135"
+    "1bc4df6910b932d82d70bded7b9edab5e5623fc6"
 )
 
 
@@ -67,9 +67,10 @@ class InlinePinTests(unittest.TestCase):
                 if match:
                     found.append((path.name, number, match.group(1)))
 
-        self.assertTrue(
-            found, "expected at least one inline pytest pin to guard against drift"
-        )
+        # No Core workflow carries an inline pytest literal since the v1
+        # kernels were retired (AGENTS.md §15); the lock's `pytest` key is
+        # bound by tests/actions/test_install_consumer_ci.py. Any literal that
+        # reappears here must still be a copy of the lock.
         for name, number, version in found:
             with self.subTest(workflow=name, line=number):
                 self.assertEqual(
@@ -188,12 +189,9 @@ class LockBindingTests(unittest.TestCase):
         )
 
     def test_pre_commit_selection_matches_the_lock(self) -> None:
-        document = yaml.safe_load(
-            (WORKFLOWS / "pre-commit-ci.yml").read_text(encoding="utf-8")
-        )
-        triggers = document.get(True, document.get("on"))
-        default = triggers["workflow_call"]["inputs"]["pre-commit-version"]["default"]
-        self.assertEqual(self.lock["pre-commit"], f"{default}")
+        # The v1 pre-commit kernel is retired (AGENTS.md §15); the lock key
+        # remains the authority for any inline pre-commit literal a workflow
+        # still carries.
         inline = re.compile(r"pre-commit==([0-9][^\s\"'$]*)")
         for name, number, version in self._literals(inline):
             with self.subTest(workflow=name, line=number):
@@ -201,7 +199,7 @@ class LockBindingTests(unittest.TestCase):
 
     def test_pip_bootstrap_literals_match_the_lock(self) -> None:
         pattern = re.compile(r"pip==([0-9][^\s\"']*)")
-        self._assert_bound("pip", self._literals(pattern), minimum=5)
+        self._assert_bound("pip", self._literals(pattern), minimum=1)
 
     def test_biome_lock_version_has_a_verified_binary_contract(self) -> None:
         lock = self.BIOME_LOCKS / f"biome-{self.lock['biome']}.json"
@@ -268,31 +266,35 @@ class ProviderProvenanceTests(unittest.TestCase):
 class GateResolutionTests(unittest.TestCase):
     """The resolution contract must not be revertible in silence.
 
-    Restoring `commands.check` to `["ruff", "check", "."]` is schema-valid and
-    passes the executable allowlist, so without this nothing would notice the
-    guarantee disappearing. The same applies to the CI lint job, which is the
-    step that actually gates a merge.
+    Restoring the ``repo-check`` leaf to a bare ``ruff check .`` is valid Make
+    and passes every structural check, so without this nothing would notice
+    the guarantee disappearing. The same applies to the CI lint job, which is
+    the step that actually gates a merge.
     """
 
-    CONTRACT = ROOT / ".l9" / "repo-workflow.json"
+    REPO_MK = ROOT / "Repo.mk"
     SELF_CI = WORKFLOWS / "self-ci.yml"
-    PREFLIGHT = ["@python", "tools/check_toolchain_versions.py"]
+    PREFLIGHT = "$(PYTHON) tools/check_toolchain_versions.py"
+
+    def check_recipe(self) -> list[str]:
+        text = self.REPO_MK.read_text(encoding="utf-8")
+        match = re.search(r"(?m)^repo-check:.*\n((?:\t.*\n)+)", text)
+        self.assertIsNotNone(match, "Repo.mk must implement repo-check")
+        assert match is not None
+        return [line.strip().lstrip("@") for line in match.group(1).splitlines()]
 
     def test_check_runs_the_preflight_first(self) -> None:
-        commands = json.loads(self.CONTRACT.read_text(encoding="utf-8"))["commands"]
         self.assertEqual(
             self.PREFLIGHT,
-            commands["check"][0],
+            self.check_recipe()[0],
             "the toolchain preflight must run before any gate it protects",
         )
 
     def test_every_check_command_resolves_through_the_interpreter(self) -> None:
-        commands = json.loads(self.CONTRACT.read_text(encoding="utf-8"))["commands"]
-        for argv in commands["check"]:
-            with self.subTest(argv=argv):
-                self.assertEqual(
-                    "@python",
-                    argv[0],
+        for command in self.check_recipe():
+            with self.subTest(command=command):
+                self.assertTrue(
+                    command.startswith("$(PYTHON) "),
                     "a bare executable lets PATH decide which code the gate "
                     "runs; resolve through the interpreter instead",
                 )

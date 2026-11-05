@@ -93,7 +93,11 @@ Rules:    pull request required; independent approval for governed paths
           required checks taken from real successful self-CI runs
 ```
 
-Required check context strings are deliberately not written here. Per
+Required check context strings are deliberately not written here. The
+evidence-backed payload that satisfies this block — contexts taken from
+real successful runs on `main`, dated — is `docs/release/rulesets/core-main-protection.json`
+(`docs/release/rulesets/README.md`); applying it is an organization-admin
+action and `make attest-control-plane` is the proof. Per
 Cursor-Governance L9-ORG-009, blocking enforcement must be evidence-backed;
 take the names from successful Actions runs before binding.
 
@@ -326,7 +330,7 @@ SDK merge → exact SDK SHA → Core PR editing .l9/sdk-compatibility.yaml
 ```
 
 Zero downstream promotions. See the `sdk-pin-mirrors` companion rule in
-`.l9/repo-workflow.json` for every file a pin change must touch.
+`.l9/core-repo-policy.json` for every file a pin change must touch.
 
 ## Historical documents
 

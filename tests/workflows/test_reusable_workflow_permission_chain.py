@@ -30,11 +30,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
-LEGACY_CALLERS = (
-    "starter-workflows/python/l9-analysis.yml",
-    "starter-workflows/typescript/l9-analysis.yml",
-    "docs/templates/l9-analysis.yml",
-)
 CORE_REF = re.compile(
     r"^Quantum-L9/l9-ci-core/(\.github/workflows/[A-Za-z0-9._-]+\.yml)@([0-9a-f]{40})$"
 )
@@ -98,8 +93,7 @@ def pinned_text(path: str, revision: str) -> str | None:
 def call_edges() -> list[tuple[str, str, str, str, str]]:
     """``(caller, job, callee path, revision label, callee text)`` per edge."""
     edges: list[tuple[str, str, str, str, str]] = []
-    callers = sorted(WORKFLOWS.glob("*.yml")) + [ROOT / rel for rel in LEGACY_CALLERS]
-    for caller in callers:
+    for caller in sorted(WORKFLOWS.glob("*.yml")):
         text = caller.read_text(encoding="utf-8")
         document = load(text)
         for job_id, job in (document.get("jobs") or {}).items():
@@ -141,8 +135,11 @@ def call_edges() -> list[tuple[str, str, str, str, str]]:
 class PermissionChainTests(unittest.TestCase):
     def test_every_caller_grants_what_its_callee_requires(self) -> None:
         edges = call_edges()
+        # self-analysis (analyze + publish-check), self-security, and the
+        # profile-normalize wrapper: four worktree edges, plus pinned-revision
+        # edges when the pinned object is reachable locally.
         self.assertGreaterEqual(
-            len(edges), 6, "call-edge discovery found too few reusable-workflow edges"
+            len(edges), 4, "call-edge discovery found too few reusable-workflow edges"
         )
         callers: dict[str, dict] = {}
         for caller, job_id, callee, revision, callee_text in edges:
@@ -199,20 +196,6 @@ class PermissionChainTests(unittest.TestCase):
                 LEVELS[level],
                 f"trusted self-analysis caller is missing {scope}:{level}",
             )
-
-
-class LegacyCallerTests(unittest.TestCase):
-    """Frozen copy-first callers say so, and say what a live copy must grant."""
-
-    def test_legacy_callers_are_marked_deprecated_and_point_at_central_ci(self) -> None:
-        for relative in LEGACY_CALLERS:
-            with self.subTest(caller=relative):
-                text = (ROOT / relative).read_text(encoding="utf-8")
-                header = text.split("\nname:", 1)[0]
-                self.assertIn("DEPRECATED", header)
-                self.assertIn(".github/workflows/org-ci.yml", header)
-                self.assertIn("security-events", header)
-                self.assertIn("presets/LEGACY.md", header)
 
 
 if __name__ == "__main__":

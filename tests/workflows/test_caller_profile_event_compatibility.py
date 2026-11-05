@@ -108,24 +108,16 @@ def kernel_event_class(trigger: str) -> str:
     )
 
 
-# The copy-first trees are frozen (presets/LEGACY.md, docs/templates/LEGACY.md)
-# but still shipped, so their callers are checked exactly like the live ones.
-# `starter-workflows/` and `docs/templates/` drifted from `presets/` for weeks
-# precisely because nothing compared them.
-CALLER_GLOBS = (
-    ".github/workflows/*.yml",
-    "presets/*/.github/workflows/l9-analysis.yml",
-    "starter-workflows/*/l9-analysis.yml",
-    "docs/templates/l9-analysis.yml",
-)
+# The copy-first trees (presets, starters, docs/templates) were retired on
+# 2026-10-22 (AGENTS.md §15); only Core's own workflows call the kernel now.
+CALLER_GLOBS = (".github/workflows/*.yml",)
 
 
 def analysis_callers() -> list[tuple[Path, dict, dict]]:
     """Workflows that call the analysis kernel with a governance profile.
 
     Matches both the local `./.github/workflows/analyze-semgrep.yml` form used
-    by the in-repo dogfood caller and the fully-qualified `...@<sha>` form used
-    by the copy-first templates.
+    by the in-repo dogfood caller and the fully-qualified `...@<sha>` form.
     """
     found = []
     for pattern in CALLER_GLOBS:
@@ -203,32 +195,13 @@ class CallerProfileEventCompatibilityTests(unittest.TestCase):
                         "context.",
                     )
 
-    def test_copy_first_callers_pin_one_consistent_core_revision(self) -> None:
-        """A caller's `uses:` SHA and its `L9_CORE_REF` note must agree.
-
-        `uses:` cannot interpolate, so the SHA is duplicated literally and the
-        env var exists only as the human-readable mirror. They drift silently
-        unless compared. All copy-first callers also pin the *same* revision —
-        a split pin means some consumers run a kernel that others do not.
-        """
-        pins: set[str] = set()
-        for pattern in CALLER_GLOBS[1:]:
-            for path in sorted(ROOT.glob(pattern)):
-                label = path.relative_to(ROOT).as_posix()
-                text = path.read_text(encoding="utf-8")
-                used = re.search(r"analyze-semgrep\.yml@([0-9a-f]{40})", text)
-                noted = re.search(r'L9_CORE_REF:\s*"([0-9a-f]{40})"', text)
-                with self.subTest(workflow=label):
-                    self.assertIsNotNone(used, f"{label} has no pinned kernel")
-                    self.assertIsNotNone(noted, f"{label} has no L9_CORE_REF")
-                    assert used is not None and noted is not None
-                    self.assertEqual(
-                        used.group(1),
-                        noted.group(1),
-                        f"{label}: uses: pin and L9_CORE_REF disagree",
-                    )
-                    pins.add(used.group(1))
-        self.assertEqual(1, len(pins), f"copy-first callers pin split pins: {pins}")
+    def test_no_copy_first_caller_tree_is_shipped(self) -> None:
+        """The retired copy-first trees must not reappear (AGENTS.md §15)."""
+        for relative in ("presets/python", "starter-workflows", "docs/templates"):
+            with self.subTest(tree=relative):
+                self.assertFalse((ROOT / relative).exists(), f"{relative} is retired")
+        for path in ROOT.rglob("l9-analysis.yml"):
+            self.fail(f"retired copy-first caller present: {path.relative_to(ROOT)}")
 
     def test_self_analysis_maps_events_the_way_org_ci_does(self) -> None:
         """The dogfood caller and the organization surface must agree.

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """The toolchain that runs must be the toolchain that was pinned.
 
-``.l9/repo-workflow.json`` resolves the check gate through the ``@python``
-sentinel, so ruff and mypy are imported from the workspace interpreter rather
-than found on ``PATH``. That removes the ambiguity this check used to have to
+``Repo.mk``'s ``repo-check`` leaf resolves the check gate through
+``$(PYTHON) -m``, so ruff and mypy are imported from the workspace interpreter
+rather than found on ``PATH``. That removes the ambiguity this check used to have to
 detect: a shadowing ``ruff`` earlier on ``PATH`` can no longer decide which
 code the gate executes.
 

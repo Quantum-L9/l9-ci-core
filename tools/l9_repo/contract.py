@@ -57,6 +57,23 @@ REQUIRED_LEAVES: tuple[str, ...] = tuple(f"repo-{phase}" for phase in PHASES)
 # assignment (':=' / '::='), not a recipe line (leading tab), not a comment.
 _MAKE_RULE = re.compile(r"^(?!\t)([^\s:=#][^:=#]*?)\s*(?:::(?!=)|:(?![:=]))")
 _PHONY_RULE = re.compile(r"^\.PHONY\s*:\s*(.*)$")
+# `.RECIPEPREFIX = >` (any assignment operator) changes the recipe prefix from
+# that point on; an empty value restores the tab.
+_RECIPEPREFIX_ASSIGNMENT = re.compile(
+    r"^\.RECIPEPREFIX\s*(?:::=|:=|\+=|\?=|!=|=)\s*(.*)$"
+)
+# A global variable assignment, optionally behind override/export/private.
+# A target-specific assignment (`repo-test: VAR = x`) is a rule line, never this.
+_VARIABLE_ASSIGNMENT = re.compile(
+    r"^(?:(?:override|export|private)\s+)*"
+    r"([A-Za-z_][A-Za-z0-9_.-]*)\s*(:::=|::=|:=|\+=|\?=|!=|=)\s*(.*)$"
+)
+_UNDEFINE = re.compile(r"^(?:override\s+)?undefine\s+([A-Za-z_][A-Za-z0-9_.-]*)\s*$")
+# A whole-token plain variable reference: $(NAME), ${NAME}, or single-char $N.
+_VARIABLE_REFERENCE = re.compile(
+    r"^\$(?:\(([A-Za-z_][A-Za-z0-9_.-]*)\)|\{([A-Za-z_][A-Za-z0-9_.-]*)\}|([A-Za-z0-9_]))$"
+)
+_MAX_REFERENCE_DEPTH = 16
 
 
 class ContractError(ValueError):
@@ -214,24 +231,257 @@ def _unconditional_text(text: str) -> str:
     return "\n".join(kept)
 
 
+class _Variable:
+    """What the validator can prove about a Make variable at one point in the
+    file: recursive variables keep their raw text (expanded at use), simple
+    variables keep the tokens proven present when they were assigned."""
+
+    __slots__ = ("raw", "tokens")
+
+    def __init__(
+        self, *, raw: str | None = None, tokens: list[str] | None = None
+    ) -> None:
+        self.raw = raw
+        self.tokens = tokens
+
+
+def _split_make_words(text: str) -> list[str]:
+    """Split on whitespace outside ``$(...)`` / ``${...}`` references."""
+
+    words: list[str] = []
+    current: list[str] = []
+    depth = 0
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "$" and index + 1 < len(text):
+            following = text[index + 1]
+            current.append(char + following)
+            if following in "({":
+                depth += 1
+            index += 2
+            continue
+        if char in ")}" and depth:
+            depth -= 1
+        if char.isspace() and not depth:
+            if current:
+                words.append("".join(current))
+                current = []
+        else:
+            current.append(char)
+        index += 1
+    if current:
+        words.append("".join(current))
+    return words
+
+
+def _has_literal_text(word: str) -> bool:
+    """True when ``word`` keeps at least one character after any expansion."""
+
+    depth = 0
+    index = 0
+    while index < len(word):
+        char = word[index]
+        if char == "$" and index + 1 < len(word):
+            following = word[index + 1]
+            if following == "$" and not depth:
+                return True  # `$$` expands to a literal `$`
+            if following in "({":
+                depth += 1
+            index += 2
+            continue
+        if char in ")}" and depth:
+            depth -= 1
+        elif not depth:
+            return True
+        index += 1
+    return False
+
+
+def _proven_tokens(
+    text: str,
+    variables: Mapping[str, _Variable],
+    resolving: frozenset[str] = frozenset(),
+) -> list[str]:
+    """Return the words of ``text`` proven non-empty after Make expansion.
+
+    A word with literal text outside every reference is non-empty. A word that
+    is exactly one plain variable reference counts when that variable, as
+    assigned so far in this file, itself yields a proven word. Anything else
+    (functions, substitution references, automatic variables, undefined or
+    environment-supplied variables) cannot be proven non-empty and is dropped:
+    the caller fails closed.
+    """
+
+    proven: list[str] = []
+    for word in _split_make_words(text):
+        if _has_literal_text(word):
+            proven.append(word)
+            continue
+        reference = _VARIABLE_REFERENCE.match(word)
+        if not reference:
+            continue
+        name = next(group for group in reference.groups() if group)
+        variable = variables.get(name)
+        if (
+            variable is None
+            or name in resolving
+            or len(resolving) >= _MAX_REFERENCE_DEPTH
+        ):
+            continue
+        if variable.tokens is not None:
+            proven.extend(variable.tokens)
+        elif variable.raw is not None:
+            proven.extend(_proven_tokens(variable.raw, variables, resolving | {name}))
+    return proven
+
+
+def _record_assignment(
+    variables: dict[str, _Variable], name: str, operator: str, value: str
+) -> None:
+    """Apply one global assignment to ``variables`` in GNU Make's terms."""
+
+    current = variables.get(name)
+    if operator == "=":
+        variables[name] = _Variable(raw=value)
+    elif operator in {":=", "::=", ":::="}:
+        variables[name] = _Variable(tokens=_proven_tokens(value, variables))
+    elif operator == "+=":
+        if current is None:
+            variables[name] = _Variable(raw=value)
+        elif current.tokens is not None:
+            current.tokens = current.tokens + _proven_tokens(value, variables)
+        else:
+            current.raw = f"{current.raw or ''} {value}"
+    elif operator == "?=":
+        # The environment may already supply the variable, possibly empty, so
+        # a conditional default proves nothing about its value.
+        if current is None:
+            variables[name] = _Variable(tokens=[])
+    else:  # `!=`: the value comes from a shell command
+        variables[name] = _Variable(tokens=[])
+
+
+def implemented_leaves(text: str) -> set[str]:
+    """Return the required leaves that carry an unconditional implementation.
+
+    ``text`` must already be the unconditional projection (see
+    ``_unconditional_text``). A rule implements the leaves it names when it
+    lists at least one effective prerequisite, carries an inline ``;``
+    recipe, or is followed by at least one recipe line (a tab-indented line;
+    blank and comment lines may sit between them, as GNU Make allows). A
+    target-specific variable assignment (``repo-test: VAR = x``) is neither a
+    prerequisite nor a recipe.
+
+    GNU Make expands a rule's prerequisites when it reads the rule line, so a
+    variable-only prerequisite is effective only when the variables assigned
+    *above* that line make it non-empty. ``repo-test: $(UNDEFINED)`` expands to
+    nothing and ``make`` reports "Nothing to be done". Variables defined after
+    the rule, only inside a conditional or ``define``, by ``?=`` or ``!=``, or
+    outside ``Repo.mk`` cannot be proven non-empty here and do not count; nor
+    do function calls or substitution references on their own.
+
+    GNU Make runs a ``.PHONY`` rule with no prerequisites and no recipe
+    successfully without doing anything, so such a leaf would let its phase
+    pass with zero work. A recipe that exists only inside a conditional was
+    blanked by the unconditional projection and therefore does not count: put
+    the variation in a variable, not around the recipe. This is still a
+    structural property, not a judgement about what the recipe does.
+    """
+
+    implemented: set[str] = set()
+    variables: dict[str, _Variable] = {}
+    physical = text.splitlines()
+    # GNU Make lets a file change the recipe-introducing character with
+    # `.RECIPEPREFIX`, any number of times while parsing; track it in order so
+    # a `>@pytest` recipe under `.RECIPEPREFIX = >` counts and is never
+    # mistaken for a rule line.
+    prefix = "\t"
+    index = 0
+    while index < len(physical):
+        logical = physical[index]
+        while logical.endswith("\\") and index + 1 < len(physical):
+            index += 1
+            logical = logical[:-1] + " " + physical[index]
+        index += 1
+        if logical.startswith(prefix):
+            continue
+        prefix_match = _RECIPEPREFIX_ASSIGNMENT.match(logical)
+        if prefix_match:
+            value = prefix_match.group(1).split("#", 1)[0].strip()
+            prefix = value[0] if value else "\t"
+            continue
+        assignment = _VARIABLE_ASSIGNMENT.match(logical)
+        if assignment:
+            name, operator, value = assignment.groups()
+            _record_assignment(variables, name, operator, value.split("#", 1)[0])
+            continue
+        undefine = _UNDEFINE.match(logical.split("#", 1)[0])
+        if undefine:
+            variables.pop(undefine.group(1), None)
+            continue
+        match = _MAKE_RULE.match(logical)
+        if not match:
+            continue
+        leaves = {
+            name
+            for name in match.group(1).split()
+            if not name.startswith(".") and name in REQUIRED_LEAVES
+        }
+        if not leaves:
+            continue
+        remainder = logical[match.end() :]
+        inline_recipe = ""
+        if ";" in remainder:
+            remainder, inline_recipe = remainder.split(";", 1)
+        prerequisites = remainder.split("#", 1)[0]
+        # `|` only separates normal from order-only prerequisites; a bare
+        # separator names nothing, and `make` reports "Nothing to be done".
+        has_prerequisite = "=" not in prerequisites and bool(
+            _proven_tokens(prerequisites.replace("|", " "), variables)
+        )
+        has_recipe = bool(inline_recipe.strip())
+        scan = index
+        while scan < len(physical) and not has_recipe:
+            line = physical[scan]
+            if line.startswith(prefix):
+                has_recipe = bool(line[len(prefix) :].strip())
+            elif line.strip() and not line.lstrip().startswith("#"):
+                break
+            scan += 1
+        if has_prerequisite or has_recipe:
+            implemented.update(leaves)
+    return implemented
+
+
 def validate_repo_mk_text(text: str) -> None:
     """Structural ABI validation of a repository-owned ``Repo.mk``.
 
     Required leaves must be declared unconditionally and ``.PHONY`` (so a
-    same-named file can never suppress a phase), and the facade's own verbs
-    may not be redefined anywhere, conditionally or not. Everything else in
-    the file is the repository's business.
+    same-named file can never suppress a phase), must carry an unconditional
+    recipe or prerequisite (so a leaf cannot satisfy its phase by doing
+    nothing), and the facade's own verbs may not be redefined anywhere,
+    conditionally or not. Everything else in the file is the repository's
+    business; in particular nothing here judges what a recipe does.
     """
 
     declarations = make_target_declarations(text)
     unconditional = _unconditional_text(text)
     declared = {target for _, target in make_target_declarations(unconditional)}
     phony = make_phony_targets(unconditional)
+    implemented = implemented_leaves(unconditional)
     for leaf in REQUIRED_LEAVES:
         if leaf not in declared:
             _fail(f"Repo.mk is missing required implementation target: {leaf}")
         if leaf not in phony:
             _fail(f"Repo.mk required target {leaf} must be declared .PHONY")
+        if leaf not in implemented:
+            _fail(
+                f"Repo.mk required target {leaf} declares no unconditional recipe "
+                "or prerequisite; a leaf that does nothing cannot implement a phase "
+                "(a variable-only prerequisite counts only when Repo.mk assigns it "
+                "a literal target above the rule)"
+            )
     for number, target in declarations:
         if target in FACADE_TARGETS:
             _fail(

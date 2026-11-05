@@ -249,6 +249,19 @@ Both `make validate` and `tests/tools/test_manifest_integrity.py` verify the
 manifest. `L9_MANIFEST_CHECK=0` exists only for a bounded salvage/bisect command;
 it is not an acceptance path.
 
+### 10.1 Retired (2026-10-20) — supersedes §10 above and the manifest sentence in §14
+
+`MANIFEST.sha256` is no longer tracked and no acceptance path verifies it.
+Every concurrent pull request rewrote adjacent lines of the digest ledger, and
+the resulting merge conflicts outweighed what it added on top of SHA-pinned
+actions and the hash-locked toolchain. `L9_MANIFEST_CHECK` is now opt-in:
+`L9_MANIFEST_CHECK=1` makes `core-validate` and
+`tests/tools/test_manifest_integrity.py` verify a locally generated manifest
+during a salvage or bisect. The `manifest-integrity` companion rule and the
+manifest entries of the other companion rules in `.l9/core-repo-policy.json`
+are gone; the `self-ci.yml` reconciliation-hints step is gone. Do not
+reintroduce a tracked digest ledger as a merge requirement.
+
 ## 11. Repository execution runtime
 
 The repository execution contract is `.l9/repo-workflow.json`, validated by
@@ -429,3 +442,253 @@ contracts.
 - Whether a contract is required is `contract-policy.json` in the pinned
   action, keyed by `github.repository`. Never add an action input, consumer
   metadata field, or contract field that selects or weakens the mode.
+- (2026-10-20) "Unconditional `Repo.mk` ABI" includes implementation, not
+  only declaration: each required leaf must carry an unconditional recipe or
+  prerequisite. A bare `.PHONY` leaf with neither, or one whose only recipe is
+  inside a conditional, exits zero without doing anything and is rejected at
+  admission. This remains structural; proving that a recipe did real test
+  work is a separate Core enforcement concern, never a `Repo.mk` text rule.
+
+## 14. Repository Execution V2 (2026-09-25) — supersedes §11 except its completion sequence
+
+This section supersedes all of §11 except the completion sequence at its top
+(`make validate`, `make change-policy`, `make check`, the full `unittest`
+suite, `make agent-check`) and the Cursor-Governance ownership list, which are
+unchanged. Superseded in particular: the contract being "validated by
+`.l9/repo-workflow.schema.json`", `commands.check`, the parity invariant
+naming `tools/l9_make/Makefile.template`, "The generated adapter and local
+extension layers", and "The contract shape is pinned". Toolchain resolution
+through the interpreter now lives in `Repo.mk`'s `repo-check` leaf.
+
+### The consumer contract
+
+`.l9/repo-workflow.json` is the exact three-field Repository Execution V2
+declaration and nothing else:
+
+```json
+{
+  "schema": "l9.repo-execution/v2",
+  "facade": "make-v1",
+  "required_phases": ["setup", "validate", "check", "test"]
+}
+```
+
+It carries no commands, no policy, and no metadata. Any additional field,
+another schema, an unsupported facade, or a phase list that is not exactly
+`setup, validate, check, test` in that order fails closed, both in the
+organization admission bridge (`.github/actions/run-repository-verification`)
+and in `tools/l9_repo`. `.l9/repo-workflow.schema.json` is retired; validation
+is standard-library only.
+
+### The Make ownership model
+
+```text
+Makefile   generated, Core-owned: the released make-v1 facade, byte-for-byte
+           setup -> repo-setup   validate -> repo-validate
+           check -> repo-check   test     -> repo-test
+Repo.mk    repository-owned, hand-maintained, never generated or rewritten
+```
+
+`make-v1` is a real version: `tools/l9_repo/facades/make-v1.mk` is mapped
+explicitly by `FACADE_TEMPLATES` in `tools/l9_repo/contract.py` and is
+immutable once released. An incompatible facade change is `make-v2`, never a
+silent edit of `make-v1`. The portable facade exposes exactly `help` plus the
+four phases. It contains no publication or Governance target and no `l9`
+dispatcher variable: Cursor-Governance owns its own commands, and
+`l9-ci-core` does not proxy them. `Repo.local.mk`, the capability-plan
+compiler (`tools/l9_make`), the generated `Repo.mk`, and the
+`tools/l9_repo/Makefile.template` projection are retired.
+
+`Repo.mk` must declare `repo-setup`, `repo-validate`, `repo-check`, and
+`repo-test`, each `.PHONY`, and may not redefine a facade verb. Everything
+else in it is this repository's business: Core keeps `lint`, `doctor`,
+`clean`, `status`, `change-policy`, `agent-check`, `core-validate`,
+`reconcile`, `attest-control-plane`, and `check-release-writers` there as
+Core-local targets outside the portable ABI. `python3 -m tools.l9_repo
+reconcile` regenerates only `Makefile`, idempotently; it never writes
+`Repo.mk`.
+
+### Core-local policy
+
+Policy that is Core's and not a consumer's — the comparison ref, clean paths,
+the reconcile lock, change gates and companion rules, agent-contract wiring,
+evidence reporting, and authority paths — lives in
+`.l9/core-repo-policy.json` (`l9.core-repository-policy/v1`). `make validate`
+runs the portable V2 validation (`validate`) and then `core-validate`, which
+adds the checksum manifest, contract wiring, and authority-path checks. The
+Repository Execution V2 test suite is `tests/repo_execution/`; the
+`repository-execution` change gate runs it whenever `tools/l9_repo/`,
+`tests/repo_execution/`, `.l9/repo-workflow.json`, `.l9/core-repo-policy.json`,
+`Makefile`, or `Repo.mk` changes.
+
+### The V1 compatibility path
+
+`RepositoryWorkflow` in `tools/l9_repo/__main__.py` is retained only for the
+admission bridge, which delegates a repository still declaring
+`schema_version: 1` to it in `migration` mode (§13). The bridge pinned in
+`org-ci.yml` imports its *own* checkout's `RepositoryWorkflow`, so this bounded
+executor takes effect for V1 consumers only once the pin advances to a
+revision of this tree. It runs that contract's `commands` matrices argv-only
+under the executable allowlist and nothing more; the superseded V1 structural
+validation is retired with the compiler it depended on. Core itself is a V2
+consumer.
+
+## 15. Legacy surfaces retired (2026-10-22) — supersedes §7 paragraphs 3–4, the §2 trigger list, and the §9 publication-job sentence
+
+The central required-workflow canary is proven: organization ruleset
+`L9 canonical CI required` (id 21895545) has been `active` since 2026-08-31,
+binding every governed repository's default branch to
+`Quantum-L9/l9-ci-core` / `main` / `.github/workflows/org-ci.yml` with the
+required check `Analyze (central Core)`, and that check has been green on
+`pull_request` and `push` evaluations across the fleet. The copy-first
+surfaces §7 froze are therefore removed rather than evolved:
+
+- `presets/python`, `presets/typescript/.github`, `starter-workflows/`,
+  `docs/templates/`, and `skills/l9-ci-activation*` are gone. Only the locked
+  consumer Biome contract (`presets/typescript/biome.json`, `stamp.sh`)
+  remains; see `docs/ACTIVATION.md` for how a consumer activates.
+- The v1 reusable kernels `pr-pipeline.yml`, `pre-commit-ci.yml`,
+  `nightly.yml`, `release-publish.yml`, `trio-governance.yml`,
+  `scorecard.yml`, `sbom.yml`, and the consumer-concept `baseline-ratchet.yml`
+  are deleted from `main`. A consumer that pinned one at a full SHA keeps
+  resolving that revision; none may be referenced from Core again.
+- The dead `.github/governance/` dogfood pack (which overrode `pr_fast` and
+  `merge` Semgrep to advisory and was read by no runtime path) is deleted.
+  The one governance pack is `.github/actions/resolve-governance/` (§4);
+  `self-analysis.yml` resolves the same `@core-defaults` consumers get.
+- `tests/workflows/test_phase_scope.py` locks the reduced inventory and
+  asserts the retired names and trees do not return.
+- Historical migration evidence (`docs/central-ci-bridge/`,
+  `docs/org-runtime/baseline-inventory.md`, `docs/v1-compatibility.md`,
+  `docs/pipeline-runs/`) is removed from the tree; git history keeps it.
+
+§2 is corrected: `org-ci.yml` also declares a native `push` trigger, narrowed
+at runtime to the repository's own default branch and resolved to the `merge`
+profile (`.l9/org-runtime-contract.yaml`). §9's "publication job with
+`always()`" describes `analyze-semgrep.yml` / `publish-analysis.yml`; the
+required `org-ci.yml` surface is read-only on `pull_request` and its job
+conclusion is the enforcement signal.
+
+Still retained, deliberately: `security.yml` (dogfooded by
+`self-security.yml`), `analyze-semgrep.yml` + `publish-analysis.yml` (the
+self-analysis dogfood and the bounded Cognitive Runtime `v2` channel in
+`.l9/release-plane.yaml`), and the Phase 2/4 reusable surfaces
+`normalize-semgrep-report.yml`, `profile-normalize-semgrep.yml`,
+`publish-sarif.yml` (declared capabilities of `.l9/publication-contract.yaml`;
+retire them only with a contract change).
+
+## 16. Enforcement capability and the pin-advance step (2026-10-22)
+
+Organization CI is merge-blocking only where every layer says so: the
+organization ruleset (`active`, strict required status checks — recorded as
+code in `Quantum-L9/.github` `rulesets/l9-canonical-ci-required.json`), the
+central rule mode (`blocking` for `pr_fast`/`merge`), the finding policy's
+`mode` for the rule that fired, and the step that enforces the result. Before
+this section the finding policy defaulted every Semgrep finding to `advisory`,
+so "blocking mode" could never fail a job on a finding; the Biome check had
+only an `advisory` mode; and repository verification tolerated an absent
+contract everywhere. This section records the capability that closes those
+gaps and the one step that activates it.
+
+- `.github/actions/resolve-governance/semgrep-policy.yaml` (version 2):
+  `defaults.mode: blocking`. A rule is advisory only by explicit entry with
+  a `policy_key`, after org review; the entries and their reasons are in the
+  file. Fleet evidence at the flip (latest `org-ci.yml` bundles): Core 1
+  finding (the env-sourced-argv audit rule, classified advisory),
+  `l9-ci-sdk` 0, `l9-deploy` 2 (`broad-except`, advisory),
+  `l9-semantic-compiler-engine` 2 medium `insecure-hash-algorithm-sha1`
+  findings that will block that repository's next evaluation unless fixed or
+  classified. `sdk-contract-check.yml` now proves the blocking verdict end to
+  end (`tests/workflows/test_sdk_contract_smoke_verdict.py`).
+- `run-biome-check` defines `advisory` and `blocking`; `blocking` fails the
+  step on findings after the record and summary are written, and
+  infrastructure failures stay fatal in both. The mode is set in
+  `org-ci.yml` by Core, never by a consumer (AGENTS-ADDENDUM.md).
+- `run-repository-verification/contract-policy.json` enrols
+  `Quantum-L9/l9-ci-core` in `required` mode: Core's own contract must be
+  present, valid, and pass `make setup → validate → check → test`. The fleet
+  default stays `migration`; a repository is enrolled by a Core PR once it
+  declares the contract (`docs/ACTIVATION.md`).
+- `docs/release/rulesets/core-main-protection.json` is the evidence-backed
+  payload for the Core `main` ruleset `.l9/release-plane.yaml` expects
+  (`pull_request` with code-owner review, strict required self-CI checks).
+  Applying it is an organization-admin action; `make attest-control-plane`
+  proves it.
+
+### Activation is a pin advance
+
+Composite actions and their bundled data reach the fleet only at the
+revision `org-ci.yml` pins (§8). The changes above are therefore inert until
+the pins advance to a `main` revision that carries them. The procedure is
+one mechanical PR, after this section's change has merged:
+
+```bash
+python3 tools/advance_core_action_pins.py <merge sha of this change>
+# and, in the same PR, switch run-biome-check to blocking:
+#   org-ci.yml:  mode: advisory  ->  mode: blocking
+python3 tools/advance_core_action_pins.py <merge sha> --check
+make validate && make change-policy    # workflow gate + tests/workflows
+```
+
+`tools/advance_core_action_pins.py` rewrites only the SHA on
+`uses: Quantum-L9/l9-ci-core/.github/actions/<name>@<sha>` lines, refuses
+anything but a full lowercase SHA, and `--check` proves every Core action pin
+is at one revision. Never pin a branch or tag; never advance to a revision
+that is not an ancestor of `main`.
+
+What stays advisory on purpose: toolchain-alignment reporting
+(`check-toolchain-alignment`) — it reports consumer pin drift against the
+lock and is a drift *report*, not a test of the repository. Promote it only
+with a governed change to the action and this section.
+
+## 17. Required repositories are a projection of the L9 registry (2026-11-02) — supersedes the §16 enrolment sentence
+
+`run-repository-verification/contract-policy.json` `required_repositories` is
+no longer enrolled by hand. It is a projection of the canonical L9 member list,
+`semantics/repository_registry.yaml` in `Quantum-L9/.github`
+(`l9.repository-registry/global@1`), where "a repository is a member because it
+is listed here with a class_ref" and an unlisted repository has no implied
+membership. Every member whose `lifecycle` is `current` is required;
+`superseded` and `retired` coordinates are historical and are not. The policy's
+`schema` and `default_mode` (`migration`, for non-members) are unchanged.
+
+- Generate with `python3 tools/project_required_repositories.py --ref main`; it
+  reads the registry over git at an exact commit, fails closed on any entry it
+  cannot classify, and writes the policy plus
+  `required-repositories.receipt.json` (source repository, path, commit,
+  sha256, rule, members, members digest). The receipt is a non-canonical
+  projection record; the registry stays the authority.
+- `--ref <sha> --check` compares the shipped files with the registry at that
+  commit; `--verify` checks offline that the policy list is exactly the
+  receipt's members (`tests/tools/test_project_required_repositories.py`).
+  Never hand-edit `required_repositories`: change the registry, then
+  re-project.
+- `required` admits only a valid V2 contract (§14) and fails an absent one.
+  Projecting a member therefore makes its organization CI fail until it
+  declares that contract. As projected from `Quantum-L9/.github@133f243`,
+  33 members are required; at that time only Core declared V2.
+- Activation is still the §16 pin advance, to the merge revision of the
+  projection, never to an unmerged commit.
+
+## 18. Fleet activation (2026-11-02) — the §16 pin advance, applied
+
+`org-ci.yml`'s 16 Core action pins advance to `1bc4df6` (the merge of the
+§17 projection, an ancestor of `main`), and `run-biome-check` switches from
+`mode: advisory` to `mode: blocking`. What this makes live for every governed
+repository's next evaluation:
+
+- repository verification is `required` for every current member of the
+  `Quantum-L9/.github` registry (33 at `133f243`): an absent or V1
+  `.l9/repo-workflow.json` fails `Analyze (central Core)`. At activation only
+  Core declared V2;
+- Semgrep findings block by default (`semgrep-policy.yaml` v2);
+- Biome findings block where a `biome.json`/`biome.jsonc` exists; a
+  repository without one is not applicable, and infrastructure failures stay
+  fatal.
+
+`analyze-semgrep.yml`'s `install-semgrep` pin moves with it, to `1bc4df6`,
+so every Semgrep-installing workflow keeps one locked install path
+(`tests/workflows/test_workflow_toolchain_pins.py`); the action's bytes are
+identical between `def55c5` and `1bc4df6`, so nothing it installs changes.
+
+Prove the pins with `python3 tools/advance_core_action_pins.py <sha> --check`.

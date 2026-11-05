@@ -14,10 +14,10 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "org-ci.yml"
 ACTION = ROOT / ".github" / "actions" / "run-repository-verification" / "action.yml"
 RUNNER = ROOT / ".github" / "actions" / "run-repository-verification" / "run.py"
-PIN = "ad2970d214261ced398de07a4696370b0b9c5609"
+PIN = "1bc4df6910b932d82d70bded7b9edab5e5623fc6"
 # The mocked V1 tests below only need the classifier to route to the V1
-# runtime; the full V1 document validation belongs to RepositoryWorkflow and is
-# covered by tests/tools/test_l9_repo.py.
+# runtime; the bounded V1 executor is covered end to end by
+# tests/repo_execution/test_legacy_v1.py.
 V1_CONTRACT = '{"schema_version": 1}\n'
 
 
@@ -86,6 +86,11 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
             env = {
                 "L9_REPOSITORY_WORKSPACE": tmp,
                 "GITHUB_OUTPUT": output.name,
+                # These cases assert migration semantics. Name an unenrolled
+                # consumer explicitly: in organization CI the step inherits
+                # L9_REPOSITORY_IDENTITY=Quantum-L9/l9-ci-core, which the
+                # bundled policy enrols in required mode (AGENTS.md §16).
+                "L9_REPOSITORY_IDENTITY": "Quantum-L9/example-consumer",
             }
             with unittest.mock.patch.dict(os.environ, env, clear=False):
                 self.assertEqual(0, runner.main())
@@ -125,6 +130,11 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
             env = {
                 "L9_REPOSITORY_WORKSPACE": tmp,
                 "GITHUB_OUTPUT": output.name,
+                # These cases assert migration semantics. Name an unenrolled
+                # consumer explicitly: in organization CI the step inherits
+                # L9_REPOSITORY_IDENTITY=Quantum-L9/l9-ci-core, which the
+                # bundled policy enrols in required mode (AGENTS.md §16).
+                "L9_REPOSITORY_IDENTITY": "Quantum-L9/example-consumer",
             }
             with (
                 unittest.mock.patch.dict(os.environ, env, clear=False),
@@ -158,6 +168,11 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
             env = {
                 "L9_REPOSITORY_WORKSPACE": tmp,
                 "GITHUB_OUTPUT": output.name,
+                # These cases assert migration semantics. Name an unenrolled
+                # consumer explicitly: in organization CI the step inherits
+                # L9_REPOSITORY_IDENTITY=Quantum-L9/l9-ci-core, which the
+                # bundled policy enrols in required mode (AGENTS.md §16).
+                "L9_REPOSITORY_IDENTITY": "Quantum-L9/example-consumer",
             }
             with (
                 unittest.mock.patch.dict(os.environ, env, clear=False),

@@ -10,7 +10,7 @@ import shutil
 import sys
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 _MATRIX_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -18,6 +18,9 @@ _FULL_SHA = re.compile(r"^[a-f0-9]{40}$")
 _IMAGE_DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 _IMAGE_REPOSITORY = re.compile(r"^ghcr\.io/[A-Za-z0-9._/-]+$")
 _DEPLOYMENT_REPOSITORY = "Quantum-L9/l9-deploy"
+# l9.deployment-request/v2 fixes the profile path: l9-deploy reads the consumer's
+# own profile at the source commit, never a copy registered in its inventory.
+_PROFILE_PATH = ".l9/deployment.yaml"
 
 
 def _file_digest(path: Path) -> str:
@@ -62,15 +65,6 @@ def _confined_file(workspace: Path, relative: str) -> Path:
     return candidate
 
 
-def _registered_path(value: str) -> str:
-    path = PurePosixPath(value)
-    if path.is_absolute() or any(part in {".", ".."} for part in path.parts):
-        raise ValueError("registered profile path must be repository-relative")
-    if not value.strip():
-        raise ValueError("registered profile path is required")
-    return value
-
-
 def _analysis_file(root: Path, matrix_id: str, filename: str) -> Path:
     suffix = ("l9", matrix_id, filename)
     candidates = [
@@ -107,7 +101,6 @@ def build_release_documents(
     analysis_artifact: str,
     matrix_id: str,
     deployment_profile: str,
-    registered_profile_path: str,
     image_repository: str,
     image_digest: str,
     image_ref: str,
@@ -139,8 +132,9 @@ def build_release_documents(
         raise ValueError("image_ref must equal image_repository@image_digest")
     if run_id < 1:
         raise ValueError("run_id must be positive")
+    if deployment_profile != _PROFILE_PATH:
+        raise ValueError(f"deployment profile must be {_PROFILE_PATH}")
     profile_path = _confined_file(root, deployment_profile)
-    registered_path = _registered_path(registered_profile_path)
 
     bundle_path = _analysis_file(analysis, matrix_id, "finding-bundle.json")
     gate_result_path = _analysis_file(analysis, matrix_id, "gate-result.json")
@@ -234,7 +228,7 @@ def build_release_documents(
 
     request_id = str(uuid.uuid4())
     request: dict[str, Any] = {
-        "schema": "l9.deployment-request/v1",
+        "schema": "l9.deployment-request/v2",
         "request_id": request_id,
         "idempotency_key": f"release:{repository}:{commit_sha}:{environment}",
         "source": {
@@ -250,7 +244,7 @@ def build_release_documents(
             "architecture": "linux/amd64",
         },
         "profile": {
-            "path": registered_path,
+            "path": _PROFILE_PATH,
             "digest": _file_digest(profile_path),
         },
         "evidence": {
@@ -304,7 +298,6 @@ def main() -> int:
             analysis_artifact=_required("L9_ANALYSIS_ARTIFACT"),
             matrix_id=_required("L9_MATRIX_ID"),
             deployment_profile=_required("L9_DEPLOYMENT_PROFILE"),
-            registered_profile_path=_required("L9_REGISTERED_PROFILE_PATH"),
             image_repository=_required("L9_IMAGE_REPOSITORY"),
             image_digest=_required("L9_IMAGE_DIGEST"),
             image_ref=_required("L9_IMAGE_REF"),

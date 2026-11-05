@@ -1,11 +1,20 @@
 {
   "schema": "l9.finding-policy/v1",
   "metadata": {
-    "version": "1"
+    "version": "2"
   },
   "defaults": {
-    "mode": "advisory"
+    "mode": "blocking"
   },
-  "rules": {},
-  "note": "Org default for required Organization CI. Findings are visible and classified; they do not block merge until a provider_rule_id is promoted to blocking after org review. This file exists so strict Semgrep can evaluate a non-empty finding set instead of failing closed on an empty sdk_policy."
+  "rules": {
+    "l9.runtime.sdk.source.l9_ci.rulesets.semgrep.python.l9.baseline.python.broad-except": {
+      "policy_key": "hygiene.python.broad-except",
+      "mode": "advisory"
+    },
+    "python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args": {
+      "policy_key": "actions.env-sourced-argv",
+      "mode": "advisory"
+    }
+  },
+  "note": "Org default for required Organization CI (version 2, 2026-10-22): every finding is blocking unless a provider_rule_id is classified here. Advisory: the SDK baseline broad-except hygiene rule (informational; no security effect), and the Semgrep audit rule that taints every os.environ value reaching subprocess argv \u2014 composite GitHub Actions receive their inputs only through env, Core passes argv lists with shell=False after validating paths, and the rule's sole sanitizer (shlex.quote) is for shell strings, so the rule cannot be satisfied structurally and is reviewed per finding instead. Promote or demote a rule here after org review; a consumer cannot replace this file."
 }

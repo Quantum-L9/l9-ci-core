@@ -1,4 +1,10 @@
-"""Contract tests for the legacy reusable-workflow compatibility inputs."""
+"""Contract tests for the retained ``security.yml`` reusable workflow inputs.
+
+The v1 ``pr-pipeline.yml`` shim that once called this workflow was retired on
+2026-10-22 (``AGENTS.md`` §15). ``security.yml`` stays because Core's own
+``self-security.yml`` dogfoods it; its inputs keep the explicit, fail-closed
+semantics below.
+"""
 
 from __future__ import annotations
 
@@ -9,8 +15,8 @@ from typing import Any
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-PR_PIPELINE = ROOT / ".github" / "workflows" / "pr-pipeline.yml"
-SECURITY = ROOT / ".github" / "workflows" / "security.yml"
+WORKFLOWS = ROOT / ".github" / "workflows"
+SECURITY = WORKFLOWS / "security.yml"
 
 
 def _document(path: Path) -> dict[str, Any]:
@@ -32,52 +38,8 @@ def _job(path: Path, name: str) -> dict[str, Any]:
 
 
 class CompatibilityInputTests(unittest.TestCase):
-    def test_pr_pipeline_rejects_unsupported_non_neutral_legacy_inputs(self) -> None:
-        inputs = _call_inputs(PR_PIPELINE)
-        expected_neutral = {
-            "enable-pydantic-strict": False,
-            "changed-files": "",
-            "pr-labels": "",
-            "labels-known": False,
-        }
-        for name, neutral in expected_neutral.items():
-            with self.subTest(input=name):
-                self.assertEqual(neutral, inputs[name]["default"])
-                self.assertIn("fails explicitly", inputs[name].get("description", ""))
-
-        preflight = _job(PR_PIPELINE, "validate-compatibility-inputs")
-        script = preflight["steps"][0]["run"]
-        self.assertIn("exit 1", script)
-        self.assertIn("Unsupported pr-pipeline compatibility input", script)
-        for value in (
-            "enable-pydantic-strict=true",
-            "changed-files=<non-empty>",
-            "pr-labels=<non-empty>",
-            "labels-known=true",
-        ):
-            with self.subTest(value=value):
-                self.assertIn(value, script)
-
-        jobs = _document(PR_PIPELINE)["jobs"]
-        self.assertEqual("validate-compatibility-inputs", jobs["validate"]["needs"])
-        self.assertEqual("validate-compatibility-inputs", jobs["security"]["needs"])
-
-    def test_pr_pipeline_run_security_controls_real_security_work(self) -> None:
-        run_security = _call_inputs(PR_PIPELINE)["run-security"]
-        self.assertEqual("boolean", run_security["type"])
-        self.assertIs(False, run_security["default"])
-
-        security_job = _job(PR_PIPELINE, "security")
-        self.assertEqual("inputs.run-security", security_job["if"])
-        self.assertEqual("./.github/workflows/security.yml", security_job["uses"])
-        self.assertEqual(
-            "${{ inputs.run-security }}",
-            security_job["with"]["run-npm-audit"],
-        )
-        self.assertEqual(
-            "${{ inputs.working-directory }}",
-            security_job["with"]["working-directory"],
-        )
+    def test_v1_pr_pipeline_shim_is_retired(self) -> None:
+        self.assertFalse((WORKFLOWS / "pr-pipeline.yml").exists())
 
     def test_security_run_npm_audit_false_never_auto_enables_from_lockfile(
         self,
@@ -119,10 +81,8 @@ class CompatibilityInputTests(unittest.TestCase):
             security_job["defaults"]["run"]["working-directory"],
         )
 
-    def test_compatibility_workflows_do_not_add_sdk_semantics(self) -> None:
-        combined = PR_PIPELINE.read_text(encoding="utf-8") + SECURITY.read_text(
-            encoding="utf-8"
-        )
+    def test_security_workflow_does_not_add_sdk_semantics(self) -> None:
+        combined = SECURITY.read_text(encoding="utf-8")
         for forbidden in (
             "finding-bundle",
             "canonical finding",

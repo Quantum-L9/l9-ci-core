@@ -194,7 +194,7 @@ class OrgGovernanceDefaultsTests(unittest.TestCase):
             self.assertTrue(dest.is_file())
             payload = dest.read_text(encoding="utf-8")
             self.assertIn("l9.finding-policy/v1", payload)
-            self.assertIn('"mode": "advisory"', payload)
+            self.assertIn('"mode": "blocking"', payload)
 
     def test_resolve_policy_validates_only_the_sdk_policy_envelope(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

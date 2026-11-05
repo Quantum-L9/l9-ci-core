@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import importlib.util
 import unittest
 from pathlib import Path
@@ -12,13 +13,19 @@ spec.loader.exec_module(module)
 
 
 class ResolveGovernanceTests(unittest.TestCase):
+    """Resolution against the one shipped pack: the bundled Core defaults.
+
+    The former ``.github/governance/`` dogfood copy (which overrode
+    ``pr_fast``/``merge`` Semgrep to advisory) was retired on 2026-10-22
+    (``AGENTS.md`` §15). These tests read the documents the pinned
+    ``resolve-governance`` action ships to every governed repository.
+    """
+
     def setUp(self) -> None:
-        self.root = ROOT / ".github/governance"
+        self.root = module.core_defaults_path()
         self.documents = module.load_documents(self.root)
 
-    def test_pr_fast_semgrep_is_advisory_and_required(self) -> None:
-        # Core dogfood rollout: rule-modes.yaml overrides pr_fast/merge
-        # semgrep to advisory (default profile mode remains blocking).
+    def test_pr_fast_semgrep_is_blocking_and_required(self) -> None:
         profile = module.validate_profile(
             self.documents,
             "pr_fast",
@@ -36,16 +43,24 @@ class ResolveGovernanceTests(unittest.TestCase):
             "pr_fast",
             "semgrep",
         )
-        self.assertEqual("advisory", mode)
+        self.assertEqual("blocking", mode)
         self.assertTrue(required)
-        self.assertTrue(profile["strict"])
+        self.assertFalse(profile["strict"])
+
+    def test_merge_semgrep_is_blocking_and_required(self) -> None:
+        profile = module.validate_profile(self.documents, "merge", "semgrep", "merge")
+        mode = module.resolve_mode(
+            self.documents, "merge", "semgrep", profile["default_mode"]
+        )
+        self.assertEqual("blocking", mode)
+        self.assertTrue(module.resolve_requiredness(self.documents, "merge", "semgrep"))
 
     def test_nightly_semgrep_is_advisory_and_optional(self) -> None:
         profile = module.validate_profile(
             self.documents,
             "nightly",
             "semgrep",
-            "schedule",
+            "nightly",
         )
         mode = module.resolve_mode(
             self.documents,
