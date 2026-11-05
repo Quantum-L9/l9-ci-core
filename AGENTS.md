@@ -669,3 +669,26 @@ membership. Every member whose `lifecycle` is `current` is required;
   33 members are required; at that time only Core declared V2.
 - Activation is still the §16 pin advance, to the merge revision of the
   projection, never to an unmerged commit.
+
+## 18. Fleet activation (2026-11-02) — the §16 pin advance, applied
+
+`org-ci.yml`'s 16 Core action pins advance to `1bc4df6` (the merge of the
+§17 projection, an ancestor of `main`), and `run-biome-check` switches from
+`mode: advisory` to `mode: blocking`. What this makes live for every governed
+repository's next evaluation:
+
+- repository verification is `required` for every current member of the
+  `Quantum-L9/.github` registry (33 at `133f243`): an absent or V1
+  `.l9/repo-workflow.json` fails `Analyze (central Core)`. At activation only
+  Core declared V2;
+- Semgrep findings block by default (`semgrep-policy.yaml` v2);
+- Biome findings block where a `biome.json`/`biome.jsonc` exists; a
+  repository without one is not applicable, and infrastructure failures stay
+  fatal.
+
+`analyze-semgrep.yml`'s `install-semgrep` pin moves with it, to `1bc4df6`,
+so every Semgrep-installing workflow keeps one locked install path
+(`tests/workflows/test_workflow_toolchain_pins.py`); the action's bytes are
+identical between `def55c5` and `1bc4df6`, so nothing it installs changes.
+
+Prove the pins with `python3 tools/advance_core_action_pins.py <sha> --check`.

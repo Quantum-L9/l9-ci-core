@@ -93,10 +93,11 @@ class ToolchainActivationTests(unittest.TestCase):
         self.assertLess(language, install)
         self.assertEqual(install + 1, run)
 
-    def test_biome_is_advisory_and_independent_of_semgrep_governance(self) -> None:
+    def test_biome_is_blocking_and_independent_of_semgrep_governance(self) -> None:
+        """Biome blocks on findings fleet-wide (AGENTS.md §16 activation)."""
         install = self.steps[step_index(self.steps, "install-biome")]
         run = self.steps[step_index(self.steps, "run-biome-check")]
-        self.assertEqual("advisory", run["with"]["mode"])
+        self.assertEqual("blocking", run["with"]["mode"])
         self.assertEqual(
             "${{ steps.biome.outputs.executable }}", run["with"]["executable"]
         )
@@ -105,6 +106,14 @@ class ToolchainActivationTests(unittest.TestCase):
         for step in (install, run):
             self.assertNotIn("steps.gov.outputs", str(step.get("if", "")))
             self.assertNotIn("continue-on-error", step)
+
+    def test_biome_summary_label_names_the_enforced_mode(self) -> None:
+        """A blocking failure must not be summarised as informational."""
+        mode = self.steps[step_index(self.steps, "run-biome-check")]["with"]["mode"]
+        text = ORG_CI.read_text(encoding="utf-8")
+        self.assertIn(f"- Biome ({mode}):", text)
+        other = {"advisory": "blocking", "blocking": "advisory"}[mode]
+        self.assertNotIn(f"- Biome ({other}):", text)
 
     def test_toolchain_steps_precede_every_enforcement_step(self) -> None:
         last = max(step_index(self.steps, action) for action in ACTIONS)
