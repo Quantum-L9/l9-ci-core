@@ -33,7 +33,7 @@ jobs:
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: 6d70e829cdd9987279f5e48eed340b2b67881662
+          sdk-revision: d09d3963cf8835446b9d1cfd5a03cc79ce16e2e2
       - name: Verify emitted contract
         env:
           SDK_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           test -x "${SDK_EXECUTABLE}"
-          test "${SDK_REVISION}" =             "6d70e829cdd9987279f5e48eed340b2b67881662"
+          test "${SDK_REVISION}" =             "d09d3963cf8835446b9d1cfd5a03cc79ce16e2e2"
           test "${SDK_CONTRACT}" = "l9.integration-contract/v1"
           "${SDK_EXECUTABLE%/bin/l9-ci}/venv/bin/python" -I -c '
           import platform, sys

@@ -14,7 +14,7 @@ assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
-SDK_REVISION = "6d70e829cdd9987279f5e48eed340b2b67881662"
+SDK_REVISION = "d09d3963cf8835446b9d1cfd5a03cc79ce16e2e2"
 REQUIREMENTS_SHA256 = "96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3"
 LOCK_NAME = "cpython-3.12.14-linux-x86_64.txt"
 

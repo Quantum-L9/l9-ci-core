@@ -1,5 +1,5 @@
 # Hash-locked install contract for the l9-ci-sdk source runtime.
-# Derived by lock_runtime.py from SDK 6d70e829cdd9987279f5e48eed340b2b67881662 requirements.txt
+# Derived by lock_runtime.py from SDK d09d3963cf8835446b9d1cfd5a03cc79ce16e2e2 requirements.txt
 # (sha256:96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3) for CPython 3.12.14 on Linux x86_64.
 # Every requirement is exact and wheel-only; provisioning installs this
 # Core-owned closure and never installs the checkout requirements file.

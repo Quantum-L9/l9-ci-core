@@ -6,8 +6,42 @@ metadata:
 default:
   source: git
   repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-  revision: 6d70e829cdd9987279f5e48eed340b2b67881662
+  revision: d09d3963cf8835446b9d1cfd5a03cc79ce16e2e2
 supported:
+  # d09d3963 (l9-ci-sdk#108): packaged Semgrep rule precision for the
+  # Enrichment.Inference.Engine false positives (SDK ADR-0019): token-usage
+  # counts in AST-LOGGING-001/002/003, constant-value proof for the f-string
+  # form of L9-PYTHON-SQL-STRING-FORMAT, destination-scoped taint for
+  # AST-ROUTING-001/002 and AST-TRANSPORT-004, handler identity for
+  # AST-HANDLER-002, and the AST-ROUTING-003 `.internal` regex fix. Rule ids and
+  # canonical_rule_ids unchanged. No l9_ci code outside rulesets/semgrep/python,
+  # no CLI path, integration-contract, artifact-protocol or schema change;
+  # requirements.txt is byte-identical to 6d70e829, so requirements_sha256 is
+  # unchanged.
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: d09d3963cf8835446b9d1cfd5a03cc79ce16e2e2
+    integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+      - l9.sarif-log/v1
+    required_cli_paths:
+      - providers detect
+      - semgrep run
+      - semgrep normalize
+      - gate evaluate
+      - bundle validate
+      - bundle project-agent-payload
+      - bundle project-sarif
+      - compatibility check
+      - baseline compare-tests
+      - baseline scan-packet-envelope
+      - baseline compare-scan
+      - baseline validate-ledger
   # 6d70e829 (l9-ci-sdk#107): packaged Semgrep rule precision fixes for
   # AST-LOGGING-001/002/003 and AST-ROUTING-004 (SDK ADR-0018: precision by
   # code position and dispatch), Biome `.l9` exclusion, and the SDK's adoption of

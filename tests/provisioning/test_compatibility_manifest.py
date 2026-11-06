@@ -7,11 +7,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".l9" / "sdk-compatibility.yaml"
 LOCKS = ROOT / ".github" / "actions" / "provision-sdk" / "locks"
-# l9-ci-sdk at the promoted revision (l9-ci-sdk#107) — the analysis-contract surface
-# Core adopts, with the AST-LOGGING-001/002/003 and AST-ROUTING-004 precision fixes.
-EXPECTED_SHA = "6d70e829cdd9987279f5e48eed340b2b67881662"
+# l9-ci-sdk at the promoted revision (l9-ci-sdk#108) — the analysis-contract surface
+# Core adopts, with the SDK ADR-0019 rule precision for the EIE false positives.
+EXPECTED_SHA = "d09d3963cf8835446b9d1cfd5a03cc79ce16e2e2"
 # Retained as a tested rollback (the prior default).
-ROLLBACK_SHA = "bc678190582694f6efee08b6b7ea39be7e09bd5c"
+ROLLBACK_SHA = "6d70e829cdd9987279f5e48eed340b2b67881662"
 # Removed: two generations behind the released contract; lacks the
 # `semgrep run` + `gate evaluate` handoff, so no longer an active rollback.
 REMOVED_SHA = "0779fca8238011f8abea551895f96584676e9d17"
