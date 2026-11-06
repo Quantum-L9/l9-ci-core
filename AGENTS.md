@@ -723,3 +723,47 @@ live for every governed repository's next evaluation:
 keep their own pins; they are not part of required Organization CI.
 
 Prove the pins with `python3 tools/advance_core_action_pins.py 0e23a1b9404babacb87481289b694d860076d5f6 --check`.
+
+## 20. SDK `d09d3963` activation (2026-11-06) — the §16 pin advance, applied
+
+Two-step promotion per §16, never to an unmerged commit. Step 1
+(`de4b514`, PR #235) made `l9-ci-sdk` `d09d3963` the default compatible
+revision in `.l9/sdk-compatibility.yaml` (`6d70e829` kept as the rollback) and
+regenerated the provision-sdk runtime lock (header only: `requirements.txt` is
+byte-identical). This step activates it:
+
+- `org-ci.yml`'s 16 Core action pins advance to `de4b514`, an ancestor of
+  `main`, and its `sdk-revision` fallback moves from `6d70e829` to `d09d3963`;
+- `analyze-semgrep.yml`'s `install-semgrep` pin moves with it, to `de4b514`,
+  keeping one locked Semgrep install path. Its bytes and `invoke-sdk`'s are
+  identical between `0e23a1b` and `de4b514`, so nothing it installs changes.
+
+Between `0e23a1b` and `de4b514` the only action change is `provision-sdk` (it
+now admits `d09d3963`). What this makes live for every governed repository's
+next evaluation, from the `l9-ci-sdk` `d09d3963` rulesets (its ADR-0019):
+
+- AST-LOGGING-001/002/003 stop reporting LLM token-usage counts
+  (`tokens=total_tokens`, `prompt_tokens=...`) unless the name also carries a
+  credential qualifier;
+- the f-string form of L9-PYTHON-SQL-STRING-FORMAT is reported unless every
+  interpolation is a proven string constant (UPPER_CASE names are not proof);
+- AST-ROUTING-001/002 and AST-TRANSPORT-004 report dispatch to an L9
+  node/peer/Gate destination or `/execute` route, including client instances,
+  `url=` and put/patch/request/stream, instead of every requests/httpx post;
+- AST-HANDLER-002 requires handler identity; AST-ROUTING-003 now matches
+  `https://<host>.internal`.
+
+Witness (rule, file and line, against `6d70e829`): the 26 SDK-rule false
+positives that blocked `Enrichment.Inference.Engine` at `12d8b351` clear;
+nothing else clears in Cognitive.Engine.Graphs, l9-ci-core, l9-ci-sdk or
+l9-constellation-topology; two findings appear in
+l9-constellation-topology `evidence/live-qualify-2026-08-02/run_gate_qualify.py`
+(a raw dict posted straight to Gate `/execute`, already suppressed there for
+AST-ROUTING-004 only). `python.lang.security.audit.insecure-file-permissions`
+stays blocking: it becomes advisory only after the SDK's replacement rule
+(L9-PYTHON-WRITABLE-FILE-MODE, l9-ci-sdk#109) is promoted and proven blocking.
+
+`publish-analysis.yml`, `publish-sarif.yml` and `normalize-semgrep-report.yml`
+keep their own pins; they are not part of required Organization CI.
+
+Prove the pins with `python3 tools/advance_core_action_pins.py de4b5147f5ad97e9972ea584f078fcdad5f20a32 --check`.

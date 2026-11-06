@@ -285,7 +285,7 @@ jobs:
         # source revision changing. The action ships a hash-locked closure and
         # fails closed on a version it has no lock for. org-ci.yml already
         # installs Semgrep this way; this is the same mechanism, not a second.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@0e23a1b9404babacb87481289b694d860076d5f6
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@de4b5147f5ad97e9972ea584f078fcdad5f20a32
         with:
           semgrep-version: ${{ inputs.semgrep-version }}
       - name: Run + normalize semgrep (SDK)
