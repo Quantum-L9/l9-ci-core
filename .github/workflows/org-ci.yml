@@ -398,8 +398,11 @@ jobs:
       # evaluation: Website-Bot's 21.1 MB took 7-8 minutes at ~45 kB/s on some
       # runs and 1 s on others. Only archives are cached, never installed
       # state, and apt verifies each cached .deb against the signed package
-      # index before use, re-downloading any that do not match. The cache key
-      # follows the runner image, so an image update starts a fresh entry.
+      # index before use, re-downloading any that do not match. Entries are
+      # content-addressed (cache entries are immutable): restore never matches
+      # exactly and takes the newest entry for this runner image, else this
+      # image family; the save key is a digest of the archive set kept after
+      # verification, so only a changed set stores a new entry.
       # Cache-service errors only warn, so this can never fail verification.
       - id: apt_archive_cache_dir
         name: Route apt package archives to the verification cache
@@ -416,11 +419,12 @@ jobs:
             'APT::Keep-Downloaded-Packages "true";' \
             'Binary::apt::APT::Keep-Downloaded-Packages "true";' \
             | sudo tee /etc/apt/apt.conf.d/99-l9-archive-cache >/dev/null
-          prefix="l9-apt-archives-v1-${ImageOS:-unknown}-$(uname -m)-"
+          family="l9-apt-archives-v1-${ImageOS:-unknown}-$(uname -m)-"
+          image="${family}${ImageVersion:-unknown}-"
           {
             echo "path=${dir}"
-            echo "key=${prefix}${ImageVersion:-unknown}"
-            echo "restore-prefix=${prefix}"
+            echo "family=${family}"
+            echo "image=${image}"
           } >> "$GITHUB_OUTPUT"
 
       - id: apt_archive_cache
@@ -428,8 +432,11 @@ jobs:
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: ${{ steps.apt_archive_cache_dir.outputs.path }}/*.deb
-          key: ${{ steps.apt_archive_cache_dir.outputs.key }}
-          restore-keys: ${{ steps.apt_archive_cache_dir.outputs.restore-prefix }}
+          # Never saved, so restore always resolves through the prefixes.
+          key: ${{ steps.apt_archive_cache_dir.outputs.image }}restore
+          restore-keys: |
+            ${{ steps.apt_archive_cache_dir.outputs.image }}
+            ${{ steps.apt_archive_cache_dir.outputs.family }}
 
       - id: repository_verify
         name: Run repository verification contract
@@ -438,25 +445,45 @@ jobs:
         with:
           workspace: .
 
-      # Save only what this evaluation added: an exact key hit means the
-      # archives are already cached, and a repository whose setup installs no
-      # OS packages leaves the directory empty and stores nothing.
+      # Keep only archives of package versions installed in this evaluation, so
+      # superseded versions and packages a repository stopped installing drop
+      # out instead of accumulating across images. The save key is a digest of
+      # the kept set: an unchanged set matches the restored entry and stores
+      # nothing, and a repository whose setup installs no OS packages keeps
+      # nothing and stores nothing.
       - id: apt_archive_inventory
         name: Inventory apt package archives
-        if: always() && steps.apt_archive_cache_dir.outcome == 'success' && steps.apt_archive_cache.outputs.cache-hit != 'true'
+        if: always() && steps.apt_archive_cache_dir.outcome == 'success'
         shell: bash
+        env:
+          ARCHIVE_DIR: ${{ steps.apt_archive_cache_dir.outputs.path }}
+          IMAGE_PREFIX: ${{ steps.apt_archive_cache_dir.outputs.image }}
         run: |
           set -euo pipefail
           shopt -s nullglob
-          archives=("${RUNNER_TEMP}/l9-apt-archives/"*.deb)
-          echo "count=${#archives[@]}" >> "$GITHUB_OUTPUT"
+          for archive in "${ARCHIVE_DIR}"/*.deb; do
+            package="$(dpkg-deb -f "${archive}" Package)"
+            version="$(dpkg-deb -f "${archive}" Version)"
+            if ! dpkg-query -W -f='${Version}\n' "${package}" 2>/dev/null | grep -qxF -- "${version}"; then
+              sudo rm -f -- "${archive}"
+            fi
+          done
+          archives=("${ARCHIVE_DIR}"/*.deb)
+          digest=""
+          if [ "${#archives[@]}" -gt 0 ]; then
+            digest="$(printf '%s\n' "${archives[@]##*/}" | LC_ALL=C sort | sha256sum | cut -c1-16)"
+          fi
+          {
+            echo "count=${#archives[@]}"
+            echo "key=${IMAGE_PREFIX}${digest}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Save apt package archives
-        if: always() && steps.apt_archive_inventory.outputs.count != '' && steps.apt_archive_inventory.outputs.count != '0'
+        if: always() && steps.apt_archive_inventory.outputs.count != '' && steps.apt_archive_inventory.outputs.count != '0' && steps.apt_archive_inventory.outputs.key != steps.apt_archive_cache.outputs.cache-matched-key
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: ${{ steps.apt_archive_cache_dir.outputs.path }}/*.deb
-          key: ${{ steps.apt_archive_cache_dir.outputs.key }}
+          key: ${{ steps.apt_archive_inventory.outputs.key }}
 
       # The provider toolchain is a locked contract, not a resolution. Core
       # selects the setup-python action by full SHA, the interpreter by exact

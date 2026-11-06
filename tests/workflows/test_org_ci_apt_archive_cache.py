@@ -4,10 +4,12 @@ A consumer's ``make setup`` may install OS packages with apt (Website-Bot's
 Playwright Chromium fonts, 21.1 MB, took 7-8 minutes on a slow Ubuntu mirror).
 These tests keep the cache an optimisation that can never change a verdict:
 only downloaded ``.deb`` archives are cached (never installed state), the
-restore precedes and the save follows verification, the save runs even after a
-failed phase but only when this evaluation added archives, the key follows the
-runner image, both edges are full-SHA pins of one release, nothing fails open,
-and the job stays read-only.
+restore precedes and the save follows verification, entries are
+content-addressed (restore never matches exactly and falls back from this
+runner image to its family; the save key is a digest of the archive set that
+survives pruning to installed versions), the save runs even after a failed
+phase but only when that set changed, both edges are full-SHA pins of one
+release, nothing fails open, and the job stays read-only.
 """
 
 from __future__ import annotations
@@ -80,23 +82,56 @@ class AptArchiveCacheTests(unittest.TestCase):
         self.assertIn('Dir::Cache::Archives \\"${dir}/\\";', route)
         self.assertIn("/etc/apt/apt.conf.d/99-l9-archive-cache", route)
 
-    def test_key_follows_the_runner_image(self) -> None:
+    def test_restore_never_matches_exactly_and_falls_back_image_then_family(
+        self,
+    ) -> None:
         route = str(self.steps[self.route]["run"])
-        self.assertIn("${ImageOS:-unknown}", route)
-        self.assertIn("key=${prefix}${ImageVersion:-unknown}", route)
+        self.assertIn(
+            'family="l9-apt-archives-v1-${ImageOS:-unknown}-$(uname -m)-"', route
+        )
+        self.assertIn('image="${family}${ImageVersion:-unknown}-"', route)
         restore = self.steps[self.restore]["with"]
-        save = self.steps[self.save]["with"]
-        self.assertEqual(restore["key"], save["key"])
-        self.assertEqual(restore["path"], save["path"])
-        self.assertIn("restore-prefix", str(restore["restore-keys"]))
+        self.assertEqual(
+            "${{ steps.apt_archive_cache_dir.outputs.image }}restore", restore["key"]
+        )
+        self.assertEqual(
+            [
+                "${{ steps.apt_archive_cache_dir.outputs.image }}",
+                "${{ steps.apt_archive_cache_dir.outputs.family }}",
+            ],
+            str(restore["restore-keys"]).strip().splitlines(),
+        )
 
-    def test_save_runs_after_failed_phases_only_when_archives_were_added(self) -> None:
+    def test_save_key_is_a_digest_of_the_pruned_archive_set(self) -> None:
+        inventory = self.steps[self.inventory]
+        run = str(inventory["run"])
+        self.assertIn("dpkg-query -W -f='${Version}\\n' \"${package}\"", run)
+        self.assertIn('sudo rm -f -- "${archive}"', run)
+        self.assertIn("sha256sum", run)
+        self.assertIn('echo "key=${IMAGE_PREFIX}${digest}"', run)
+        self.assertEqual(
+            "${{ steps.apt_archive_cache_dir.outputs.image }}",
+            inventory["env"]["IMAGE_PREFIX"],
+        )
+        self.assertEqual(
+            "${{ steps.apt_archive_inventory.outputs.key }}",
+            self.steps[self.save]["with"]["key"],
+        )
+        self.assertEqual(
+            self.steps[self.restore]["with"]["path"],
+            self.steps[self.save]["with"]["path"],
+        )
+
+    def test_save_runs_after_failed_phases_only_when_the_set_changed(self) -> None:
         inventory = str(self.steps[self.inventory]["if"])
         self.assertTrue(inventory.startswith("always()"), inventory)
-        self.assertIn("steps.apt_archive_cache.outputs.cache-hit != 'true'", inventory)
         save = str(self.steps[self.save]["if"])
         self.assertTrue(save.startswith("always()"), save)
         self.assertIn("steps.apt_archive_inventory.outputs.count != '0'", save)
+        self.assertIn(
+            "steps.apt_archive_inventory.outputs.key != steps.apt_archive_cache.outputs.cache-matched-key",
+            save,
+        )
 
     def test_cache_never_fails_open_and_job_stays_read_only(self) -> None:
         for index in range(self.route, self.save + 1):
