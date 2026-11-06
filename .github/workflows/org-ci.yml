@@ -391,12 +391,72 @@ jobs:
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
           mode: blocking
 
+      # Repository verification runs the consumer's `make setup`, which may
+      # install OS packages with apt (e.g. Playwright's Chromium libraries and
+      # fonts). Their downloaded .deb archives are cached per repository so an
+      # unchanged package set is not re-fetched from the Ubuntu mirror on every
+      # evaluation: Website-Bot's 21.1 MB took 7-8 minutes at ~45 kB/s on some
+      # runs and 1 s on others. Only archives are cached, never installed
+      # state, and apt verifies each cached .deb against the signed package
+      # index before use, re-downloading any that do not match. The cache key
+      # follows the runner image, so an image update starts a fresh entry.
+      # Cache-service errors only warn, so this can never fail verification.
+      - id: apt_archive_cache_dir
+        name: Route apt package archives to the verification cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/l9-apt-archives"
+          mkdir -p "${dir}/partial"
+          if id _apt >/dev/null 2>&1; then
+            sudo chown _apt "${dir}/partial"
+          fi
+          printf '%s\n' \
+            "Dir::Cache::Archives \"${dir}/\";" \
+            'APT::Keep-Downloaded-Packages "true";' \
+            'Binary::apt::APT::Keep-Downloaded-Packages "true";' \
+            | sudo tee /etc/apt/apt.conf.d/99-l9-archive-cache >/dev/null
+          prefix="l9-apt-archives-v1-${ImageOS:-unknown}-$(uname -m)-"
+          {
+            echo "path=${dir}"
+            echo "key=${prefix}${ImageVersion:-unknown}"
+            echo "restore-prefix=${prefix}"
+          } >> "$GITHUB_OUTPUT"
+
+      - id: apt_archive_cache
+        name: Restore cached apt package archives
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ steps.apt_archive_cache_dir.outputs.path }}/*.deb
+          key: ${{ steps.apt_archive_cache_dir.outputs.key }}
+          restore-keys: ${{ steps.apt_archive_cache_dir.outputs.restore-prefix }}
+
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
         uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@0e23a1b9404babacb87481289b694d860076d5f6
         with:
           workspace: .
+
+      # Save only what this evaluation added: an exact key hit means the
+      # archives are already cached, and a repository whose setup installs no
+      # OS packages leaves the directory empty and stores nothing.
+      - id: apt_archive_inventory
+        name: Inventory apt package archives
+        if: always() && steps.apt_archive_cache_dir.outcome == 'success' && steps.apt_archive_cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=("${RUNNER_TEMP}/l9-apt-archives/"*.deb)
+          echo "count=${#archives[@]}" >> "$GITHUB_OUTPUT"
+
+      - name: Save apt package archives
+        if: always() && steps.apt_archive_inventory.outputs.count != '' && steps.apt_archive_inventory.outputs.count != '0'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ steps.apt_archive_cache_dir.outputs.path }}/*.deb
+          key: ${{ steps.apt_archive_cache_dir.outputs.key }}
 
       # The provider toolchain is a locked contract, not a resolution. Core
       # selects the setup-python action by full SHA, the interpreter by exact
