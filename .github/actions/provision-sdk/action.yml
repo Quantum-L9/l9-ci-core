@@ -18,7 +18,7 @@ inputs:
       Full 40-character immutable SDK commit SHA whose checkout requirements
       digest and runtime platform lock are present in Core's compatibility entry.
     required: false
-    default: 6d70e829cdd9987279f5e48eed340b2b67881662
+    default: d09d3963cf8835446b9d1cfd5a03cc79ce16e2e2
   runtime-directory:
     description: >
       Compatibility input fixed to .l9/runtime/sdk. The path must not already
