@@ -767,3 +767,60 @@ stays blocking: it becomes advisory only after the SDK's replacement rule
 keep their own pins; they are not part of required Organization CI.
 
 Prove the pins with `python3 tools/advance_core_action_pins.py de4b5147f5ad97e9972ea584f078fcdad5f20a32 --check`.
+
+## 21. Gate routing rules bind declared Constellation nodes only (2026-11-08) — amends §3 and §4
+
+Organization CI ran the `l9-ci-sdk` Gate routing rules
+(`l9_ci/rulesets/semgrep/python/l9-routing.yml`) as blocking on every governed
+repository. Those rules enforce one obligation of the Quantum-L9/.github
+ProductKind `node` (`semantics/product_kinds.yaml`, `l9.product-kinds/global@1`):
+a node *forbids* `direct_peer_routing_when_gate_is_required` and *requires*
+`gate_routed_inter_product_work`. A repository that is not a Constellation node
+behind Constellation.Gate (Gate_SDK, Cursor-Governance, Core itself) carries no
+such obligation, yet was failed by it.
+
+- §3 is amended: `.l9/ci.json` may also carry `product_kind`, one of the
+  admitted ProductKinds `node` or `dependency`. It is descriptive — a
+  repository says what it is. An unadmitted kind (including the unresolved
+  `sdk`), an empty string, or a non-string fails closed. Absent means not
+  declared.
+- §4 is amended: `resolve-governance` takes a `product-kind` input and emits
+  `constellation-scope` (`node` | `non-node`). The Core-owned
+  `.github/actions/resolve-governance/constellation-node-rules.json`
+  (`l9.constellation-node-rules/v1`, beside `semgrep-policy.yaml`, so the
+  exact-six `defaults/` rule holds) names the admitted kinds, the kind bound to
+  Gate (`node`), the four routing rule IDs, and the `.github` commit whose
+  ProductKind semantics it mirrors.
+- A declared `node` receives `semgrep-policy.yaml` byte-for-byte: the routing
+  rules block exactly as before. Every other repository receives the same
+  policy with only those four rules classified `disabled` under policy key
+  `routing.constellation-node-only`. They still run and are reported in the
+  bundle; the SDK technical gate fails only on `blocking` findings. No other
+  rule changes, and the scoped bytes are bound into `governance-digest`.
+- A consumer still cannot select a mode: the mapping from kind to rules is
+  Core's file, not the consumer's. Declaring `node` is the only way to receive
+  the routing rules, so a Constellation node that has not declared it is not
+  held to them — declaration is the node's obligation.
+- Witness (`l9-ci-sdk` `d09d3963`, Core's `.l9/runtime/sdk/source` layout,
+  `semgrep-policy.yaml` v3): Gate_SDK `main` produces 3 routing findings
+  (`hardcoded-peer-node-url` ×2, `httpx-direct-node-dispatch` ×1); `gate
+  evaluate` exits 1 under the node policy and 0 under the scoped policy.
+- Tests: `tests/governance/test_constellation_scope.py` and
+  `tests/governance/test_consumer_metadata.py`.
+
+### Activation
+
+This change is inert until the §16 pin advance, to its merge revision, which
+also passes the declaration through in `org-ci.yml`:
+
+```yaml
+# resolve-governance step
+product-kind: ${{ steps.consumer.outputs['product-kind'] }}
+```
+
+Order matters for nodes: once the pins advance, an undeclared node stops being
+held to the routing rules. Constellation nodes (Enrichment.Inference.Engine,
+Cognitive.Engine.Graphs, and every other repository behind
+Constellation.Gate) add `"product_kind": "node"` to `.l9/ci.json` immediately
+after the advance merges; before it, the field is an unknown key and fails
+closed.

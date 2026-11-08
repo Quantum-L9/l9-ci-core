@@ -16,6 +16,8 @@ outputs:
     value: ${{ steps.resolve.outputs.repo-class }}
   waiver-refs:
     value: ${{ steps.resolve.outputs.waiver-refs }}
+  product-kind:
+    value: ${{ steps.resolve.outputs.product-kind }}
 runs:
   using: composite
   steps:

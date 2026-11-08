@@ -19,6 +19,13 @@ inputs:
   evaluation-date:
     required: false
     description: ISO-8601 UTC date used for deterministic waiver validation.
+  product-kind:
+    required: false
+    default: ""
+    description: >
+      The consumer's declared Quantum-L9/.github ProductKind (`node` or
+      `dependency`), from resolve-consumer-metadata. Only `node` receives the
+      Gate routing rules as blocking; empty means not declared.
 outputs:
   sdk-profile:
     value: ${{ steps.resolve.outputs.sdk-profile }}
@@ -32,6 +39,8 @@ outputs:
     value: ${{ steps.resolve.outputs.required-provider }}
   sdk-policy:
     value: ${{ steps.resolve.outputs.sdk-policy }}
+  constellation-scope:
+    value: ${{ steps.resolve.outputs.constellation-scope }}
   identity-map-directory:
     value: ${{ steps.resolve.outputs.identity-map-directory }}
   waiver-ids:
@@ -50,4 +59,5 @@ runs:
         L9_REPOSITORY: ${{ inputs.repository }}
         L9_REF: ${{ inputs.ref }}
         L9_EVALUATION_DATE: ${{ inputs.evaluation-date }}
+        L9_PRODUCT_KIND: ${{ inputs.product-kind }}
       run: python3 "${{ github.action_path }}/resolve.py"

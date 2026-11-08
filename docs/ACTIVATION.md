@@ -106,7 +106,11 @@ Do not hand-author `biome.json`; see `presets/typescript/README.md`.
 ## 3. Optional ownership pointer
 
 `.l9/ci.json` (`l9.ci-consumer/v1`) may carry only `owner`, `repo_class`
-(`auto`, `python`, `typescript`) and centrally issued `waiver_refs`. It cannot
+(`auto`, `python`, `typescript`), centrally issued `waiver_refs`, and
+`product_kind` (`node` or `dependency`, the Quantum-L9/.github ProductKinds).
+A Constellation node behind Constellation.Gate declares `"product_kind":
+"node"`; only declared nodes are held to the Gate routing rules
+(`AGENTS.md` §21). It cannot
 select a workflow, a Core or SDK revision, a provider, a mode, a tool version,
 a permission, or a required check; unknown fields fail closed (`AGENTS.md` §3).
 
