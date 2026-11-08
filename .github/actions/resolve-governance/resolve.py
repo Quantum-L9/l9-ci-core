@@ -25,6 +25,10 @@ ALLOWED_MODES = {"blocking", "advisory", "shadow", "disabled"}
 ALLOWED_SDK_PROFILES = {"ci_fast", "ci_deep"}
 IDENTITY_MAP_FILENAMES = ("python.yaml", "typescript.yaml")
 SDK_POLICY_SCHEMA = "l9.finding-policy/v1"
+CONSTELLATION_RULES_FILENAME = "constellation-node-rules.json"
+CONSTELLATION_RULES_SCHEMA = "l9.constellation-node-rules/v1"
+SCOPE_NODE = "node"
+SCOPE_NON_NODE = "non-node"
 
 
 class GovernanceError(RuntimeError):
@@ -73,6 +77,114 @@ def core_identity_maps_path() -> Path:
     if not path.is_dir():
         raise GovernanceError("Core bundled Semgrep identity maps missing")
     return path
+
+
+def core_constellation_rules_path() -> Path:
+    return Path(__file__).resolve().parent / CONSTELLATION_RULES_FILENAME
+
+
+def _string_list(value: Any, label: str) -> list[str]:
+    if (
+        not isinstance(value, list)
+        or not value
+        or not all(isinstance(item, str) and item for item in value)
+        or len(set(value)) != len(value)
+    ):
+        raise GovernanceError(f"{label} must be a non-empty list of unique strings")
+    return list(value)
+
+
+def load_constellation_rules(path: Path | None = None) -> dict[str, Any]:
+    """Load the Core-owned scope of the Gate routing rules.
+
+    Gate routing obligations belong to Constellation nodes (Quantum-L9/.github
+    ProductKind ``node``). The document names the admitted ProductKinds, the
+    kind that is bound to Gate, and the SDK rules that enforce that binding.
+    """
+    source = path or core_constellation_rules_path()
+    if source.is_symlink() or not source.is_file():
+        raise GovernanceError(f"Core constellation scope missing: {source}")
+    try:
+        document = json.loads(source.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise GovernanceError(
+            f"invalid constellation scope {source}: {error}"
+        ) from error
+    if (
+        not isinstance(document, dict)
+        or document.get("schema") != CONSTELLATION_RULES_SCHEMA
+    ):
+        raise GovernanceError(
+            f"constellation scope must use {CONSTELLATION_RULES_SCHEMA}"
+        )
+    kinds = document.get("product_kinds")
+    if not isinstance(kinds, dict):
+        raise GovernanceError("constellation scope product_kinds must be an object")
+    admitted = _string_list(kinds.get("admitted"), "product_kinds.admitted")
+    gate_bound = kinds.get("gate_bound")
+    if gate_bound not in admitted:
+        raise GovernanceError("product_kinds.gate_bound must be an admitted kind")
+    rules = _string_list(document.get("gate_routing_rules"), "gate_routing_rules")
+    policy_key = document.get("undeclared_policy_key")
+    if not isinstance(policy_key, str) or not policy_key.strip():
+        raise GovernanceError("undeclared_policy_key must be a non-empty string")
+    mode = document.get("undeclared_mode")
+    if mode not in ALLOWED_MODES or mode == "blocking":
+        raise GovernanceError("undeclared_mode must be a non-blocking rule mode")
+    return {
+        "admitted": admitted,
+        "gate_bound": gate_bound,
+        "rules": rules,
+        "policy_key": policy_key,
+        "mode": mode,
+    }
+
+
+def constellation_scope(product_kind: str, scope_rules: dict[str, Any]) -> str:
+    """Map a declared ProductKind onto the Gate routing scope.
+
+    An empty declaration is valid and is not a node. A declared kind must be
+    one Quantum-L9/.github admits; anything else fails closed.
+    """
+    if not product_kind:
+        return SCOPE_NON_NODE
+    if product_kind not in scope_rules["admitted"]:
+        raise GovernanceError(
+            f"product kind {product_kind!r} is not admitted: "
+            f"{sorted(scope_rules['admitted'])}"
+        )
+    return SCOPE_NODE if product_kind == scope_rules["gate_bound"] else SCOPE_NON_NODE
+
+
+def scope_policy(
+    selected_policy: tuple[str, bytes] | None,
+    scope: str,
+    scope_rules: dict[str, Any],
+) -> tuple[str, bytes] | None:
+    """Return the SDK policy for this repository's Gate routing scope.
+
+    A node receives the bundled policy byte-for-byte. Any other repository
+    receives the same policy with only the Gate routing rules classified as
+    the undeclared mode, so they run and are reported but cannot block.
+    """
+    if selected_policy is None or scope == SCOPE_NODE:
+        return selected_policy
+    filename, payload = selected_policy
+    document = json.loads(payload)
+    rules = document.get("rules", {})
+    if not isinstance(rules, dict):
+        raise GovernanceError("SDK policy rules must be an object")
+    for rule_id in scope_rules["rules"]:
+        rules[rule_id] = {
+            "policy_key": scope_rules["policy_key"],
+            "mode": scope_rules["mode"],
+        }
+    document["rules"] = rules
+    metadata = document.get("metadata")
+    if not isinstance(metadata, dict):
+        raise GovernanceError("SDK policy metadata must be an object")
+    metadata["constellation_scope"] = SCOPE_NON_NODE
+    return filename, (json.dumps(document, indent=2) + "\n").encode("utf-8")
 
 
 def load_documents(root: Path) -> dict[str, Any]:
@@ -297,7 +409,13 @@ def stage_selected_policy(
     workspace_raw = os.environ.get("GITHUB_WORKSPACE", "").strip()
     source = _bundled_policy_path(governance_root, policy)
     if not workspace_raw:
-        return source.resolve().as_posix()
+        if payload == source.read_bytes():
+            return source.resolve().as_posix()
+        # A scoped policy has no bundled file of its own; outside a workspace
+        # it is written to a private temporary directory instead.
+        target = Path(tempfile.mkdtemp(prefix="l9-org-governance-")) / source.name
+        target.write_bytes(payload)
+        return target.as_posix()
     workspace = Path(workspace_raw).resolve()
     return _stage_sdk_policy(source, payload, workspace)
 
@@ -494,12 +612,19 @@ def main() -> int:
         event_name = required_environment("L9_EVENT_NAME")
         repository = required_environment("L9_REPOSITORY")
         ref = required_environment("L9_REF")
+        product_kind = os.environ.get("L9_PRODUCT_KIND", "").strip()
         governance_root = core_defaults_path()
         documents = load_documents(governance_root)
         profile = validate_profile(documents, profile_name, provider, event_name)
         mode = resolve_mode(documents, profile_name, provider, profile["default_mode"])
         required = resolve_requiredness(documents, profile_name, provider)
-        selected_policy = select_policy(documents, profile_name, governance_root)
+        scope_rules = load_constellation_rules()
+        scope = constellation_scope(product_kind, scope_rules)
+        selected_policy = scope_policy(
+            select_policy(documents, profile_name, governance_root),
+            scope,
+            scope_rules,
+        )
         policy = stage_selected_policy(selected_policy, governance_root)
         identity_map_directory = stage_identity_maps()
         waivers = applicable_waivers(
@@ -519,6 +644,7 @@ def main() -> int:
         emit("strict", str(profile["strict"]).lower())
         emit("required-provider", str(required).lower())
         emit("sdk-policy", policy)
+        emit("constellation-scope", scope)
         emit("identity-map-directory", identity_map_directory)
         emit("waiver-ids", ",".join(waivers))
         emit(

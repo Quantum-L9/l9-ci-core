@@ -11,8 +11,11 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "l9.ci-consumer/v1"
-ALLOWED_KEYS = {"schema", "owner", "repo_class", "waiver_refs"}
+ALLOWED_KEYS = {"schema", "owner", "repo_class", "waiver_refs", "product_kind"}
 ALLOWED_REPO_CLASSES = {"auto", "python", "typescript"}
+# Quantum-L9/.github l9.product-kinds/global@1 admitted kinds. A repository
+# declares what it is; Core decides which obligations that kind carries.
+ALLOWED_PRODUCT_KINDS = {"node", "dependency"}
 OWNER_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
@@ -82,9 +85,17 @@ def load_metadata(path: Path) -> dict[str, Any] | None:
         raise ConsumerMetadataError(
             "waiver_refs must contain at most 32 unique identifiers"
         )
+    product_kind = payload.get("product_kind", "")
+    if "product_kind" in payload and (
+        not isinstance(product_kind, str) or product_kind not in ALLOWED_PRODUCT_KINDS
+    ):
+        raise ConsumerMetadataError(
+            f"product_kind must be one of {sorted(ALLOWED_PRODUCT_KINDS)}"
+        )
     payload["owner"] = owner
     payload["repo_class"] = repo_class
     payload["waiver_refs"] = sorted(waiver_refs)
+    payload["product_kind"] = product_kind
     return payload
 
 
@@ -97,11 +108,13 @@ def main() -> int:
             emit("owner", "")
             emit("repo-class", "auto")
             emit("waiver-refs", "")
+            emit("product-kind", "")
             return 0
         emit("present", "true")
         emit("owner", payload["owner"])
         emit("repo-class", payload["repo_class"])
         emit("waiver-refs", ",".join(payload["waiver_refs"]))
+        emit("product-kind", payload["product_kind"])
         return 0
     except ConsumerMetadataError as error:
         print(f"resolve-consumer-metadata: {error}", file=sys.stderr)

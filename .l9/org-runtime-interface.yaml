@@ -93,9 +93,11 @@ claims:
 
   - id: consumer-metadata-bounded
     statement: >-
-      Optional .l9/ci.json accepts only schema, owner, repo_class, and
-      waiver_refs. Unknown fields fail closed; consumers cannot set policy,
-      versions, providers, workflow refs, permissions, or enforcement mode.
+      Optional .l9/ci.json accepts only schema, owner, repo_class,
+      waiver_refs, and product_kind. Unknown fields fail closed; consumers
+      cannot set policy, versions, providers, workflow refs, permissions, or
+      enforcement mode. product_kind declares a Quantum-L9/.github ProductKind
+      (node or dependency); Core alone decides which rules that kind carries.
     evidence:
       - .l9/ci-consumer.schema.json
       - .github/actions/resolve-consumer-metadata/metadata.py

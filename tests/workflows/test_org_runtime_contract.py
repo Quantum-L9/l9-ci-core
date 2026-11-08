@@ -219,7 +219,7 @@ class OrgRuntimeContractTests(unittest.TestCase):
 
         schema = json.loads(CONSUMER_SCHEMA_PATH.read_text(encoding="utf-8"))
         self.assertEqual(
-            {"schema", "owner", "repo_class", "waiver_refs"},
+            {"schema", "owner", "repo_class", "waiver_refs", "product_kind"},
             set(schema["properties"]),
         )
         self.assertFalse(schema["additionalProperties"])

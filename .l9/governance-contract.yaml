@@ -34,6 +34,7 @@ boundary:
     - owner
     - repo_class
     - centrally issued waiver references
+    - product_kind (a declared Quantum-L9/.github ProductKind)
   consumer_metadata_may_not_supply:
     - governance mode
     - provider enablement

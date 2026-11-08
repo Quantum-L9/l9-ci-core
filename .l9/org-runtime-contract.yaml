@@ -101,6 +101,7 @@ consumer_metadata:
     - owner
     - repo_class
     - waiver_refs
+    - product_kind
   authority: descriptive_only
   may_not_control:
     - workflow source or revision
@@ -115,6 +116,13 @@ consumer_metadata:
   repo_class_behavior: >-
     repo_class is a consistency assertion against SDK repository capability
     detection. It cannot enable a capability that the SDK does not detect.
+  product_kind_behavior: >-
+    product_kind declares a Quantum-L9/.github ProductKind (node or
+    dependency). It is descriptive: Core's resolve-governance maps it through
+    the Core-owned constellation-node-rules.json. A declared node (a
+    Constellation node behind Constellation.Gate) receives the Gate routing
+    rules as blocking; every other repository receives them disabled, still
+    reported. It cannot change any other rule's mode.
 
 outputs:
   artifact_name: string

@@ -20,6 +20,11 @@
       "maxItems": 32,
       "uniqueItems": true,
       "items": {"type": "string", "minLength": 1}
+    },
+    "product_kind": {
+      "type": "string",
+      "enum": ["node", "dependency"],
+      "description": "Declared Quantum-L9/.github ProductKind (l9.product-kinds/global@1). `node` marks a Constellation node behind Constellation.Gate; only nodes receive the Gate routing rules as blocking."
     }
   },
   "required": ["schema"]
