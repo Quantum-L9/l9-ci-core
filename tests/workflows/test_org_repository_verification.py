@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "org-ci.yml"
 ACTION = ROOT / ".github" / "actions" / "run-repository-verification" / "action.yml"
 RUNNER = ROOT / ".github" / "actions" / "run-repository-verification" / "run.py"
-PIN = "53d422d302f01484eac3202f89b90f34e2ec6ba8"
+PIN = "e69de8b4bb4a1d0a732596ac968c22aadc483947"
 # The mocked V1 tests below only need the classifier to route to the V1
 # runtime; the bounded V1 executor is covered end to end by
 # tests/repo_execution/test_legacy_v1.py.

@@ -857,3 +857,31 @@ Follow-up owed by every Constellation node behind Constellation.Gate
 the routing rules.
 
 Prove the pins with `python3 tools/advance_core_action_pins.py 53d422d302f01484eac3202f89b90f34e2ec6ba8 --check`.
+
+## 23. Semgrep policy v4 activation (2026-11-08) — the §16 pin advance, applied
+
+`e69de8b` (PR #239) moved `resolve-governance/semgrep-policy.yaml` to version 4.
+That version classifies the Semgrep audit rule `insecure-file-permissions` as
+`advisory`. The rule flags `os.chmod` / `lchmod` / `fchmod` when the literal
+mode satisfies `$BITS >= 0o650`. That is a comparison of size, not of
+permission bits: owner-only `0o700` is reported as widely permissive while
+`0o555` passes. It was the last blocking finding in Organization CI for
+Quantum-L9/Enrichment.Inference.Engine (issue #287: `os.fchmod(stage_fd,
+0o700)`, an owner-only staging directory). This step activates it:
+
+- `org-ci.yml`'s 16 Core action pins advance to `e69de8b`, an ancestor of
+  `main`;
+- `analyze-semgrep.yml`'s `install-semgrep` pin moves with it, to `e69de8b`,
+  keeping one locked Semgrep install path.
+
+Between `53d422d` and `e69de8b` the only action change is
+`resolve-governance/semgrep-policy.yaml`. Every other Core action is
+byte-identical, and the SDK revision stays `d09d3963`. What this makes live
+for every governed repository's next evaluation:
+
+- `insecure-file-permissions` findings are still reported but no longer block.
+  This includes the rule's bit-based stat-constant branches (`S_IWOTH`,
+  `S_IRWXO`, …), which are reviewed per finding like the other advisory
+  classifications. The blocking default is unchanged.
+
+Prove the pins with `python3 tools/advance_core_action_pins.py e69de8b4bb4a1d0a732596ac968c22aadc483947 --check`.
