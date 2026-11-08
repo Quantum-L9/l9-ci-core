@@ -17,7 +17,7 @@ assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
-SDK_V1 = "d09d3963cf8835446b9d1cfd5a03cc79ce16e2e2"
+SDK_V1 = "9fd4efe7a3f2d671e063b0e7c15fd52b95d0ccd1"
 
 
 class ManifestEntrySelectionTests(unittest.TestCase):
