@@ -824,3 +824,36 @@ Cognitive.Engine.Graphs, and every other repository behind
 Constellation.Gate) add `"product_kind": "node"` to `.l9/ci.json` immediately
 after the advance merges; before it, the field is an unknown key and fails
 closed.
+
+## 22. Constellation node scope activation (2026-11-08) — the §16 pin advance, applied
+
+Two-step promotion per §16, never to an unmerged commit. Step 1
+(`53d422d`, PR #237, §21) taught `resolve-consumer-metadata` to accept and
+emit `product_kind` and `resolve-governance` to scope the Gate routing rules
+to declared Constellation nodes. This step activates it:
+
+- `org-ci.yml`'s 16 Core action pins advance to `53d422d`, an ancestor of
+  `main`, and the `resolve-governance` step now passes
+  `product-kind: ${{ steps.consumer.outputs['product-kind'] }}`;
+- `analyze-semgrep.yml`'s `install-semgrep` pin moves with it, to `53d422d`,
+  keeping one locked Semgrep install path.
+
+Between `de4b514` and `53d422d` the only action changes are
+`resolve-consumer-metadata` and `resolve-governance` (§21); `install-semgrep`,
+`invoke-sdk` and `provision-sdk` are byte-identical, and the SDK revision
+stays `d09d3963`. What this makes live for every governed repository's next
+evaluation:
+
+- `.l9/ci.json` may declare `"product_kind": "node"` or `"dependency"`; an
+  unadmitted value fails the consumer-metadata step;
+- a repository that declares `node` is held to the four `l9-routing.yml`
+  rules exactly as before; every other repository receives them `disabled`
+  (still run and reported, never blocking). Gate_SDK, Cursor-Governance and
+  Core are not nodes and stop being failed by them.
+
+Follow-up owed by every Constellation node behind Constellation.Gate
+(Enrichment.Inference.Engine, Cognitive.Engine.Graphs, and the rest): declare
+`"product_kind": "node"` in `.l9/ci.json`. Until a node does, it is not held to
+the routing rules.
+
+Prove the pins with `python3 tools/advance_core_action_pins.py 53d422d302f01484eac3202f89b90f34e2ec6ba8 --check`.

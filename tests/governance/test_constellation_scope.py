@@ -189,6 +189,24 @@ class ConstellationScopeTests(unittest.TestCase):
                 with self.assertRaises(module.GovernanceError):
                     module.load_constellation_rules(path)
 
+    def test_org_ci_passes_the_consumer_declaration_to_governance(self) -> None:
+        workflow = yaml.safe_load(
+            (ROOT / ".github" / "workflows" / "org-ci.yml").read_text(encoding="utf-8")
+        )
+        steps = [
+            step
+            for job in workflow["jobs"].values()
+            for step in job.get("steps", [])
+            if str(step.get("uses", "")).startswith(
+                "Quantum-L9/l9-ci-core/.github/actions/resolve-governance@"
+            )
+        ]
+        self.assertEqual(1, len(steps))
+        self.assertEqual(
+            "${{ steps.consumer.outputs['product-kind'] }}",
+            steps[0]["with"]["product-kind"],
+        )
+
     def test_action_wires_product_kind_in_and_scope_out(self) -> None:
         action = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
         product_kind = action["inputs"]["product-kind"]
