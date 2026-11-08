@@ -1,22 +1,22 @@
 {
-  "schema": "l9.constellation-node-rules/v1",
-  "product_kinds": {
-    "source": {
-      "repository": "Quantum-L9/.github",
-      "path": "semantics/product_kinds.yaml",
-      "artifact_id": "l9.product-kinds/global@1",
-      "commit": "020a94bea86e7c5c5e4107da7014ec259508f397"
-    },
-    "admitted": ["dependency", "node"],
-    "gate_bound": "node"
-  },
-  "gate_routing_rules": [
-    "l9.runtime.sdk.source.l9_ci.rulesets.semgrep.python.l9.routing.requests-direct-node-dispatch",
-    "l9.runtime.sdk.source.l9_ci.rulesets.semgrep.python.l9.routing.httpx-direct-node-dispatch",
-    "l9.runtime.sdk.source.l9_ci.rulesets.semgrep.python.l9.routing.hardcoded-peer-node-url",
-    "l9.runtime.sdk.source.l9_ci.rulesets.semgrep.python.l9.routing.gateclient-bypass-execute"
-  ],
-  "undeclared_policy_key": "routing.constellation-node-only",
-  "undeclared_mode": "disabled",
-  "note": "Gate routing obligations bind Constellation nodes only. Quantum-L9/.github ProductKind `node` forbids direct_peer_routing_when_gate_is_required and requires gate_routed_inter_product_work; these four l9-ci-sdk rules (l9_ci/rulesets/semgrep/python/l9-routing.yml) enforce exactly that. A repository that declares product_kind `node` in .l9/ci.json receives the bundled Semgrep policy unchanged, so the rules block. Any other repository receives the same policy with only these rules set to `disabled`: they still run and are reported, but cannot fail the technical gate. Every other rule is unchanged. Change the rule list here after org review; a consumer cannot replace this file."
+	"schema": "l9.constellation-node-rules/v1",
+	"product_kinds": {
+		"source": {
+			"repository": "Quantum-L9/.github",
+			"path": "semantics/product_kinds.yaml",
+			"artifact_id": "l9.product-kinds/global@1",
+			"commit": "020a94bea86e7c5c5e4107da7014ec259508f397"
+		},
+		"admitted": ["dependency", "node"],
+		"gate_bound": "node"
+	},
+	"gate_routing_rules": [
+		"l9.runtime.sdk.source.l9_ci.rulesets.semgrep.python.l9.routing.requests-direct-node-dispatch",
+		"l9.runtime.sdk.source.l9_ci.rulesets.semgrep.python.l9.routing.httpx-direct-node-dispatch",
+		"l9.runtime.sdk.source.l9_ci.rulesets.semgrep.python.l9.routing.hardcoded-peer-node-url",
+		"l9.runtime.sdk.source.l9_ci.rulesets.semgrep.python.l9.routing.gateclient-bypass-execute"
+	],
+	"undeclared_policy_key": "routing.constellation-node-only",
+	"undeclared_mode": "disabled",
+	"note": "Gate routing obligations bind Constellation nodes only. Quantum-L9/.github ProductKind `node` forbids direct_peer_routing_when_gate_is_required and requires gate_routed_inter_product_work; these four l9-ci-sdk rules (l9_ci/rulesets/semgrep/python/l9-routing.yml) enforce exactly that. A repository that declares product_kind `node` in .l9/ci.json receives the bundled Semgrep policy unchanged, so the rules block. Any other repository receives the same policy with only these rules set to `disabled`: they still run and are reported, but cannot fail the technical gate. Every other rule is unchanged. Change the rule list here after org review; a consumer cannot replace this file."
 }
