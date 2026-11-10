@@ -365,7 +365,7 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@e69de8b4bb4a1d0a732596ac968c22aadc483947
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@a715fac67635bf194de9bc1840a633c5b54e07bc
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
