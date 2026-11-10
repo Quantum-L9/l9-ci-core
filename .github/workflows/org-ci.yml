@@ -619,7 +619,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@e69de8b4bb4a1d0a732596ac968c22aadc483947
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@a715fac67635bf194de9bc1840a633c5b54e07bc
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}

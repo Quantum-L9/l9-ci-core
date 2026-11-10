@@ -200,7 +200,7 @@ jobs:
           cp "${L9_WORK}/gate-result.json" \
             "artifacts/l9/${MATRIX_ID}/gate-result.json"
       - name: Build artifact manifest
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@a715fac67635bf194de9bc1840a633c5b54e07bc
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
