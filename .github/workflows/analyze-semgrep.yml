@@ -240,7 +240,7 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@a0c717893a444778c8a6993ec4db5d5fd9ce28d5
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@a715fac67635bf194de9bc1840a633c5b54e07bc
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           root: .
