@@ -12,12 +12,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 ACTION = ROOT / ".github" / "actions" / "install-consumer-ci"
 PINS = ACTION / "requirements-consumer-ci.txt"
 LOCK = ACTION / "toolchain-lock.json"
 TOOLS = ACTION / "core-owned-tools.json"
 INSTALL = ACTION / "install.sh"
+ACTION_YML = ACTION / "action.yml"
 PRECOMMIT = ROOT / ".pre-commit-config.yaml"
 BIOME = ROOT / "presets" / "typescript" / "biome.json"
 ROOT_INCLUDE = ROOT / "requirements-consumer-ci.txt"
@@ -59,8 +62,9 @@ class InstallConsumerCiTests(unittest.TestCase):
 
     def test_installer_covers_every_core_owned_pip_tool_but_semgrep(self) -> None:
         """Every Core-owned tool a consumer could take from PyPI is installable
-        from the pin file. semgrep is the exception: it installs through the
-        hash-locked ``install-semgrep`` action."""
+        from the pin file. semgrep is the exception: the same action installs it
+        on request (``semgrep: "true"``) from the hash-locked ``install-semgrep``
+        contract instead."""
         tools = json.loads(TOOLS.read_text(encoding="utf-8"))
         pip_tools = {t["name"] for t in tools["tools"] if "pip" in t["ecosystems"]}
         self.assertEqual(pip_tools - {"semgrep"}, set(INSTALLER_TOOLS))
@@ -191,6 +195,110 @@ class InstallConsumerCiTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 2, proc.stderr)
             self.assertIn("missing pre-commit== pin", proc.stderr)
+
+
+def _stage_installer(
+    tmp: Path, semgrep_version: str
+) -> tuple[Path, Path, dict[str, str]]:
+    """A copy of this action beside a fake install-semgrep, with ``python -m pip``
+    stubbed out, so the semgrep hand-off runs without installing anything."""
+    action = tmp / "install-consumer-ci"
+    action.mkdir()
+    (action / "install.sh").write_text(
+        INSTALL.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    (action / "requirements-consumer-ci.txt").write_text(
+        PINS.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    lock["semgrep"] = semgrep_version
+    (action / "toolchain-lock.json").write_text(json.dumps(lock), encoding="utf-8")
+    semgrep = tmp / "install-semgrep"
+    semgrep.mkdir()
+    record = tmp / "semgrep-version-requested"
+    (semgrep / "install.sh").write_text(
+        f'#!/usr/bin/env bash\nprintf %s "$L9_SEMGREP_VERSION" > {record}\n',
+        encoding="utf-8",
+    )
+    shim = tmp / "bin"
+    shim.mkdir()
+    real = subprocess.run(
+        ["bash", "-c", "command -v python3"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    (shim / "python").write_text(
+        f'#!/usr/bin/env bash\nif [[ "$1" == "-m" && "$2" == "pip" ]]; then exit 0; fi\nexec {real} "$@"\n',
+        encoding="utf-8",
+    )
+    (shim / "python").chmod(0o755)
+    env = {"PATH": f"{shim}:/usr/bin:/bin"}
+    return action, record, env
+
+
+class SemgrepOptionTests(unittest.TestCase):
+    def test_action_semgrep_input_defaults_on_and_names_no_version(self) -> None:
+        action = yaml.safe_load(ACTION_YML.read_text(encoding="utf-8"))
+        self.assertEqual({"semgrep"}, set(action["inputs"]))
+        self.assertEqual("true", action["inputs"]["semgrep"]["default"])
+        step = action["runs"]["steps"][0]
+        self.assertEqual("install", step["id"])
+        self.assertEqual("${{ inputs.semgrep }}", step["env"]["L9_INSTALL_SEMGREP"])
+        self.assertEqual(
+            "${{ steps.install.outputs.executable }}",
+            action["outputs"]["semgrep-executable"]["value"],
+        )
+
+    def test_semgrep_true_installs_the_locked_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            action, record, env = _stage_installer(Path(tmp), "9.8.7")
+            proc = subprocess.run(
+                ["bash", str(action / "install.sh")],
+                env={**env, "L9_INSTALL_SEMGREP": "true"},
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, proc.returncode, proc.stderr)
+            self.assertEqual("9.8.7", record.read_text(encoding="utf-8"))
+
+    def test_semgrep_on_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            action, record, env = _stage_installer(Path(tmp), "9.8.7")
+            proc = subprocess.run(
+                ["bash", str(action / "install.sh")],
+                env=env,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, proc.returncode, proc.stderr)
+            self.assertEqual("9.8.7", record.read_text(encoding="utf-8"))
+
+    def test_semgrep_false_skips_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            action, record, env = _stage_installer(Path(tmp), "9.8.7")
+            proc = subprocess.run(
+                ["bash", str(action / "install.sh")],
+                env={**env, "L9_INSTALL_SEMGREP": "false"},
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, proc.returncode, proc.stderr)
+            self.assertFalse(record.exists())
+
+    def test_semgrep_rejects_anything_but_true_or_false(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            action, record, env = _stage_installer(Path(tmp), "9.8.7")
+            proc = subprocess.run(
+                ["bash", str(action / "install.sh")],
+                env={**env, "L9_INSTALL_SEMGREP": "1.171.0"},
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(2, proc.returncode, proc.stderr)
+            self.assertIn('must be "true" or "false"', proc.stderr)
+            self.assertFalse(record.exists())
 
 
 if __name__ == "__main__":

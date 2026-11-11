@@ -133,6 +133,29 @@ consumer names no Core-owned version anywhere. For a `uv.lock` consumer:
 `not_applicable` for these tools), and a Core pin-file PR plus the `v2` move
 is the whole bump.
 
+### Semgrep (declare nothing)
+
+The installer installs Semgrep by default (`semgrep: "false"` skips it), so a
+consumer job that runs Semgrep gets it from the same action, never by name:
+
+```yaml
+- uses: actions/setup-python@<sha>   # CPython 3.12: the lock is built for it
+  with:
+    python-version: "3.12"
+- id: core
+  uses: Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@v2
+- run: semgrep scan --config .semgrep/ --error --metrics=off
+```
+
+The version is `toolchain-lock.json`'s `semgrep` from the same Core revision;
+the closure installs from `install-semgrep/locks/semgrep-<version>.txt` with
+`--require-hashes`, and the installed version is verified. Outputs:
+`semgrep-executable`, `semgrep-version`. No `pip install semgrep`, no
+`semgrep/semgrep` or `returntocorp/*` image or action, and no version input:
+those are copies of a Core decision that drift. Repository-owned rules
+(`.semgrep/`) stay in the consumer; the organization ruleset run stays the
+SDK's (`invoke-sdk` `semgrep-run`).
+
 ## Pairing with the analysis pipeline
 
 Pin Core analysis workflows by immutable SHA (never `@main`) unless the

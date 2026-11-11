@@ -1,12 +1,31 @@
 name: Install consumer CI toolchain
 description: >
-  Installs the Core-owned pip/pre-commit/ruff/mypy/pytest pins. Versions are
-  not Dependabot-owned and must not be invented or declared in the caller.
+  Installs the Core-owned pip/pre-commit/ruff/mypy/pytest pins and Core's
+  Semgrep at the toolchain lock's version from the hash-locked install-semgrep
+  contract (`semgrep: "false"` skips it). Versions are not Dependabot-owned
+  and must not be invented or declared in the caller.
+inputs:
+  semgrep:
+    description: >-
+      Install Semgrep (default "true"; "false" skips it). The version is
+      toolchain-lock.json's `semgrep` (never an input); the closure installs
+      from install-semgrep/locks/semgrep-<version>.txt with --require-hashes.
+    required: false
+    default: "true"
+outputs:
+  semgrep-executable:
+    description: Absolute path to the verified Semgrep executable (unless semgrep is "false").
+    value: ${{ steps.install.outputs.executable }}
+  semgrep-version:
+    description: The Semgrep version Core's lock selected (unless semgrep is "false").
+    value: ${{ steps.install.outputs.provider-version }}
 runs:
   using: composite
   steps:
-    - name: Install pinned consumer CI tools
+    - id: install
+      name: Install pinned consumer CI tools
       shell: bash
       env:
         L9_CI_CORE_REF: ${{ github.action_ref }}
+        L9_INSTALL_SEMGREP: ${{ inputs.semgrep }}
       run: bash "${{ github.action_path }}/install.sh"

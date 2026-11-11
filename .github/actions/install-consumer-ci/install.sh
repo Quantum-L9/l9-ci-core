@@ -43,3 +43,27 @@ done
 # action is the fleet's shared install path -- leaving it unhardened re-seeds
 # that finding into every consumer that adopts the preset.
 python -m pip install --only-binary :all: -r "${PIN}"
+
+# Semgrep, on by default (the action input defaults to "true"; "false" skips
+# it; a bare script run without the variable installs it too). The consumer
+# names no version: it is
+# toolchain-lock.json's `semgrep` from this same Core revision, installed by
+# install-semgrep's hash-locked contract (every distribution digest-pinned,
+# wheels only), which also verifies the installed version and writes the
+# executable path to GITHUB_OUTPUT.
+case "${L9_INSTALL_SEMGREP:-true}" in
+  false) exit 0 ;;
+  true|"") ;;
+  *)
+    echo "install-consumer-ci: semgrep must be \"true\" or \"false\", got '${L9_INSTALL_SEMGREP}'" >&2
+    exit 2
+    ;;
+esac
+LOCK_JSON="${HERE}/toolchain-lock.json"
+SEMGREP_INSTALLER="${HERE}/../install-semgrep/install.sh"
+if [[ ! -f "${LOCK_JSON}" || ! -f "${SEMGREP_INSTALLER}" ]]; then
+  echo "install-consumer-ci: semgrep needs this action's Core revision (toolchain-lock.json and install-semgrep beside it)" >&2
+  exit 2
+fi
+SEMGREP_VERSION="$(python -c 'import json, sys; print(json.load(open(sys.argv[1]))["semgrep"])' "${LOCK_JSON}")"
+L9_SEMGREP_VERSION="${SEMGREP_VERSION}" bash "${SEMGREP_INSTALLER}"
