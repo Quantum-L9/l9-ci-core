@@ -1,7 +1,6 @@
 {
   "lock": ".github/actions/install-consumer-ci/toolchain-lock.json",
   "non_dependency_lock_keys": {
-    "pip": "installer bootstrap Core pins inside its own workflows; not a consumer dependency",
     "python": "interpreter selected by setup-python; not a package-manager dependency"
   },
   "schema": "l9.core-owned-tools/v1",
@@ -19,6 +18,13 @@
         "uv": ["mypy"]
       },
       "name": "mypy"
+    },
+    {
+      "ecosystems": {
+        "pip": ["pip"],
+        "uv": ["pip"]
+      },
+      "name": "pip"
     },
     {
       "ecosystems": {

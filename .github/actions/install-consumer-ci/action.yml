@@ -1,7 +1,7 @@
 name: Install consumer CI toolchain
 description: >
-  Installs the Core-owned ruff/mypy/pytest pins. Versions are not
-  Dependabot-owned and must not be invented in the caller.
+  Installs the Core-owned pip/pre-commit/ruff/mypy/pytest pins. Versions are
+  not Dependabot-owned and must not be invented or declared in the caller.
 runs:
   using: composite
   steps:

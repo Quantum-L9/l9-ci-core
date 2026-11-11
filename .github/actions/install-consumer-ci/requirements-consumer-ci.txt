@@ -1,6 +1,9 @@
 # Consumer CI toolchain pins. Core-owned. Dependabot does not bump this file.
 # Move the floating tag v2 after a human pin-file change. Do not invent versions
-# in consumer repos.
+# in consumer repos: a consumer installs these and declares none of them
+# (docs/consumer-lint-test.md "Declare nothing").
+pip==26.2.1
+pre-commit==4.4.0
 ruff==0.16.1
 mypy==2.3.0
 pytest==9.1.1
