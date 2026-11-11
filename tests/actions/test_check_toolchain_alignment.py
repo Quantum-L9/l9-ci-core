@@ -143,6 +143,37 @@ class FixtureTests(WorkspaceCase):
 
 
 class ClassificationTests(WorkspaceCase):
+    def test_pip_in_a_consumer_lock_is_checked(self) -> None:
+        """pip is a Core-owned tool: a consumer lock that resolved it (for
+        example through pip-audit's pip-api) at another version is drift."""
+        pip = LOCK["pip"]
+        self.write(
+            "uv.lock",
+            "version = 1\n\n"
+            "[[package]]\n"
+            'name = "pip"\n'
+            'version = "26.3"\n'
+            "\n"
+            "[[package]]\n"
+            'name = "pip-api"\n'
+            'version = "0.0.34"\n',
+        )
+        self.write("requirements-dev.txt", f"pip=={pip}\n")
+        proc = self.run_action()
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertEqual(
+            {
+                ("requirements-dev.txt", 1, "pip", "exact_match"),
+                ("uv.lock", 5, "pip", "exact_drift"),
+            },
+            self.findings(),
+        )
+        self.assertEqual("drift", self.report()["status"])
+        self.assertIn(
+            f"::warning file=uv.lock,line=5::pip 26.3 [exact_drift] — Core lock is {pip}",
+            proc.stdout,
+        )
+
     def test_every_class_is_reachable_with_its_line(self) -> None:
         ruff = LOCK["ruff"]
         self.write(

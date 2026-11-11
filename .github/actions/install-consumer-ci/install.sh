@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Install the Core-owned consumer CI pins. Fail-closed on missing or unpinned lines.
+# Install the Core-owned consumer CI pins (pip, pre-commit, ruff, mypy, pytest).
+# Fail-closed on missing or unpinned lines.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -13,22 +14,19 @@ if [[ ! -f "${PIN}" ]]; then
     -o "${PIN}"
 fi
 
+# Every line is an exact pin: a consumer declares none of these tools, so this
+# file is the only place their versions come from.
 while IFS= read -r line || [[ -n "${line}" ]]; do
   case "${line}" in
     ""|\#*|-r\ *) continue ;;
   esac
-  pkg="${line%%==*}"
-  case "${pkg}" in
-    ruff|mypy|pytest)
-      if [[ "${line}" != *==* ]]; then
-        echo "install-consumer-ci: unpinned toolchain line refused: ${line}" >&2
-        exit 2
-      fi
-      ;;
-  esac
+  if [[ ! "${line}" =~ ^[A-Za-z0-9._-]+==[0-9][^[:space:]]*$ ]]; then
+    echo "install-consumer-ci: unpinned toolchain line refused: ${line}" >&2
+    exit 2
+  fi
 done < "${PIN}"
 
-for pkg in ruff mypy pytest; do
+for pkg in pip pre-commit ruff mypy pytest; do
   if ! grep -Eq "^${pkg}==" "${PIN}"; then
     echo "install-consumer-ci: missing ${pkg}== pin in ${PIN}" >&2
     exit 2
@@ -39,7 +37,7 @@ done
 # not be able to execute it: an sdist runs its setup.py at install time, on
 # every consumer runner that calls this action. ruff, mypy and pytest all
 # publish wheels, so this costs nothing and fails loudly rather than silently
-# building if that stops being true.
+# building if that stops being true. pip and pre-commit publish wheels too.
 #
 # This is also what SonarCloud githubactions:S8541 asks for by name, and this
 # action is the fleet's shared install path -- leaving it unhardened re-seeds

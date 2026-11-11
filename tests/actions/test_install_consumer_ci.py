@@ -24,12 +24,15 @@ ROOT_INCLUDE = ROOT / "requirements-consumer-ci.txt"
 REPO_RUNTIME = ROOT / "requirements-repo-runtime.txt"
 
 PIN_RE = re.compile(r"^(ruff|mypy|pytest)==([0-9][^\s]+)$", re.M)
+# Every Python package a consumer installs from Core instead of declaring it.
+INSTALLER_TOOLS = ("pip", "pre-commit", "ruff", "mypy", "pytest")
+INSTALLER_RE = re.compile(r"^(pip|pre-commit|ruff|mypy|pytest)==([0-9][^\s]+)$", re.M)
 
 
 def _pins() -> dict[str, str]:
     text = PINS.read_text(encoding="utf-8")
-    found = dict(PIN_RE.findall(text))
-    if set(found) != {"ruff", "mypy", "pytest"}:
+    found = dict(INSTALLER_RE.findall(text))
+    if set(found) != set(INSTALLER_TOOLS):
         raise AssertionError(f"pin file missing exact toolchain lines: {found}")
     return found
 
@@ -38,9 +41,29 @@ class InstallConsumerCiTests(unittest.TestCase):
     def test_pin_file_and_lock_json_match(self) -> None:
         pins = _pins()
         lock = json.loads(LOCK.read_text(encoding="utf-8"))
-        self.assertEqual(lock["ruff"], pins["ruff"])
-        self.assertEqual(lock["mypy"], pins["mypy"])
-        self.assertEqual(lock["pytest"], pins["pytest"])
+        for tool in INSTALLER_TOOLS:
+            with self.subTest(tool=tool):
+                self.assertEqual(lock[tool], pins[tool])
+
+    def test_pin_file_holds_only_exact_installer_lines(self) -> None:
+        """A consumer declares none of these, so the installer is its only
+        source: every line is an exact pin of a Core-owned pip tool."""
+        lines = [
+            line.strip()
+            for line in PINS.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(len(INSTALLER_TOOLS), len(lines), lines)
+        for line in lines:
+            self.assertRegex(line, INSTALLER_RE)
+
+    def test_installer_covers_every_core_owned_pip_tool_but_semgrep(self) -> None:
+        """Every Core-owned tool a consumer could take from PyPI is installable
+        from the pin file. semgrep is the exception: it installs through the
+        hash-locked ``install-semgrep`` action."""
+        tools = json.loads(TOOLS.read_text(encoding="utf-8"))
+        pip_tools = {t["name"] for t in tools["tools"] if "pip" in t["ecosystems"]}
+        self.assertEqual(pip_tools - {"semgrep"}, set(INSTALLER_TOOLS))
 
     def test_repo_runtime_pins_match_the_lock(self) -> None:
         """Core's own gate toolchain must come from the same canonical owner.
@@ -109,7 +132,7 @@ class InstallConsumerCiTests(unittest.TestCase):
             ".github/actions/install-consumer-ci/toolchain-lock.json", tools["lock"]
         )
         excluded = set(tools["non_dependency_lock_keys"])
-        self.assertEqual({"pip", "python"}, excluded)
+        self.assertEqual({"python"}, excluded)
         self.assertLessEqual(excluded, set(lock))
         names = [tool["name"] for tool in tools["tools"]]
         self.assertEqual(sorted(names), names, "keep tools sorted by name")
@@ -136,7 +159,8 @@ class InstallConsumerCiTests(unittest.TestCase):
                 INSTALL.read_text(encoding="utf-8"), encoding="utf-8"
             )
             (dest / "requirements-consumer-ci.txt").write_text(
-                "ruff\nmypy==2.3.0\npytest==9.1.1\n", encoding="utf-8"
+                "pip==26.2.1\npre-commit==4.4.0\nruff\nmypy==2.3.0\npytest==9.1.1\n",
+                encoding="utf-8",
             )
             proc = subprocess.run(
                 ["bash", str(dest / "install.sh")],
@@ -146,6 +170,27 @@ class InstallConsumerCiTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 2, proc.stderr)
             self.assertIn("unpinned", proc.stderr)
+
+    def test_install_sh_requires_every_installer_pin(self) -> None:
+        """A consumer declares no Core tool, so a pin file that drops one would
+        silently leave the consumer without it. The installer refuses."""
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            (dest / "install.sh").write_text(
+                INSTALL.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            (dest / "requirements-consumer-ci.txt").write_text(
+                "pip==26.2.1\nruff==0.16.1\nmypy==2.3.0\npytest==9.1.1\n",
+                encoding="utf-8",
+            )
+            proc = subprocess.run(
+                ["bash", str(dest / "install.sh")],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 2, proc.stderr)
+            self.assertIn("missing pre-commit== pin", proc.stderr)
 
 
 if __name__ == "__main__":

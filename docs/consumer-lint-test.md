@@ -23,8 +23,8 @@ Authority files in Core:
   toolchain-version authority: `ruff`, `mypy`, `pytest`, `biome`, `semgrep`,
   `python`, `pre-commit`, `pip`. Every other Core copy of a version is bound to
   it by a test.
-- `.github/actions/install-consumer-ci/requirements-consumer-ci.txt` (ruff, mypy,
-  pytest installer pins; test-bound copy)
+- `.github/actions/install-consumer-ci/requirements-consumer-ci.txt` (pip,
+  pre-commit, ruff, mypy, pytest installer pins; test-bound copy)
 - `presets/typescript/biome.json` `$schema` (the locked consumer Biome
   contract stamped by `presets/typescript/stamp.sh`; test-bound copy)
 - `.github/actions/install-semgrep/locks/semgrep-<v>.txt` and
@@ -104,6 +104,34 @@ references, not a JSON version map or digest locks.
 2. Keep repository-owned knobs (`SOURCE_DIR`, `TEST_DIR`, coverage threshold)
    in the repository's own workflow or `Repo.mk`.
 3. Do not add `requirements-consumer-ci.txt` to the consumer.
+
+## Declare nothing (uv consumers)
+
+A Core bump reaches a consumer with no edit in the consumer only when the
+consumer names no Core-owned version anywhere. For a `uv.lock` consumer:
+
+1. **No Core tool in any dependency group.** `pip`, `pre-commit`, `ruff`,
+   `mypy`, `pytest` and `semgrep` appear in no `[project]` or
+   `[dependency-groups]` list.
+2. **Keep them out of the lock.** Some still arrive transitively (pytest
+   plugins require `pytest`; `pip-audit` requires `pip`), and a transitive
+   copy is locked at whatever version resolved, which is drift the next time
+   Core moves. List every Core-owned pip tool in
+   `[tool.uv] exclude-dependencies` (uv 0.13+), which removes it from every
+   requirement in the resolution. The list names packages, never versions.
+3. **Install them from Core.** After `uv sync --locked --inexact`, install the
+   pin file at the `v2` tag into the same environment, refusing any line that
+   is not `name==version`: either `install-consumer-ci@v2` in a workflow, or
+   a fetch of
+   `https://raw.githubusercontent.com/Quantum-L9/l9-ci-core/v2/.github/actions/install-consumer-ci/requirements-consumer-ci.txt`
+   from the repository's own setup script (`Repo.mk` `repo-setup` runs where
+   no action can be called). `--inexact` keeps a later sync from removing them.
+4. **pre-commit hooks run the installed tools.** Ruff and mypy hooks are
+   `repo: local`, `language: system`, so no hook `rev` repeats a version.
+
+`check-toolchain-alignment` then finds no declaration (status
+`not_applicable` for these tools), and a Core pin-file PR plus the `v2` move
+is the whole bump.
 
 ## Pairing with the analysis pipeline
 
