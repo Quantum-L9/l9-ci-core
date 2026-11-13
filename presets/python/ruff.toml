@@ -1,0 +1,12 @@
+# Core-owned Ruff preset (l9-ci-core presets/python). Do not edit.
+#
+# Stamped by `python3 -m tools.l9_repo --workspace <repo> stamp --profile python`
+# and verified byte-for-byte by `... validate`. A standalone ruff.toml makes
+# Ruff ignore any [tool.ruff] table in pyproject.toml, so this file is the
+# repository's whole Ruff policy. Change it in Core, then re-stamp.
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "B", "I", "UP"]
+ignore = ["E501"]
