@@ -1,4 +1,4 @@
-# Core-owned Ruff preset (l9-ci-core presets/python). Do not edit.
+# Core-owned Ruff preset (l9-ci-core presets/python-tooling). Do not edit.
 #
 # Stamped by `python3 -m tools.l9_repo --workspace <repo> stamp --profile python`
 # and verified byte-for-byte by `... validate`. A standalone ruff.toml makes

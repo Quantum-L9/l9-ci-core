@@ -16,42 +16,48 @@ What the organization workflow does to a repository, in order:
 | consumer metadata | Core | optional `.l9/ci.json` (`owner`, `repo_class`, `waiver_refs` only) | fatal if invalid |
 | Biome | Core | `biome ci` against the root `biome.json` / `biome.jsonc` | yes once `org-ci.yml` sets `mode: blocking` (`AGENTS.md` §16) |
 | repository verification | Core | `.l9/repo-workflow.json` → `make setup → validate → check → test` | yes (`pr_fast`, `merge`) |
+| Core stamp | Core | stamped Core-owned files byte-identical to Core (`.l9/core-stamp.json`) | yes in `required` mode, warning in `migration` |
 | Semgrep | SDK | provider run, canonical findings, technical gate | yes: every finding is blocking unless the central policy classifies its rule advisory |
 
-Three things a repository can do, all optional, all declarative:
+## 1. Stamp every Core-owned file (one command)
 
-## 1. Declare the Repository Execution V2 contract (runs your lint, type-check and tests)
-
-Add exactly these three files. Nothing else is read.
-
-`.l9/repo-workflow.json` — the exact three-field declaration:
-
-```json
-{
-  "schema": "l9.repo-execution/v2",
-  "facade": "make-v1",
-  "required_phases": ["setup", "validate", "check", "test"]
-}
-```
-
-`Makefile` — the released `make-v1` facade, byte-for-byte. Generate it from
-any Core checkout; never hand-edit it:
+Every file Core owns in a repository is written by one non-interactive
+command from a Core checkout, and proven by a second (`AGENTS.md` §24):
 
 ```bash
-CONSUMER="$(pwd)"                      # your repository root (a Git repository root)
-git clone --depth=1 https://github.com/Quantum-L9/l9-ci-core.git /tmp/l9-ci-core
+CONSUMER="$(pwd)"                      # your repository root
+git clone https://github.com/Quantum-L9/l9-ci-core.git /tmp/l9-ci-core
+git -C /tmp/l9-ci-core checkout <the revision org-ci.yml pins>
 cd /tmp/l9-ci-core                     # the module is importable only from the Core checkout
-python3 -m tools.l9_repo --workspace "$CONSUMER" reconcile   # writes $CONSUMER/Makefile
-python3 -m tools.l9_repo --workspace "$CONSUMER" validate    # contract + facade + Repo.mk ABI
+python3 -m tools.l9_repo --workspace "$CONSUMER" stamp --profile python     # or typescript, python+typescript
+python3 -m tools.l9_repo --workspace "$CONSUMER" validate
 cd "$CONSUMER"
 ```
 
-`--workspace` always names the consumer, never the Core clone; `reconcile`
-writes only the consumer's `Makefile` and never touches `Repo.mk`.
+| Profile | Files written |
+|---|---|
+| all | `.l9/repo-workflow.json` (exact V2 contract), `Makefile` (`make-v1` facade), `.l9/core-stamp.json` (stamp record) |
+| `python` | + `requirements-ci.txt` (rendered from `toolchain-lock.json`), `ruff.toml`, `mypy.ini` (strict), `pytest.ini` |
+| `typescript` | + `biome.json`, `.biomeignore`, `.editorconfig` |
+| `python+typescript` | the union |
 
-`Repo.mk` — repository-owned, hand-maintained. It must declare the four
-leaves, each `.PHONY`, each with an unconditional recipe or prerequisite, and
-must not redefine `setup`, `validate`, `check`, `test`, or `help`:
+These files are Core-owned: never edit them; re-stamp from a newer Core
+revision instead. `stamp` never writes `Repo.mk`, `pyproject.toml`,
+`package.json` or source. Stamp from the revision `org-ci.yml` pins:
+organization CI compares the bytes with that revision, so a stamp taken from
+a newer, not-yet-pinned Core revision reports drift until the pins advance.
+
+`.l9/core-stamp.json` (`l9.core-stamp/v1`) records the Core repository and
+40-character revision, the profile, and the sha256 of each stamped file.
+`validate` re-renders every listed file from the Core checkout it runs from
+and fails on any byte that differs, a missing file, or a record digest that
+does not match.
+
+The `make-v1` facade routes `setup`, `validate`, `check` and `test` to leaves
+in `Repo.mk`, which stays repository-owned and hand-maintained. It must
+declare the four leaves, each `.PHONY`, each with an unconditional recipe or
+prerequisite, and must not redefine `setup`, `validate`, `check`, `test`, or
+`help`:
 
 ```make
 # <repo> repository-owned Make implementation (Repository Execution V2).
@@ -68,34 +74,37 @@ repo-validate: ## Contract and structural validation (no mutation)
 repo-check: ## Static checks: ruff check, ruff format --check, mypy
 	@$(PYTHON) -m ruff check .
 	@$(PYTHON) -m ruff format --check .
-	@$(PYTHON) -m mypy
+	@$(PYTHON) -m mypy src tests
 
 repo-test: ## The repository test suite
 	@$(PYTHON) -m pytest -q
 ```
 
 A leaf that does nothing (`@true`) passes structurally and proves nothing;
-make every leaf run the real command. Versions of `ruff`, `mypy` and `pytest`
-are Core-owned: install them through
-`Quantum-L9/l9-ci-core/.github/actions/install-consumer-ci@<full-sha>` in a
-repository workflow, or pin them in `requirements-ci.txt` to the values in
-`.github/actions/install-consumer-ci/toolchain-lock.json` (toolchain
-alignment reports any drift).
+make every leaf run the real command. `python3 -m tools.l9_repo --workspace
+"$CONSUMER" reconcile` still regenerates only the `Makefile`, and
+`bash presets/typescript/stamp.sh` still stamps the Biome trio keep-if-absent
+for a repository that does not use the full stamp.
 
 Enforcement mode is decided by Core, never by the repository
-(`.github/actions/run-repository-verification/contract-policy.json`):
+(`.github/actions/run-repository-verification`):
 
-- `migration` (default) — an absent contract is `not_applicable` and passes;
-  a present contract must pass.
-- `required` — the repository is listed in `required_repositories`; an
-  absent, invalid, or failing contract fails the required check.
+- `required` — the repository is listed in `contract-policy.json`
+  `required_repositories` (the projection of the L9 registry, `AGENTS.md` §17),
+  **or** the live `Quantum-L9/.github` `semantics/repository_registry.yaml`
+  names it with `lifecycle: current`. An absent, invalid, or failing contract
+  fails the required check, and stamp drift blocks.
+- `migration` (default for non-members) — an absent contract is
+  `not_applicable` and passes; a present contract must pass; stamp drift is a
+  warning annotation.
 
-To move a repository to `required`, open a Core PR that adds it to
-`required_repositories`; the change takes effect when the
-`run-repository-verification` pin in `org-ci.yml` advances to that revision
-(`docs/repository-execution-runtime.md`).
+A newly born repository therefore becomes `required` the moment its registry
+entry with `lifecycle: current` lands on `.github` `main`: no Core PR and no
+pin advance are needed for the mode. If the registry cannot be read, the run
+fails as infrastructure rather than guessing a mode. Nothing in the
+repository can lower its mode.
 
-## 2. Stamp the locked Biome contract (JavaScript / TypeScript)
+## 2. Biome only (JavaScript / TypeScript, without the full stamp)
 
 ```bash
 bash /tmp/l9-ci-core/presets/typescript/stamp.sh "$(pwd)"

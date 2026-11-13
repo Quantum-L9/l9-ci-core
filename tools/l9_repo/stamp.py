@@ -10,9 +10,9 @@ consumer path             Core source                                 profiles
 .l9/repo-workflow.json    the exact Repository Execution V2 contract  all
 Makefile                  ``tools/l9_repo/facades/make-v1.mk``        all
 requirements-ci.txt       rendered from ``toolchain-lock.json``       python
-ruff.toml                 ``presets/python/ruff.toml``                python
-mypy.ini                  ``presets/python/mypy.ini``                 python
-pytest.ini                ``presets/python/pytest.ini``               python
+ruff.toml                 ``presets/python-tooling/ruff.toml``                python
+mypy.ini                  ``presets/python-tooling/mypy.ini``                 python
+pytest.ini                ``presets/python-tooling/pytest.ini``               python
 biome.json                ``presets/typescript/biome.json``           typescript
 .biomeignore              ``presets/typescript/.biomeignore``         typescript
 .editorconfig             ``presets/typescript/.editorconfig``        typescript
@@ -80,9 +80,9 @@ PROFILE_FILES: Mapping[str, tuple[str, ...]] = {
     PROFILE_BOTH: _COMMON + _PYTHON + _TYPESCRIPT,
 }
 _PRESET_SOURCES: Mapping[str, pathlib.Path] = {
-    "ruff.toml": PRESETS_DIR / "python" / "ruff.toml",
-    "mypy.ini": PRESETS_DIR / "python" / "mypy.ini",
-    "pytest.ini": PRESETS_DIR / "python" / "pytest.ini",
+    "ruff.toml": PRESETS_DIR / "python-tooling" / "ruff.toml",
+    "mypy.ini": PRESETS_DIR / "python-tooling" / "mypy.ini",
+    "pytest.ini": PRESETS_DIR / "python-tooling" / "pytest.ini",
     "biome.json": PRESETS_DIR / "typescript" / "biome.json",
     ".biomeignore": PRESETS_DIR / "typescript" / ".biomeignore",
     ".editorconfig": PRESETS_DIR / "typescript" / ".editorconfig",
