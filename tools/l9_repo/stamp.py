@@ -72,7 +72,12 @@ PROFILE_BOTH = "python+typescript"
 PROFILES: tuple[str, ...] = (PROFILE_PYTHON, PROFILE_TYPESCRIPT, PROFILE_BOTH)
 
 _COMMON: tuple[str, ...] = (CONTRACT_PATH.as_posix(), MAKEFILE_PATH.as_posix())
-_PYTHON: tuple[str, ...] = ("requirements-ci.txt", "ruff.toml", "mypy.ini", "pytest.ini")
+_PYTHON: tuple[str, ...] = (
+    "requirements-ci.txt",
+    "ruff.toml",
+    "mypy.ini",
+    "pytest.ini",
+)
 _TYPESCRIPT: tuple[str, ...] = ("biome.json", ".biomeignore", ".editorconfig")
 PROFILE_FILES: Mapping[str, tuple[str, ...]] = {
     PROFILE_PYTHON: _COMMON + _PYTHON,
@@ -156,7 +161,9 @@ def render_file(relative: str) -> bytes:
 def profile_files(profile: str) -> tuple[str, ...]:
     files = PROFILE_FILES.get(profile)
     if files is None:
-        _fail(f"unsupported stamp profile {profile!r}; supported: {', '.join(PROFILES)}")
+        _fail(
+            f"unsupported stamp profile {profile!r}; supported: {', '.join(PROFILES)}"
+        )
     return files
 
 
@@ -185,13 +192,17 @@ def stamp(root: pathlib.Path, profile: str, core_revision: str) -> list[str]:
     if not root.is_dir():
         _fail(f"workspace is not a directory: {root}")
     if not _REVISION.fullmatch(core_revision):
-        _fail(f"Core revision must be a full 40-character commit SHA: {core_revision!r}")
+        _fail(
+            f"Core revision must be a full 40-character commit SHA: {core_revision!r}"
+        )
     rendered = render_profile(profile)
     record = {
         "schema": STAMP_SCHEMA,
         "core": {"repository": CORE_REPOSITORY, "revision": core_revision},
         "profile": profile,
-        "files": {relative: _digest(data) for relative, data in sorted(rendered.items())},
+        "files": {
+            relative: _digest(data) for relative, data in sorted(rendered.items())
+        },
     }
     outputs = {
         **rendered,
@@ -223,7 +234,9 @@ def load_stamp_record(root: pathlib.Path) -> dict[str, Any] | None:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         _fail(f"unreadable stamp record {STAMP_RECORD_PATH}: {error}")
     if not isinstance(data, dict) or set(data) != _RECORD_KEYS:
-        _fail(f"stamp record must be an object with exactly: {', '.join(sorted(_RECORD_KEYS))}")
+        _fail(
+            f"stamp record must be an object with exactly: {', '.join(sorted(_RECORD_KEYS))}"
+        )
     if data["schema"] != STAMP_SCHEMA:
         _fail(f"stamp record schema must be {STAMP_SCHEMA!r}")
     core = data["core"]
@@ -231,14 +244,20 @@ def load_stamp_record(root: pathlib.Path) -> dict[str, Any] | None:
         _fail("stamp record core must carry exactly repository and revision")
     if core["repository"] != CORE_REPOSITORY:
         _fail(f"stamp record core.repository must be {CORE_REPOSITORY!r}")
-    if not isinstance(core["revision"], str) or not _REVISION.fullmatch(core["revision"]):
+    if not isinstance(core["revision"], str) or not _REVISION.fullmatch(
+        core["revision"]
+    ):
         _fail("stamp record core.revision must be a full 40-character commit SHA")
-    expected = set(profile_files(data["profile"]) if isinstance(data["profile"], str) else ())
+    expected = set(
+        profile_files(data["profile"]) if isinstance(data["profile"], str) else ()
+    )
     if not expected:
         _fail("stamp record profile must be a string")
     files = data["files"]
     if not isinstance(files, dict) or set(files) != expected:
-        _fail(f"stamp record files must name exactly the {data['profile']} profile files")
+        _fail(
+            f"stamp record files must name exactly the {data['profile']} profile files"
+        )
     for relative, digest in files.items():
         if not isinstance(digest, str) or not _DIGEST.fullmatch(digest):
             _fail(f"stamp record digest for {relative} must be sha256:<64 hex>")

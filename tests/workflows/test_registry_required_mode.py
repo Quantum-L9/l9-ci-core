@@ -144,7 +144,9 @@ class EnforcementModeTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_registered_current_repository_is_required_without_policy_edit(self) -> None:
+    def test_registered_current_repository_is_required_without_policy_edit(
+        self,
+    ) -> None:
         self.runner.fetch_registry = lambda: registry_with("l9-born-node", "current")
         outputs = run(self.runner, self.root, BORN)
         self.assertEqual("required", outputs["contract-mode"])
@@ -231,9 +233,10 @@ class StampDriftModeTests(unittest.TestCase):
     def test_malformed_record_fails_in_both_modes(self) -> None:
         (self.root / ".l9" / "core-stamp.json").write_text("{}", encoding="utf-8")
         for repository in (BORN, "Quantum-L9/example-consumer"):
-            with self.subTest(repository=repository), unittest.mock.patch.object(
-                self.runner, "run_v2"
-            ) as phases:
+            with (
+                self.subTest(repository=repository),
+                unittest.mock.patch.object(self.runner, "run_v2") as phases,
+            ):
                 outputs = run(self.runner, self.root, repository)
             phases.assert_not_called()
             self.assertEqual("fail", outputs["status"])

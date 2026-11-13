@@ -279,6 +279,7 @@ def fetch_registry() -> str:
     """
 
     with tempfile.TemporaryDirectory(prefix="l9-registry-") as scratch:
+
         def git(*args: str) -> subprocess.CompletedProcess[str]:
             try:
                 return subprocess.run(
@@ -305,7 +306,8 @@ def fetch_registry() -> str:
         shown = git("show", f"FETCH_HEAD:{REGISTRY_PATH}")
         if shown.returncode != 0:
             raise RegistryError(
-                f"cannot read {REGISTRY_PATH}: " + (shown.stderr.strip() or "git show failed")
+                f"cannot read {REGISTRY_PATH}: "
+                + (shown.stderr.strip() or "git show failed")
             )
         return shown.stdout
 

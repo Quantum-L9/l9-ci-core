@@ -46,7 +46,11 @@ from l9_repo.stamp import (  # noqa: E402
 REVISION = "0123456789abcdef0123456789abcdef01234567"
 LOCK = ROOT / ".github" / "actions" / "install-consumer-ci" / "toolchain-lock.json"
 CONSUMER_REQUIREMENTS = (
-    ROOT / ".github" / "actions" / "install-consumer-ci" / "requirements-consumer-ci.txt"
+    ROOT
+    / ".github"
+    / "actions"
+    / "install-consumer-ci"
+    / "requirements-consumer-ci.txt"
 )
 PRODUCT_FILES = {
     "pyproject.toml": b'[project]\nname = "product"\n\n[tool.ruff]\nline-length = 79\n',
@@ -121,7 +125,9 @@ class StampTests(unittest.TestCase):
         (self.root / "ruff.toml").write_text("line-length = 79\n", encoding="utf-8")
         changed = stamp(self.root, "python", REVISION)
         self.assertIn("ruff.toml", changed)
-        self.assertEqual(render_file("ruff.toml"), (self.root / "ruff.toml").read_bytes())
+        self.assertEqual(
+            render_file("ruff.toml"), (self.root / "ruff.toml").read_bytes()
+        )
 
     def test_stamp_record_names_revision_profile_and_digests(self) -> None:
         stamp(self.root, "python", REVISION)
@@ -157,8 +163,9 @@ class StampTests(unittest.TestCase):
                 self.assertEqual(1, len(findings))
                 self.assertTrue(findings[0].startswith(f"{relative}:"))
                 stderr = io.StringIO()
-                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
-                    stderr
+                with (
+                    contextlib.redirect_stdout(io.StringIO()),
+                    contextlib.redirect_stderr(stderr),
                 ):
                     code = main(["--workspace", str(root), "validate"])
                 self.assertEqual(2, code)
@@ -173,8 +180,12 @@ class StampTests(unittest.TestCase):
         record_path.write_text(json.dumps(record), encoding="utf-8")
         findings = verify_stamp(self.root)[1]
         self.assertEqual(2, len(findings))
-        self.assertTrue(any(item.startswith("pytest.ini: missing") for item in findings))
-        self.assertTrue(any(item.startswith("mypy.ini: stamp record") for item in findings))
+        self.assertTrue(
+            any(item.startswith("pytest.ini: missing") for item in findings)
+        )
+        self.assertTrue(
+            any(item.startswith("mypy.ini: stamp record") for item in findings)
+        )
 
     def test_malformed_records_fail_closed(self) -> None:
         stamp(self.root, "python", REVISION)
