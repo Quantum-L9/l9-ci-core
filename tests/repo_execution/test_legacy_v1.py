@@ -24,6 +24,9 @@ from v2_fixtures import PHASES, ROOT, commit_all, init_repo, v2_contract  # noqa
 from l9_repo.__main__ import RepositoryWorkflow, WorkflowError  # noqa: E402
 
 BRIDGE = ROOT / ".github" / "actions" / "run-repository-verification" / "run.py"
+REGISTRY_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "repository-registry" / "repository_registry.yaml"
+)
 
 
 def log_command(name: str) -> list[str]:
@@ -136,6 +139,9 @@ class BridgeLegacyEndToEndTests(unittest.TestCase):
         assert spec is not None and spec.loader is not None
         bridge = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(bridge)
+        # The live registry read is network I/O; pin it to the checked-in copy
+        # (the example consumer is not a member, so migration mode holds).
+        bridge.fetch_registry = REGISTRY_FIXTURE.read_text
         outputs: dict[str, str] = {}
         with tempfile.NamedTemporaryFile() as output:
             env = {

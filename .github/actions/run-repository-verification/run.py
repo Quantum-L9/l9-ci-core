@@ -24,9 +24,19 @@ invalid contract. An unknown generation is never guessed.
 
 Whether a contract must be present is a Core enforcement decision, never a
 repository one: the mode is resolved from ``contract-policy.json`` shipped with
-this pinned action, keyed by the runner-supplied repository identity.
-``migration`` (the default) tolerates an absent contract and admits V1;
-``required`` admits only V2 and fails an absent contract.
+this pinned action, keyed by the runner-supplied repository identity, and then
+from the live L9 member list (``semantics/repository_registry.yaml`` in
+Quantum-L9/.github): a repository the static projection does not list is still
+``required`` when the registry names it with ``lifecycle: current``. The
+registry can only raise a repository to ``required``, never lower it; a
+registry that cannot be read or parsed fails the run as infrastructure (fail
+closed). ``migration`` (the default) tolerates an absent contract and admits
+V1; ``required`` admits only V2 and fails an absent contract.
+
+A V2 consumer that carries a Core stamp record (``.l9/core-stamp.json``) has
+every Core-owned file compared byte-for-byte with this Core checkout. Drift is
+a contract failure in ``required`` mode and a warning annotation in
+``migration`` mode; a malformed record is a contract failure in both.
 
 Every run records typed outputs: ``present``, ``status`` (``pass``,
 ``not_applicable``, or ``fail``), ``contract-mode``, ``contract-version``
@@ -43,6 +53,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 CORE_ROOT = Path(__file__).resolve().parents[3]
@@ -59,6 +70,7 @@ from l9_repo.contract import (  # noqa: E402
     load_contract,
     validate_v2_contract_data,
 )
+from l9_repo.stamp import verify_stamp  # noqa: E402
 
 POLICY_PATH = Path(__file__).resolve().parent / "contract-policy.json"
 POLICY_SCHEMA = "l9.repository-contract-enforcement/v1"
@@ -83,9 +95,27 @@ FAILURE_INFRASTRUCTURE = "infrastructure"
 
 _REPOSITORY_NAME = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
+# The canonical L9 member list (AGENTS.md §17). Read live, at the registry
+# owner's default branch, only for a repository the static projection does
+# not already require.
+REGISTRY_URL = "https://github.com/Quantum-L9/.github.git"
+REGISTRY_REF = "refs/heads/main"
+REGISTRY_PATH = "semantics/repository_registry.yaml"
+REGISTRY_SCHEMA = "l9.repository-registry/v1"
+REGISTRY_ARTIFACT = "l9.repository-registry/global@1"
+REGISTRY_LIFECYCLES = frozenset({"current", "superseded", "retired"})
+REGISTRY_REQUIRED_LIFECYCLE = "current"
+REGISTRY_TIMEOUT_SECONDS = 60
+_REGISTRY_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+_YAML_SCALAR = re.compile(r"^(\s*)(- )?([A-Za-z_][A-Za-z0-9_]*):(?:\s+(.*?))?\s*$")
+
 
 class PolicyError(RuntimeError):
     """Raised when Core's bundled enforcement policy is not admissible."""
+
+
+class RegistryError(RuntimeError):
+    """Raised when the L9 repository registry cannot be read or parsed."""
 
 
 def _write_output(name: str, value: str) -> None:
@@ -152,6 +182,181 @@ def resolve_mode(policy: dict[str, object], repository: str) -> str:
     return mode
 
 
+def _scalar(raw: str | None) -> str:
+    value = (raw or "").split(" #", 1)[0].strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        value = value[1:-1]
+    return value
+
+
+def parse_registry_members(text: str) -> list[tuple[str, str]]:
+    """Return ``(owner/name, lifecycle)`` for every registry entry.
+
+    Standard library only: a strict reader for the registry's block-mapping
+    shape, not a YAML parser. It validates the registry identity, then every
+    entry under ``repositories:`` must carry an ``id``, a ``class_ref``, a
+    known ``lifecycle`` and a GitHub ``coordinate``. Additional entry keys are
+    skipped (the registry may grow fields); anything this reader cannot prove
+    raises ``RegistryError`` so the caller fails closed.
+    """
+
+    top: dict[str, str] = {}
+    entries: list[dict[str, str]] = []
+    section = ""
+    nested = ""
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith(" "):
+            match = _YAML_SCALAR.match(line)
+            if not match or match.group(2):
+                section = "?"
+                continue
+            section = match.group(3)
+            top[section] = _scalar(match.group(4))
+            continue
+        if section != "repositories":
+            continue
+        match = _YAML_SCALAR.match(line)
+        if not match:
+            if line.startswith("    ") and nested not in {"", "coordinate"}:
+                continue  # a value of a skipped additional key
+            raise RegistryError(f"registry line {number}: unreadable entry line")
+        indent, item, key, value = match.groups()
+        width = len(indent)
+        if item is not None:
+            if width >= 4 and nested not in {"", "coordinate"}:
+                continue  # a list inside a skipped additional key
+            if width != 2:
+                raise RegistryError(f"registry line {number}: misplaced entry")
+            entries.append({key: _scalar(value)})
+            nested = ""
+            continue
+        if not entries:
+            raise RegistryError(f"registry line {number}: field outside an entry")
+        if width == 4:
+            nested = key
+            entries[-1][key] = _scalar(value)
+        elif width == 6 and nested == "coordinate":
+            entries[-1][f"coordinate.{key}"] = _scalar(value)
+        elif width >= 6:
+            continue  # nested content of a skipped additional key
+        else:
+            raise RegistryError(f"registry line {number}: unexpected indentation")
+    if top.get("schema") != REGISTRY_SCHEMA:
+        raise RegistryError(f"registry schema must be {REGISTRY_SCHEMA!r}")
+    if top.get("artifact_id") != REGISTRY_ARTIFACT or top.get("canonical") != "true":
+        raise RegistryError(f"registry must be the canonical {REGISTRY_ARTIFACT}")
+    if not entries:
+        raise RegistryError("registry lists no repositories")
+    members: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for entry in entries:
+        entry_id = entry.get("id", "")
+        if not entry_id or entry_id in seen:
+            raise RegistryError(f"registry entry id {entry_id!r} missing or duplicated")
+        seen.add(entry_id)
+        if entry.get("coordinate.provider") != "github":
+            raise RegistryError(f"{entry_id}: coordinate must name provider github")
+        owner = entry.get("coordinate.organization", "")
+        name = entry.get("coordinate.repository", "")
+        if not (_REGISTRY_NAME.match(owner) and _REGISTRY_NAME.match(name)):
+            raise RegistryError(f"{entry_id}: invalid coordinate {owner}/{name}")
+        if not entry.get("class_ref"):
+            raise RegistryError(f"{entry_id}: every member needs a class_ref")
+        lifecycle = entry.get("lifecycle", "")
+        if lifecycle not in REGISTRY_LIFECYCLES:
+            raise RegistryError(f"{entry_id}: unknown lifecycle {lifecycle!r}")
+        members.append((f"{owner}/{name}", lifecycle))
+    return members
+
+
+def fetch_registry() -> str:
+    """Read the registry from its owner's default branch over Git.
+
+    Runs in a throwaway repository under the runner's temporary directory; no
+    consumer file and no consumer-supplied value selects the source.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="l9-registry-") as scratch:
+
+        def git(*args: str) -> subprocess.CompletedProcess[str]:
+            try:
+                return subprocess.run(
+                    ["git", "-C", scratch, *args],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=REGISTRY_TIMEOUT_SECONDS,
+                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                raise RegistryError(f"cannot run git: {error}") from error
+
+        for args in (
+            ("init", "-q"),
+            ("fetch", "-q", "--depth=1", "--no-tags", REGISTRY_URL, REGISTRY_REF),
+        ):
+            result = git(*args)
+            if result.returncode != 0:
+                raise RegistryError(
+                    f"cannot read {REGISTRY_URL} {REGISTRY_REF}: "
+                    + (result.stderr.strip() or f"git {args[0]} failed")
+                )
+        shown = git("show", f"FETCH_HEAD:{REGISTRY_PATH}")
+        if shown.returncode != 0:
+            raise RegistryError(
+                f"cannot read {REGISTRY_PATH}: "
+                + (shown.stderr.strip() or "git show failed")
+            )
+        return shown.stdout
+
+
+def registry_requires(repository: str, text: str) -> bool:
+    """True when the registry names ``repository`` with ``lifecycle: current``.
+
+    Registry coordinates are case-sensitive; the verifier's static list is
+    matched case-insensitively, and so is this, so a case variant can never
+    escape ``required``.
+    """
+
+    wanted = repository.casefold()
+    return any(
+        coordinate.casefold() == wanted and lifecycle == REGISTRY_REQUIRED_LIFECYCLE
+        for coordinate, lifecycle in parse_registry_members(text)
+    )
+
+
+def resolve_enforcement(policy: dict[str, object], repository: str) -> str:
+    """Static projection first; then the live registry; never lower a mode."""
+
+    mode = resolve_mode(policy, repository)
+    if mode == REQUIRED_MODE or not repository:
+        return mode
+    if registry_requires(repository, fetch_registry()):
+        return REQUIRED_MODE
+    return mode
+
+
+def check_stamp(workspace: Path, mode: str) -> None:
+    """Blocking stamp drift in required mode; warning annotations otherwise."""
+
+    record, findings = verify_stamp(workspace)
+    if record is None:
+        return
+    revision = record["core"]["revision"]
+    if not findings:
+        print(f"Core stamp: aligned ({record['profile']}; stamped from {revision})")
+        return
+    if mode == REQUIRED_MODE:
+        raise ContractError(
+            "Core-owned files drift from this Core revision (required mode): "
+            + "; ".join(findings)
+        )
+    for finding in findings:
+        print(f"::warning::Core stamp drift (migration mode, advisory): {finding}")
+
+
 def classify_contract(data: dict[str, object]) -> str:
     """Return ``"v1"`` or ``"v2"``; any other generation is rejected.
 
@@ -189,10 +394,12 @@ def run_v1(workspace: Path) -> None:
     workflow.test()
 
 
-def verify_v2(workspace: Path) -> None:
-    """Contract, byte-exact generated facade, and Repo.mk ABI, without mutation."""
+def verify_v2(workspace: Path, mode: str = MIGRATION_MODE) -> None:
+    """Contract, byte-exact generated facade, Repo.mk ABI, and any Core stamp,
+    without mutation."""
 
     RepositoryExecution(workspace).validate()
+    check_stamp(workspace, mode)
 
 
 def run_v2(workspace: Path) -> None:
@@ -216,8 +423,8 @@ def main() -> int:
     repository = os.environ.get("L9_REPOSITORY_IDENTITY", "").strip()
 
     try:
-        mode = resolve_mode(load_policy(), repository)
-    except PolicyError as exc:
+        mode = resolve_enforcement(load_policy(), repository)
+    except (PolicyError, RegistryError) as exc:
         _record(
             present=contract.is_file(),
             status="fail",
@@ -260,7 +467,7 @@ def main() -> int:
     try:
         version = classify_contract(load_contract(contract))
         if version == CONTRACT_V2:
-            verify_v2(workspace)
+            verify_v2(workspace, mode)
             run_v2(workspace)
         elif mode == REQUIRED_MODE:
             raise ContractError(

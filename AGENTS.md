@@ -885,3 +885,98 @@ for every governed repository's next evaluation:
   classifications. The blocking default is unchanged.
 
 Prove the pins with `python3 tools/advance_core_action_pins.py e69de8b4bb4a1d0a732596ac968c22aadc483947 --check`.
+
+## 24. Core-owned consumer files are stamped, and the live registry raises required mode (2026-11-13) — amends §3, §11/§14 tooling, §16 and §17
+
+Decision record for campaign L9-NODE-PIPELINE-01 lane P1. Before this section
+every Core-owned file in a newly born repository was hand-made: the V2
+contract, the `make-v1` `Makefile`, the Biome trio, and `requirements-ci.txt`
+copied from `toolchain-lock.json`. Core had no Python tooling preset, and a
+repository became `required` only through a Core PR re-projecting §17 plus a
+§16 pin advance.
+
+### One stamp, one proof
+
+`tools.l9_repo` gains `stamp`; `validate` gains the byte-identity proof. No
+second tool.
+
+```bash
+python3 -m tools.l9_repo --workspace <consumer> stamp --profile <python|typescript|python+typescript>
+python3 -m tools.l9_repo --workspace <consumer> validate
+```
+
+- Core-owned consumer files (closed set, `tools/l9_repo/stamp.py`): every
+  profile writes `.l9/repo-workflow.json` and `Makefile`; `python` adds
+  `requirements-ci.txt` (rendered from `toolchain-lock.json`; same pins and
+  order as `install-consumer-ci/requirements-consumer-ci.txt`), `ruff.toml`,
+  `mypy.ini`, `pytest.ini` from `presets/python-tooling/`; `typescript` adds
+  `biome.json`, `.biomeignore`, `.editorconfig` from `presets/typescript/`;
+  `python+typescript` is the union. Product-owned files (`Repo.mk`,
+  `pyproject.toml`, `package.json`, source) are never written. The Python
+  preset is standalone files because each tool reads them ahead of
+  `pyproject.toml`; Core never edits a consumer's `pyproject.toml`.
+- The directory is `presets/python-tooling/`, not `presets/python/`: the §15
+  tripwires keep the retired copy-first `presets/python` tree from returning,
+  and this tree holds configuration only, never a workflow.
+- The stamp record is `.l9/core-stamp.json`, schema `l9.core-stamp/v1`:
+  exactly `schema`, `core` (`repository: Quantum-L9/l9-ci-core`, 40-hex
+  `revision`), `profile`, and `files` (each profile path → `sha256:<hex>`).
+  `stamp` records the Core checkout's `HEAD` and refuses to run when any stamp
+  source (`presets/`, `tools/l9_repo/`, `toolchain-lock.json`) differs from
+  `HEAD`. It is idempotent; it overwrites a drifted Core-owned file.
+- `validate` re-renders each recorded file from the Core checkout it runs
+  from and fails on a differing byte, a missing file, or a record digest that
+  does not match. A record from another Core revision is not itself drift:
+  equal bytes are the proof, the revision is the attribution. A consumer
+  without a record is validated exactly as before.
+- Python preset policy is derived, not invented: `l9-repo-template` (the
+  birth template, a required consumer) supplies Ruff line-length 100 and
+  `E F B I UP` / ignore `E501`, a superset of Core's own `E4 E7 E9 F`; the
+  interpreter target follows `toolchain-lock.json` (`py312` / mypy 3.12); mypy
+  is `strict = True`, the L9 standard the template already runs. Core's own
+  `ruff.toml` and `[tool.mypy]` are unchanged.
+
+### Required mode without a hand edit
+
+`run-repository-verification` resolves the mode as: the static projection
+(§17) says `required` → `required`, with no network read; otherwise the action
+reads `semantics/repository_registry.yaml` from `Quantum-L9/.github`
+`refs/heads/main` over Git, and a repository the registry names with
+`lifecycle: current` is `required`; otherwise `default_mode`.
+
+- The key is the existing §17 rule, `lifecycle == current`. The registry has
+  no birth/factory field and explicitly does not own `repository_birth_profile`
+  (`does_not_own`); membership, not birth, is the obligation. A born node is
+  `required` the moment its registry entry lands on `.github` `main`.
+- The registry can only raise the mode; nothing in the consumer and no action
+  input selects or lowers it. Matching is case-insensitive, like the static
+  list.
+- Fail closed: an unreachable, unparseable, or non-canonical registry fails the
+  run as `infrastructure` (`contract-mode: unresolved`). The reader is standard
+  library only, validates registry identity and every entry's `id`,
+  `class_ref`, `lifecycle` and GitHub coordinate, and skips additional entry
+  keys so an additive registry field does not break the fleet.
+- The static projection and its receipt are kept: they are the audit trail and
+  the no-network fast path. Re-projection remains the way to record a member
+  in Core; it is no longer the way to make one required.
+
+### Stamp drift mode
+
+For a V2 consumer carrying `.l9/core-stamp.json`, after the contract, facade
+and `Repo.mk` admission and before any phase runs:
+
+| Mode | Stamp aligned | Stamp drift | Malformed record |
+|---|---|---|---|
+| `required` | pass | `fail`, `failure-kind: contract`, no phase runs | `fail`, `contract` |
+| `migration` | pass | `::warning::` annotation per file; phases run | `fail`, `contract` |
+
+`check-toolchain-alignment` stays advisory (§16); the blocking stamp check
+lives where the mode is known.
+
+### Activation
+
+Inert until the §16 pin advance moves `org-ci.yml`'s
+`run-repository-verification` pin to this change's merge revision. Stamp from
+the revision `org-ci.yml` pins: organization CI compares bytes with that
+revision. Tests: `tests/repo_execution/test_stamp.py`,
+`tests/workflows/test_registry_required_mode.py`.

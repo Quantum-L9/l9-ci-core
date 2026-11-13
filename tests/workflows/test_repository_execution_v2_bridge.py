@@ -37,6 +37,9 @@ import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+REGISTRY_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "repository-registry" / "repository_registry.yaml"
+)
 RUNNER = ROOT / ".github" / "actions" / "run-repository-verification" / "run.py"
 CORE_CONTRACT = ROOT / ".l9" / "repo-workflow.json"
 
@@ -71,6 +74,10 @@ def _load_runner():
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # The live registry read is network I/O; pin it to the checked-in copy of
+    # Quantum-L9/.github semantics/repository_registry.yaml (example consumers
+    # are not members, so these cases keep migration semantics).
+    module.fetch_registry = REGISTRY_FIXTURE.read_text
     return module
 
 

@@ -62,12 +62,14 @@ from .contract import (
 from .contract_wiring import ContractWiringError, validate_contract_wiring
 from .locking import LockBusy, single_flight
 from .reporting import StepEvidence, redact_text, write_reports
+from .stamp import CORE_ROOT, PROFILES, stamp, verify_stamp
 
 CORE_POLICY_PATH = pathlib.Path(".l9/core-repo-policy.json")
 CORE_POLICY_SCHEMA = "l9.core-repository-policy/v1"
 COMMANDS = (
     "validate",
     "reconcile",
+    "stamp",
     "core-validate",
     "doctor",
     "change-policy",
@@ -1084,6 +1086,66 @@ class RepositoryWorkflow:
 
 
 # ---------------------------------------------------------------------------
+# Core-owned consumer files (stamp)
+# ---------------------------------------------------------------------------
+
+# Core paths whose bytes a stamp copies or renders. A stamp records the Core
+# HEAD it came from, so these must be clean at HEAD or the record would name a
+# revision whose bytes differ from what was written.
+_STAMP_SOURCES = (
+    "presets",
+    "tools/l9_repo",
+    ".github/actions/install-consumer-ci/toolchain-lock.json",
+)
+
+
+def core_stamp_revision(core_root: pathlib.Path = CORE_ROOT) -> str:
+    """Return this Core checkout's HEAD; fail closed if stamp sources are dirty."""
+
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(core_root), *args],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    head = git("rev-parse", "--verify", "HEAD^{commit}")
+    revision = head.stdout.strip()
+    if head.returncode != 0 or len(revision) != 40:
+        _fail(
+            "stamp requires a Core Git checkout to record its revision: "
+            + (head.stderr.strip() or str(core_root))
+        )
+    dirty = git("status", "--porcelain", "--untracked-files=all", "--", *_STAMP_SOURCES)
+    if dirty.returncode != 0:
+        _fail(dirty.stderr.strip() or "cannot read Core checkout status")
+    if dirty.stdout.strip():
+        _fail(
+            "Core stamp sources differ from HEAD; stamp only from a clean Core "
+            "revision:\n" + dirty.stdout.rstrip()
+        )
+    return revision
+
+
+def validate_stamp(root: pathlib.Path) -> None:
+    """Fail when a stamped consumer's Core-owned files drift from this Core."""
+
+    record, findings = verify_stamp(root)
+    if record is None:
+        return
+    if findings:
+        _fail(
+            "Core-owned files drift from this Core revision:\n  "
+            + "\n  ".join(findings)
+        )
+    print(
+        f"stamp: PASS ({record['profile']}; stamped from "
+        f"{record['core']['repository']}@{record['core']['revision']})"
+    )
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1094,6 +1156,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-ref")
     parser.add_argument("--head-ref", default="HEAD")
     parser.add_argument("--changed-file", action="append", default=[])
+    parser.add_argument("--profile", choices=PROFILES)
     parser.add_argument("command", choices=COMMANDS)
     return parser
 
@@ -1104,7 +1167,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if arguments.command == "validate":
             core.validate()
+            validate_stamp(core.root)
             print("validate: PASS")
+        elif arguments.command == "stamp":
+            if arguments.profile is None:
+                _fail("stamp requires --profile (" + ", ".join(PROFILES) + ")")
+            changed = stamp(core.root, arguments.profile, core_stamp_revision())
+            for relative in changed:
+                print(f"stamped {relative}")
+            print(
+                f"stamp: {arguments.profile}; "
+                + (f"{len(changed)} file(s) written" if changed else "already current")
+            )
         elif arguments.command == "reconcile":
             core.locked_reconcile()
         elif arguments.command == "core-validate":
