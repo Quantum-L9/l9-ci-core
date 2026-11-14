@@ -131,6 +131,13 @@ interpreter running the tool) or one of the pinned toolchain `ruff`, `mypy`,
   publication plane.
 - `make reconcile`: regenerate `Makefile` from the released facade under the
   single-flight lock. Never touches `Repo.mk`.
+- `python3 -m tools.l9_repo --workspace <consumer> stamp --profile
+  <python|typescript|python+typescript>`: write every Core-owned consumer file
+  for the profile plus the stamp record `.l9/core-stamp.json`
+  (`l9.core-stamp/v1`), recording this Core checkout's `HEAD`; refuses a Core
+  checkout whose stamp sources differ from `HEAD`. `validate` on a stamped
+  consumer then proves every Core-owned file byte-identical to the Core
+  checkout it runs from (`AGENTS.md` §24, `docs/ACTIVATION.md`).
 - `make core-validate`: Core-local structural validation only.
 - `make check-release-writers`: run `tools/check_release_writers.py`, which
   proves exactly one authorized executable surface can mutate the exact
@@ -261,7 +268,16 @@ decision from its own Core checkout, never from the consumer:
   runner-supplied `github.repository`. No action input, consumer metadata, or
   contract field selects it. `migration` tolerates an absent contract and
   admits V1 and V2; `required` fails an absent contract and refuses V1.
-  Enrolling a repository in `required` is a Core policy change plus a repin.
+  A repository the policy does not list is still `required` when the live
+  `Quantum-L9/.github` `semantics/repository_registry.yaml` (read over Git at
+  `refs/heads/main`) names it with `lifecycle: current`; the registry only
+  raises the mode, and an unreadable registry fails the run as
+  `infrastructure` (`AGENTS.md` §24).
+- **Core stamp.** A V2 consumer carrying `.l9/core-stamp.json` has every
+  Core-owned file compared byte-for-byte with this Core checkout after
+  admission and before any phase: drift is a `contract` failure in `required`
+  mode and a warning annotation in `migration` mode; a malformed record fails
+  in both.
 - **Typed outputs.** `present`, `status` (`pass`, `not_applicable`, `fail`),
   `contract-mode`, `contract-version` (`absent`, `v1`, `v2`, `invalid`), and
   `failure-kind` (`none`, `contract`, `command`, `infrastructure`). The

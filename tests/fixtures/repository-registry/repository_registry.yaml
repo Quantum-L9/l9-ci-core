@@ -1,0 +1,317 @@
+schema: l9.repository-registry/v1
+artifact_id: l9.repository-registry/global@1
+canonical: true
+authority:
+  owner: Quantum-L9/.github
+  scope: l9_global_repository_registry
+  authority_class: canonical
+canonical_source:
+  format: yaml
+  artifact: repository_registry.yaml
+purpose: >
+  Name the canonical organization-level repository coordinates governed by
+  Quantum-L9 and assign each registered repository exactly one RepositoryClass.
+  This registry owns repository identity, lifecycle classification, and
+  organization RepositoryClass assignment only. It does not own the domain
+  semantics, implementation, runtime state, or repository-local authority of
+  the registered repositories. Every entry is an explicit admission decision:
+  a repository is a member because it is listed here with a class_ref, never
+  because of its name, prefix, hosting organization, shape, ProductKind, or
+  birth profile. An unlisted repository has no implied membership and no
+  implied class.
+class_catalog_ref: l9.repository-classes/global@1
+global_rules:
+  registry_names_repository_identity_and_classification_only: true
+  every_entry_is_an_explicit_admission_decision: true
+  repository_id_is_immutable: true
+  repository_coordinate_is_provider_scoped: true
+  repository_coordinate_is_case_sensitive: true
+  every_registered_repository_has_exactly_one_class_ref: true
+  every_class_ref_must_resolve_in_repository_classes: true
+  every_class_ref_must_resolve_to_an_admitted_class: true
+  repository_name_does_not_imply_repository_class: true
+  repository_prefix_does_not_imply_repository_class: true
+  organization_hosting_does_not_imply_l9_membership: true
+  repository_shape_does_not_imply_repository_class: true
+  product_kind_does_not_imply_repository_class: true
+  birth_profile_does_not_imply_repository_class: true
+  unregistered_repository_has_no_implied_l9_membership: true
+  unknown_or_ambiguous_repository_identity_fails_closed: true
+  unknown_or_ambiguous_class_assignment_fails_closed: true
+  repository_rename_preserves_stable_registry_id: true
+  historical_repository_coordinates_must_be_preserved_as_aliases: true
+  removed_repository_entries_must_be_retained_with_retired_lifecycle: true
+  registry_classification_does_not_transfer_domain_semantic_ownership: true
+  registry_classification_does_not_grant_execution_authority: true
+  runtime_state_is_not_recorded_here: true
+  ingestion_state_is_not_recorded_here: true
+  memory_state_is_not_recorded_here: true
+  credentials_are_not_recorded_here: true
+does_not_own:
+  - repository_domain_semantics
+  - source_code_meaning
+  - product_kind
+  - product_release_admission
+  - repository_birth_profile
+  - repository_seed_distribution
+  - credentials
+  - permissions
+  - execution_authority
+  - runtime_health
+  - deployment_state
+  - memory_records
+  - ingestion_progress
+  - projection_runtime_state
+repository_lifecycle:
+  current: >
+    Current canonical repository coordinate eligible for obligations defined by
+    its RepositoryClass.
+  superseded: >
+    Repository identity replaced by another canonical coordinate while retained
+    for historical resolution.
+  retired: >
+    Repository retained for historical resolution but no longer a current
+    operational source. Class-defined historical obligations may continue to
+    apply.
+repositories:
+  - id: dot-github
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: .github
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: cursor-governance
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: Cursor-Governance
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: igorbot
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: igorbot
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: seo-bot
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: SEO-Bot
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: website-bot
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: Website-Bot
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-original-repo
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: L9_Original_Repo
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-assurance
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-assurance
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-ci-core
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-ci-core
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-ci-debt-intelligence
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-ci-debt-intelligence
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-ci-debt-lsp
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-ci-debt-lsp
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-ci-debt-resolver
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-ci-debt-resolver
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-ci-sdk
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-ci-sdk
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-codegen
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-codegen
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-cognitive-runtime
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-cognitive-runtime
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-conformance
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-conformance
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-constellation-ingest
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-constellation-ingest
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-constellation-topology
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-constellation-topology
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-dependency-template
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-dependency-template
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-deploy
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-deploy
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-devpack-compiler
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-devpack-compiler
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-goose
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-goose
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-graphiti-memory
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-graphiti-memory
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-harness
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-harness
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-meta-injector
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-meta-injector
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-node-chain-of-search
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-node-chain-of-search
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-node-template
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-node-template
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-observability-core
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-observability-core
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-ops-mcp
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: L9-Ops-MCP
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-pr-repair
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-pr-repair
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-prompt-generator
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: L9-Prompt-Generator
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-repo-template
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-repo-template
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-semantic-compiler-engine
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-semantic-compiler-engine
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-wip
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-wip
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+aliases: []
+downstream_obligations:
+  resolve_repository_class_against: l9.repository-classes/global@1
+  reject_unregistered_repository_as_implicit_l9_member: true
+  reject_unadmitted_class_ref: true
+  preserve_registry_id_in_generated_views: true
+  preserve_repository_coordinate_in_generated_views: true
+  preserve_lifecycle_in_generated_views: true
+  preserve_class_ref_in_generated_views: true
+  generated_views_are_non_authoritative: true
