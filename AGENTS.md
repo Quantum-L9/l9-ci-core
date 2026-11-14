@@ -1054,37 +1054,3 @@ python3 tools/advance_core_action_pins.py <merge sha> --check
 
 Tests: `tests/repo_execution/test_stamp.py`,
 `tests/workflows/test_registry_required_mode.py`.
-
-## 26. Stamp enforcement activation (2026-11-14) — the §16 pin advance, applied
-
-This follows the two-step promotion in §16 and never pins an unmerged commit.
-`33cb042` (PR #250, §25) is the merge revision that holds the §24 and §25
-stamp verification and the §24 live-registry required mode. This step makes
-them live:
-
-- `org-ci.yml`'s 16 Core action pins advance from `e69de8b` to `33cb042`, which
-  is an ancestor of `main`.
-- `analyze-semgrep.yml`'s `install-semgrep` pin moves with it, to `33cb042`.
-  That keeps one locked Semgrep install path.
-
-Between `e69de8b` and `33cb042`, the only action changes `org-ci.yml` runs are
-in `run-repository-verification`, together with the `tools/l9_repo` it
-imports. `install-consumer-ci` also changed, but `org-ci.yml` does not run it.
-`install-semgrep`, `invoke-sdk`, `provision-sdk`, `resolve-governance` and
-`resolve-consumer-metadata` are byte-identical, and the SDK revision stays
-`d09d3963`. No `org-ci.yml` step is added. Stamp verification runs inside the
-existing `Run repository verification contract` step.
-
-These behaviours become live for every governed repository's next evaluation:
-
-- A repository that carries `.l9/core-stamp.json` has every Core-owned file
-  compared byte-for-byte with `33cb042`. Drift or a malformed record fails
-  `Analyze (central Core)` with `failure-kind: contract` in every mode. A
-  record stamped before `.python-version` and `.pre-commit-config.yaml` were
-  Core-owned is drift, so re-stamp.
-- A repository without a stamp record is not stamp-checked (fleet safety).
-- A repository missing from the static projection is still `required` when the
-  `Quantum-L9/.github` registry names it with `lifecycle: current` (§24). If the
-  registry is unreadable, the run fails as `infrastructure`.
-
-Prove the pins with `python3 tools/advance_core_action_pins.py 33cb042fbd549c875f3fe4cfd389092a84dd7421 --check`.
