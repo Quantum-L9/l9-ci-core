@@ -47,4 +47,6 @@ runs:
         L9_RELEASE_PHASES: ${{ inputs.phases }}
         L9_RELEASE_ENGINE_REVISION: ${{ github.action_ref }}
         L9_RELEASE_COMMIT: ${{ github.sha }}
-      run: python3 "${{ github.action_path }}/release_engine.py"
+      # The path comes from the runner environment, never from an expression
+      # interpolated into the script (CodeQL code-injection finding #205).
+      run: python3 -I "${GITHUB_ACTION_PATH}/release_engine.py"

@@ -171,8 +171,11 @@ It is deliberately **not** wired by the change that introduces the engine:
    push trigger is an evaluation lane, not a trusted write lane. The push path
    holds contents:read". `test_required_workflow_has_no_write_scopes` and
    `test_workflow_permissions.py` lock `org-ci.yml` as write-free. A release
-   job needs write authority (a tag and a Release), so it requires a governed
-   amendment of that contract, decided by the CTO/operator.
+   job needs write authority (a tag and a Release). The operator has decided
+   the write path (`GITHUB_TOKEN`, `contents: write` on the `release` job
+   only; see the token finding below), so the pin-advance PR amends
+   `push_authority` and narrows those two tests to that one job, never
+   reachable on `pull_request` or `merge_group`.
 3. **Trigger carrier.** GitHub documents that "Ruleset workflows support using
    the `pull_request`, `pull_request_target` and `merge_group` events" and
    that they "do not run on events triggered by the `GITHUB_TOKEN`". A `push`
@@ -189,12 +192,12 @@ required-workflows feature documented: "Secrets in the source repository will
 not be fetched when a workflow runs in the target repository … should be
 created at either the organization level or in the target repositories."
 
-**Proposed** App-token path, not wired: org App 4831302 (repo-birth; contents,
-administration, actions and issues write). The release job would keep
-`contents: read` on `GITHUB_TOKEN` and mint a repository-scoped installation
-token via a SHA-pinned `actions/create-github-app-token`, restricted to
-`github.repository` with `contents: write`. The App key would be an
-organization secret.
+**Decision (CTO answer, from the operator, 2026-11-14):** the org-CI built-in
+`GITHUB_TOKEN` can push tags and create releases in the repository it runs on.
+The release job uses it with minimal job-level permissions (`contents: write`
+on the `release` job only; `analyze` stays `contents: read`). There is no App
+token path. The documentary evidence above is recorded as found; the
+operator's statement is the authority for the live capability.
 
 ## 5. Reproducibility evidence — l9-constellation-topology @ `89150bd`
 
