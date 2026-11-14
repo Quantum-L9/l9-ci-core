@@ -14,8 +14,11 @@ python3 -m tools.l9_repo --workspace <consumer> validate
 | `typescript/` | the locked Biome contract `biome.json`, `.biomeignore`, `.editorconfig` (see `typescript/README.md`) |
 
 `stamp` also writes `.l9/repo-workflow.json`, the `make-v1` `Makefile` and,
-for Python, `requirements-ci.txt` rendered from
-`.github/actions/install-consumer-ci/toolchain-lock.json`. `typescript/stamp.sh`
+for Python, `requirements-ci.txt`, `.python-version` and
+`.pre-commit-config.yaml` rendered from
+`.github/actions/install-consumer-ci/toolchain-lock.json` (`AGENTS.md` §25).
+Stamp drift fails organization CI in every mode for a stamped repository; an
+unstamped repository is not stamp-checked. `typescript/stamp.sh`
 remains for keep-if-absent Biome stamping.
 
 The per-language copy-first presets (the old `presets/python`, the preset

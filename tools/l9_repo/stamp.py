@@ -10,6 +10,8 @@ consumer path             Core source                                 profiles
 .l9/repo-workflow.json    the exact Repository Execution V2 contract  all
 Makefile                  ``tools/l9_repo/facades/make-v1.mk``        all
 requirements-ci.txt       rendered from ``toolchain-lock.json``       python
+.python-version           rendered from ``toolchain-lock.json``       python
+.pre-commit-config.yaml   rendered from ``toolchain-lock.json``       python
 ruff.toml                 ``presets/python-tooling/ruff.toml``                python
 mypy.ini                  ``presets/python-tooling/mypy.ini``                 python
 pytest.ini                ``presets/python-tooling/pytest.ini``               python
@@ -18,7 +20,24 @@ biome.json                ``presets/typescript/biome.json``           typescript
 .editorconfig             ``presets/typescript/.editorconfig``        typescript
 ========================  ==========================================  ==============
 
-``python+typescript`` is the union. Product-owned files (``Repo.mk``,
+``python+typescript`` is the union.
+
+Deliberately not stamped (decision record: ``AGENTS.md`` §25):
+
+* no Semgrep configuration: the rulesets are ``l9-ci-sdk``'s and their
+  blocking/advisory policy is Core's ``resolve-governance`` data, both run
+  centrally by ``org-ci.yml``. A consumer-side Semgrep file would be a second
+  source for the same semantics;
+* no Pyright configuration: the Python profile's type checker is mypy (strict),
+  and ``toolchain-lock.json`` pins no Pyright. Adding one is a tool-version
+  change (one human pin-file PR, ``AGENTS.md`` §12), not a stamp change.
+
+``.pre-commit-config.yaml`` uses only ``repo: local`` hooks with
+``language: unsupported`` (pre-commit 4.4.0's name for ``system``): each hook
+runs the tool ``requirements-ci.txt`` installed from the same lock, so a hook
+can never carry a second version pin that drifts from the lock.
+
+Product-owned files (``Repo.mk``,
 ``pyproject.toml``, ``package.json``, source) are never written: the file set
 above is closed, and nothing outside it is opened for writing.
 
@@ -27,8 +46,8 @@ above is closed, and nothing outside it is opened for writing.
 the bytes came from and the sha256 of every stamped file. ``verify_stamp``
 re-renders each file from *this* Core checkout and reports every file whose
 bytes differ, are missing, or disagree with the record. Whether a finding
-blocks is the caller's decision (the CLI ``validate`` always fails; the
-organization admission bridge blocks only in ``required`` mode).
+blocks is the caller's decision; the CLI ``validate`` and the organization
+admission bridge both fail on any finding (``AGENTS.md`` §25).
 
 Everything here is standard library only, because the admission bridge
 imports it from a pinned Core checkout with no third-party packages.
@@ -72,8 +91,12 @@ PROFILE_BOTH = "python+typescript"
 PROFILES: tuple[str, ...] = (PROFILE_PYTHON, PROFILE_TYPESCRIPT, PROFILE_BOTH)
 
 _COMMON: tuple[str, ...] = (CONTRACT_PATH.as_posix(), MAKEFILE_PATH.as_posix())
+PYTHON_VERSION_PATH = ".python-version"
+PRE_COMMIT_PATH = ".pre-commit-config.yaml"
 _PYTHON: tuple[str, ...] = (
     "requirements-ci.txt",
+    PYTHON_VERSION_PATH,
+    PRE_COMMIT_PATH,
     "ruff.toml",
     "mypy.ini",
     "pytest.ini",
@@ -96,6 +119,7 @@ _RECORD_KEYS = frozenset({"schema", "core", "profile", "files"})
 _CORE_KEYS = frozenset({"repository", "revision"})
 _REVISION = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+)+$")
 
 
 def _fail(message: str) -> NoReturn:
@@ -117,15 +141,77 @@ def render_contract() -> bytes:
     return (json.dumps(document, indent=2) + "\n").encode("utf-8")
 
 
-def render_requirements() -> bytes:
-    """``requirements-ci.txt`` pinned exactly to Core's toolchain lock."""
-
+def _load_lock() -> dict[str, Any]:
     try:
         lock = json.loads(TOOLCHAIN_LOCK.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         _fail(f"unreadable Core toolchain lock {TOOLCHAIN_LOCK}: {error}")
     if not isinstance(lock, dict):
         _fail("Core toolchain lock must be a JSON object")
+    return lock
+
+
+def _lock_version(lock: Mapping[str, Any], tool: str) -> str:
+    version = lock.get(tool)
+    if not isinstance(version, str) or not _VERSION.fullmatch(version):
+        _fail(f"Core toolchain lock has no exact version for {tool!r}")
+    return version
+
+
+def render_python_version() -> bytes:
+    """``.python-version``: the exact interpreter Core's lock selects."""
+
+    return (_lock_version(_load_lock(), "python") + "\n").encode("utf-8")
+
+
+def render_pre_commit() -> bytes:
+    """``.pre-commit-config.yaml`` bound to Core's toolchain lock.
+
+    Every hook is ``repo: local`` and runs the lock-pinned tool that
+    ``requirements-ci.txt`` installs (``python -m <tool>``); the only version
+    the file names is ``minimum_pre_commit_version``, taken from the lock.
+    """
+
+    lock = _load_lock()
+    for tool in ("ruff", "mypy"):
+        _lock_version(lock, tool)
+    minimum = _lock_version(lock, "pre-commit")
+    text = f"""\
+# Core-owned: rendered from l9-ci-core
+# .github/actions/install-consumer-ci/toolchain-lock.json by
+# `python3 -m tools.l9_repo --workspace <repo> stamp`. Do not edit; re-stamp
+# from the Core revision org-ci.yml pins. Every hook runs the lock-pinned tool
+# installed by `python -m pip install -r requirements-ci.txt`.
+minimum_pre_commit_version: "{minimum}"
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: python -m ruff check --fix
+        language: unsupported
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        entry: python -m ruff format
+        language: unsupported
+        types_or: [python, pyi]
+        require_serial: true
+      - id: mypy
+        name: mypy
+        entry: python -m mypy
+        language: unsupported
+        types_or: [python, pyi]
+        require_serial: true
+"""
+    return text.encode("utf-8")
+
+
+def render_requirements() -> bytes:
+    """``requirements-ci.txt`` pinned exactly to Core's toolchain lock."""
+
+    lock = _load_lock()
     lines = [
         "# Core-owned: rendered from l9-ci-core",
         "# .github/actions/install-consumer-ci/toolchain-lock.json by",
@@ -134,10 +220,7 @@ def render_requirements() -> bytes:
         "# belong in pyproject.toml.",
     ]
     for tool in REQUIREMENTS_TOOLS:
-        version = lock.get(tool)
-        if not isinstance(version, str) or not version:
-            _fail(f"Core toolchain lock has no version for {tool!r}")
-        lines.append(f"{tool}=={version}")
+        lines.append(f"{tool}=={_lock_version(lock, tool)}")
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
@@ -150,6 +233,10 @@ def render_file(relative: str) -> bytes:
         return render_facade(STAMP_FACADE)
     if relative == "requirements-ci.txt":
         return render_requirements()
+    if relative == PYTHON_VERSION_PATH:
+        return render_python_version()
+    if relative == PRE_COMMIT_PATH:
+        return render_pre_commit()
     source = _PRESET_SOURCES.get(relative)
     if source is None:
         _fail(f"not a Core-owned consumer file: {relative}")
@@ -254,10 +341,12 @@ def load_stamp_record(root: pathlib.Path) -> dict[str, Any] | None:
     if not expected:
         _fail("stamp record profile must be a string")
     files = data["files"]
-    if not isinstance(files, dict) or set(files) != expected:
-        _fail(
-            f"stamp record files must name exactly the {data['profile']} profile files"
-        )
+    # A record from an earlier Core revision may predate a file the profile
+    # now owns: that is drift (re-stamp), reported per file by verify_stamp,
+    # not a malformed record. A record naming a file the profile does not own,
+    # or naming none, is malformed.
+    if not isinstance(files, dict) or not files or not set(files) <= expected:
+        _fail(f"stamp record files must name only {data['profile']} profile files")
     for relative, digest in files.items():
         if not isinstance(digest, str) or not _DIGEST.fullmatch(digest):
             _fail(f"stamp record digest for {relative} must be sha256:<64 hex>")
@@ -284,11 +373,17 @@ def verify_stamp(root: pathlib.Path) -> tuple[dict[str, Any] | None, list[str]]:
             findings.append(f"{relative}: missing (Core-owned; re-stamp)")
             continue
         actual = path.read_bytes()
+        recorded = record["files"].get(relative)
         if actual != expected:
             findings.append(
                 f"{relative}: differs from Core-owned bytes at this Core revision "
                 f"(stamped from {record['core']['revision']}; re-stamp, do not edit)"
             )
-        elif record["files"][relative] != _digest(actual):
+        elif recorded is None:
+            findings.append(
+                f"{relative}: Core-owned for the {record['profile']} profile but "
+                "absent from the stamp record (stamped by an earlier Core; re-stamp)"
+            )
+        elif recorded != _digest(actual):
             findings.append(f"{relative}: stamp record digest does not match the file")
     return record, findings

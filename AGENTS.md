@@ -980,3 +980,77 @@ Inert until the §16 pin advance moves `org-ci.yml`'s
 the revision `org-ci.yml` pins: organization CI compares bytes with that
 revision. Tests: `tests/repo_execution/test_stamp.py`,
 `tests/workflows/test_registry_required_mode.py`.
+
+## 25. The stamp covers every CI-tool config, and stamp drift blocks in every mode (2026-11-14) — amends §24
+
+Decision record for lane C1. §24 stamped Ruff, mypy, pytest, Biome,
+`.editorconfig` and `requirements-ci.txt`. However, `toolchain-lock.json` also
+pins the interpreter and pre-commit, and §24 let stamp drift through as a
+warning in `migration` mode.
+
+### Stamped files per profile
+
+| Profile | Core-owned files |
+|---|---|
+| `python` | `.l9/repo-workflow.json`, `Makefile`, `requirements-ci.txt`, `.python-version`, `.pre-commit-config.yaml`, `ruff.toml`, `mypy.ini`, `pytest.ini` |
+| `typescript` | `.l9/repo-workflow.json`, `Makefile`, `biome.json`, `.biomeignore`, `.editorconfig` |
+| `python+typescript` | the union |
+
+- `.python-version` is the lock's exact `python` (`3.12.14`).
+- `.pre-commit-config.yaml` is rendered from the lock. It contains only
+  `repo: local` hooks (`ruff check --fix`, `ruff format`, `mypy`, each
+  `python -m <tool>`) with `language: unsupported`, pre-commit 4.4.0's name for
+  `system`. `minimum_pre_commit_version` is the lock's `pre-commit`. No hook
+  carries a `rev`, so the only tool versions are the ones `requirements-ci.txt`
+  installs. The TypeScript profile has no pre-commit file because pre-commit is
+  not part of its toolchain. Biome is checked centrally by `run-biome-check`.
+- Semgrep is not stamped. Its rulesets belong to `l9-ci-sdk`, and their modes
+  are `resolve-governance` data. Both run centrally in `org-ci.yml`, so a
+  consumer Semgrep file would be a second source (L9-OWNER-001).
+- Pyright is not stamped. The Python profile type-checks with strict mypy, and
+  the lock pins no Pyright. Adding Pyright is a §12 pin-file change, not a
+  stamp change.
+
+### Drift semantics
+
+`tools/l9_repo` `validate` and the organization admission bridge
+(`run-repository-verification`) both fail on any stamp finding. That covers a
+differing byte, a missing file, a record digest mismatch, and a profile file
+absent from the record. They fail in every enforcement mode. Supersedes the
+§24 table's `migration` warning row. A stamp record is the repository's own
+claim that those files are Core's, so the claim is held to. A record that names
+a file outside its profile, or no file at all, is malformed. A record from an
+earlier Core revision that lacks a newly owned file is drift, not malformed:
+re-stamp.
+
+**Fleet safety:** a repository with no `.l9/core-stamp.json` is never
+stamp-checked. Existing unstamped repositories see no change.
+
+Re-stamp from the Core revision `org-ci.yml` pins:
+
+```bash
+python3 -m tools.l9_repo --workspace <consumer> stamp --profile <python|typescript|python+typescript>
+python3 -m tools.l9_repo --workspace <consumer> validate
+```
+
+### Repository-specific settings
+
+Not provided yet. A stamped file is the repository's whole policy for that tool,
+so a product conforms to it. Examples are pytest `asyncio_mode` and extra
+markers. A Core-owned overlay would change `l9.core-stamp/v1` and needs its own
+decision; it is not built here.
+
+### Activation
+
+This change is inert until the §16 pin advance. The pin must be this change's
+merge revision, never an unmerged commit. The `run-repository-verification`
+pin at `e69de8b` predates §24, and pinning to `110f173` would reject an
+expanded record as malformed. Run:
+
+```bash
+python3 tools/advance_core_action_pins.py <merge sha of this change>
+python3 tools/advance_core_action_pins.py <merge sha> --check
+```
+
+Tests: `tests/repo_execution/test_stamp.py`,
+`tests/workflows/test_registry_required_mode.py`.

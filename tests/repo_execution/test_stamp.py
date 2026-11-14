@@ -85,7 +85,14 @@ class StampTests(unittest.TestCase):
 
     def test_profile_file_sets_are_exact(self) -> None:
         common = [".l9/repo-workflow.json", "Makefile"]
-        python = ["requirements-ci.txt", "ruff.toml", "mypy.ini", "pytest.ini"]
+        python = [
+            "requirements-ci.txt",
+            ".python-version",
+            ".pre-commit-config.yaml",
+            "ruff.toml",
+            "mypy.ini",
+            "pytest.ini",
+        ]
         typescript = ["biome.json", ".biomeignore", ".editorconfig"]
         self.assertEqual(("python", "typescript", "python+typescript"), PROFILES)
         self.assertEqual(tuple(common + python), PROFILE_FILES["python"])
@@ -197,6 +204,11 @@ class StampTests(unittest.TestCase):
             "foreign core": {**good, "core": {**good["core"], "repository": "x/y"}},
             "unknown profile": {**good, "profile": "go"},
             "file set mismatch": {**good, "profile": "typescript"},
+            "foreign file": {
+                **good,
+                "files": {**good["files"], "pyrightconfig.json": "sha256:" + "0" * 64},
+            },
+            "empty files": {**good, "files": {}},
             "bad digest": {**good, "files": {**good["files"], "ruff.toml": "md5:x"}},
         }
         for name, record in cases.items():
@@ -204,6 +216,33 @@ class StampTests(unittest.TestCase):
                 (self.root / STAMP_RECORD_PATH).write_text(json.dumps(record))
                 with self.assertRaises(ContractError):
                     verify_stamp(self.root)
+
+    def test_record_from_an_earlier_core_is_drift_not_malformed(self) -> None:
+        # A record stamped before .python-version / .pre-commit-config.yaml
+        # were Core-owned: each newly owned file is a finding, so validate
+        # fails until the repository re-stamps.
+        stamp(self.root, "python", REVISION)
+        record_path = self.root / STAMP_RECORD_PATH
+        record = json.loads(record_path.read_text())
+        for relative in (".python-version", ".pre-commit-config.yaml"):
+            del record["files"][relative]
+            (self.root / relative).unlink()
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        findings = verify_stamp(self.root)[1]
+        self.assertEqual(2, len(findings))
+        self.assertTrue(all("missing" in item for item in findings))
+        stamp(self.root, "python", REVISION)
+        self.assertEqual([], verify_stamp(self.root)[1])
+
+    def test_unrecorded_but_identical_file_is_still_a_finding(self) -> None:
+        stamp(self.root, "python", REVISION)
+        record_path = self.root / STAMP_RECORD_PATH
+        record = json.loads(record_path.read_text())
+        del record["files"][".pre-commit-config.yaml"]
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        findings = verify_stamp(self.root)[1]
+        self.assertEqual(1, len(findings))
+        self.assertIn("absent from the stamp record", findings[0])
 
     def test_absent_record_verifies_nothing(self) -> None:
         self.assertEqual((None, []), verify_stamp(self.root))
@@ -246,6 +285,54 @@ class RenderedContentTests(unittest.TestCase):
         ruff = render_file("ruff.toml").decode()
         self.assertIn(f'target-version = "py{major_minor.replace(".", "")}"\n', ruff)
         self.assertIn("[pytest]\n", render_file("pytest.ini").decode())
+
+    def test_python_version_is_the_exact_locked_interpreter(self) -> None:
+        lock = json.loads(LOCK.read_text(encoding="utf-8"))
+        self.assertEqual(
+            (lock["python"] + "\n").encode(), render_file(".python-version")
+        )
+
+    def test_pre_commit_config_is_bound_to_the_lock(self) -> None:
+        lock = json.loads(LOCK.read_text(encoding="utf-8"))
+        text = render_file(".pre-commit-config.yaml").decode()
+        self.assertIn(f'minimum_pre_commit_version: "{lock["pre-commit"]}"\n', text)
+        # Only local hooks: no hook repository rev can drift from the lock.
+        repo_lines = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip().startswith("- repo:")
+        ]
+        self.assertEqual(["- repo: local"], repo_lines)
+        self.assertNotIn("rev:", text)
+        # pre-commit 4.4.0 renamed language: system to unsupported.
+        self.assertNotIn("language: system", text)
+        entries = [
+            line.split("entry:", 1)[1].strip()
+            for line in text.splitlines()
+            if "entry:" in line
+        ]
+        self.assertEqual(
+            [
+                "python -m ruff check --fix",
+                "python -m ruff format",
+                "python -m mypy",
+            ],
+            entries,
+        )
+        for tool in ("ruff", "mypy"):
+            self.assertIn(tool, REQUIREMENTS_TOOLS)
+
+    def test_pre_commit_config_parses_as_yaml(self) -> None:
+        import yaml  # Core dev dependency (requirements-ci.txt)
+
+        document = yaml.safe_load(render_file(".pre-commit-config.yaml"))
+        self.assertEqual(["local"], [repo["repo"] for repo in document["repos"]])
+        hooks = document["repos"][0]["hooks"]
+        self.assertEqual(
+            ["ruff-check", "ruff-format", "mypy"], [hook["id"] for hook in hooks]
+        )
+        for hook in hooks:
+            self.assertEqual("unsupported", hook["language"])
 
 
 class CliTests(unittest.TestCase):
