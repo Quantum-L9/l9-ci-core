@@ -112,6 +112,11 @@ class FixtureTests(WorkspaceCase):
                 ("pyproject.toml", "pre-commit", "==4.6.2"),
                 ("requirements.txt", "pre-commit", "==4.6.2"),
                 ("uv.lock", "pre-commit", "4.6.2"),
+                # bandit and pip-audit are Core-owned since AGENTS.md §26
+                # (security.yml runs them at the lock version), so the
+                # excerpt's own pins are drift from Core's lock.
+                ("pyproject.toml", "bandit", "==1.9.4"),
+                ("pyproject.toml", "pip-audit", "==2.10.1"),
             },
             drift,
         )

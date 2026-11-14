@@ -11,6 +11,7 @@ python3 -m tools.l9_repo --workspace <consumer> validate
 | Directory | Files |
 |---|---|
 | `python-tooling/` | `ruff.toml`, `mypy.ini`, `pytest.ini` (see `python-tooling/README.md`) |
+| `security/` | `.gitleaks.toml`, stamped in every profile (`AGENTS.md` §26) |
 | `typescript/` | the locked Biome contract `biome.json`, `.biomeignore`, `.editorconfig` (see `typescript/README.md`) |
 
 `stamp` also writes `.l9/repo-workflow.json`, the `make-v1` `Makefile` and,

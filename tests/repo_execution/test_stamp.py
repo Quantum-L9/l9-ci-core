@@ -84,7 +84,7 @@ class StampTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_profile_file_sets_are_exact(self) -> None:
-        common = [".l9/repo-workflow.json", "Makefile"]
+        common = [".l9/repo-workflow.json", "Makefile", ".gitleaks.toml"]
         python = [
             "requirements-ci.txt",
             ".python-version",
@@ -93,13 +93,34 @@ class StampTests(unittest.TestCase):
             "mypy.ini",
             "pytest.ini",
         ]
+        pyright = [
+            "pyrightconfig.json" if path == "mypy.ini" else path for path in python
+        ]
         typescript = ["biome.json", ".biomeignore", ".editorconfig"]
-        self.assertEqual(("python", "typescript", "python+typescript"), PROFILES)
+        self.assertEqual(
+            (
+                "python",
+                "typescript",
+                "python+typescript",
+                "python-pyright",
+                "python-pyright+typescript",
+            ),
+            PROFILES,
+        )
         self.assertEqual(tuple(common + python), PROFILE_FILES["python"])
         self.assertEqual(tuple(common + typescript), PROFILE_FILES["typescript"])
         self.assertEqual(
             tuple(common + python + typescript), PROFILE_FILES["python+typescript"]
         )
+        self.assertEqual(tuple(common + pyright), PROFILE_FILES["python-pyright"])
+        self.assertEqual(
+            tuple(common + pyright + typescript),
+            PROFILE_FILES["python-pyright+typescript"],
+        )
+        for profile, files in PROFILE_FILES.items():
+            with self.subTest(profile=profile):
+                checkers = {"mypy.ini", "pyrightconfig.json"} & set(files)
+                self.assertLessEqual(len(checkers), 1, "one type checker per profile")
         for files in PROFILE_FILES.values():
             self.assertNotIn("pyproject.toml", files)
             self.assertNotIn("Repo.mk", files)
@@ -116,7 +137,7 @@ class StampTests(unittest.TestCase):
                 )
                 for relative in PROFILE_FILES[profile]:
                     self.assertEqual(
-                        render_file(relative), (root / relative).read_bytes()
+                        render_file(relative, profile), (root / relative).read_bytes()
                     )
                 before = _snapshot(root)
                 self.assertEqual([], stamp(root, profile, REVISION))
@@ -234,6 +255,40 @@ class StampTests(unittest.TestCase):
         stamp(self.root, "python", REVISION)
         self.assertEqual([], verify_stamp(self.root)[1])
 
+    def test_record_predating_the_gitleaks_config_is_drift(self) -> None:
+        # A lane-C1 record carries no .gitleaks.toml: validate names it until
+        # the repository re-stamps (AGENTS.md §25 drift semantics).
+        stamp(self.root, "python", REVISION)
+        record_path = self.root / STAMP_RECORD_PATH
+        record = json.loads(record_path.read_text())
+        del record["files"][".gitleaks.toml"]
+        (self.root / ".gitleaks.toml").unlink()
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        findings = verify_stamp(self.root)[1]
+        self.assertEqual(1, len(findings))
+        self.assertTrue(findings[0].startswith(".gitleaks.toml: missing"))
+
+    def test_switching_type_checker_is_a_re_stamp(self) -> None:
+        stamp(self.root, "python", REVISION)
+        stamp(self.root, "python-pyright", REVISION)
+        self.assertEqual([], verify_stamp(self.root)[1])
+        record = load_stamp_record(self.root)
+        assert record is not None
+        self.assertIn("pyrightconfig.json", record["files"])
+        self.assertNotIn("mypy.ini", record["files"])
+        # The stamp never deletes: the stale mypy.ini is product-visible and
+        # no longer Core-owned, so the repository removes it itself.
+        self.assertTrue((self.root / "mypy.ini").is_file())
+
+    def test_python_record_cannot_claim_the_pyright_config(self) -> None:
+        stamp(self.root, "python-pyright", REVISION)
+        record_path = self.root / STAMP_RECORD_PATH
+        record = json.loads(record_path.read_text())
+        record["profile"] = "python"
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        with self.assertRaises(ContractError):
+            verify_stamp(self.root)
+
     def test_unrecorded_but_identical_file_is_still_a_finding(self) -> None:
         stamp(self.root, "python", REVISION)
         record_path = self.root / STAMP_RECORD_PATH
@@ -321,6 +376,58 @@ class RenderedContentTests(unittest.TestCase):
         )
         for tool in ("ruff", "mypy"):
             self.assertIn(tool, REQUIREMENTS_TOOLS)
+
+    def test_pyright_variant_swaps_only_the_type_checker(self) -> None:
+        lock = json.loads(LOCK.read_text(encoding="utf-8"))
+        mypy_req = render_file("requirements-ci.txt", "python").decode()
+        pyright_req = render_file("requirements-ci.txt", "python-pyright").decode()
+        self.assertEqual(
+            mypy_req.replace(
+                f"mypy=={lock['mypy']}", f"pyright[nodejs]=={lock['pyright']}"
+            ),
+            pyright_req,
+        )
+        mypy_hooks = render_file(".pre-commit-config.yaml", "python").decode()
+        pyright_hooks = render_file(
+            ".pre-commit-config.yaml", "python-pyright"
+        ).decode()
+        self.assertEqual(
+            mypy_hooks.replace(
+                "      - id: mypy\n        name: mypy\n        entry: python -m mypy\n",
+                "      - id: pyright\n        name: pyright\n"
+                "        entry: python -m pyright\n",
+            ),
+            pyright_hooks,
+        )
+        for profile in ("python-pyright", "python-pyright+typescript"):
+            self.assertEqual(
+                pyright_req.encode(), render_file("requirements-ci.txt", profile)
+            )
+
+    def test_pyright_preset_is_strict_and_matches_the_locked_interpreter(
+        self,
+    ) -> None:
+        lock = json.loads(LOCK.read_text(encoding="utf-8"))
+        major_minor = ".".join(lock["python"].split(".")[:2])
+        text = render_file("pyrightconfig.json").decode()
+        body = "\n".join(
+            line for line in text.splitlines() if not line.lstrip().startswith("//")
+        )
+        self.assertEqual(
+            {"pythonVersion": major_minor, "typeCheckingMode": "strict"},
+            json.loads(body),
+        )
+
+    def test_gitleaks_config_extends_the_pinned_defaults_only(self) -> None:
+        import tomllib
+
+        config = tomllib.loads(render_file(".gitleaks.toml").decode())
+        self.assertEqual({"title", "extend"}, set(config))
+        self.assertEqual({"useDefault": True}, config["extend"])
+
+    def test_typescript_profile_renders_no_lock_bound_python_file(self) -> None:
+        with self.assertRaises(ContractError):
+            render_file("requirements-ci.txt", "typescript")
 
     def test_pre_commit_config_parses_as_yaml(self) -> None:
         import yaml  # Core dev dependency (requirements-ci.txt)

@@ -1,0 +1,356 @@
+{
+  "schema": "l9.tool-ownership/v1",
+  "owner": "Quantum-L9/l9-ci-core",
+  "derived": true,
+  "sources": [
+    {
+      "path": ".github/actions/install-consumer-ci/toolchain-lock.json",
+      "sha256": "sha256:98fbd0e1f3886463ae9a76475b98415cce378d907c3da9cbebf9be1fc7f8f8bb"
+    },
+    {
+      "path": ".github/actions/install-consumer-ci/core-owned-tools.json",
+      "sha256": "sha256:feb102f09f92ab918b73bfc2ce9c1171f8d1855b27d81e0832de7aa7f76a8a92"
+    },
+    {
+      "path": "tools/l9_repo/stamp.py",
+      "sha256": "sha256:a3eb5397ee4d0baeed03c079dabc460167b61c8785b73235bc8eb2016f466135"
+    },
+    {
+      "path": "tools/l9_repo/tool_ownership.py",
+      "sha256": "sha256:a0cbeabde65f5a178336e4fab1ca2ad888b86605652beb07c059725926d6a2d9"
+    }
+  ],
+  "profiles": [
+    "python",
+    "typescript",
+    "python+typescript",
+    "python-pyright",
+    "python-pyright+typescript"
+  ],
+  "non_tool_files": [
+    ".l9/repo-workflow.json",
+    "Makefile"
+  ],
+  "consumer_execution": {
+    "workflow": "org-ci.yml",
+    "job": "analyze",
+    "step": "Run repository verification contract",
+    "phases": "setup validate check test"
+  },
+  "tools": [
+    {
+      "name": "bandit",
+      "version": "1.8.6",
+      "configs": [],
+      "profiles": [],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "security.yml",
+          "job": "security",
+          "step": "Python static security scan (bandit)"
+        }
+      ]
+    },
+    {
+      "name": "biome",
+      "version": "2.5.8",
+      "configs": [
+        "biome.json",
+        ".biomeignore",
+        ".editorconfig"
+      ],
+      "profiles": [
+        "typescript",
+        "python+typescript",
+        "python-pyright+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "org-ci.yml",
+          "job": "analyze",
+          "step": "Install Biome (digest-locked central pin)"
+        },
+        {
+          "workflow": "org-ci.yml",
+          "job": "analyze",
+          "step": "Run Biome check (blocking)"
+        }
+      ]
+    },
+    {
+      "name": "gitleaks",
+      "version": "8.24.3",
+      "configs": [
+        ".gitleaks.toml"
+      ],
+      "profiles": [
+        "python",
+        "typescript",
+        "python+typescript",
+        "python-pyright",
+        "python-pyright+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "security.yml",
+          "job": "security",
+          "step": "Secret scan (gitleaks)"
+        }
+      ]
+    },
+    {
+      "name": "mypy",
+      "version": "2.3.0",
+      "configs": [
+        "mypy.ini"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript"
+      ],
+      "pre_commit_hook_profiles": [
+        "python",
+        "python+typescript"
+      ],
+      "runs": [
+        {
+          "workflow": "self-ci.yml",
+          "job": "lint",
+          "step": "mypy"
+        }
+      ]
+    },
+    {
+      "name": "pip",
+      "version": "26.2.1",
+      "configs": [
+        "requirements-ci.txt"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript",
+        "python-pyright",
+        "python-pyright+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": []
+    },
+    {
+      "name": "pip-audit",
+      "version": "2.9.0",
+      "configs": [],
+      "profiles": [],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "security.yml",
+          "job": "security",
+          "step": "Python dependency audit (pip-audit)"
+        }
+      ]
+    },
+    {
+      "name": "pre-commit",
+      "version": "4.4.0",
+      "configs": [
+        ".pre-commit-config.yaml"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript",
+        "python-pyright",
+        "python-pyright+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": []
+    },
+    {
+      "name": "pyright",
+      "version": "1.1.414",
+      "configs": [
+        "pyrightconfig.json"
+      ],
+      "profiles": [
+        "python-pyright",
+        "python-pyright+typescript"
+      ],
+      "pre_commit_hook_profiles": [
+        "python-pyright",
+        "python-pyright+typescript"
+      ],
+      "runs": []
+    },
+    {
+      "name": "pytest",
+      "version": "9.1.1",
+      "configs": [
+        "pytest.ini"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript",
+        "python-pyright",
+        "python-pyright+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": []
+    },
+    {
+      "name": "python",
+      "version": "3.12.14",
+      "configs": [
+        ".python-version"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript",
+        "python-pyright",
+        "python-pyright+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "org-ci.yml",
+          "job": "analyze",
+          "step": "Set up locked Python for the central toolchain"
+        }
+      ]
+    },
+    {
+      "name": "ruff",
+      "version": "0.16.1",
+      "configs": [
+        "ruff.toml"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript",
+        "python-pyright",
+        "python-pyright+typescript"
+      ],
+      "pre_commit_hook_profiles": [
+        "python",
+        "python+typescript",
+        "python-pyright",
+        "python-pyright+typescript"
+      ],
+      "runs": [
+        {
+          "workflow": "self-ci.yml",
+          "job": "lint",
+          "step": "ruff check"
+        },
+        {
+          "workflow": "self-ci.yml",
+          "job": "lint",
+          "step": "ruff format --check"
+        }
+      ]
+    },
+    {
+      "name": "semgrep",
+      "version": "1.171.0",
+      "configs": [],
+      "profiles": [],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "org-ci.yml",
+          "job": "analyze",
+          "step": "Install Semgrep (hash-locked central pin)"
+        },
+        {
+          "workflow": "org-ci.yml",
+          "job": "analyze",
+          "step": "Run + normalize Semgrep (SDK)"
+        }
+      ]
+    }
+  ],
+  "languages": {
+    "javascript": {
+      "formatter": "biome",
+      "linter": "biome"
+    },
+    "javascriptreact": {
+      "formatter": "biome",
+      "linter": "biome"
+    },
+    "json": {
+      "formatter": "biome",
+      "linter": "biome"
+    },
+    "python": {
+      "formatter": "ruff",
+      "linter": "ruff",
+      "type_checker_by_profile": {
+        "python": "mypy",
+        "python+typescript": "mypy",
+        "python-pyright": "pyright",
+        "python-pyright+typescript": "pyright"
+      }
+    },
+    "typescript": {
+      "formatter": "biome",
+      "linter": "biome"
+    },
+    "typescriptreact": {
+      "formatter": "biome",
+      "linter": "biome"
+    }
+  },
+  "unowned_languages": {
+    "jsonc": "the stamped biome.json excludes **/*.jsonc; no Core tool checks it",
+    "markdown": "Core runs no Markdown formatter or linter (see not_owned.prettier)"
+  },
+  "not_owned": {
+    "actionlint": {
+      "decision": "not locked: no Core workflow or stamped profile runs it",
+      "evidence": "l9-ci-sdk runs actionlint in its own reusable workflow, not enforced",
+      "adopt_when": "Core runs actionlint in a workflow or a stamped hook"
+    },
+    "eslint": {
+      "decision": "not locked: Biome is the organization's JS/TS linter and formatter",
+      "evidence": "org-ci.yml runs only Biome; l9-meta-injector runs ESLint as a repository-local check beside blocking Biome (its ADR-095, Proposed)",
+      "adopt_when": "Core runs ESLint centrally; until then ESLint is product-local"
+    },
+    "markdownlint": {
+      "decision": "not locked: no Core workflow or stamped profile runs it",
+      "evidence": "no governed repository read runs it",
+      "adopt_when": "Core runs markdownlint in a workflow or a stamped hook"
+    },
+    "node": {
+      "decision": "not locked: Core runs no Node program",
+      "evidence": "Biome is a standalone binary (install-biome); Pyright's PyPI wrapper brings Node through its nodejs extra",
+      "adopt_when": "Core runs a Node program (tsc, vitest, ESLint) for consumers"
+    },
+    "prettier": {
+      "decision": "not locked: Core runs no Markdown formatter",
+      "evidence": "no governed repository read carries Prettier; Cursor-Governance's IDE policy names it for Markdown with format-on-save off",
+      "adopt_when": "Core formats or checks Markdown in a workflow"
+    },
+    "typescript": {
+      "decision": "not locked: tsc and tsconfig.json are product-owned",
+      "evidence": "Core runs no tsc; the only TypeScript consumer read pins its own",
+      "adopt_when": "Core runs tsc for consumers (a stamped tsconfig base follows)"
+    },
+    "uv": {
+      "decision": "not locked: no Core workflow installs uv",
+      "evidence": "l9-repo-template's repo-setup runs uv when present, so repository verification depends on the runner image's uv",
+      "adopt_when": "Core installs uv for repository verification"
+    },
+    "vitest": {
+      "decision": "not locked: the TypeScript test runner is product-owned",
+      "evidence": "Core runs no vitest; the only TypeScript consumer read pins its own",
+      "adopt_when": "Core installs and runs the TypeScript test runner"
+    },
+    "yamllint": {
+      "decision": "not locked: no Core workflow or stamped profile runs it",
+      "evidence": "l9-ci-sdk runs yamllint in its own hooks and reusable workflow",
+      "adopt_when": "Core runs yamllint in a workflow or a stamped hook"
+    }
+  }
+}

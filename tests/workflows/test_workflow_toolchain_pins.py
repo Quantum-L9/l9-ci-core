@@ -96,13 +96,18 @@ class LockBindingTests(unittest.TestCase):
     BIOME_LOCKS = ROOT / ".github" / "actions" / "install-biome" / "locks"
     SDK_RUNTIME_LOCKS = ROOT / ".github" / "actions" / "provision-sdk" / "locks"
 
-    #: Keys Core actually installs or selects. `uv` and `node` are deliberately
-    #: absent: no Core workflow installs uv, and node is only a non-exact "20".
+    #: Keys Core actually installs, selects, or stamps. `uv` and `node` are
+    #: deliberately absent: no Core workflow installs uv and Core runs no Node
+    #: program (AGENTS.md §26, `not_owned` in tool-ownership.json).
     EXPECTED_KEYS = {
+        "bandit",
         "biome",
+        "gitleaks",
         "mypy",
         "pip",
+        "pip-audit",
         "pre-commit",
+        "pyright",
         "pytest",
         "python",
         "ruff",
@@ -200,6 +205,15 @@ class LockBindingTests(unittest.TestCase):
     def test_pip_bootstrap_literals_match_the_lock(self) -> None:
         pattern = re.compile(r"pip==([0-9][^\s\"']*)")
         self._assert_bound("pip", self._literals(pattern), minimum=1)
+
+    def test_gitleaks_selection_matches_the_lock(self) -> None:
+        pattern = re.compile(r"GITLEAKS_VERSION=[\"']?([0-9]+\.[0-9]+\.[0-9]+)")
+        self._assert_bound("gitleaks", self._literals(pattern), minimum=1)
+
+    def test_bandit_and_pip_audit_selections_match_the_lock(self) -> None:
+        for key in ("bandit", "pip-audit"):
+            pattern = re.compile(re.escape(key) + r"==([0-9][^\s\"']*)")
+            self._assert_bound(key, self._literals(pattern), minimum=1)
 
     def test_biome_lock_version_has_a_verified_binary_contract(self) -> None:
         lock = self.BIOME_LOCKS / f"biome-{self.lock['biome']}.json"

@@ -1054,3 +1054,105 @@ python3 tools/advance_core_action_pins.py <merge sha> --check
 
 Tests: `tests/repo_execution/test_stamp.py`,
 `tests/workflows/test_registry_required_mode.py`.
+
+## 26. Core owns every CI tool: lock, stamp, and the tool-ownership manifest (2026-11-14) — amends §5, §12, §24 and §25
+
+Decision record for lane C2. Operator decision: `l9-ci-core` owns every CI
+tool a repository uses, both the version (`toolchain-lock.json`) and the
+config content (stamp profiles). A tool is locked only when Core runs it in a
+workflow step or a stamped profile configures and runs it; a tool nothing
+runs is not added (L9-UNKNOWN-001: absent evidence is not ownership).
+
+### Per-tool decisions
+
+| Tool | Decision | Version | Core-owned config | Profiles | Where Core runs it |
+|---|---|---|---|---|---|
+| gitleaks | **locked** (was an unbound literal) | 8.24.3 | `.gitleaks.toml` (`[extend] useDefault = true`) | all | `security.yml` "Secret scan (gitleaks)" |
+| bandit | **locked** (was an unbound literal) | 1.8.6 | — | — | `security.yml` "Python static security scan (bandit)" |
+| pip-audit | **locked** (was an unbound literal) | 2.9.0 | — | — | `security.yml` "Python dependency audit (pip-audit)" |
+| pyright | **locked**, opt-in profile | 1.1.414 | `pyrightconfig.json` (strict, 3.12) | `python-pyright`, `python-pyright+typescript` | stamped pre-commit hook; consumer make phases |
+| uv | not locked | — | — | — | no Core workflow installs it (see open question) |
+| node | not locked | — | — | — | Core runs no Node program; Pyright brings Node via `pyright[nodejs]` |
+| eslint (+ typescript-eslint) | not locked: **Biome alone owns JS/TS lint and format** | — | — | — | `org-ci.yml` runs Biome only |
+| prettier | not locked | — | — | — | Core runs no Markdown formatter |
+| typescript (tsc), tsconfig | not locked; product-owned | — | — | — | Core runs no tsc |
+| vitest | not locked; product-owned | — | — | — | Core runs no TS test runner |
+| actionlint, markdownlint, yamllint | not locked | — | — | — | no Core workflow or stamped hook runs them |
+
+The existing tools (ruff, mypy, pytest, pip, pre-commit, python, biome,
+semgrep) are unchanged. The full joined table is
+`.github/actions/install-consumer-ci/tool-ownership.json`.
+
+- The `security.yml` literals for gitleaks, bandit and pip-audit stay where
+  GitHub needs them and are now test-bound copies of the lock
+  (`tests/workflows/test_workflow_toolchain_pins.py`). The install-consumer-ci
+  pin file does not gain them: semgrep, pyright, bandit and pip-audit are each
+  installed by exactly one other Core surface
+  (`tests/actions/test_install_consumer_ci.py` `NOT_INSTALLER_TOOLS`).
+- `check-toolchain-alignment` now also reports a consumer's own bandit,
+  pip-audit, pyright and gitleaks pins against the lock (advisory, §16).
+- **ESLint migration note** (`l9-meta-injector` ADR-095, Proposed): Biome
+  already blocks there through `org-ci.yml`. ESLint is not a Core-owned tool;
+  it remains a product-local check under the repository's own `Repo.mk`, and
+  the organization standard for JS/TS lint is Biome. Retiring the injector's
+  ESLint is that repository's decision; Core stamps no `eslint.config.js`.
+
+### Type checker: both stampable, mypy remains the default
+
+L9 law says "Pyright strict"; Core locked only mypy and every governed Python
+repository read (l9-repo-template, Gate_SDK, l9-constellation-topology,
+l9-ci-sdk) runs mypy, none Pyright. This section does not switch: `python`
+and `python+typescript` still stamp strict mypy, byte-identical to §25.
+`python-pyright` and `python-pyright+typescript` stamp `pyrightconfig.json`
+instead of `mypy.ini`, `pyright[nodejs]==<lock>` in mypy's place in
+`requirements-ci.txt`, and a `pyright` pre-commit hook in mypy's place.
+Exactly one type checker per profile. Which one is the organization default is
+an open CTO question.
+
+### `.gitleaks.toml` in every profile
+
+Gitleaks' built-in rules for the locked version, nothing else. A reviewed false
+positive goes in the repository's own `.gitleaksignore` (fingerprints, read by
+gitleaks from the repository root), never in the stamped file. There is still
+no general per-repository overlay (§25).
+
+### The tool-ownership manifest (`l9.tool-ownership/v1`)
+
+One machine-readable view of Core tool ownership, derived (L9-DERIVED-001)
+from `toolchain-lock.json` (versions), `core-owned-tools.json` (identity),
+`tools/l9_repo/stamp.py` (profiles and files) and
+`tools/l9_repo/tool_ownership.py` (where each tool runs, the not-owned
+decisions). It records each input's sha256 (L9-PROV-001). Per tool: version,
+config paths, profiles, the profiles whose stamped pre-commit runs it, and the
+Core workflow steps that run it; per language: formatter, linter and the
+Python type checker per profile; plus `unowned_languages` (`jsonc`,
+`markdown`) and `not_owned`.
+
+```bash
+python3 tools/render_tool_ownership.py          # regenerate after any input change
+python3 tools/render_tool_ownership.py --check  # also asserted by tests/tools/test_tool_ownership.py
+```
+
+The tests prove one entry per lock key, one owning tool per stamped file,
+every named workflow step exists, and every owned tool is run or stamped.
+
+**Consumer change owed by Cursor-Governance** (not made here):
+`environment/ide/policy.json` declares formatter ownership a second time.
+Generate its `governance`-authority rows from this manifest's `languages`
+(ruff for python; biome for javascript, javascriptreact, typescript,
+typescriptreact, json) at the Core revision `org-ci.yml` pins, and keep only
+IDE-local choices (`jsonc`, `markdown`, which Core owns no tool for) declared
+there.
+
+### Fleet safety
+
+No repository carries `.l9/core-stamp.json` on its default branch (code search,
+2026-11-14), so the new `.gitleaks.toml` stamp file turns nobody red. A
+repository stamped from the §25 revision is drift until it re-stamps (§25
+semantics). Unstamped repositories are untouched. Activation is the §16 pin
+advance, to this change's merge revision.
+
+Tests: `tests/repo_execution/test_stamp.py`, `tests/tools/test_tool_ownership.py`,
+`tests/workflows/test_workflow_toolchain_pins.py`,
+`tests/actions/test_install_consumer_ci.py`,
+`tests/actions/test_check_toolchain_alignment.py`.

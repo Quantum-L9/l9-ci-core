@@ -1,0 +1,13 @@
+# Core-owned gitleaks configuration (l9-ci-core presets/security). Do not edit.
+#
+# Stamped by `python3 -m tools.l9_repo --workspace <repo> stamp --profile <p>`
+# for every profile and verified byte-for-byte by `... validate`. Detection
+# rules are gitleaks' own defaults for the version toolchain-lock.json pins;
+# Core's security workflow passes this file with --config. A reviewed false
+# positive is recorded by fingerprint in the repository's own .gitleaksignore,
+# never as a rule or path allowlist here.
+
+title = "Quantum-L9 repository (Core-owned)"
+
+[extend]
+useDefault = true

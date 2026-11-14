@@ -60,14 +60,32 @@ class InstallConsumerCiTests(unittest.TestCase):
         for line in lines:
             self.assertRegex(line, INSTALLER_RE)
 
-    def test_installer_covers_every_core_owned_pip_tool_but_semgrep(self) -> None:
+    #: Core-owned PyPI tools the installer's pin file deliberately omits, and
+    #: the one place each is installed instead (AGENTS.md §26).
+    NOT_INSTALLER_TOOLS = {
+        # the same action installs it on request from install-semgrep's
+        # hash-locked closure
+        "semgrep": "install-semgrep",
+        # only the python-pyright stamp profiles use it; their stamped
+        # requirements-ci.txt installs it in mypy's place
+        "pyright": "stamped requirements-ci.txt (python-pyright profiles)",
+        # Core's security workflow installs both at the lock version
+        "bandit": ".github/workflows/security.yml",
+        "pip-audit": ".github/workflows/security.yml",
+    }
+
+    def test_installer_covers_every_core_owned_pip_tool_but_the_declared_few(
+        self,
+    ) -> None:
         """Every Core-owned tool a consumer could take from PyPI is installable
-        from the pin file. semgrep is the exception: the same action installs it
-        on request (``semgrep: "true"``) from the hash-locked ``install-semgrep``
-        contract instead."""
+        from the pin file, except the tools named in NOT_INSTALLER_TOOLS, each
+        of which another Core surface installs at the lock version."""
         tools = json.loads(TOOLS.read_text(encoding="utf-8"))
         pip_tools = {t["name"] for t in tools["tools"] if "pip" in t["ecosystems"]}
-        self.assertEqual(pip_tools - {"semgrep"}, set(INSTALLER_TOOLS))
+        self.assertLessEqual(set(self.NOT_INSTALLER_TOOLS), pip_tools)
+        self.assertEqual(
+            pip_tools - set(self.NOT_INSTALLER_TOOLS), set(INSTALLER_TOOLS)
+        )
 
     def test_repo_runtime_pins_match_the_lock(self) -> None:
         """Core's own gate toolchain must come from the same canonical owner.
