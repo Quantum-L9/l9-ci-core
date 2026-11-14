@@ -34,9 +34,11 @@ closed). ``migration`` (the default) tolerates an absent contract and admits
 V1; ``required`` admits only V2 and fails an absent contract.
 
 A V2 consumer that carries a Core stamp record (``.l9/core-stamp.json``) has
-every Core-owned file compared byte-for-byte with this Core checkout. Drift is
-a contract failure in ``required`` mode and a warning annotation in
-``migration`` mode; a malformed record is a contract failure in both.
+every Core-owned file compared byte-for-byte with this Core checkout. Drift or
+a malformed record is a contract failure in both modes, before any phase runs:
+the record is the repository's own claim that those files are Core's, so the
+claim is held to. A repository without a record is not stamp-checked at all,
+so an unstamped fleet repository is unaffected (``AGENTS.md`` §25).
 
 Every run records typed outputs: ``present``, ``status`` (``pass``,
 ``not_applicable``, or ``fail``), ``contract-mode``, ``contract-version``
@@ -339,7 +341,11 @@ def resolve_enforcement(policy: dict[str, object], repository: str) -> str:
 
 
 def check_stamp(workspace: Path, mode: str) -> None:
-    """Blocking stamp drift in required mode; warning annotations otherwise."""
+    """Fail on any Core stamp drift, in every mode; skip an unstamped repository.
+
+    ``mode`` is reported in the failure only: a stamp record opts the
+    repository into byte-identity with Core whatever its enforcement mode.
+    """
 
     record, findings = verify_stamp(workspace)
     if record is None:
@@ -348,13 +354,14 @@ def check_stamp(workspace: Path, mode: str) -> None:
     if not findings:
         print(f"Core stamp: aligned ({record['profile']}; stamped from {revision})")
         return
-    if mode == REQUIRED_MODE:
-        raise ContractError(
-            "Core-owned files drift from this Core revision (required mode): "
-            + "; ".join(findings)
-        )
     for finding in findings:
-        print(f"::warning::Core stamp drift (migration mode, advisory): {finding}")
+        print(f"::error::Core stamp drift: {finding}")
+    raise ContractError(
+        f"Core-owned files drift from this Core revision ({mode} mode); re-stamp "
+        "with `python3 -m tools.l9_repo --workspace . stamp --profile "
+        f"{record['profile']}` from the Core revision org-ci.yml pins: "
+        + "; ".join(findings)
+    )
 
 
 def classify_contract(data: dict[str, object]) -> str:
