@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Quantum-L9/l9-ci-core/tools/l9_release/release.schema.json",
+  "title": "l9.release/v1",
+  "description": "A repository's release declaration (.l9/release.json). The repository describes what it releases; Core's release engine decides how. Closed: unknown fields fail closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "adapter", "version_authority", "changelog", "major_tag"],
+  "properties": {
+    "schema": { "const": "l9.release/v1" },
+    "adapter": { "enum": ["python-uv", "node-npm"] },
+    "version_authority": { "enum": ["pyproject.toml", "package.json"] },
+    "changelog": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repository-relative path of the CHANGELOG holding a dated '## X.Y.Z - YYYY-MM-DD' section per release."
+    },
+    "major_tag": {
+      "type": "boolean",
+      "description": "Advance the maintained vMAJOR tag, forward only."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "adapter": { "const": "python-uv" } } },
+      "then": { "properties": { "version_authority": { "const": "pyproject.toml" } } }
+    },
+    {
+      "if": { "properties": { "adapter": { "const": "node-npm" } } },
+      "then": { "properties": { "version_authority": { "const": "package.json" } } }
+    }
+  ]
+}
