@@ -35,7 +35,6 @@ from .stamp import (
     CORE_ROOT,
     PRE_COMMIT_PATH,
     PROFILE_FILES,
-    PROFILE_TYPE_CHECKER,
     PROFILES,
     TOOLCHAIN_LOCK,
     render_file,
@@ -58,8 +57,8 @@ NON_TOOL_FILES: tuple[str, ...] = (".l9/repo-workflow.json", "Makefile")
 
 #: Authored ownership facts. ``configs`` are Core-owned consumer paths written
 #: by the stamp; ``runs`` are ``(workflow, job, step name)`` triples that exist
-#: in Core's workflows (test-verified); ``formats`` / ``lints`` feed
-#: ``languages``. Python's type checker is per profile (``PROFILE_TYPE_CHECKER``).
+#: in Core's workflows (test-verified); ``formats`` / ``lints`` /
+#: ``type_checks`` feed ``languages``.
 TOOLS: Mapping[str, Mapping[str, Any]] = {
     "bandit": {
         "configs": (),
@@ -81,6 +80,8 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
     "mypy": {
         "configs": ("mypy.ini",),
         "runs": (("self-ci.yml", "lint", "mypy"),),
+        # Strict mypy is the single organization CI type gate (AGENTS.md §26).
+        "type_checks": ("python",),
     },
     "pip": {
         "configs": ("requirements-ci.txt",),
@@ -92,10 +93,6 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
     },
     "pre-commit": {
         "configs": (PRE_COMMIT_PATH,),
-        "runs": (),
-    },
-    "pyright": {
-        "configs": ("pyrightconfig.json",),
         "runs": (),
     },
     "pytest": {
@@ -150,11 +147,22 @@ NOT_OWNED: Mapping[str, Mapping[str, str]] = {
     },
     "node": {
         "decision": "not locked: Core runs no Node program",
-        "evidence": (
-            "Biome is a standalone binary (install-biome); Pyright's PyPI wrapper "
-            "brings Node through its nodejs extra"
-        ),
+        "evidence": "Biome is a standalone binary (install-biome)",
         "adopt_when": "Core runs a Node program (tsc, vitest, ESLint) for consumers",
+    },
+    "pyright": {
+        "decision": (
+            "not locked, never a gate: strict mypy is the single organization "
+            "CI type gate (CTO decision, 2026-11-15)"
+        ),
+        "evidence": (
+            "every governed Python repository read runs mypy; l9-conformance "
+            "runs Pyright strict and migrates to the stamped mypy gate"
+        ),
+        "adopt_when": (
+            "never as a CI gate; a repository may use it as optional editor "
+            "tooling outside Core and org CI"
+        ),
     },
     "prettier": {
         "decision": "not locked: Core runs no Markdown formatter",
@@ -231,7 +239,7 @@ def _hooks_by_profile() -> dict[str, list[str]]:
     for profile in PROFILES:
         if PRE_COMMIT_PATH not in PROFILE_FILES[profile]:
             continue
-        text = render_file(PRE_COMMIT_PATH, profile).decode("utf-8")
+        text = render_file(PRE_COMMIT_PATH).decode("utf-8")
         tools: list[str] = []
         for line in text.splitlines():
             stripped = line.strip()
@@ -250,7 +258,7 @@ def _requirements_by_profile() -> dict[str, list[str]]:
     for profile in PROFILES:
         if "requirements-ci.txt" not in PROFILE_FILES[profile]:
             continue
-        text = render_file("requirements-ci.txt", profile).decode("utf-8")
+        text = render_file("requirements-ci.txt").decode("utf-8")
         names = []
         for line in text.splitlines():
             if line and not line.startswith("#"):
@@ -321,16 +329,16 @@ def build_manifest() -> dict[str, Any]:
     languages: dict[str, dict[str, Any]] = {}
     for name in sorted(TOOLS):
         entry = TOOLS[name]
-        for role, key in (("formats", "formatter"), ("lints", "linter")):
+        for role, key in (
+            ("formats", "formatter"),
+            ("lints", "linter"),
+            ("type_checks", "type_checker"),
+        ):
             for language in entry.get(role, ()):
                 slot = languages.setdefault(language, {})
                 if key in slot:
                     raise ContractError(f"{language} has two {key}s")
                 slot[key] = name
-    type_checkers: dict[str, str] = {
-        profile: checker for profile, checker in PROFILE_TYPE_CHECKER.items()
-    }
-    languages.setdefault("python", {})["type_checker_by_profile"] = type_checkers
     for language in UNOWNED_LANGUAGES:
         if language in languages:
             raise ContractError(f"{language} is both owned and unowned")

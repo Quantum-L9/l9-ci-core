@@ -128,22 +128,14 @@ class ManifestGroundingTests(unittest.TestCase):
             with self.subTest(tool=tool["name"]):
                 self.assertTrue(tool["runs"] or tool["profiles"])
 
-    def test_type_checker_is_exactly_one_per_python_profile(self) -> None:
-        tools = {tool["name"]: tool for tool in self.manifest["tools"]}
-        by_profile = self.manifest["languages"]["python"]["type_checker_by_profile"]
-        for profile, checker in by_profile.items():
-            with self.subTest(profile=profile):
-                self.assertIn(profile, tools[checker]["profiles"])
-                other = "pyright" if checker == "mypy" else "mypy"
-                self.assertNotIn(profile, tools[other]["profiles"])
-                self.assertEqual(
-                    [checker],
-                    [
-                        c
-                        for c in ("mypy", "pyright")
-                        if profile in tools[c]["pre_commit_hook_profiles"]
-                    ],
-                )
+    def test_mypy_is_the_only_type_checker(self) -> None:
+        """Strict mypy is the single organization CI type gate (AGENTS.md §26);
+        Pyright is a gate nowhere."""
+        self.assertEqual("mypy", self.manifest["languages"]["python"]["type_checker"])
+        self.assertNotIn("pyright", {tool["name"] for tool in self.manifest["tools"]})
+        self.assertIn("pyright", self.manifest["not_owned"])
+        stamped = {path for files in PROFILE_FILES.values() for path in files}
+        self.assertNotIn("pyrightconfig.json", stamped)
 
     def test_languages_have_one_formatter_and_unowned_ones_are_disjoint(self) -> None:
         languages = self.manifest["languages"]

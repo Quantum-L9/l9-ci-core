@@ -1070,9 +1070,9 @@ runs is not added (L9-UNKNOWN-001: absent evidence is not ownership).
 | gitleaks | **locked** (was an unbound literal) | 8.24.3 | `.gitleaks.toml` (`[extend] useDefault = true`) | all | `security.yml` "Secret scan (gitleaks)" |
 | bandit | **locked** (was an unbound literal) | 1.8.6 | — | — | `security.yml` "Python static security scan (bandit)" |
 | pip-audit | **locked** (was an unbound literal) | 2.9.0 | — | — | `security.yml` "Python dependency audit (pip-audit)" |
-| pyright | **locked**, opt-in profile | 1.1.414 | `pyrightconfig.json` (strict, 3.12) | `python-pyright`, `python-pyright+typescript` | stamped pre-commit hook; consumer make phases |
+| pyright | **not locked, never a gate** (CTO decision) | — | — | — | nowhere; strict mypy is the single type gate |
 | uv | not locked | — | — | — | no Core workflow installs it (see open question) |
-| node | not locked | — | — | — | Core runs no Node program; Pyright brings Node via `pyright[nodejs]` |
+| node | not locked | — | — | — | Core runs no Node program; Biome is a standalone binary |
 | eslint (+ typescript-eslint) | not locked: **Biome alone owns JS/TS lint and format** | — | — | — | `org-ci.yml` runs Biome only |
 | prettier | not locked | — | — | — | Core runs no Markdown formatter |
 | typescript (tsc), tsconfig | not locked; product-owned | — | — | — | Core runs no tsc |
@@ -1086,28 +1086,31 @@ semgrep) are unchanged. The full joined table is
 - The `security.yml` literals for gitleaks, bandit and pip-audit stay where
   GitHub needs them and are now test-bound copies of the lock
   (`tests/workflows/test_workflow_toolchain_pins.py`). The install-consumer-ci
-  pin file does not gain them: semgrep, pyright, bandit and pip-audit are each
+  pin file does not gain them: semgrep, bandit and pip-audit are each
   installed by exactly one other Core surface
   (`tests/actions/test_install_consumer_ci.py` `NOT_INSTALLER_TOOLS`).
 - `check-toolchain-alignment` now also reports a consumer's own bandit,
-  pip-audit, pyright and gitleaks pins against the lock (advisory, §16).
+  pip-audit and gitleaks pins against the lock (advisory, §16).
 - **ESLint migration note** (`l9-meta-injector` ADR-095, Proposed): Biome
   already blocks there through `org-ci.yml`. ESLint is not a Core-owned tool;
   it remains a product-local check under the repository's own `Repo.mk`, and
   the organization standard for JS/TS lint is Biome. Retiring the injector's
   ESLint is that repository's decision; Core stamps no `eslint.config.js`.
 
-### Type checker: both stampable, mypy remains the default
+### Type checker: strict mypy is the single organization CI type gate
 
-L9 law says "Pyright strict"; Core locked only mypy and every governed Python
-repository read (l9-repo-template, Gate_SDK, l9-constellation-topology,
-l9-ci-sdk) runs mypy, none Pyright. This section does not switch: `python`
-and `python+typescript` still stamp strict mypy, byte-identical to §25.
-`python-pyright` and `python-pyright+typescript` stamp `pyrightconfig.json`
-instead of `mypy.ini`, `pyright[nodejs]==<lock>` in mypy's place in
-`requirements-ci.txt`, and a `pyright` pre-commit hook in mypy's place.
-Exactly one type checker per profile. Which one is the organization default is
-an open CTO question.
+CTO decision (2026-11-15, operator decision): strict mypy is the only CI type
+gate in the organization. Core keeps locking mypy and stamping strict
+`mypy.ini` for the `python` and `python+typescript` profiles, byte-identical
+to §25. Pyright is a gate nowhere: Core does not lock it, stamps no
+`pyrightconfig.json`, and org CI never runs it. A repository may still use
+Pyright as optional editor tooling outside Core. Evidence: every governed
+Python repository read (l9-repo-template, Gate_SDK, l9-constellation-topology,
+l9-ci-sdk) runs mypy. Consumer follow-ups, owned by those repositories:
+
+- `l9-conformance` migrates from Pyright strict to the stamped strict mypy
+  gate;
+- `Constellation.Gate` adopts the stamped mypy gate (`stamp --profile python`).
 
 ### `.gitleaks.toml` in every profile
 
@@ -1124,8 +1127,8 @@ from `toolchain-lock.json` (versions), `core-owned-tools.json` (identity),
 `tools/l9_repo/tool_ownership.py` (where each tool runs, the not-owned
 decisions). It records each input's sha256 (L9-PROV-001). Per tool: version,
 config paths, profiles, the profiles whose stamped pre-commit runs it, and the
-Core workflow steps that run it; per language: formatter, linter and the
-Python type checker per profile; plus `unowned_languages` (`jsonc`,
+Core workflow steps that run it; per language: formatter, linter and type
+checker (mypy for Python); plus `unowned_languages` (`jsonc`,
 `markdown`) and `not_owned`.
 
 ```bash

@@ -107,7 +107,6 @@ class LockBindingTests(unittest.TestCase):
         "pip",
         "pip-audit",
         "pre-commit",
-        "pyright",
         "pytest",
         "python",
         "ruff",

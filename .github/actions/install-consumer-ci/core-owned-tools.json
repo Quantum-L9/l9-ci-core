@@ -57,14 +57,6 @@
     },
     {
       "ecosystems": {
-        "npm": ["pyright"],
-        "pip": ["pyright"],
-        "uv": ["pyright"]
-      },
-      "name": "pyright"
-    },
-    {
-      "ecosystems": {
         "pip": ["pytest"],
         "uv": ["pytest"]
       },

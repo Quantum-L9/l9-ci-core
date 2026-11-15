@@ -5,27 +5,25 @@
   "sources": [
     {
       "path": ".github/actions/install-consumer-ci/toolchain-lock.json",
-      "sha256": "sha256:98fbd0e1f3886463ae9a76475b98415cce378d907c3da9cbebf9be1fc7f8f8bb"
+      "sha256": "sha256:84cae8ec06bd678c00581ad058eb58ae25e405481079332fca25d674d5c0b619"
     },
     {
       "path": ".github/actions/install-consumer-ci/core-owned-tools.json",
-      "sha256": "sha256:feb102f09f92ab918b73bfc2ce9c1171f8d1855b27d81e0832de7aa7f76a8a92"
+      "sha256": "sha256:8a60e783427f0584239c139385624e79f888ffa8f6a5bd43e2317455f3b73b1d"
     },
     {
       "path": "tools/l9_repo/stamp.py",
-      "sha256": "sha256:a3eb5397ee4d0baeed03c079dabc460167b61c8785b73235bc8eb2016f466135"
+      "sha256": "sha256:01e5af7a958c5a6a760e11cc1829620a5cbd7467c3ad5c1ee18b65e8ebd54516"
     },
     {
       "path": "tools/l9_repo/tool_ownership.py",
-      "sha256": "sha256:a0cbeabde65f5a178336e4fab1ca2ad888b86605652beb07c059725926d6a2d9"
+      "sha256": "sha256:54ca93914b25516d9792d274a8cb6049c3db4ed70b5660d9bc7d4bfae14520cc"
     }
   ],
   "profiles": [
     "python",
     "typescript",
-    "python+typescript",
-    "python-pyright",
-    "python-pyright+typescript"
+    "python+typescript"
   ],
   "non_tool_files": [
     ".l9/repo-workflow.json",
@@ -62,8 +60,7 @@
       ],
       "profiles": [
         "typescript",
-        "python+typescript",
-        "python-pyright+typescript"
+        "python+typescript"
       ],
       "pre_commit_hook_profiles": [],
       "runs": [
@@ -88,9 +85,7 @@
       "profiles": [
         "python",
         "typescript",
-        "python+typescript",
-        "python-pyright",
-        "python-pyright+typescript"
+        "python+typescript"
       ],
       "pre_commit_hook_profiles": [],
       "runs": [
@@ -131,9 +126,7 @@
       ],
       "profiles": [
         "python",
-        "python+typescript",
-        "python-pyright",
-        "python-pyright+typescript"
+        "python+typescript"
       ],
       "pre_commit_hook_profiles": [],
       "runs": []
@@ -160,27 +153,9 @@
       ],
       "profiles": [
         "python",
-        "python+typescript",
-        "python-pyright",
-        "python-pyright+typescript"
+        "python+typescript"
       ],
       "pre_commit_hook_profiles": [],
-      "runs": []
-    },
-    {
-      "name": "pyright",
-      "version": "1.1.414",
-      "configs": [
-        "pyrightconfig.json"
-      ],
-      "profiles": [
-        "python-pyright",
-        "python-pyright+typescript"
-      ],
-      "pre_commit_hook_profiles": [
-        "python-pyright",
-        "python-pyright+typescript"
-      ],
       "runs": []
     },
     {
@@ -191,9 +166,7 @@
       ],
       "profiles": [
         "python",
-        "python+typescript",
-        "python-pyright",
-        "python-pyright+typescript"
+        "python+typescript"
       ],
       "pre_commit_hook_profiles": [],
       "runs": []
@@ -206,9 +179,7 @@
       ],
       "profiles": [
         "python",
-        "python+typescript",
-        "python-pyright",
-        "python-pyright+typescript"
+        "python+typescript"
       ],
       "pre_commit_hook_profiles": [],
       "runs": [
@@ -227,15 +198,11 @@
       ],
       "profiles": [
         "python",
-        "python+typescript",
-        "python-pyright",
-        "python-pyright+typescript"
+        "python+typescript"
       ],
       "pre_commit_hook_profiles": [
         "python",
-        "python+typescript",
-        "python-pyright",
-        "python-pyright+typescript"
+        "python+typescript"
       ],
       "runs": [
         {
@@ -284,14 +251,9 @@
       "linter": "biome"
     },
     "python": {
+      "type_checker": "mypy",
       "formatter": "ruff",
-      "linter": "ruff",
-      "type_checker_by_profile": {
-        "python": "mypy",
-        "python+typescript": "mypy",
-        "python-pyright": "pyright",
-        "python-pyright+typescript": "pyright"
-      }
+      "linter": "ruff"
     },
     "typescript": {
       "formatter": "biome",
@@ -324,13 +286,18 @@
     },
     "node": {
       "decision": "not locked: Core runs no Node program",
-      "evidence": "Biome is a standalone binary (install-biome); Pyright's PyPI wrapper brings Node through its nodejs extra",
+      "evidence": "Biome is a standalone binary (install-biome)",
       "adopt_when": "Core runs a Node program (tsc, vitest, ESLint) for consumers"
     },
     "prettier": {
       "decision": "not locked: Core runs no Markdown formatter",
       "evidence": "no governed repository read carries Prettier; Cursor-Governance's IDE policy names it for Markdown with format-on-save off",
       "adopt_when": "Core formats or checks Markdown in a workflow"
+    },
+    "pyright": {
+      "decision": "not locked, never a gate: strict mypy is the single organization CI type gate (CTO decision, 2026-11-15)",
+      "evidence": "every governed Python repository read runs mypy; l9-conformance runs Pyright strict and migrates to the stamped mypy gate",
+      "adopt_when": "never as a CI gate; a repository may use it as optional editor tooling outside Core and org CI"
     },
     "typescript": {
       "decision": "not locked: tsc and tsconfig.json are product-owned",

@@ -66,9 +66,6 @@ class InstallConsumerCiTests(unittest.TestCase):
         # the same action installs it on request from install-semgrep's
         # hash-locked closure
         "semgrep": "install-semgrep",
-        # only the python-pyright stamp profiles use it; their stamped
-        # requirements-ci.txt installs it in mypy's place
-        "pyright": "stamped requirements-ci.txt (python-pyright profiles)",
         # Core's security workflow installs both at the lock version
         "bandit": ".github/workflows/security.yml",
         "pip-audit": ".github/workflows/security.yml",

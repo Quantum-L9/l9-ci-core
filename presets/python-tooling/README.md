@@ -9,7 +9,6 @@ byte-identical to the Core revision they came from (`AGENTS.md` §24).
 | `ruff.toml` | Ruff | A `ruff.toml` makes Ruff ignore `[tool.ruff]` in `pyproject.toml`. |
 | `mypy.ini` | mypy | mypy reads `mypy.ini` first and never merges configuration files. |
 | `pytest.ini` | pytest | pytest uses the first configuration file it finds; `pytest.ini` wins. |
-| `pyrightconfig.json` | Pyright (`python-pyright` profiles, in place of `mypy.ini`) | Pyright reads it ahead of `[tool.pyright]`. |
 
 Core never writes or edits a consumer's `pyproject.toml`; any `[tool.ruff]`,
 `[tool.mypy]` or `[tool.pytest.ini_options]` table left there is ignored by the
@@ -24,7 +23,6 @@ tool once the preset is stamped.
 | Ruff `select` / `ignore` | `E F B I UP` / `E501` | `l9-repo-template`; a superset of Core's own `E4 E7 E9 F` |
 | mypy | `strict = True`, `python_version = 3.12` | L9 standard; `l9-repo-template` runs strict |
 | pytest | `testpaths = tests` | `l9-repo-template` |
-| Pyright | `typeCheckingMode = strict`, `pythonVersion = 3.12` | mirrors the mypy preset (`AGENTS.md` §26) |
 
 Tool versions are not here: `requirements-ci.txt`, `.python-version` and
 `.pre-commit-config.yaml` (local hooks that run the lock-pinned tools) are

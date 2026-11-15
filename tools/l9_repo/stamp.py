@@ -4,28 +4,24 @@ A *Core-owned* consumer file is one a repository never edits. Core renders it
 from data in this Core revision and the repository carries the bytes
 unchanged:
 
-========================  ==============================================  ==============
-consumer path             Core source                                     profiles
-========================  ==============================================  ==============
-.l9/repo-workflow.json    the exact Repository Execution V2 contract      all
-Makefile                  ``tools/l9_repo/facades/make-v1.mk``            all
-.gitleaks.toml            ``presets/security/.gitleaks.toml``             all
-requirements-ci.txt       rendered from ``toolchain-lock.json``           python*
-.python-version           rendered from ``toolchain-lock.json``           python*
-.pre-commit-config.yaml   rendered from ``toolchain-lock.json``           python*
-ruff.toml                 ``presets/python-tooling/ruff.toml``            python*
-mypy.ini                  ``presets/python-tooling/mypy.ini``             python
-pyrightconfig.json        ``presets/python-tooling/pyrightconfig.json``   python-pyright
-pytest.ini                ``presets/python-tooling/pytest.ini``           python*
-biome.json                ``presets/typescript/biome.json``               typescript
-.biomeignore              ``presets/typescript/.biomeignore``             typescript
-.editorconfig             ``presets/typescript/.editorconfig``            typescript
-========================  ==============================================  ==============
+========================  ==========================================  ==============
+consumer path             Core source                                 profiles
+========================  ==========================================  ==============
+.l9/repo-workflow.json    the exact Repository Execution V2 contract  all
+Makefile                  ``tools/l9_repo/facades/make-v1.mk``        all
+.gitleaks.toml            ``presets/security/.gitleaks.toml``         all
+requirements-ci.txt       rendered from ``toolchain-lock.json``       python
+.python-version           rendered from ``toolchain-lock.json``       python
+.pre-commit-config.yaml   rendered from ``toolchain-lock.json``       python
+ruff.toml                 ``presets/python-tooling/ruff.toml``                python
+mypy.ini                  ``presets/python-tooling/mypy.ini``                 python
+pytest.ini                ``presets/python-tooling/pytest.ini``               python
+biome.json                ``presets/typescript/biome.json``           typescript
+.biomeignore              ``presets/typescript/.biomeignore``         typescript
+.editorconfig             ``presets/typescript/.editorconfig``        typescript
+========================  ==========================================  ==============
 
-``python*`` is both Python type-checker variants: ``python`` type-checks with
-mypy (strict) and ``python-pyright`` with Pyright (strict); exactly one type
-checker is stamped, and ``requirements-ci.txt`` and the pre-commit hooks follow
-it. ``python+typescript`` and ``python-pyright+typescript`` are the unions.
+``python+typescript`` is the union.
 
 Deliberately not stamped (decision record: ``AGENTS.md`` §25):
 
@@ -33,9 +29,10 @@ Deliberately not stamped (decision record: ``AGENTS.md`` §25):
   blocking/advisory policy is Core's ``resolve-governance`` data, both run
   centrally by ``org-ci.yml``. A consumer-side Semgrep file would be a second
   source for the same semantics;
+* no Pyright configuration: strict mypy is the single organization CI type
+  gate, and Pyright is a gate nowhere (``AGENTS.md`` §26);
 * no ESLint, Prettier, tsconfig or vitest configuration, and no uv or Node
-  pin: Core runs none of them, so none is locked (``AGENTS.md`` §26 records
-  each decision and what would change it).
+  pin: Core runs none of them, so none is locked (``AGENTS.md`` §26).
 
 ``.pre-commit-config.yaml`` uses only ``repo: local`` hooks with
 ``language: unsupported`` (pre-commit 4.4.0's name for ``system``): each hook
@@ -87,31 +84,13 @@ TOOLCHAIN_LOCK = (
     CORE_ROOT / ".github" / "actions" / "install-consumer-ci" / "toolchain-lock.json"
 )
 # The pip-installable consumer tools, in the order of the canonical
-# install-consumer-ci/requirements-consumer-ci.txt (test-bound to it). This is
-# the mypy variant; the Pyright variant replaces the type checker in place.
+# install-consumer-ci/requirements-consumer-ci.txt (test-bound to it).
 REQUIREMENTS_TOOLS: tuple[str, ...] = ("pip", "pre-commit", "ruff", "mypy", "pytest")
-TYPE_CHECKER_MYPY = "mypy"
-TYPE_CHECKER_PYRIGHT = "pyright"
-# The requirement line for each type checker. Pyright's PyPI package is a
-# wrapper around the npm release of the same version; the ``nodejs`` extra
-# supplies Node as a wheel, so a consumer needs no separate Node install.
-_TYPE_CHECKER_REQUIREMENT: Mapping[str, str] = {
-    TYPE_CHECKER_MYPY: "mypy",
-    TYPE_CHECKER_PYRIGHT: "pyright[nodejs]",
-}
 
 PROFILE_PYTHON = "python"
 PROFILE_TYPESCRIPT = "typescript"
 PROFILE_BOTH = "python+typescript"
-PROFILE_PYRIGHT = "python-pyright"
-PROFILE_PYRIGHT_BOTH = "python-pyright+typescript"
-PROFILES: tuple[str, ...] = (
-    PROFILE_PYTHON,
-    PROFILE_TYPESCRIPT,
-    PROFILE_BOTH,
-    PROFILE_PYRIGHT,
-    PROFILE_PYRIGHT_BOTH,
-)
+PROFILES: tuple[str, ...] = (PROFILE_PYTHON, PROFILE_TYPESCRIPT, PROFILE_BOTH)
 
 GITLEAKS_CONFIG_PATH = ".gitleaks.toml"
 _COMMON: tuple[str, ...] = (
@@ -121,47 +100,24 @@ _COMMON: tuple[str, ...] = (
 )
 PYTHON_VERSION_PATH = ".python-version"
 PRE_COMMIT_PATH = ".pre-commit-config.yaml"
-REQUIREMENTS_PATH = "requirements-ci.txt"
-_TYPE_CHECKER_CONFIG: Mapping[str, str] = {
-    TYPE_CHECKER_MYPY: "mypy.ini",
-    TYPE_CHECKER_PYRIGHT: "pyrightconfig.json",
-}
-
-
-def _python_files(type_checker: str) -> tuple[str, ...]:
-    return (
-        REQUIREMENTS_PATH,
-        PYTHON_VERSION_PATH,
-        PRE_COMMIT_PATH,
-        "ruff.toml",
-        _TYPE_CHECKER_CONFIG[type_checker],
-        "pytest.ini",
-    )
-
-
-_PYTHON = _python_files(TYPE_CHECKER_MYPY)
-_PYRIGHT = _python_files(TYPE_CHECKER_PYRIGHT)
+_PYTHON: tuple[str, ...] = (
+    "requirements-ci.txt",
+    PYTHON_VERSION_PATH,
+    PRE_COMMIT_PATH,
+    "ruff.toml",
+    "mypy.ini",
+    "pytest.ini",
+)
 _TYPESCRIPT: tuple[str, ...] = ("biome.json", ".biomeignore", ".editorconfig")
 PROFILE_FILES: Mapping[str, tuple[str, ...]] = {
     PROFILE_PYTHON: _COMMON + _PYTHON,
     PROFILE_TYPESCRIPT: _COMMON + _TYPESCRIPT,
     PROFILE_BOTH: _COMMON + _PYTHON + _TYPESCRIPT,
-    PROFILE_PYRIGHT: _COMMON + _PYRIGHT,
-    PROFILE_PYRIGHT_BOTH: _COMMON + _PYRIGHT + _TYPESCRIPT,
-}
-# The Python type checker each profile stamps; a TypeScript-only profile has
-# none and stamps neither requirements-ci.txt nor a pre-commit file.
-PROFILE_TYPE_CHECKER: Mapping[str, str] = {
-    PROFILE_PYTHON: TYPE_CHECKER_MYPY,
-    PROFILE_BOTH: TYPE_CHECKER_MYPY,
-    PROFILE_PYRIGHT: TYPE_CHECKER_PYRIGHT,
-    PROFILE_PYRIGHT_BOTH: TYPE_CHECKER_PYRIGHT,
 }
 _PRESET_SOURCES: Mapping[str, pathlib.Path] = {
     GITLEAKS_CONFIG_PATH: PRESETS_DIR / "security" / ".gitleaks.toml",
     "ruff.toml": PRESETS_DIR / "python-tooling" / "ruff.toml",
     "mypy.ini": PRESETS_DIR / "python-tooling" / "mypy.ini",
-    "pyrightconfig.json": PRESETS_DIR / "python-tooling" / "pyrightconfig.json",
     "pytest.ini": PRESETS_DIR / "python-tooling" / "pytest.ini",
     "biome.json": PRESETS_DIR / "typescript" / "biome.json",
     ".biomeignore": PRESETS_DIR / "typescript" / ".biomeignore",
@@ -216,25 +172,16 @@ def render_python_version() -> bytes:
     return (_lock_version(_load_lock(), "python") + "\n").encode("utf-8")
 
 
-def _type_checker(profile: str) -> str:
-    checker = PROFILE_TYPE_CHECKER.get(profile)
-    if checker is None:
-        _fail(f"profile {profile!r} stamps no Python type checker")
-    return checker
-
-
-def render_pre_commit(profile: str = PROFILE_PYTHON) -> bytes:
+def render_pre_commit() -> bytes:
     """``.pre-commit-config.yaml`` bound to Core's toolchain lock.
 
     Every hook is ``repo: local`` and runs the lock-pinned tool that
     ``requirements-ci.txt`` installs (``python -m <tool>``); the only version
-    the file names is ``minimum_pre_commit_version``, taken from the lock. The
-    type-checker hook is the profile's (mypy or Pyright), never both.
+    the file names is ``minimum_pre_commit_version``, taken from the lock.
     """
 
-    checker = _type_checker(profile)
     lock = _load_lock()
-    for tool in ("ruff", checker):
+    for tool in ("ruff", "mypy"):
         _lock_version(lock, tool)
     minimum = _lock_version(lock, "pre-commit")
     text = f"""\
@@ -259,9 +206,9 @@ repos:
         language: unsupported
         types_or: [python, pyi]
         require_serial: true
-      - id: {checker}
-        name: {checker}
-        entry: python -m {checker}
+      - id: mypy
+        name: mypy
+        entry: python -m mypy
         language: unsupported
         types_or: [python, pyi]
         require_serial: true
@@ -269,14 +216,9 @@ repos:
     return text.encode("utf-8")
 
 
-def render_requirements(profile: str = PROFILE_PYTHON) -> bytes:
-    """``requirements-ci.txt`` pinned exactly to Core's toolchain lock.
+def render_requirements() -> bytes:
+    """``requirements-ci.txt`` pinned exactly to Core's toolchain lock."""
 
-    The profile's type checker takes the type checker's place in the
-    canonical order; every other line is the installer's.
-    """
-
-    checker = _type_checker(profile)
     lock = _load_lock()
     lines = [
         "# Core-owned: rendered from l9-ci-core",
@@ -286,30 +228,23 @@ def render_requirements(profile: str = PROFILE_PYTHON) -> bytes:
         "# belong in pyproject.toml.",
     ]
     for tool in REQUIREMENTS_TOOLS:
-        if tool == TYPE_CHECKER_MYPY:
-            tool = checker
-        requirement = _TYPE_CHECKER_REQUIREMENT.get(tool, tool)
-        lines.append(f"{requirement}=={_lock_version(lock, tool)}")
+        lines.append(f"{tool}=={_lock_version(lock, tool)}")
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
-def render_file(relative: str, profile: str = PROFILE_PYTHON) -> bytes:
-    """The bytes this Core revision owns for one consumer path.
-
-    ``profile`` matters only for the files rendered per type checker
-    (``requirements-ci.txt`` and ``.pre-commit-config.yaml``).
-    """
+def render_file(relative: str) -> bytes:
+    """The bytes this Core revision owns for one consumer path."""
 
     if relative == CONTRACT_PATH.as_posix():
         return render_contract()
     if relative == MAKEFILE_PATH.as_posix():
         return render_facade(STAMP_FACADE)
-    if relative == REQUIREMENTS_PATH:
-        return render_requirements(profile)
+    if relative == "requirements-ci.txt":
+        return render_requirements()
     if relative == PYTHON_VERSION_PATH:
         return render_python_version()
     if relative == PRE_COMMIT_PATH:
-        return render_pre_commit(profile)
+        return render_pre_commit()
     source = _PRESET_SOURCES.get(relative)
     if source is None:
         _fail(f"not a Core-owned consumer file: {relative}")
@@ -328,9 +263,7 @@ def profile_files(profile: str) -> tuple[str, ...]:
 
 
 def render_profile(profile: str) -> dict[str, bytes]:
-    return {
-        relative: render_file(relative, profile) for relative in profile_files(profile)
-    }
+    return {relative: render_file(relative) for relative in profile_files(profile)}
 
 
 def _destination(root: pathlib.Path, relative: str) -> pathlib.Path:
