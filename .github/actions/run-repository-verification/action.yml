@@ -7,7 +7,8 @@ description: >
   repository it does not list, from the live Quantum-L9/.github repository
   registry (lifecycle current is required; unreadable fails closed). No input
   selects it. Core-owned files of a stamped consumer (.l9/core-stamp.json) are
-  verified byte-for-byte; drift blocks in required mode only.
+  verified byte-for-byte; drift blocks in every mode, and a repository
+  without a stamp record is not stamp-checked.
 inputs:
   workspace:
     required: false

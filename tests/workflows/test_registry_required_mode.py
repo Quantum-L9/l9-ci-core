@@ -216,12 +216,27 @@ class StampDriftModeTests(unittest.TestCase):
         self.assertEqual("fail", outputs["status"])
         self.assertEqual("contract", outputs["failure-kind"])
 
-    def test_drift_is_advisory_in_migration_mode(self) -> None:
+    def test_drift_blocks_in_migration_mode_too(self) -> None:
+        # A stamp record is the repository's own claim that these files are
+        # Core's; drift fails whatever the enforcement mode (AGENTS.md §25).
         with unittest.mock.patch.object(self.runner, "run_v2") as phases:
             outputs = run(self.runner, self.root, "Quantum-L9/example-consumer")
-        phases.assert_called_once()
+        phases.assert_not_called()
         self.assertEqual("migration", outputs["contract-mode"])
-        self.assertEqual("pass", outputs["status"])
+        self.assertEqual("fail", outputs["status"])
+        self.assertEqual("contract", outputs["failure-kind"])
+
+    def test_unstamped_v2_consumer_is_not_stamp_checked(self) -> None:
+        # Fleet safety: no record, no stamp check, in either mode.
+        (self.root / ".l9" / "core-stamp.json").unlink()
+        for repository in (BORN, "Quantum-L9/example-consumer"):
+            with (
+                self.subTest(repository=repository),
+                unittest.mock.patch.object(self.runner, "run_v2") as phases,
+            ):
+                outputs = run(self.runner, self.root, repository)
+            phases.assert_called_once()
+            self.assertEqual("pass", outputs["status"])
 
     def test_aligned_stamp_passes_in_required_mode(self) -> None:
         stamp(self.root, "python", REVISION)
