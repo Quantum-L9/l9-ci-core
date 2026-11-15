@@ -5,19 +5,19 @@
   "sources": [
     {
       "path": ".github/actions/install-consumer-ci/toolchain-lock.json",
-      "sha256": "sha256:84cae8ec06bd678c00581ad058eb58ae25e405481079332fca25d674d5c0b619"
+      "sha256": "sha256:7588407c45783fcc0a3062b5c80ac6fc7c33758e46dc287214b8967dec11ca4e"
     },
     {
       "path": ".github/actions/install-consumer-ci/core-owned-tools.json",
-      "sha256": "sha256:8a60e783427f0584239c139385624e79f888ffa8f6a5bd43e2317455f3b73b1d"
+      "sha256": "sha256:95d4a73781e8cc2147c5094f6145c80c882501da3b1fb31272730314079416b6"
     },
     {
       "path": "tools/l9_repo/stamp.py",
-      "sha256": "sha256:01e5af7a958c5a6a760e11cc1829620a5cbd7467c3ad5c1ee18b65e8ebd54516"
+      "sha256": "sha256:fe31b07df093befae61187b7ef17e1a1639868769a3026cec7b328e7aceb3201"
     },
     {
       "path": "tools/l9_repo/tool_ownership.py",
-      "sha256": "sha256:54ca93914b25516d9792d274a8cb6049c3db4ed70b5660d9bc7d4bfae14520cc"
+      "sha256": "sha256:abee8e2d26f30a509c67b9d199aab1c0a2ccc04a295a1ec257b5b4f8443361bc"
     }
   ],
   "profiles": [
@@ -235,6 +235,19 @@
           "step": "Run + normalize Semgrep (SDK)"
         }
       ]
+    },
+    {
+      "name": "uv",
+      "version": "0.13.8",
+      "configs": [
+        "uv.toml"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": []
     }
   ],
   "languages": {
@@ -303,11 +316,6 @@
       "decision": "not locked: tsc and tsconfig.json are product-owned",
       "evidence": "Core runs no tsc; the only TypeScript consumer read pins its own",
       "adopt_when": "Core runs tsc for consumers (a stamped tsconfig base follows)"
-    },
-    "uv": {
-      "decision": "not locked: no Core workflow installs uv",
-      "evidence": "l9-repo-template's repo-setup runs uv when present, so repository verification depends on the runner image's uv",
-      "adopt_when": "Core installs uv for repository verification"
     },
     "vitest": {
       "decision": "not locked: the TypeScript test runner is product-owned",

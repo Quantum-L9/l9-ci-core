@@ -24,7 +24,8 @@ tool once the preset is stamped.
 | mypy | `strict = True`, `python_version = 3.12` | L9 standard; `l9-repo-template` runs strict |
 | pytest | `testpaths = tests` | `l9-repo-template` |
 
-Tool versions are not here: `requirements-ci.txt`, `.python-version` and
+Tool versions are not here: `requirements-ci.txt`, `.python-version`,
+`uv.toml` (`required-version`, `AGENTS.md` §26) and
 `.pre-commit-config.yaml` (local hooks that run the lock-pinned tools) are
 rendered from `.github/actions/install-consumer-ci/toolchain-lock.json` by the
 same stamp (`AGENTS.md` §25).

@@ -13,6 +13,7 @@ Makefile                  ``tools/l9_repo/facades/make-v1.mk``        all
 requirements-ci.txt       rendered from ``toolchain-lock.json``       python
 .python-version           rendered from ``toolchain-lock.json``       python
 .pre-commit-config.yaml   rendered from ``toolchain-lock.json``       python
+uv.toml                   rendered from ``toolchain-lock.json``       python
 ruff.toml                 ``presets/python-tooling/ruff.toml``                python
 mypy.ini                  ``presets/python-tooling/mypy.ini``                 python
 pytest.ini                ``presets/python-tooling/pytest.ini``               python
@@ -31,8 +32,8 @@ Deliberately not stamped (decision record: ``AGENTS.md`` §25):
   source for the same semantics;
 * no Pyright configuration: strict mypy is the single organization CI type
   gate, and Pyright is a gate nowhere (``AGENTS.md`` §26);
-* no ESLint, Prettier, tsconfig or vitest configuration, and no uv or Node
-  pin: Core runs none of them, so none is locked (``AGENTS.md`` §26).
+* no ESLint, Prettier, tsconfig or vitest configuration, and no Node pin:
+  Core runs none of them, so none is locked (``AGENTS.md`` §26).
 
 ``.pre-commit-config.yaml`` uses only ``repo: local`` hooks with
 ``language: unsupported`` (pre-commit 4.4.0's name for ``system``): each hook
@@ -85,7 +86,14 @@ TOOLCHAIN_LOCK = (
 )
 # The pip-installable consumer tools, in the order of the canonical
 # install-consumer-ci/requirements-consumer-ci.txt (test-bound to it).
-REQUIREMENTS_TOOLS: tuple[str, ...] = ("pip", "pre-commit", "ruff", "mypy", "pytest")
+REQUIREMENTS_TOOLS: tuple[str, ...] = (
+    "pip",
+    "pre-commit",
+    "ruff",
+    "mypy",
+    "pytest",
+    "uv",
+)
 
 PROFILE_PYTHON = "python"
 PROFILE_TYPESCRIPT = "typescript"
@@ -100,10 +108,12 @@ _COMMON: tuple[str, ...] = (
 )
 PYTHON_VERSION_PATH = ".python-version"
 PRE_COMMIT_PATH = ".pre-commit-config.yaml"
+UV_CONFIG_PATH = "uv.toml"
 _PYTHON: tuple[str, ...] = (
     "requirements-ci.txt",
     PYTHON_VERSION_PATH,
     PRE_COMMIT_PATH,
+    UV_CONFIG_PATH,
     "ruff.toml",
     "mypy.ini",
     "pytest.ini",
@@ -216,6 +226,27 @@ repos:
     return text.encode("utf-8")
 
 
+def render_uv_config() -> bytes:
+    """``uv.toml``: refuse any uv but the one Core's lock selects.
+
+    ``required-version`` makes every uv command fail on a different uv
+    version. A ``uv.toml`` takes precedence over ``[tool.uv]`` in
+    ``pyproject.toml``, which uv then ignores: the product conforms
+    (``AGENTS.md`` §26, no per-repository overlay).
+    """
+
+    version = _lock_version(_load_lock(), "uv")
+    text = f"""\
+# Core-owned: rendered from l9-ci-core
+# .github/actions/install-consumer-ci/toolchain-lock.json by
+# `python3 -m tools.l9_repo --workspace <repo> stamp`. Do not edit; re-stamp
+# from the Core revision org-ci.yml pins. uv reads this file instead of
+# [tool.uv] in pyproject.toml.
+required-version = "=={version}"
+"""
+    return text.encode("utf-8")
+
+
 def render_requirements() -> bytes:
     """``requirements-ci.txt`` pinned exactly to Core's toolchain lock."""
 
@@ -245,6 +276,8 @@ def render_file(relative: str) -> bytes:
         return render_python_version()
     if relative == PRE_COMMIT_PATH:
         return render_pre_commit()
+    if relative == UV_CONFIG_PATH:
+        return render_uv_config()
     source = _PRESET_SOURCES.get(relative)
     if source is None:
         _fail(f"not a Core-owned consumer file: {relative}")

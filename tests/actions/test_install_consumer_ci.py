@@ -28,8 +28,10 @@ REPO_RUNTIME = ROOT / "requirements-repo-runtime.txt"
 
 PIN_RE = re.compile(r"^(ruff|mypy|pytest)==([0-9][^\s]+)$", re.M)
 # Every Python package a consumer installs from Core instead of declaring it.
-INSTALLER_TOOLS = ("pip", "pre-commit", "ruff", "mypy", "pytest")
-INSTALLER_RE = re.compile(r"^(pip|pre-commit|ruff|mypy|pytest)==([0-9][^\s]+)$", re.M)
+INSTALLER_TOOLS = ("pip", "pre-commit", "ruff", "mypy", "pytest", "uv")
+INSTALLER_RE = re.compile(
+    r"^(pip|pre-commit|ruff|mypy|pytest|uv)==([0-9][^\s]+)$", re.M
+)
 
 
 def _pins() -> dict[str, str]:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the Core-owned consumer CI pins (pip, pre-commit, ruff, mypy, pytest).
+# Install the Core-owned consumer CI pins (pip, pre-commit, ruff, mypy, pytest, uv).
 # Fail-closed on missing or unpinned lines.
 set -euo pipefail
 
@@ -26,7 +26,7 @@ while IFS= read -r line || [[ -n "${line}" ]]; do
   fi
 done < "${PIN}"
 
-for pkg in pip pre-commit ruff mypy pytest; do
+for pkg in pip pre-commit ruff mypy pytest uv; do
   if ! grep -Eq "^${pkg}==" "${PIN}"; then
     echo "install-consumer-ci: missing ${pkg}== pin in ${PIN}" >&2
     exit 2
@@ -37,7 +37,7 @@ done
 # not be able to execute it: an sdist runs its setup.py at install time, on
 # every consumer runner that calls this action. ruff, mypy and pytest all
 # publish wheels, so this costs nothing and fails loudly rather than silently
-# building if that stops being true. pip and pre-commit publish wheels too.
+# building if that stops being true. pip, pre-commit and uv publish wheels too.
 #
 # This is also what SonarCloud githubactions:S8541 asks for by name, and this
 # action is the fleet's shared install path -- leaving it unhardened re-seeds

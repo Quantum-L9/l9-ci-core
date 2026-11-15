@@ -1,6 +1,6 @@
 name: Install consumer CI toolchain
 description: >
-  Installs the Core-owned pip/pre-commit/ruff/mypy/pytest pins and Core's
+  Installs the Core-owned pip/pre-commit/ruff/mypy/pytest/uv pins and Core's
   Semgrep at the toolchain lock's version from the hash-locked install-semgrep
   contract (`semgrep: "false"` skips it). Versions are not Dependabot-owned
   and must not be invented or declared in the caller.

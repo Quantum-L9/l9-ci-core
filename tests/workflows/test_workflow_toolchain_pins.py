@@ -96,9 +96,10 @@ class LockBindingTests(unittest.TestCase):
     BIOME_LOCKS = ROOT / ".github" / "actions" / "install-biome" / "locks"
     SDK_RUNTIME_LOCKS = ROOT / ".github" / "actions" / "provision-sdk" / "locks"
 
-    #: Keys Core actually installs, selects, or stamps. `uv` and `node` are
-    #: deliberately absent: no Core workflow installs uv and Core runs no Node
-    #: program (AGENTS.md §26, `not_owned` in tool-ownership.json).
+    #: Keys Core actually installs, selects, or stamps. `node` is deliberately
+    #: absent: Core runs no Node program (AGENTS.md §26, `not_owned` in
+    #: tool-ownership.json). `uv` is installed by install-consumer-ci and
+    #: pinned in consumers by the stamped uv.toml.
     EXPECTED_KEYS = {
         "bandit",
         "biome",
@@ -111,6 +112,7 @@ class LockBindingTests(unittest.TestCase):
         "python",
         "ruff",
         "semgrep",
+        "uv",
     }
 
     def setUp(self) -> None:

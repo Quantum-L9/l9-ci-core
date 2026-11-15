@@ -89,6 +89,7 @@ class StampTests(unittest.TestCase):
             "requirements-ci.txt",
             ".python-version",
             ".pre-commit-config.yaml",
+            "uv.toml",
             "ruff.toml",
             "mypy.ini",
             "pytest.ini",
@@ -336,6 +337,13 @@ class RenderedContentTests(unittest.TestCase):
         )
         for tool in ("ruff", "mypy"):
             self.assertIn(tool, REQUIREMENTS_TOOLS)
+
+    def test_uv_config_requires_exactly_the_locked_uv(self) -> None:
+        import tomllib
+
+        lock = json.loads(LOCK.read_text(encoding="utf-8"))
+        config = tomllib.loads(render_file("uv.toml").decode())
+        self.assertEqual({"required-version": f"=={lock['uv']}"}, config)
 
     def test_gitleaks_config_extends_the_pinned_defaults_only(self) -> None:
         import tomllib

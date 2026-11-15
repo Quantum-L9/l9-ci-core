@@ -114,6 +114,10 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
         "formats": ("python",),
         "lints": ("python",),
     },
+    "uv": {
+        "configs": ("uv.toml",),
+        "runs": (),
+    },
     "semgrep": {
         "configs": (),
         "runs": (
@@ -176,14 +180,6 @@ NOT_OWNED: Mapping[str, Mapping[str, str]] = {
         "decision": "not locked: tsc and tsconfig.json are product-owned",
         "evidence": "Core runs no tsc; the only TypeScript consumer read pins its own",
         "adopt_when": "Core runs tsc for consumers (a stamped tsconfig base follows)",
-    },
-    "uv": {
-        "decision": "not locked: no Core workflow installs uv",
-        "evidence": (
-            "l9-repo-template's repo-setup runs uv when present, so repository "
-            "verification depends on the runner image's uv"
-        ),
-        "adopt_when": "Core installs uv for repository verification",
     },
     "vitest": {
         "decision": "not locked: the TypeScript test runner is product-owned",

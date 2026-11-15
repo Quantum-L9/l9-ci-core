@@ -1071,7 +1071,7 @@ runs is not added (L9-UNKNOWN-001: absent evidence is not ownership).
 | bandit | **locked** (was an unbound literal) | 1.8.6 | — | — | `security.yml` "Python static security scan (bandit)" |
 | pip-audit | **locked** (was an unbound literal) | 2.9.0 | — | — | `security.yml` "Python dependency audit (pip-audit)" |
 | pyright | **not locked, never a gate** (CTO decision) | — | — | — | nowhere; strict mypy is the single type gate |
-| uv | not locked | — | — | — | no Core workflow installs it (see open question) |
+| uv | **locked** (CTO decision, 2026-11-15) | 0.13.8 | `uv.toml` (`required-version = "==<lock>"`) | python, python+typescript | installed by `install-consumer-ci` and the stamped `requirements-ci.txt` |
 | node | not locked | — | — | — | Core runs no Node program; Biome is a standalone binary |
 | eslint (+ typescript-eslint) | not locked: **Biome alone owns JS/TS lint and format** | — | — | — | `org-ci.yml` runs Biome only |
 | prettier | not locked | — | — | — | Core runs no Markdown formatter |
@@ -1111,6 +1111,27 @@ l9-ci-sdk) runs mypy. Consumer follow-ups, owned by those repositories:
 - `l9-conformance` migrates from Pyright strict to the stamped strict mypy
   gate;
 - `Constellation.Gate` adopts the stamped mypy gate (`stamp --profile python`).
+
+### uv is Core-owned (CTO decision, 2026-11-15)
+
+uv drives every Python install and lock check in the fleet: l9-repo-template's
+`repo-setup` runs `uv sync` whenever uv is present, so repository verification
+otherwise depends on whichever uv the runner image carries. Core therefore
+locks uv (0.13.8), installs it with the other consumer CI pins
+(`install-consumer-ci/requirements-consumer-ci.txt` and the stamped
+`requirements-ci.txt`), and stamps `uv.toml` with
+`required-version = "==<lock>"` in the Python profiles, so any other uv
+refuses to run. `check-toolchain-alignment` reports a consumer's own `uv==`
+pins against the lock. A `uv.toml` takes precedence over `[tool.uv]` in
+`pyproject.toml`, which uv then ignores; none of the governed repositories
+read carries a `[tool.uv]` table. A product that needs uv settings conforms to
+the stamped file (no overlay, below).
+
+### No per-repository overlay (CTO decision, 2026-11-15)
+
+There is no repository-specific extension point for stamped files. Products
+conform to them. This confirms §25 "Repository-specific settings"; a future
+overlay would change `l9.core-stamp/v1` and needs its own decision.
 
 ### `.gitleaks.toml` in every profile
 

@@ -76,6 +76,13 @@
         "uv": ["semgrep"]
       },
       "name": "semgrep"
+    },
+    {
+      "ecosystems": {
+        "pip": ["uv"],
+        "uv": ["uv"]
+      },
+      "name": "uv"
     }
   ]
 }
