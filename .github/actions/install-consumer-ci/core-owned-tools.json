@@ -7,9 +7,23 @@
   "tools": [
     {
       "ecosystems": {
+        "pip": ["bandit"],
+        "pre-commit": ["https://github.com/PyCQA/bandit"],
+        "uv": ["bandit"]
+      },
+      "name": "bandit"
+    },
+    {
+      "ecosystems": {
         "npm": ["@biomejs/biome"]
       },
       "name": "biome"
+    },
+    {
+      "ecosystems": {
+        "pre-commit": ["https://github.com/gitleaks/gitleaks"]
+      },
+      "name": "gitleaks"
     },
     {
       "ecosystems": {
@@ -25,6 +39,14 @@
         "uv": ["pip"]
       },
       "name": "pip"
+    },
+    {
+      "ecosystems": {
+        "pip": ["pip-audit"],
+        "pre-commit": ["https://github.com/pypa/pip-audit"],
+        "uv": ["pip-audit"]
+      },
+      "name": "pip-audit"
     },
     {
       "ecosystems": {
@@ -54,6 +76,13 @@
         "uv": ["semgrep"]
       },
       "name": "semgrep"
+    },
+    {
+      "ecosystems": {
+        "pip": ["uv"],
+        "uv": ["uv"]
+      },
+      "name": "uv"
     }
   ]
 }

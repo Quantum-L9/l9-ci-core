@@ -139,7 +139,13 @@ interpreter running the tool) or one of the pinned toolchain `ruff`, `mypy`,
   consumer then proves every Core-owned file byte-identical to the Core
   checkout it runs from (`AGENTS.md` §24, `docs/ACTIVATION.md`). The Python
   profiles also stamp `.python-version` and a lock-bound
-  `.pre-commit-config.yaml` (`AGENTS.md` §25).
+  `.pre-commit-config.yaml` (`AGENTS.md` §25), plus `uv.toml` pinning uv's
+  `required-version`; every profile also stamps `.gitleaks.toml`
+  (`AGENTS.md` §26).
+- `python3 tools/render_tool_ownership.py [--check]`: render or check
+  `.github/actions/install-consumer-ci/tool-ownership.json`
+  (`l9.tool-ownership/v1`), the derived per-tool version / config / profile /
+  workflow-step view of Core tool ownership (`AGENTS.md` §26).
 - `make core-validate`: Core-local structural validation only.
 - `make check-release-writers`: run `tools/check_release_writers.py`, which
   proves exactly one authorized executable surface can mutate the exact

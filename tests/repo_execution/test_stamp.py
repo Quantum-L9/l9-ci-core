@@ -84,11 +84,12 @@ class StampTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_profile_file_sets_are_exact(self) -> None:
-        common = [".l9/repo-workflow.json", "Makefile"]
+        common = [".l9/repo-workflow.json", "Makefile", ".gitleaks.toml"]
         python = [
             "requirements-ci.txt",
             ".python-version",
             ".pre-commit-config.yaml",
+            "uv.toml",
             "ruff.toml",
             "mypy.ini",
             "pytest.ini",
@@ -101,6 +102,8 @@ class StampTests(unittest.TestCase):
             tuple(common + python + typescript), PROFILE_FILES["python+typescript"]
         )
         for files in PROFILE_FILES.values():
+            # Strict mypy is the single type gate; Pyright is stamped nowhere.
+            self.assertNotIn("pyrightconfig.json", files)
             self.assertNotIn("pyproject.toml", files)
             self.assertNotIn("Repo.mk", files)
             self.assertNotIn("package.json", files)
@@ -234,6 +237,19 @@ class StampTests(unittest.TestCase):
         stamp(self.root, "python", REVISION)
         self.assertEqual([], verify_stamp(self.root)[1])
 
+    def test_record_predating_the_gitleaks_config_is_drift(self) -> None:
+        # A lane-C1 record carries no .gitleaks.toml: validate names it until
+        # the repository re-stamps (AGENTS.md §25 drift semantics).
+        stamp(self.root, "python", REVISION)
+        record_path = self.root / STAMP_RECORD_PATH
+        record = json.loads(record_path.read_text())
+        del record["files"][".gitleaks.toml"]
+        (self.root / ".gitleaks.toml").unlink()
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        findings = verify_stamp(self.root)[1]
+        self.assertEqual(1, len(findings))
+        self.assertTrue(findings[0].startswith(".gitleaks.toml: missing"))
+
     def test_unrecorded_but_identical_file_is_still_a_finding(self) -> None:
         stamp(self.root, "python", REVISION)
         record_path = self.root / STAMP_RECORD_PATH
@@ -321,6 +337,20 @@ class RenderedContentTests(unittest.TestCase):
         )
         for tool in ("ruff", "mypy"):
             self.assertIn(tool, REQUIREMENTS_TOOLS)
+
+    def test_uv_config_requires_exactly_the_locked_uv(self) -> None:
+        import tomllib
+
+        lock = json.loads(LOCK.read_text(encoding="utf-8"))
+        config = tomllib.loads(render_file("uv.toml").decode())
+        self.assertEqual({"required-version": f"=={lock['uv']}"}, config)
+
+    def test_gitleaks_config_extends_the_pinned_defaults_only(self) -> None:
+        import tomllib
+
+        config = tomllib.loads(render_file(".gitleaks.toml").decode())
+        self.assertEqual({"title", "extend"}, set(config))
+        self.assertEqual({"useDefault": True}, config["extend"])
 
     def test_pre_commit_config_parses_as_yaml(self) -> None:
         import yaml  # Core dev dependency (requirements-ci.txt)

@@ -24,7 +24,7 @@ Authority files in Core:
   `python`, `pre-commit`, `pip`. Every other Core copy of a version is bound to
   it by a test.
 - `.github/actions/install-consumer-ci/requirements-consumer-ci.txt` (pip,
-  pre-commit, ruff, mypy, pytest installer pins; test-bound copy)
+  pre-commit, ruff, mypy, pytest, uv installer pins; test-bound copy)
 - `presets/typescript/biome.json` `$schema` (the locked consumer Biome
   contract stamped by `presets/typescript/stamp.sh`; test-bound copy)
 - `.github/actions/install-semgrep/locks/semgrep-<v>.txt` and

@@ -1,0 +1,331 @@
+{
+  "schema": "l9.tool-ownership/v1",
+  "owner": "Quantum-L9/l9-ci-core",
+  "derived": true,
+  "sources": [
+    {
+      "path": ".github/actions/install-consumer-ci/toolchain-lock.json",
+      "sha256": "sha256:7588407c45783fcc0a3062b5c80ac6fc7c33758e46dc287214b8967dec11ca4e"
+    },
+    {
+      "path": ".github/actions/install-consumer-ci/core-owned-tools.json",
+      "sha256": "sha256:95d4a73781e8cc2147c5094f6145c80c882501da3b1fb31272730314079416b6"
+    },
+    {
+      "path": "tools/l9_repo/stamp.py",
+      "sha256": "sha256:fe31b07df093befae61187b7ef17e1a1639868769a3026cec7b328e7aceb3201"
+    },
+    {
+      "path": "tools/l9_repo/tool_ownership.py",
+      "sha256": "sha256:abee8e2d26f30a509c67b9d199aab1c0a2ccc04a295a1ec257b5b4f8443361bc"
+    }
+  ],
+  "profiles": [
+    "python",
+    "typescript",
+    "python+typescript"
+  ],
+  "non_tool_files": [
+    ".l9/repo-workflow.json",
+    "Makefile"
+  ],
+  "consumer_execution": {
+    "workflow": "org-ci.yml",
+    "job": "analyze",
+    "step": "Run repository verification contract",
+    "phases": "setup validate check test"
+  },
+  "tools": [
+    {
+      "name": "bandit",
+      "version": "1.8.6",
+      "configs": [],
+      "profiles": [],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "security.yml",
+          "job": "security",
+          "step": "Python static security scan (bandit)"
+        }
+      ]
+    },
+    {
+      "name": "biome",
+      "version": "2.5.8",
+      "configs": [
+        "biome.json",
+        ".biomeignore",
+        ".editorconfig"
+      ],
+      "profiles": [
+        "typescript",
+        "python+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "org-ci.yml",
+          "job": "analyze",
+          "step": "Install Biome (digest-locked central pin)"
+        },
+        {
+          "workflow": "org-ci.yml",
+          "job": "analyze",
+          "step": "Run Biome check (blocking)"
+        }
+      ]
+    },
+    {
+      "name": "gitleaks",
+      "version": "8.24.3",
+      "configs": [
+        ".gitleaks.toml"
+      ],
+      "profiles": [
+        "python",
+        "typescript",
+        "python+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "security.yml",
+          "job": "security",
+          "step": "Secret scan (gitleaks)"
+        }
+      ]
+    },
+    {
+      "name": "mypy",
+      "version": "2.3.0",
+      "configs": [
+        "mypy.ini"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript"
+      ],
+      "pre_commit_hook_profiles": [
+        "python",
+        "python+typescript"
+      ],
+      "runs": [
+        {
+          "workflow": "self-ci.yml",
+          "job": "lint",
+          "step": "mypy"
+        }
+      ]
+    },
+    {
+      "name": "pip",
+      "version": "26.2.1",
+      "configs": [
+        "requirements-ci.txt"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": []
+    },
+    {
+      "name": "pip-audit",
+      "version": "2.9.0",
+      "configs": [],
+      "profiles": [],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "security.yml",
+          "job": "security",
+          "step": "Python dependency audit (pip-audit)"
+        }
+      ]
+    },
+    {
+      "name": "pre-commit",
+      "version": "4.4.0",
+      "configs": [
+        ".pre-commit-config.yaml"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": []
+    },
+    {
+      "name": "pytest",
+      "version": "9.1.1",
+      "configs": [
+        "pytest.ini"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": []
+    },
+    {
+      "name": "python",
+      "version": "3.12.14",
+      "configs": [
+        ".python-version"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "org-ci.yml",
+          "job": "analyze",
+          "step": "Set up locked Python for the central toolchain"
+        }
+      ]
+    },
+    {
+      "name": "ruff",
+      "version": "0.16.1",
+      "configs": [
+        "ruff.toml"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript"
+      ],
+      "pre_commit_hook_profiles": [
+        "python",
+        "python+typescript"
+      ],
+      "runs": [
+        {
+          "workflow": "self-ci.yml",
+          "job": "lint",
+          "step": "ruff check"
+        },
+        {
+          "workflow": "self-ci.yml",
+          "job": "lint",
+          "step": "ruff format --check"
+        }
+      ]
+    },
+    {
+      "name": "semgrep",
+      "version": "1.171.0",
+      "configs": [],
+      "profiles": [],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "org-ci.yml",
+          "job": "analyze",
+          "step": "Install Semgrep (hash-locked central pin)"
+        },
+        {
+          "workflow": "org-ci.yml",
+          "job": "analyze",
+          "step": "Run + normalize Semgrep (SDK)"
+        }
+      ]
+    },
+    {
+      "name": "uv",
+      "version": "0.13.8",
+      "configs": [
+        "uv.toml"
+      ],
+      "profiles": [
+        "python",
+        "python+typescript"
+      ],
+      "pre_commit_hook_profiles": [],
+      "runs": []
+    }
+  ],
+  "languages": {
+    "javascript": {
+      "formatter": "biome",
+      "linter": "biome"
+    },
+    "javascriptreact": {
+      "formatter": "biome",
+      "linter": "biome"
+    },
+    "json": {
+      "formatter": "biome",
+      "linter": "biome"
+    },
+    "python": {
+      "type_checker": "mypy",
+      "formatter": "ruff",
+      "linter": "ruff"
+    },
+    "typescript": {
+      "formatter": "biome",
+      "linter": "biome"
+    },
+    "typescriptreact": {
+      "formatter": "biome",
+      "linter": "biome"
+    }
+  },
+  "unowned_languages": {
+    "jsonc": "the stamped biome.json excludes **/*.jsonc; no Core tool checks it",
+    "markdown": "Core runs no Markdown formatter or linter (see not_owned.prettier)"
+  },
+  "not_owned": {
+    "actionlint": {
+      "decision": "not locked: no Core workflow or stamped profile runs it",
+      "evidence": "l9-ci-sdk runs actionlint in its own reusable workflow, not enforced",
+      "adopt_when": "Core runs actionlint in a workflow or a stamped hook"
+    },
+    "eslint": {
+      "decision": "not locked: Biome is the organization's JS/TS linter and formatter",
+      "evidence": "org-ci.yml runs only Biome; l9-meta-injector runs ESLint as a repository-local check beside blocking Biome (its ADR-095, Proposed)",
+      "adopt_when": "Core runs ESLint centrally; until then ESLint is product-local"
+    },
+    "markdownlint": {
+      "decision": "not locked: no Core workflow or stamped profile runs it",
+      "evidence": "no governed repository read runs it",
+      "adopt_when": "Core runs markdownlint in a workflow or a stamped hook"
+    },
+    "node": {
+      "decision": "not locked: Core runs no Node program",
+      "evidence": "Biome is a standalone binary (install-biome)",
+      "adopt_when": "Core runs a Node program (tsc, vitest, ESLint) for consumers"
+    },
+    "prettier": {
+      "decision": "not locked: Core runs no Markdown formatter",
+      "evidence": "no governed repository read carries Prettier; Cursor-Governance's IDE policy names it for Markdown with format-on-save off",
+      "adopt_when": "Core formats or checks Markdown in a workflow"
+    },
+    "pyright": {
+      "decision": "not locked, never a gate: strict mypy is the single organization CI type gate (CTO decision, 2026-11-15)",
+      "evidence": "every governed Python repository read runs mypy; l9-conformance runs Pyright strict and migrates to the stamped mypy gate",
+      "adopt_when": "never as a CI gate; a repository may use it as optional editor tooling outside Core and org CI"
+    },
+    "typescript": {
+      "decision": "not locked: tsc and tsconfig.json are product-owned",
+      "evidence": "Core runs no tsc; the only TypeScript consumer read pins its own",
+      "adopt_when": "Core runs tsc for consumers (a stamped tsconfig base follows)"
+    },
+    "vitest": {
+      "decision": "not locked: the TypeScript test runner is product-owned",
+      "evidence": "Core runs no vitest; the only TypeScript consumer read pins its own",
+      "adopt_when": "Core installs and runs the TypeScript test runner"
+    },
+    "yamllint": {
+      "decision": "not locked: no Core workflow or stamped profile runs it",
+      "evidence": "l9-ci-sdk runs yamllint in its own hooks and reusable workflow",
+      "adopt_when": "Core runs yamllint in a workflow or a stamped hook"
+    }
+  }
+}

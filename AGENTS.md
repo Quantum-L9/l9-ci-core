@@ -1054,3 +1054,129 @@ python3 tools/advance_core_action_pins.py <merge sha> --check
 
 Tests: `tests/repo_execution/test_stamp.py`,
 `tests/workflows/test_registry_required_mode.py`.
+
+## 26. Core owns every CI tool: lock, stamp, and the tool-ownership manifest (2026-11-14) — amends §5, §12, §24 and §25
+
+Decision record for lane C2. Operator decision: `l9-ci-core` owns every CI
+tool a repository uses, both the version (`toolchain-lock.json`) and the
+config content (stamp profiles). A tool is locked only when Core runs it in a
+workflow step or a stamped profile configures and runs it; a tool nothing
+runs is not added (L9-UNKNOWN-001: absent evidence is not ownership).
+
+### Per-tool decisions
+
+| Tool | Decision | Version | Core-owned config | Profiles | Where Core runs it |
+|---|---|---|---|---|---|
+| gitleaks | **locked** (was an unbound literal) | 8.24.3 | `.gitleaks.toml` (`[extend] useDefault = true`) | all | `security.yml` "Secret scan (gitleaks)" |
+| bandit | **locked** (was an unbound literal) | 1.8.6 | — | — | `security.yml` "Python static security scan (bandit)" |
+| pip-audit | **locked** (was an unbound literal) | 2.9.0 | — | — | `security.yml` "Python dependency audit (pip-audit)" |
+| pyright | **not locked, never a gate** (CTO decision) | — | — | — | nowhere; strict mypy is the single type gate |
+| uv | **locked** (CTO decision, 2026-11-15) | 0.13.8 | `uv.toml` (`required-version = "==<lock>"`) | python, python+typescript | installed by `install-consumer-ci` and the stamped `requirements-ci.txt` |
+| node | not locked | — | — | — | Core runs no Node program; Biome is a standalone binary |
+| eslint (+ typescript-eslint) | not locked: **Biome alone owns JS/TS lint and format** | — | — | — | `org-ci.yml` runs Biome only |
+| prettier | not locked | — | — | — | Core runs no Markdown formatter |
+| typescript (tsc), tsconfig | not locked; product-owned | — | — | — | Core runs no tsc |
+| vitest | not locked; product-owned | — | — | — | Core runs no TS test runner |
+| actionlint, markdownlint, yamllint | not locked | — | — | — | no Core workflow or stamped hook runs them |
+
+The existing tools (ruff, mypy, pytest, pip, pre-commit, python, biome,
+semgrep) are unchanged. The full joined table is
+`.github/actions/install-consumer-ci/tool-ownership.json`.
+
+- The `security.yml` literals for gitleaks, bandit and pip-audit stay where
+  GitHub needs them and are now test-bound copies of the lock
+  (`tests/workflows/test_workflow_toolchain_pins.py`). The install-consumer-ci
+  pin file does not gain them: semgrep, bandit and pip-audit are each
+  installed by exactly one other Core surface
+  (`tests/actions/test_install_consumer_ci.py` `NOT_INSTALLER_TOOLS`).
+- `check-toolchain-alignment` now also reports a consumer's own bandit,
+  pip-audit and gitleaks pins against the lock (advisory, §16).
+- **ESLint migration note** (`l9-meta-injector` ADR-095, Proposed): Biome
+  already blocks there through `org-ci.yml`. ESLint is not a Core-owned tool;
+  it remains a product-local check under the repository's own `Repo.mk`, and
+  the organization standard for JS/TS lint is Biome. Retiring the injector's
+  ESLint is that repository's decision; Core stamps no `eslint.config.js`.
+
+### Type checker: strict mypy is the single organization CI type gate
+
+CTO decision (2026-11-15, operator decision): strict mypy is the only CI type
+gate in the organization. Core keeps locking mypy and stamping strict
+`mypy.ini` for the `python` and `python+typescript` profiles, byte-identical
+to §25. Pyright is a gate nowhere: Core does not lock it, stamps no
+`pyrightconfig.json`, and org CI never runs it. A repository may still use
+Pyright as optional editor tooling outside Core. Evidence: every governed
+Python repository read (l9-repo-template, Gate_SDK, l9-constellation-topology,
+l9-ci-sdk) runs mypy. Consumer follow-ups, owned by those repositories:
+
+- `l9-conformance` migrates from Pyright strict to the stamped strict mypy
+  gate;
+- `Constellation.Gate` adopts the stamped mypy gate (`stamp --profile python`).
+
+### uv is Core-owned (CTO decision, 2026-11-15)
+
+uv drives every Python install and lock check in the fleet: l9-repo-template's
+`repo-setup` runs `uv sync` whenever uv is present, so repository verification
+otherwise depends on whichever uv the runner image carries. Core therefore
+locks uv (0.13.8), installs it with the other consumer CI pins
+(`install-consumer-ci/requirements-consumer-ci.txt` and the stamped
+`requirements-ci.txt`), and stamps `uv.toml` with
+`required-version = "==<lock>"` in the Python profiles, so any other uv
+refuses to run. `check-toolchain-alignment` reports a consumer's own `uv==`
+pins against the lock. A `uv.toml` takes precedence over `[tool.uv]` in
+`pyproject.toml`, which uv then ignores; none of the governed repositories
+read carries a `[tool.uv]` table. A product that needs uv settings conforms to
+the stamped file (no overlay, below).
+
+### No per-repository overlay (CTO decision, 2026-11-15)
+
+There is no repository-specific extension point for stamped files. Products
+conform to them. This confirms §25 "Repository-specific settings"; a future
+overlay would change `l9.core-stamp/v1` and needs its own decision.
+
+### `.gitleaks.toml` in every profile
+
+Gitleaks' built-in rules for the locked version, nothing else. A reviewed false
+positive goes in the repository's own `.gitleaksignore` (fingerprints, read by
+gitleaks from the repository root), never in the stamped file. There is still
+no general per-repository overlay (§25).
+
+### The tool-ownership manifest (`l9.tool-ownership/v1`)
+
+One machine-readable view of Core tool ownership, derived (L9-DERIVED-001)
+from `toolchain-lock.json` (versions), `core-owned-tools.json` (identity),
+`tools/l9_repo/stamp.py` (profiles and files) and
+`tools/l9_repo/tool_ownership.py` (where each tool runs, the not-owned
+decisions). It records each input's sha256 (L9-PROV-001). Per tool: version,
+config paths, profiles, the profiles whose stamped pre-commit runs it, and the
+Core workflow steps that run it; per language: formatter, linter and type
+checker (mypy for Python); plus `unowned_languages` (`jsonc`,
+`markdown`) and `not_owned`.
+
+```bash
+python3 tools/render_tool_ownership.py          # regenerate after any input change
+python3 tools/render_tool_ownership.py --check  # also asserted by tests/tools/test_tool_ownership.py
+```
+
+The tests prove one entry per lock key, one owning tool per stamped file,
+every named workflow step exists, and every owned tool is run or stamped.
+
+**Consumer change owed by Cursor-Governance** (not made here):
+`environment/ide/policy.json` declares formatter ownership a second time.
+Generate its `governance`-authority rows from this manifest's `languages`
+(ruff for python; biome for javascript, javascriptreact, typescript,
+typescriptreact, json) at the Core revision `org-ci.yml` pins, and keep only
+IDE-local choices (`jsonc`, `markdown`, which Core owns no tool for) declared
+there.
+
+### Fleet safety
+
+No repository carries `.l9/core-stamp.json` on its default branch (code search,
+2026-11-14), so the new `.gitleaks.toml` stamp file turns nobody red. A
+repository stamped from the §25 revision is drift until it re-stamps (§25
+semantics). Unstamped repositories are untouched. Activation is the §16 pin
+advance, to this change's merge revision.
+
+Tests: `tests/repo_execution/test_stamp.py`, `tests/tools/test_tool_ownership.py`,
+`tests/workflows/test_workflow_toolchain_pins.py`,
+`tests/actions/test_install_consumer_ci.py`,
+`tests/actions/test_check_toolchain_alignment.py`.
