@@ -2,8 +2,9 @@
 
 One release engine, owned by Core, for every Quantum-L9 repository. No
 repository owns a release workflow. A repository opts in by declaring
-`.l9/release.json`. After that, merging the version bump to the default branch
-is the release.
+`.l9/release.json`. After that, merging a version bump to the default branch is
+all a repository does: Core's release runner releases it on its next daily run,
+or at once on dispatch (§4).
 
 > Scope: this is how **consumer repositories** release. Core itself is not a
 > consumer of the engine. It releases only through
@@ -16,7 +17,8 @@ is the release.
 |---|---|
 | Engine (stdlib only) | `tools/l9_release/` (`python3 -m tools.l9_release`) |
 | Declaration schema | `tools/l9_release/release.schema.json` (`l9.release/v1`) |
-| Composite action | `.github/actions/release-engine/` |
+| Runner workflow | `.github/workflows/release-runner.yml` (daily + dispatch) |
+| Runner discovery | `tools/l9_release/runner.py` |
 | Contract | `.l9/release-plane.yaml` → `consumer_release_engine` |
 | Examples | `docs/release/examples/*.release.json` |
 | Tests | `tests/release_engine/` |
@@ -138,66 +140,75 @@ python3 -m tools.l9_release --workspace <repo> build --out dist --scratch .tmp/r
 GH_TOKEN=… python3 -m tools.l9_release --workspace <repo> --repository <owner/name> publish --dist dist
 ```
 
-In CI, run it through the pinned composite action:
+In CI the engine is run only by Core's release runner (§4), from the Core
+checkout at the workflow's own revision.
 
-```yaml
-uses: Quantum-L9/l9-ci-core/.github/actions/release-engine@<full sha>
-with:
-  stage: plan        # plan | build | publish | verify
-```
+## 4. The Core-hosted release runner — `.github/workflows/release-runner.yml`
 
-The action always targets `github.repository` at `github.sha`. No input names
-another repository or revision.
+**Decision (operator, 2026-11-15).** `org-ci.yml` runs in consumer
+repositories **only on `pull_request`**: topology PR #66 merged with no `push`
+run, and the template repository behaves the same. GitHub documents ruleset
+workflows as `pull_request`, `pull_request_target` and `merge_group` only. So a
+release cannot run from inside the required workflow, and `org-ci.yml` gets no
+release job (`tests/workflows/test_release_runner_workflow.py` asserts this).
+Releases are run by a workflow that lives in Core.
 
-## 4. Organization CI wiring (activation; not in this change)
+| Aspect | Behaviour |
+|---|---|
+| Triggers | `schedule` once a day (`23 5 * * *` UTC), and `workflow_dispatch` with an optional `repository` input to release one repository now. No push, PR or merge-group trigger. |
+| Candidates | Every `lifecycle: current` member of the canonical L9 repository registry (`Quantum-L9/.github` `semantics/repository_registry.yaml`), read by Core's one registry reader (`run-repository-verification`, AGENTS.md §24). Core itself is excluded. A dispatched name must be a current member. |
+| Discovery | `discover` mints a **read-only** App token for exactly the candidate list. It keeps each repository that is not archived or disabled and has `.l9/release.json` on its own default branch. |
+| Release | One matrix job per target (`fail-fast: false`, `max-parallel: 4`): <ol><li>mint a token for **that one repository** with `contents: write`</li><li>fetch its default-branch head</li><li>`plan`</li><li>only if work is pending: `build --phases run` (make-v1 `setup validate check test` in a clean clone, then two reproducible rounds)</li><li>`publish` (which verifies)</li></ol> |
+| Isolation | Concurrency group `l9-release-<owner/name>`, never cancelled. One repository's failure never blocks another. |
+| Result | The `report` job fails the run if discovery errored, a discovery probe failed for any repository, or any release job failed. Nothing is silently skipped. |
+| `GITHUB_TOKEN` | `contents: read` (it only reads Core). The `report` job has no permissions. |
 
-The intended carrier is a `release` job in `org-ci.yml`:
+**What "released commit" means.** The runner releases the default-branch head
+**at run time**. If commits land after a version bump and before the daily
+run, the tag goes on that later head, at the same version. Dispatch the
+repository right after merging the bump to tag the bump commit itself. A
+version already tagged elsewhere is a no-op (§2).
 
-- it runs on `push` to the repository's own default branch only, never on
-  `pull_request` or `merge_group`;
-- it `needs: analyze`;
-- it runs only when `.l9/release.json` exists and `plan` reports
-  `work-pending`, so every repository without the file sees no change
-  (fleet safety);
-- it serialises per repository through
-  `concurrency: l9-release-${{ github.repository }}` with
-  `cancel-in-progress: false`.
+**make-v1 phases.** org-CI never evaluates the default-branch commit itself
+(it runs only on PRs), so the runner cannot reuse a green result at that SHA.
+It runs `build --phases run`: the phases execute in a clean clone of the exact
+commit before anything is built.
 
-It is deliberately **not** wired by the change that introduces the engine:
+### Operator setup (once)
 
-1. **Pin advance (AGENTS.md §16).** `org-ci.yml` may reference the action only
-   at a merged Core SHA. Wiring is the follow-up pin-advance PR.
-2. **Contract.** `.l9/org-runtime-contract.yaml` `push_authority` reads: "A
-   push trigger is an evaluation lane, not a trusted write lane. The push path
-   holds contents:read". `test_required_workflow_has_no_write_scopes` and
-   `test_workflow_permissions.py` lock `org-ci.yml` as write-free. A release
-   job needs write authority (a tag and a Release). The operator has decided
-   the write path (`GITHUB_TOKEN`, `contents: write` on the `release` job
-   only; see the token finding below), so the pin-advance PR amends
-   `push_authority` and narrows those two tests to that one job, never
-   reachable on `pull_request` or `merge_group`.
-3. **Trigger carrier.** GitHub documents that "Ruleset workflows support using
-   the `pull_request`, `pull_request_target` and `merge_group` events" and
-   that they "do not run on events triggered by the `GITHUB_TOKEN`". A `push`
-   trigger in the central `org-ci.yml` may therefore never fire in a consumer
-   repository. Whether it does today is UNKNOWN until a consumer's run list
-   shows it.
+The runner uses the **existing** repo-birth GitHub App (id `4831302`). No new
+App is created and no new key is generated.
 
-### Token finding
+1. In `Quantum-L9/l9-ci-core` → Settings → Environments, create the
+   environment **`release-runner`**. Under *Deployment branches and tags*,
+   choose **Selected branches and tags** and add **`main`** only.
+2. Add two **environment secrets** to `release-runner`:
+   - `L9_RELEASE_APP_CLIENT_ID`: the repo-birth App's **Client ID** (App
+     settings → General → "Client ID", `Iv…`).
+     `actions/create-github-app-token@v3.3.0` takes `client-id`; its `app-id`
+     input is deprecated.
+   - `L9_RELEASE_APP_PRIVATE_KEY`: the same App's existing private key (PEM),
+     the value already used for repository birth.
+3. Confirm that the App's installation on `Quantum-L9` covers the repositories
+   that will release. The App already has `contents: write`.
+4. Dry run: Actions → *Release runner (Core)* → *Run workflow*, with
+   `repository` set to a repository that has no pending release. The plan
+   reports nothing pending and the run is green.
 
-GitHub's ruleset documentation does not state the `GITHUB_TOKEN` scope,
-whether `permissions:` is honoured for a ruleset-required workflow in the
-target repository, or whether that workflow can read secrets. The retired
-required-workflows feature documented: "Secrets in the source repository will
-not be fetched when a workflow runs in the target repository … should be
-created at either the organization level or in the target repositories."
+Without the secrets, both jobs fail at token minting. Nothing is written.
 
-**Decision (CTO answer, from the operator, 2026-11-14):** the org-CI built-in
-`GITHUB_TOKEN` can push tags and create releases in the repository it runs on.
-The release job uses it with minimal job-level permissions (`contents: write`
-on the `release` job only; `analyze` stays `contents: read`). There is no App
-token path. The documentary evidence above is recorded as found; the
-operator's statement is the authority for the live capability.
+### Token finding (recorded evidence)
+
+GitHub's ruleset documentation does not state the `GITHUB_TOKEN` scope or
+secret access for a ruleset-required workflow in a target repository. The
+retired required-workflows feature documented: "Secrets in the source
+repository will not be fetched when a workflow runs in the target repository."
+
+That question no longer matters. The runner is a normal workflow in Core: it
+reads its own environment secrets, and every write uses a per-repository
+installation token. An earlier interim answer, `GITHUB_TOKEN` with
+`contents: write` on an org-ci release job, is superseded because org-ci never
+runs on push in consumers.
 
 ## 5. Reproducibility evidence — l9-constellation-topology @ `89150bd`
 
@@ -217,24 +228,29 @@ produced the same digests.
 
 ## 6. Release l9-constellation-topology v3.0.0
 
-`main` is already at `89150bd`, version `3.0.0`, with a dated
-`## 3.0.0 - 2026-11-14` CHANGELOG section, and no `v3.0.0` tag exists.
+`main` is at `89150bd`, version `3.0.0`, with a dated `## 3.0.0 - 2026-11-14`
+CHANGELOG section, and no `v3.0.0` tag exists.
 
-1. Once org-ci wiring is active (§4), open a PR in
-   `Quantum-L9/l9-constellation-topology` adding
+1. Complete the operator setup (§4), once for the organization.
+2. Open a PR in `Quantum-L9/l9-constellation-topology` adding
    `.l9/release.json` with the contents of
    `docs/release/examples/l9-constellation-topology.release.json`
-   (`python-uv`, no major tag).
-2. Merge it. The push to `main` runs `plan`: `v3.0.0` is absent, `3.0.0` is
-   ahead of `v2.0.0`, and the CHANGELOG section exists. The engine builds twice
-   (wheel `c6f4eea0…`; the sdist digest is recomputed at the merge commit,
-   since its epoch is that commit's time), creates the annotated `v3.0.0` at
-   the merge commit, creates the Release with the 3.0.0 notes, and uploads the
-   wheel, the sdist and `SHA256SUMS`.
-3. Check the result with `verify`. The job runs it automatically, and a rerun
-   is a no-op.
+   (`python-uv`, no major tag). Merge it once org CI is green.
+3. Release it: either wait for the next daily run, or in Core run Actions →
+   *Release runner (Core)* → *Run workflow* with
+   `repository: l9-constellation-topology`. The runner then:
+   - plans: `v3.0.0` is absent, `3.0.0` is ahead of `v2.0.0`, and the
+     CHANGELOG section exists;
+   - runs the make-v1 phases;
+   - builds twice. The wheel is `c6f4eea0…`. The sdist digest is recomputed at
+     the merge commit, because its epoch is that commit's time.
+   - creates the annotated `v3.0.0` at the default-branch head;
+   - creates the Release with the 3.0.0 notes;
+   - uploads the wheel, the sdist and `SHA256SUMS`, then verifies them.
 
-Note: the tag lands on the merge commit that adds `.l9/release.json`, not on
+   A rerun is a no-op.
+
+Note: the tag lands on the commit that carries `.l9/release.json`, not on
 `89150bd`, because the declaration must be present in the released tree. Their
 source trees differ only by that file.
 
@@ -242,7 +258,7 @@ source trees differ only by that file.
 
 The injector's `.github/workflows/release.yml` is the model the engine
 generalises (same side effects, same create-only exact tag, same forward-only
-major CAS). Once the engine is active, migrate in one injector PR:
+major CAS). Once the runner secrets are in place (§4), migrate in one injector PR:
 
 1. Add `.l9/release.json` from
    `docs/release/examples/l9-meta-injector.release.json` (`node-npm`,

@@ -13,7 +13,7 @@ import json
 import pathlib
 import sys
 import unittest
-from unittest import mock
+import unittest.mock as mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 

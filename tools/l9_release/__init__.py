@@ -12,7 +12,7 @@ the reproducible build, the publication, and the verification. Stages:
 
 This package is deliberately separate from ``tools.l9_repo``: the repository
 execution runtime exposes no publication command (AGENTS.md §11, §14, and
-``tests/repo_execution/test_boundary.py``). Standard library only, because the
-``release-engine`` composite action imports it from a pinned Core checkout on
-a consumer runner with no third-party packages.
+``tests/repo_execution/test_boundary.py``). Standard library only: Core's
+release runner (``.github/workflows/release-runner.yml``) runs it with a bare
+interpreter, and ``runner.py`` decides which repositories it releases.
 """

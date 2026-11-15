@@ -155,10 +155,12 @@ release_writers:
 # tests/release_engine plus tests/workflows/test_release_plane.py prove it.
 consumer_release_engine:
   engine: tools/l9_release
-  action: .github/actions/release-engine
+  runner: .github/workflows/release-runner.yml
+  runner_triggers: [schedule, workflow_dispatch]
+  write_credential: per-repository installation token of the repo-birth GitHub App (contents:write), from the release-runner environment
   declaration: .l9/release.json
   declaration_schema: l9.release/v1
-  writes_in: consumer repository only (github.repository at github.sha)
+  writes_in: one consumer repository per job, the current registry member being released
   refused_repositories:
     - Quantum-L9/l9-ci-core
   exact_tags: create-only annotated vMAJOR.MINOR.PATCH at the released commit; never moved or deleted

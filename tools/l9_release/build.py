@@ -17,10 +17,12 @@ Adapters:
 ``node-npm``   ``npm pack --ignore-scripts``. The package's published content
                must be committed; lifecycle scripts do not run at release.
 
-The make-v1 phases (``setup validate check test``) are a precondition. In org
-CI the release job depends on the analysis job that already ran them at this
-SHA, so ``--phases verified-upstream`` reuses that result; ``--phases run``
-executes them in a separate clean clone first. There is no default.
+The make-v1 phases (``setup validate check test``) are a precondition.
+``--phases run`` executes them in a separate clean clone of the exact commit
+first; Core's release runner always uses it, because org CI never evaluates a
+consumer's default-branch commit. ``--phases verified-upstream`` is for a
+caller holding its own green evidence at that exact SHA (for example a manual
+release right after verification). There is no default.
 """
 
 from __future__ import annotations
