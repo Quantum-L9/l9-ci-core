@@ -3,15 +3,17 @@
 The org-CI required workflow runs only on ``pull_request`` in consumer
 repositories (operator evidence 2026-11-15: topology PR #66 merged with no
 ``push`` run), so releasing on push inside it is impossible. Releases are run
-instead by ``.github/workflows/release-runner.yml`` in Core: once a day on
-``schedule`` and on ``workflow_dispatch``. This module decides its targets:
+instead by ``.github/workflows/release-runner.yml``, Core's reusable workflow,
+which the factory repository (``Quantum-L9/l9-repo-template``, holder of the
+repo-birth App credential) calls once a day and on dispatch. This module
+decides its targets:
 
-``schedule``  every ``lifecycle: current`` member of the canonical L9 repository
+``all``       every ``lifecycle: current`` member of the canonical L9 repository
               registry (``Quantum-L9/.github`` ``semantics/repository_registry.yaml``,
               read by Core's one registry reader) that is not archived or
               disabled, is not Core itself, and carries ``.l9/release.json`` on
               its default branch.
-``dispatch``  exactly the one named repository, which must be a current member
+``one``       exactly the one named repository, which must be a current member
               and carry the declaration; anything else is refused.
 
 Reading candidates from the registry first lets the workflow mint its

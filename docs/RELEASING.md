@@ -17,7 +17,7 @@ or at once on dispatch (§4).
 |---|---|
 | Engine (stdlib only) | `tools/l9_release/` (`python3 -m tools.l9_release`) |
 | Declaration schema | `tools/l9_release/release.schema.json` (`l9.release/v1`) |
-| Runner workflow | `.github/workflows/release-runner.yml` (daily + dispatch) |
+| Runner workflow | `.github/workflows/release-runner.yml` (reusable, `workflow_call`; scheduled by `Quantum-L9/l9-repo-template`) |
 | Runner discovery | `tools/l9_release/runner.py` |
 | Contract | `.l9/release-plane.yaml` → `consumer_release_engine` |
 | Examples | `docs/release/examples/*.release.json` |
@@ -143,7 +143,7 @@ GH_TOKEN=… python3 -m tools.l9_release --workspace <repo> --repository <owner/
 In CI the engine is run only by Core's release runner (§4), from the Core
 checkout at the workflow's own revision.
 
-## 4. The Core-hosted release runner — `.github/workflows/release-runner.yml`
+## 4. The Core-owned release runner — `.github/workflows/release-runner.yml`
 
 **Decision (operator, 2026-11-15).** `org-ci.yml` runs in consumer
 repositories **only on `pull_request`**: topology PR #66 merged with no `push`
@@ -153,15 +153,26 @@ release cannot run from inside the required workflow, and `org-ci.yml` gets no
 release job (`tests/workflows/test_release_runner_workflow.py` asserts this).
 Releases are run by a workflow that lives in Core.
 
+**Decision (operator, 2026-11-15, second).** No new App, secret or
+environment is created for releases. The repo-birth App credential exists only
+in `Quantum-L9/l9-repo-template`, environment `repo-birth` (main only). So
+`release-runner.yml` is a **reusable workflow** (`on: workflow_call` only), and
+the factory hosts the schedule: its thin caller
+`.github/workflows/release-schedule.yml` runs it daily and on dispatch, pinned
+to an exact Core commit. The engine and every line of release logic stay in
+Core; the factory contributes only the trigger and its existing credential.
+
 | Aspect | Behaviour |
 |---|---|
-| Triggers | `schedule` once a day (`23 5 * * *` UTC), and `workflow_dispatch` with an optional `repository` input to release one repository now. No push, PR or merge-group trigger. |
+| Triggers | `workflow_call` only, with inputs `core-ref` (required: the 40-hex Core commit the caller pins in `uses:`), `repository` (optional: release one repository now) and `environment` (default `repo-birth`). The factory caller runs it once a day and on `workflow_dispatch`. No push, PR or merge-group trigger. |
+| Core revision | Both jobs check out `Quantum-L9/l9-ci-core` at `core-ref` and refuse unless `git rev-parse HEAD` equals it. `L9_RELEASE_ENGINE_REVISION` is `core-ref`. The `github` context is the caller's, so `github.sha` is never read. |
+| Credential | Each credentialed job names `environment: ${{ inputs.environment }}` and reads that **caller** environment's existing `vars.BIRTH_APP_ID` and `secrets.BIRTH_APP_PRIVATE_KEY`. The caller passes `secrets: inherit`. |
 | Candidates | Every `lifecycle: current` member of the canonical L9 repository registry (`Quantum-L9/.github` `semantics/repository_registry.yaml`), read by Core's one registry reader (`run-repository-verification`, AGENTS.md §24). Core itself is excluded. A dispatched name must be a current member. |
 | Discovery | `discover` mints a **read-only** App token for exactly the candidate list. It keeps each repository that is not archived or disabled and has `.l9/release.json` on its own default branch. |
 | Release | One matrix job per target (`fail-fast: false`, `max-parallel: 4`): <ol><li>mint a token for **that one repository** with `contents: write`</li><li>fetch its default-branch head</li><li>`plan`</li><li>only if work is pending: `build --phases run` (make-v1 `setup validate check test` in a clean clone, then two reproducible rounds)</li><li>`publish` (which verifies)</li></ol> |
 | Isolation | Concurrency group `l9-release-<owner/name>`, never cancelled. One repository's failure never blocks another. |
-| Result | The `report` job fails the run if discovery errored, a discovery probe failed for any repository, or any release job failed. Nothing is silently skipped. |
-| `GITHUB_TOKEN` | `contents: read` (it only reads Core). The `report` job has no permissions. |
+| Result | The `report` job fails the run if discovery errored, a discovery probe failed for any repository, or any release job failed. Nothing is silently skipped. A one-repository run is strict: an undeclared or unreadable target fails it. |
+| `GITHUB_TOKEN` | `contents: read` (it only reads public Core). The `report` job has no permissions. |
 
 **What "released commit" means.** The runner releases the default-branch head
 **at run time**. If commits land after a version bump and before the daily
@@ -174,41 +185,42 @@ version already tagged elsewhere is a no-op (§2).
 It runs `build --phases run`: the phases execute in a clean clone of the exact
 commit before anything is built.
 
-### Operator setup (once)
+### Credential resolution (recorded evidence)
 
-The runner uses the **existing** repo-birth GitHub App (id `4831302`). No new
-App is created and no new key is generated.
+GitHub documentation, read 2026-11-15:
 
-1. In `Quantum-L9/l9-ci-core` → Settings → Environments, create the
-   environment **`release-runner`**. Under *Deployment branches and tags*,
-   choose **Selected branches and tags** and add **`main`** only.
-2. Add two **environment secrets** to `release-runner`:
-   - `L9_RELEASE_APP_CLIENT_ID`: the repo-birth App's **Client ID** (App
-     settings → General → "Client ID", `Iv…`).
-     `actions/create-github-app-token@v3.3.0` takes `client-id`; its `app-id`
-     input is deprecated.
-   - `L9_RELEASE_APP_PRIVATE_KEY`: the same App's existing private key (PEM),
-     the value already used for repository birth.
-3. Confirm that the App's installation on `Quantum-L9` covers the repositories
-   that will release. The App already has `contents: write`.
-4. Dry run: Actions → *Release runner (Core)* → *Run workflow*, with
-   `repository` set to a repository that has no pending release. The plan
-   reports nothing pending and the run is green.
+- Reusable workflows reference: "the `github` context is always associated
+  with the caller workflow."
+- Reusing workflows how-to: "To use an environment secret in a reusable
+  workflow, set `environment` on the job in the reusable workflow." "The job
+  that calls the reusable workflow can't use the `environment` keyword." "The
+  caller workflow must still pass the secret." "Use `secrets: inherit` or pass
+  the secret by name." "You can pass a secret by name even if it only exists
+  in the environment."
+- Variables reference: "For reusable workflows, the variables from the caller
+  workflow's repository are used."
 
-Without the secrets, both jobs fail at token minting. Nothing is written.
+The run therefore belongs to the caller repository, and the environment named
+by a job in this reusable workflow resolves there: the factory's `repo-birth`
+environment, under its main-only deployment policy. Core holds no release
+credential and needs no operator setup. The repo-birth App (id `4831302`) is
+used through the deprecated-but-supported `app-id` input of
+`actions/create-github-app-token`, because the credential that exists is the
+App id (`vars.BIRTH_APP_ID`), as in the factory's birth jobs.
 
-### Token finding (recorded evidence)
+Confirm that the App's installation on `Quantum-L9` covers the repositories
+that will release; the App already has `contents: write`. Dry run: in the
+factory, Actions → the release schedule → *Run workflow* with `repository` set
+to a repository with no pending release.
 
-GitHub's ruleset documentation does not state the `GITHUB_TOKEN` scope or
-secret access for a ruleset-required workflow in a target repository. The
-retired required-workflows feature documented: "Secrets in the source
-repository will not be fetched when a workflow runs in the target repository."
+### Superseded
 
-That question no longer matters. The runner is a normal workflow in Core: it
-reads its own environment secrets, and every write uses a per-repository
-installation token. An earlier interim answer, `GITHUB_TOKEN` with
-`contents: write` on an org-ci release job, is superseded because org-ci never
-runs on push in consumers.
+The first 2026-11-15 design ran this workflow on its own `schedule` in Core
+with a `release-runner` environment holding `L9_RELEASE_APP_CLIENT_ID` and
+`L9_RELEASE_APP_PRIVATE_KEY`. That environment was never created and will not
+be; the design is superseded by the caller model above. An earlier interim
+answer, `GITHUB_TOKEN` with `contents: write` on an org-ci release job, was
+superseded because org-ci never runs on push in consumers.
 
 ## 5. Reproducibility evidence — l9-constellation-topology @ `89150bd`
 
@@ -231,14 +243,16 @@ produced the same digests.
 `main` is at `89150bd`, version `3.0.0`, with a dated `## 3.0.0 - 2026-11-14`
 CHANGELOG section, and no `v3.0.0` tag exists.
 
-1. Complete the operator setup (§4), once for the organization.
+1. No release-specific setup: the factory's existing `repo-birth` credential
+   is used (§4).
 2. Open a PR in `Quantum-L9/l9-constellation-topology` adding
    `.l9/release.json` with the contents of
    `docs/release/examples/l9-constellation-topology.release.json`
    (`python-uv`, no major tag). Merge it once org CI is green.
-3. Release it: either wait for the next daily run, or in Core run Actions →
-   *Release runner (Core)* → *Run workflow* with
-   `repository: l9-constellation-topology`. The runner then:
+3. Release it: either wait for the next daily run, or in
+   `Quantum-L9/l9-repo-template` run Actions → *Release schedule* → *Run
+   workflow* with `repo: l9-constellation-topology` (or `l9 release`
+   `DISPATCH=1` from Cursor-Governance). The runner then:
    - plans: `v3.0.0` is absent, `3.0.0` is ahead of `v2.0.0`, and the
      CHANGELOG section exists;
    - runs the make-v1 phases;
