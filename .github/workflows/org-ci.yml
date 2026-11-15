@@ -44,9 +44,27 @@
 # the run's head SHA against its expected zero-parent root SHA. Core stays generic.
 name: Organization CI (Core)
 
+#
+# `pull_request` declares `edited` in addition to GitHub's default activity
+# types (`opened`, `synchronize`, `reopened`). Retargeting a pull request's
+# base, for example onto `main` after its stacked parent merges, emits only
+# `edited` with `github.event.changes.base` present. Without `edited`, the
+# required check is never evaluated against the new base. That leaves the
+# pull request blocked, or holding a verdict computed for a base it no longer
+# targets (Quantum-L9/Cursor-Governance#956).
+#
+# A title or body `edited` event is deliberately NOT skipped. A job skipped by
+# `if:` reports Success, and GitHub states that it "will not prevent a pull
+# request from merging, even if it is a required check". A skip on a title
+# edit would therefore post a passing `Analyze (central Core)` on the same
+# head SHA as an earlier failing run, so anyone able to edit a title could
+# clear a required failure. Every `edited` event re-evaluates the same
+# immutable head SHA. The cost is one analysis per edit, and the verdict is
+# never masked.
 on:
   push:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   merge_group:
   workflow_dispatch:
     inputs:
