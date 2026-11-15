@@ -50,7 +50,10 @@ class ReleaseRunnerWorkflowTests(unittest.TestCase):
         self.assertIs(True, inputs["core-ref"]["required"])
         self.assertEqual("", inputs["repository"]["default"])
         self.assertEqual("repo-birth", inputs["environment"]["default"])
-        self.assertNotIn("secrets", self.workflow["on"]["workflow_call"])
+        # Exactly the one existing secret, passed by name (never inherit-all).
+        secrets = self.workflow["on"]["workflow_call"]["secrets"]
+        self.assertEqual({"BIRTH_APP_PRIVATE_KEY"}, set(secrets))
+        self.assertIs(False, secrets["BIRTH_APP_PRIVATE_KEY"]["required"])
 
     def test_github_context_is_never_read_as_core_identity(self) -> None:
         # In a reusable workflow the github context is the caller's: github.sha

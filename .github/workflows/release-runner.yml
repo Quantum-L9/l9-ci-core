@@ -15,7 +15,9 @@
 #   - reusable workflows: "the github context is always associated with the
 #     caller workflow"; "To use an environment secret in a reusable workflow,
 #     set environment on the job in the reusable workflow ... The caller
-#     workflow must still pass the secret" (secrets: inherit);
+#     workflow must still pass the secret" ("Use secrets: inherit or pass the
+#     secret by name"; this workflow declares BIRTH_APP_PRIVATE_KEY so the
+#     caller passes exactly that one secret by name);
 #   - variables: "For reusable workflows, the variables from the caller
 #     workflow's repository are used."
 # So every credentialed job below names `environment: ${{ inputs.environment }}`
@@ -55,6 +57,14 @@ on:
         type: string
         required: false
         default: repo-birth
+    secrets:
+      BIRTH_APP_PRIVATE_KEY:
+        description: >-
+          Pass by name from the caller (BIRTH_APP_PRIVATE_KEY mapped to the
+          caller's secret of the same name). The credentialed jobs name
+          `environment`, so GitHub supplies the caller environment's secret of
+          this name.
+        required: false
 
 permissions:
   contents: read
