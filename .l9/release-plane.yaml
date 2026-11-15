@@ -156,8 +156,10 @@ release_writers:
 consumer_release_engine:
   engine: tools/l9_release
   runner: .github/workflows/release-runner.yml
-  runner_triggers: [schedule, workflow_dispatch]
-  write_credential: per-repository installation token of the repo-birth GitHub App (contents:write), from the release-runner environment
+  runner_triggers: [workflow_call]
+  scheduled_by: Quantum-L9/l9-repo-template .github/workflows/release-schedule.yml (daily + workflow_dispatch, main only)
+  write_credential: per-repository installation token of the repo-birth GitHub App (contents:write), from the caller's existing repo-birth environment (vars.BIRTH_APP_ID, secrets.BIRTH_APP_PRIVATE_KEY)
+  engine_revision: the Core commit the caller pins in uses:, passed as core-ref and verified against the checkout
   declaration: .l9/release.json
   declaration_schema: l9.release/v1
   writes_in: one consumer repository per job, the current registry member being released
