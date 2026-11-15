@@ -216,6 +216,30 @@ class LockBindingTests(unittest.TestCase):
             pattern = re.compile(re.escape(key) + r"==([0-9][^\s\"']*)")
             self._assert_bound(key, self._literals(pattern), minimum=1)
 
+    def test_setup_uv_selections_match_the_lock(self) -> None:
+        # A consumer's stamped uv.toml carries `required-version = "==<lock>"`,
+        # so a workflow that installs uv for a consumer's make-v1 phases (the
+        # release runner's build) must install exactly the lock's uv. One at
+        # 0.11.32 against a 0.13.8 lock failed a release build in repo-setup.
+        # An omitted `version` floats to setup-uv's default and is refused too.
+        found: list[tuple[str, int, str]] = []
+        for path in workflow_sources():
+            document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            for job_name, job in sorted((document.get("jobs") or {}).items()):
+                for index, step in enumerate((job or {}).get("steps") or []):
+                    uses = str((step or {}).get("uses", ""))
+                    if not uses.startswith("astral-sh/setup-uv@"):
+                        continue
+                    version = ((step or {}).get("with") or {}).get("version")
+                    with self.subTest(workflow=path.name, job=job_name, step=index):
+                        self.assertIsNotNone(
+                            version,
+                            f"{path.name} job {job_name} step {index} installs uv "
+                            "without an explicit `version`; select the lock's uv",
+                        )
+                    found.append((f"{path.name}:{job_name}", index, f"{version}"))
+        self._assert_bound("uv", found, minimum=1)
+
     def test_biome_lock_version_has_a_verified_binary_contract(self) -> None:
         lock = self.BIOME_LOCKS / f"biome-{self.lock['biome']}.json"
         self.assertTrue(lock.is_file(), f"missing {lock.relative_to(ROOT)}")

@@ -162,12 +162,16 @@ jobs:
           set -euo pipefail
           [[ "${CORE_REF}" =~ ^[0-9a-f]{40}$ ]] || { echo "core-ref must be a 40-hex commit: '${CORE_REF}'" >&2; exit 1; }
           [ "$(git rev-parse HEAD)" = "${CORE_REF}" ] || { echo "Core checkout $(git rev-parse HEAD) != core-ref ${CORE_REF}" >&2; exit 1; }
+      # Both selections are copies of toolchain-lock.json (`python`, `uv`),
+      # bound by tests/workflows/test_workflow_toolchain_pins.py: the build
+      # runs the target's make-v1 phases, whose stamped uv.toml refuses any
+      # uv but the lock's.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: "3.12.14"
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.11.32"
+          version: "0.13.8"
           enable-cache: false
       - id: app
         name: Mint a contents:write token for this one repository
