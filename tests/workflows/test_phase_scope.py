@@ -50,6 +50,10 @@ EXPECTED_WORKFLOWS = {
     "self-analysis.yml",
     "self-security.yml",
     "security.yml",
+    # Core-hosted release runner: releases every registry member that declares
+    # .l9/release.json (daily schedule + one-repository dispatch). Never part
+    # of the org-CI required workflow (docs/RELEASING.md).
+    "release-runner.yml",
     # Central organization required-workflow source. GitHub org
     # rulesets target repositories and require this workflow directly;
     # consumers do not copy an L9 workflow or governance pack.

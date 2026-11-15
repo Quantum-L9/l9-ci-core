@@ -146,6 +146,28 @@ release_writers:
         production-runtime release mechanism.
   validator: tools/check_release_writers.py
 
+# Declared 2026-11-14 (lane R2). Core ships the release engine every other
+# Quantum-L9 repository releases through; it writes tags only in the consumer
+# repository it is run for and never in this one. It is declared here, not as a
+# third namespace, because its namespace is the consumer's, and because
+# tools/check_release_writers.py reads Python argv string literals as prose and
+# so cannot see its git and REST writes: the contract states the boundary and
+# tests/release_engine plus tests/workflows/test_release_plane.py prove it.
+consumer_release_engine:
+  engine: tools/l9_release
+  runner: .github/workflows/release-runner.yml
+  runner_triggers: [schedule, workflow_dispatch]
+  write_credential: per-repository installation token of the repo-birth GitHub App (contents:write), from the release-runner environment
+  declaration: .l9/release.json
+  declaration_schema: l9.release/v1
+  writes_in: one consumer repository per job, the current registry member being released
+  refused_repositories:
+    - Quantum-L9/l9-ci-core
+  exact_tags: create-only annotated vMAJOR.MINOR.PATCH at the released commit; never moved or deleted
+  major_tag: opt-in vMAJOR, forward only, compare-and-swap on the SHA the monotonicity proof read
+  registry_publication: none
+  runbook: docs/RELEASING.md
+
 core_main_protection:
   branch: main
   repository: Quantum-L9/l9-ci-core
