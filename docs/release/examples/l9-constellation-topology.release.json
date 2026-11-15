@@ -1,0 +1,7 @@
+{
+  "schema": "l9.release/v1",
+  "adapter": "python-uv",
+  "version_authority": "pyproject.toml",
+  "changelog": "CHANGELOG.md",
+  "major_tag": false
+}

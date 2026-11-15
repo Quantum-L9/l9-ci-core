@@ -1,0 +1,7 @@
+{
+  "schema": "l9.release/v1",
+  "adapter": "node-npm",
+  "version_authority": "package.json",
+  "changelog": "CHANGELOG.md",
+  "major_tag": true
+}
