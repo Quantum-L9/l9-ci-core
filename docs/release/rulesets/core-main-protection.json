@@ -35,8 +35,11 @@
         "required_status_checks": [
           { "context": "Lint and Type Check", "integration_id": 15368 },
           { "context": "Unit tests", "integration_id": 15368 },
-          { "context": "validate", "integration_id": 15368 },
-          { "context": "sdk-contract", "integration_id": 15368 }
+          { "context": "Repository contract", "integration_id": 15368 },
+          { "context": "Governance validate", "integration_id": 15368 },
+          { "context": "sdk-contract", "integration_id": 15368 },
+          { "context": "Analyze (semgrep) / Analyze (semgrep -> SDK)", "integration_id": 15368 },
+          { "context": "Security scan / security", "integration_id": 15368 }
         ]
       }
     },

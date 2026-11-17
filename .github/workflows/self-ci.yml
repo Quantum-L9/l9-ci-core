@@ -80,10 +80,63 @@ jobs:
               -c "http.https://github.com/.extraheader=${auth_header}" \
               fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      # The suite imports PyYAML and jsonschema and asserts the pinned ruff/mypy
+      # (tests/tools/test_check_toolchain_versions.py), so it runs against the
+      # same requirement files the lint job installs, never against whatever
+      # the runner image happens to ship.
+      - name: Install test dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade --only-binary :all: pip
+          pip install --only-binary :all: -r requirements-ci.txt
+          pip install --only-binary :all: -r requirements-repo-runtime.txt
       - name: Run Phase 1 validation
         run: |
           set -euo pipefail
-          python3 -m unittest discover \
+          python -m unittest discover \
             --start-directory tests \
             --pattern 'test_*.py' \
             --verbose
+  # Core's own repository contract (.l9/repo-workflow.json, make-v1), executed
+  # at the event revision through the Repo.mk repo-* leaves. Organization CI
+  # only reaches Core's contract through its pinned repository verification,
+  # so without this job a PR could break `make validate` and still merge green.
+  repository-contract:
+    name: Repository contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          # Basic auth with the token as password is what GitHub's
+          # git-over-HTTPS transport accepts (Bearer is API-only); the header is
+          # scoped to github.com so it is not replayed to another host on a
+          # redirect. Mirrors actions/checkout.
+          auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          git -c protocol.version=2 \
+              -c "http.https://github.com/.extraheader=${auth_header}" \
+              fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: make setup
+        run: make setup
+      - name: make validate
+        run: make validate
+      - name: make check
+        run: make check
+      - name: make test
+        run: make test

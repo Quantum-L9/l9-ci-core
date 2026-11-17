@@ -16,9 +16,37 @@ they are the job names of the checks that ran green on `main` at
 | Context | Workflow |
 |---|---|
 | `Lint and Type Check` | `self-ci.yml` (toolchain conformance, ruff, mypy) |
-| `Unit tests` | `self-ci.yml` (full `unittest` suite) |
-| `validate` | `governance-ci.yml` |
+| `Unit tests` | `self-ci.yml` (full `unittest` suite, pinned Python and requirements) |
+| `Repository contract` | `self-ci.yml` (`make setup` → `validate` → `check` → `test` at the event revision) |
+| `Governance validate` | `governance-ci.yml` |
 | `sdk-contract` | `sdk-contract-check.yml` |
+| `Analyze (semgrep) / Analyze (semgrep -> SDK)` | `self-analysis.yml` → `analyze-semgrep.yml` |
+| `Security scan / security` | `self-security.yml` → `security.yml` |
+
+### 2026-11-17 revision (AGENTS.md §29)
+
+- The bare `validate` context was ambiguous: `governance-ci.yml` and
+  `release-validation.yml` both have a job whose check run is named `validate`,
+  so either could satisfy it. The governance job now carries the unique name
+  `Governance validate`, and the payload requires that name instead.
+- `Repository contract` is new: no self-CI job previously ran Core's own make-v1
+  contract at the pull request's revision.
+- The analysis and security contexts are reusable-workflow callers, so GitHub
+  names their check runs `<caller job name> / <called job name>`. The strings
+  above are the exact check-run names read from
+  `repos/Quantum-L9/l9-ci-core/commits/<sha>/check-runs`: both ran green on
+  `main` at `a18a8f6`, `c659f97` and `8c785c1`. At `44d85a6` and `9bd8863`
+  (2026-11-17) `Analyze (semgrep) / Analyze (semgrep -> SDK)` and
+  `sdk-contract` concluded `failure`; binding this payload while they are red
+  blocks every merge to `main`.
+- `Repository contract` and `Governance validate` have no green run on `main`
+  yet: their first evidence is the pull request that introduces them. Read
+  their check runs on `main` after it merges, before applying.
+
+**Applying this payload is an organization-admin action. The pull request that
+changes it does not apply it**, and nothing in this repository writes a
+ruleset; until an admin applies it, the live ruleset keeps its previous
+contexts.
 
 `integration_id` 15368 is GitHub Actions. `Analyze (central Core)` is not
 repeated here: the organization ruleset already requires it on every default

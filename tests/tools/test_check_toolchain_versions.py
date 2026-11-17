@@ -52,9 +52,9 @@ def _interpreter_reporting(versions: dict[str, str]):
 
     Most of these cases are about the comparison, not about this machine.
     Reading the real installed ruff/mypy to build a *matching* lock made them
-    depend on the lint toolchain being present, which the stdlib-only unit-test
-    job deliberately does not install — so they errored there while passing
-    locally. Faking the reading keeps each case testing the logic it names.
+    depend on the lint toolchain being present, which the unit-test job did
+    not then install (and Phase 4 release validation's bare python3 still
+    does not) — so they errored there while passing locally. Faking the reading keeps each case testing the logic it names.
     """
 
     def fake_version(name: str) -> str:
@@ -76,15 +76,23 @@ def _toolchain_installed() -> bool:
     return True
 
 
-# A real ruff/mypy must be importable for the two cases below to mean anything.
-# The stdlib-only unit-test job installs neither; the lint job and `make check`
-# both do, and `make check` runs this very module as its first command, so the
-# property stays enforced unconditionally there. Remove this guard if the
-# unit-test job ever installs requirements-repo-runtime.txt.
+# A real ruff/mypy must be importable for the cases below to mean anything.
+#
+# Where they run: self-ci.yml's `Unit tests` and `Repository contract` jobs both
+# install requirements-repo-runtime.txt before the suite, so these cases execute
+# on every Core pull request (tests/workflows/test_self_ci_gating.py locks
+# that). `make check` does NOT run this module; it runs
+# tools/check_toolchain_versions.py itself.
+#
+# Why the guard stays: Phase 4 release validation
+# (.github/actions/validate-release/validate_release.py) runs this same suite
+# on the runner's bare system python3, which carries no ruff or mypy. That is
+# the one real condition this skip covers; it is not a CI-wide exemption.
 REQUIRES_REAL_TOOLCHAIN = unittest.skipUnless(
     _toolchain_installed(),
-    "ruff/mypy are not installed in this interpreter; "
-    "`make check` enforces this property where they are",
+    "ruff/mypy are not installed in this interpreter (Phase 4 release "
+    "validation's bare python3); self-ci.yml's Unit tests and Repository "
+    "contract jobs install them and run these cases",
 )
 
 

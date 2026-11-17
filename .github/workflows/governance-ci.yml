@@ -16,6 +16,10 @@ concurrency:
   cancel-in-progress: true
 jobs:
   validate:
+    # A unique check-run name: the bare job id `validate` is also the job id in
+    # release-validation.yml, so a required context of `validate` could be
+    # satisfied by either workflow (AGENTS.md §29).
+    name: Governance validate
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
