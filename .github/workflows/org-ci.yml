@@ -287,7 +287,7 @@ jobs:
             "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
           # Depth 2: a pull_request / merge_group revision is a merge commit,
           # and its base parent is what a consumer's merge-base check needs
-          # once origin is reset to an anonymous URL below (AGENTS.md §29).
+          # once origin is reset to an anonymous URL below.
           git -c protocol.version=2 fetch --depth=2 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
           git remote set-url origin "https://github.com/${REPOSITORY}.git"

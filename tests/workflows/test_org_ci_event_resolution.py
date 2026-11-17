@@ -306,7 +306,7 @@ class PushTargetProvenanceTests(unittest.TestCase):
         self.assertIn("git checkout --detach FETCH_HEAD", checkout["run"])
 
     def test_checkout_includes_the_merge_commits_base_parent(self) -> None:
-        """AGENTS.md §29: origin is anonymous after checkout, so the base must be fetched here."""
+        """Origin is anonymous after checkout, so the base parent must be fetched here."""
         checkout = analyze_steps()[step_index(name="Checkout immutable event revision")]
         self.assertIn('fetch --depth=2 origin "${REVISION}"', checkout["run"])
         self.assertIn(
