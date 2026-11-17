@@ -1180,3 +1180,30 @@ Tests: `tests/repo_execution/test_stamp.py`, `tests/tools/test_tool_ownership.py
 `tests/workflows/test_workflow_toolchain_pins.py`,
 `tests/actions/test_install_consumer_ci.py`,
 `tests/actions/test_check_toolchain_alignment.py`.
+
+## 27. Private SDK and registry reads (2026-11-17) — amends §5, §8 and §17
+
+`Quantum-L9/l9-ci-sdk` and `Quantum-L9/.github` went private on 2026-11-16.
+From then on `provision-sdk` failed every governed repository's
+`Analyze (central Core)` with `could not read Username` (an anonymous fetch of
+the SDK), and the §17 live registry read would fail the same way.
+
+- `provision-sdk` and `run-repository-verification` take a
+  `github-read-token` input (default empty: anonymous, as before). The value
+  is the organization secret `L9_GITHUB_READ_TOKEN` (fine-grained, read-only:
+  Contents + Metadata on the organization's repositories).
+- The token reaches git only as a per-command `http.https://github.com/.extraheader`
+  through `GIT_CONFIG_COUNT/KEY/VALUE` environment: never argv, a URL or a
+  file. `provision-sdk` pops it at import so no child process inherits it.
+- `run-repository-verification` runs the consumer's `make` targets, so its
+  verify step must never hold the token. A separate `registry` step, which runs
+  no consumer code, reads the registry first and writes a run-scoped snapshot
+  under `$RUNNER_TEMP`; the verify step reads only that snapshot and, without
+  one, falls back to the anonymous live read and fails closed as before.
+- Suite: `tests/provisioning/test_private_repository_auth.py`.
+
+Activation is the §16 pin advance: after this merges, one PR advances
+`org-ci.yml`'s Core action pins to the merge revision and passes
+`github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}` to both steps. The
+secret must be visible to every governed repository, public ones included
+(organization secret repository access: all repositories).

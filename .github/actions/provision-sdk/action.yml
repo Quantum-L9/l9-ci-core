@@ -19,6 +19,13 @@ inputs:
       digest and runtime platform lock are present in Core's compatibility entry.
     required: false
     default: 9fd4efe7a3f2d671e063b0e7c15fd52b95d0ccd1
+  github-read-token:
+    description: >
+      Read-only token for the private SDK repository (organization secret
+      L9_GITHUB_READ_TOKEN). Empty fetches anonymously. It reaches git only as a
+      per-command header and is never written to disk or argv.
+    required: false
+    default: ""
   runtime-directory:
     description: >
       Compatibility input fixed to .l9/runtime/sdk. The path must not already
@@ -52,4 +59,5 @@ runs:
         INPUT_SDK_REPOSITORY: ${{ inputs.sdk-repository }}
         INPUT_SDK_REVISION: ${{ inputs.sdk-revision }}
         INPUT_RUNTIME_DIRECTORY: ${{ inputs.runtime-directory }}
+        INPUT_GITHUB_READ_TOKEN: ${{ inputs.github-read-token }}
       run: python3 "${{ github.action_path }}/provision.py"

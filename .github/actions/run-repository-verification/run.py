@@ -50,6 +50,7 @@ consumer-vendored code.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -108,6 +109,11 @@ REGISTRY_ARTIFACT = "l9.repository-registry/global@1"
 REGISTRY_LIFECYCLES = frozenset({"current", "superseded", "retired"})
 REGISTRY_REQUIRED_LIFECYCLE = "current"
 REGISTRY_TIMEOUT_SECONDS = 60
+#: Set by this action's snapshot step, never by a consumer: a registry read
+#: made BEFORE any consumer code runs, by a step that holds the read token. The
+#: verify step (which runs the consumer's make targets) never holds the token.
+REGISTRY_SNAPSHOT_ENV = "L9_REGISTRY_SNAPSHOT"
+READ_TOKEN_ENV = "L9_GITHUB_READ_TOKEN"
 _REGISTRY_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _YAML_SCALAR = re.compile(r"^(\s*)(- )?([A-Za-z_][A-Za-z0-9_]*):(?:\s+(.*?))?\s*$")
 
@@ -273,13 +279,48 @@ def parse_registry_members(text: str) -> list[tuple[str, str]]:
     return members
 
 
+def github_auth_env(token: str) -> dict[str, str]:
+    """Environment that authenticates git to https://github.com/ with ``token``.
+
+    git's GIT_CONFIG_COUNT/KEY/VALUE interface keeps the header off every
+    command line. An empty token leaves git anonymous.
+    """
+
+    env = {key: value for key, value in os.environ.items() if key != READ_TOKEN_ENV}
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    if not token:
+        return env
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    index = int(env.get("GIT_CONFIG_COUNT", "0") or "0")
+    env[f"GIT_CONFIG_KEY_{index}"] = "http.https://github.com/.extraheader"
+    env[f"GIT_CONFIG_VALUE_{index}"] = f"AUTHORIZATION: basic {basic}"
+    env["GIT_CONFIG_COUNT"] = str(index + 1)
+    return env
+
+
 def fetch_registry() -> str:
+    """Read the registry: the pre-consumer snapshot if one was taken, else live.
+
+    ``Quantum-L9/.github`` is private (2026-11-16), so the live read needs the
+    read token, and the step that runs consumer code must not hold it. The
+    action's snapshot step therefore reads the registry first and this step
+    reads that file. Without a snapshot the live read runs as before.
+    """
+
+    snapshot = os.environ.get(REGISTRY_SNAPSHOT_ENV, "").strip()
+    if snapshot and Path(snapshot).is_file():
+        return Path(snapshot).read_text(encoding="utf-8")
+    return fetch_live_registry(os.environ.get(READ_TOKEN_ENV, "").strip())
+
+
+def fetch_live_registry(token: str = "") -> str:
     """Read the registry from its owner's default branch over Git.
 
     Runs in a throwaway repository under the runner's temporary directory; no
     consumer file and no consumer-supplied value selects the source.
     """
 
+    auth_env = github_auth_env(token)
     with tempfile.TemporaryDirectory(prefix="l9-registry-") as scratch:
 
         def git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -290,7 +331,7 @@ def fetch_registry() -> str:
                     capture_output=True,
                     check=False,
                     timeout=REGISTRY_TIMEOUT_SECONDS,
-                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+                    env=auth_env,
                 )
             except (OSError, subprocess.TimeoutExpired) as error:
                 raise RegistryError(f"cannot run git: {error}") from error
@@ -424,7 +465,31 @@ def run_v2(workspace: Path) -> None:
         subprocess.run(argv, cwd=workspace, check=True)
 
 
+def snapshot_registry(destination: Path) -> int:
+    """Write the live registry to ``destination``; never fails the job.
+
+    On any read failure the destination is removed so the verify step falls
+    back to its own live read and fails closed there exactly as before.
+    """
+
+    token = os.environ.pop(READ_TOKEN_ENV, "").strip()
+    try:
+        text = fetch_live_registry(token)
+        parse_registry_members(text)
+    except RegistryError as exc:
+        destination.unlink(missing_ok=True)
+        print(f"::warning::registry snapshot unavailable ({exc})", file=sys.stderr)
+        return 0
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(text, encoding="utf-8")
+    print(f"registry snapshot: {REGISTRY_URL} {REGISTRY_REF} -> {destination}")
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--snapshot-registry":
+        return snapshot_registry(Path(sys.argv[2]))
+    os.environ.pop(READ_TOKEN_ENV, None)
     workspace = Path(os.environ.get("L9_REPOSITORY_WORKSPACE", ".")).resolve()
     contract = workspace / CONTRACT_PATH
     repository = os.environ.get("L9_REPOSITORY_IDENTITY", "").strip()

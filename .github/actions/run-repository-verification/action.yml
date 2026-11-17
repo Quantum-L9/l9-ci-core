@@ -13,6 +13,13 @@ inputs:
   workspace:
     required: false
     default: .
+  github-read-token:
+    description: >
+      Read-only token for the private Quantum-L9/.github registry (organization
+      secret L9_GITHUB_READ_TOKEN). Only the snapshot step, which runs no
+      consumer code, receives it. Empty reads anonymously.
+    required: false
+    default: ""
 outputs:
   present:
     value: ${{ steps.verify.outputs.present }}
@@ -31,9 +38,16 @@ outputs:
 runs:
   using: composite
   steps:
+    # Runs before any consumer code, and is the only step that holds the token.
+    - id: registry
+      shell: bash
+      env:
+        L9_GITHUB_READ_TOKEN: ${{ inputs.github-read-token }}
+      run: python3 "${{ github.action_path }}/run.py" --snapshot-registry "${RUNNER_TEMP}/l9-registry-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}.yaml"
     - id: verify
       shell: bash
       env:
         L9_REPOSITORY_WORKSPACE: ${{ inputs.workspace }}
         L9_REPOSITORY_IDENTITY: ${{ github.repository }}
+        L9_REGISTRY_SNAPSHOT: ${{ runner.temp }}/l9-registry-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.yaml
       run: python3 "${{ github.action_path }}/run.py"
