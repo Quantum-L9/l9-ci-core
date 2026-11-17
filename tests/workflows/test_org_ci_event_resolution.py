@@ -305,6 +305,15 @@ class PushTargetProvenanceTests(unittest.TestCase):
         self.assertEqual("${{ github.sha }}", checkout["env"]["REVISION"])
         self.assertIn("git checkout --detach FETCH_HEAD", checkout["run"])
 
+    def test_checkout_includes_the_merge_commits_base_parent(self) -> None:
+        """Origin is anonymous after checkout, so the base parent must be fetched here."""
+        checkout = analyze_steps()[step_index(name="Checkout immutable event revision")]
+        self.assertIn('fetch --depth=2 origin "${REVISION}"', checkout["run"])
+        self.assertIn(
+            'git remote set-url origin "https://github.com/${REPOSITORY}.git"',
+            checkout["run"],
+        )
+
     def test_reusable_claims_fail_before_checkout_and_provider_work(self) -> None:
         runtime = step_index(step_id="runtime")
         checkout = step_index(name="Checkout immutable event revision")
