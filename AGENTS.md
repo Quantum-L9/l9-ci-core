@@ -1224,3 +1224,52 @@ and which now declares the optional `L9_GITHUB_READ_TOKEN` secret that
 `L9_GITHUB_READ_TOKEN` must be visible to every governed repository, this
 public one included. Prove the pins with
 `python3 tools/advance_core_action_pins.py 44d85a66149b0d22d1b298af9b0ee14f1ee24473 --check`.
+
+## 29. Core's own pull requests run Core's own contract (2026-11-17) — amends §12 and §14
+
+Three defects, found at `9bd8863`:
+
+- **A.** `self-ci.yml`'s `Unit tests` job set up no Python and installed
+  nothing: the suite ran on the runner image's system `python3`, so the cases
+  needing PyYAML, jsonschema or the pinned ruff/mypy depended on whatever the
+  image shipped, and the `REQUIRES_REAL_TOOLCHAIN` cases in
+  `tests/tools/test_check_toolchain_versions.py` skipped there on the false
+  premise that `make check` runs that module (it runs
+  `tools/check_toolchain_versions.py`, not the tests). Those cases ran nowhere
+  in CI.
+- **B.** No self-CI job ran Core's own repository contract
+  (`.l9/repo-workflow.json`, make-v1: `make setup → validate → check → test`)
+  at the pull request's revision; `make validate` was reached only through
+  org-ci's pinned `run-repository-verification`.
+- **C.** `docs/release/rulesets/core-main-protection.json` required the bare
+  context `validate`, which both `governance-ci.yml` and
+  `release-validation.yml` produce, and required no contract, analysis or
+  security check.
+
+Fix:
+
+- `Unit tests` uses the lint job's SHA-pinned `actions/setup-python`
+  (Python 3.12), installs `requirements-ci.txt` and
+  `requirements-repo-runtime.txt`, and runs the same discovery with that
+  interpreter. The real-toolchain cases now execute on every Core pull request.
+  Their skip guard stays, restated to its one real condition: Phase 4 release
+  validation (`.github/actions/validate-release/validate_release.py`) runs the
+  same suite on the runner's bare `python3`, which has no ruff or mypy.
+- New `self-ci.yml` job `Repository contract` checks out the event revision,
+  sets up the same Python and runs `make setup`, `make validate`, `make check`,
+  `make test` as separate steps, stopping at the first failure. It adds nothing
+  to the Makefile; it uses the `Repo.mk` `repo-*` leaves.
+- `governance-ci.yml`'s job is named `Governance validate`.
+- The ruleset payload requires `Lint and Type Check`, `Unit tests`,
+  `Repository contract`, `Governance validate`, `sdk-contract`,
+  `Analyze (semgrep) / Analyze (semgrep -> SDK)` and `Security scan / security`.
+  The last two are reusable-workflow callers, so their check runs carry the
+  `<caller> / <called>` name GitHub actually emits. Applying the payload is an
+  organization-admin action this change does not perform
+  (`docs/release/rulesets/README.md`).
+- Suite: `tests/workflows/test_self_ci_gating.py`.
+
+Out of scope here, a follow-up: Core pull requests are still evaluated by
+pinned older actions — `analyze-semgrep.yml` pins `resolve-governance`,
+`detect-language` and `invoke-sdk` to `a0c7178` rather than the revision
+under review.
