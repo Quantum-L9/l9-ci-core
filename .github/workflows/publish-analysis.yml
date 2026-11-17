@@ -96,7 +96,7 @@ jobs:
           github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
       - name: Revalidate downloaded canonical bundle
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@a0c717893a444778c8a6993ec4db5d5fd9ce28d5
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.artifacts.outputs.bundle }}

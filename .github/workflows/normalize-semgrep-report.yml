@@ -130,7 +130,7 @@ jobs:
           dirty: ${{ inputs.dirty }}
           revision: ${{ github.sha }}
       - name: Validate canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@44d85a66149b0d22d1b298af9b0ee14f1ee24473
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@a0c717893a444778c8a6993ec4db5d5fd9ce28d5
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.names.outputs.bundle }}
@@ -192,7 +192,7 @@ jobs:
           agent-payload: ${{ steps.names.outputs.payload }}
           destination-root: artifacts
       - name: Revalidate routed canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@44d85a66149b0d22d1b298af9b0ee14f1ee24473
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@a0c717893a444778c8a6993ec4db5d5fd9ce28d5
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.route.outputs.bundle }}
