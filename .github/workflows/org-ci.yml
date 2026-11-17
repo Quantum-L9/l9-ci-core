@@ -147,7 +147,10 @@ on:
       sdk-revision:
         description: Provisioned immutable SDK revision.
         value: ${{ jobs.analyze.outputs.sdk-revision }}
-
+    secrets:
+      L9_GITHUB_READ_TOKEN:
+        description: Read-only org token for the private l9-ci-sdk (AGENTS.md §27). Optional.
+        required: false
 # Keyed by repository, revision, and event family so a pull_request evaluation and
 # a push evaluation of the same tree never collapse into one another. Queued, never
 # cancelled: a canonical evaluation of an immutable SHA must complete and stay
