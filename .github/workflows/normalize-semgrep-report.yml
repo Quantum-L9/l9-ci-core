@@ -54,6 +54,10 @@ on:
       artifact-handoff:
         description: Canonical cross-run artifact handoff descriptor JSON.
         value: ${{ jobs.normalize.outputs.artifact-handoff }}
+    secrets:
+      L9_GITHUB_READ_TOKEN:
+        description: Read-only org token for the private l9-ci-sdk (AGENTS.md §27). Optional.
+        required: false
 permissions:
   contents: read
 concurrency:
@@ -102,13 +106,15 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
       - id: sdk
         name: Provision immutable SDK
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@44d85a66149b0d22d1b298af9b0ee14f1ee24473
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: 0c487747b0fcd172edaefe9e843dac818de8fc12  # supported rollback; default pin lives in sdk-compatibility.yaml
+          # AGENTS.md §27: private l9-ci-sdk; read-only org token, header-only.
+          github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
       - name: Normalize provider report
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@44d85a66149b0d22d1b298af9b0ee14f1ee24473
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-normalize
@@ -124,7 +130,7 @@ jobs:
           dirty: ${{ inputs.dirty }}
           revision: ${{ github.sha }}
       - name: Validate canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@44d85a66149b0d22d1b298af9b0ee14f1ee24473
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.names.outputs.bundle }}
@@ -168,7 +174,7 @@ jobs:
           L9_BUNDLE: ${{ steps.names.outputs.bundle }}
           L9_STRICT: ${{ inputs.strict }}
       - name: Project agent-review payload
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@44d85a66149b0d22d1b298af9b0ee14f1ee24473
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -177,7 +183,7 @@ jobs:
           strict: ${{ inputs.strict }}
       - id: route
         name: Route artifacts
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@44d85a66149b0d22d1b298af9b0ee14f1ee24473
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
@@ -186,7 +192,7 @@ jobs:
           agent-payload: ${{ steps.names.outputs.payload }}
           destination-root: artifacts
       - name: Revalidate routed canonical bundle
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@44d85a66149b0d22d1b298af9b0ee14f1ee24473
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.route.outputs.bundle }}
@@ -200,7 +206,7 @@ jobs:
           cp "${L9_WORK}/gate-result.json" \
             "artifacts/l9/${MATRIX_ID}/gate-result.json"
       - name: Build artifact manifest
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@44d85a66149b0d22d1b298af9b0ee14f1ee24473
         with:
           provider: semgrep
           matrix-id: ${{ inputs.matrix-id }}
@@ -227,7 +233,7 @@ jobs:
           include-hidden-files: true
       - id: handoff
         name: Create artifact handoff descriptor
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@0480d15e908d38b3548ab0b52567452bb390cdaa
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@44d85a66149b0d22d1b298af9b0ee14f1ee24473
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs.artifact-name }}
