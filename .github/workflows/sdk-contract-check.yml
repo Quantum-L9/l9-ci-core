@@ -34,6 +34,7 @@ jobs:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: 9fd4efe7a3f2d671e063b0e7c15fd52b95d0ccd1
+          github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
       - name: Verify emitted contract
         env:
           SDK_EXECUTABLE: ${{ steps.sdk.outputs.executable }}

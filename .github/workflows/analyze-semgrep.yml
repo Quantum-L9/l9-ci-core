@@ -86,6 +86,12 @@ on:
         type: number
         required: false
         default: 14
+    secrets:
+      L9_GITHUB_READ_TOKEN:
+        description: >
+          Read-only organization token for the private l9-ci-sdk (AGENTS.md §27).
+          Optional: without it the SDK is fetched anonymously.
+        required: false
     outputs:
       artifact-name:
         description: Uploaded analysis artifact set name.
@@ -230,12 +236,13 @@ jobs:
       - id: sdk
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@a0c717893a444778c8a6993ec4db5d5fd9ce28d5
+        # CORE_ACTIONS_PIN — 44d85a6 adds github-read-token (AGENTS.md §27)
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@44d85a66149b0d22d1b298af9b0ee14f1ee24473
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision || 'bc678190582694f6efee08b6b7ea39be7e09bd5c' }}
+          github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
       - id: language
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
@@ -285,7 +292,7 @@ jobs:
         # source revision changing. The action ships a hash-locked closure and
         # fails closed on a version it has no lock for. org-ci.yml already
         # installs Semgrep this way; this is the same mechanism, not a second.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@28112e9ae34177b9ab027c002bf25ffd19db3f49
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@44d85a66149b0d22d1b298af9b0ee14f1ee24473
         with:
           semgrep-version: ${{ inputs.semgrep-version }}
       - name: Run + normalize semgrep (SDK)
