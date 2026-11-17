@@ -109,7 +109,7 @@ jobs:
           preflight-sarif-only: "true"
       - name: Upload SDK-projected SARIF to code scanning
         # This is the job's only remote publication write.
-        uses: github/codeql-action/upload-sarif@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v3
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v3
         with:
           sarif_file: ${{ steps.artifacts.outputs.sarif }}
           category: l9-${{ inputs.matrix-id }}
