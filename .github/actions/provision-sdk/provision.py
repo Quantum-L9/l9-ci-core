@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
 import platform
@@ -35,6 +36,33 @@ LOCK_REQUIREMENTS_SHA256 = re.compile(r"^# \(sha256:([0-9a-f]{64})\) ")
 
 class ProvisioningError(RuntimeError):
     pass
+
+
+#: Read-only token for the private SDK repository (organization secret
+#: L9_GITHUB_READ_TOKEN, passed by org-ci.yml as the github-read-token input).
+#: Popped at import so no child process inherits it; it reaches git only as a
+#: per-command http.extraheader, never argv, a URL or a file.
+_READ_TOKEN = os.environ.pop("INPUT_GITHUB_READ_TOKEN", "").strip()
+
+
+def github_auth_env(token: str, base: dict[str, str] | None = None) -> dict[str, str]:
+    """Environment that authenticates git to https://github.com/ with ``token``.
+
+    Uses git's GIT_CONFIG_COUNT/KEY/VALUE interface (git >= 2.31) so the header
+    is never on a command line. An empty token returns the base environment
+    unchanged, so a public SDK still fetches anonymously.
+    """
+
+    env = dict(os.environ if base is None else base)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    if not token:
+        return env
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    index = int(env.get("GIT_CONFIG_COUNT", "0") or "0")
+    env[f"GIT_CONFIG_KEY_{index}"] = "http.https://github.com/.extraheader"
+    env[f"GIT_CONFIG_VALUE_{index}"] = f"AUTHORIZATION: basic {basic}"
+    env["GIT_CONFIG_COUNT"] = str(index + 1)
+    return env
 
 
 def _scalar(value: str, *, line_number: int) -> str | bool:
@@ -271,10 +299,12 @@ def run(
     *,
     cwd: Path | None = None,
     capture: bool = False,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         command,
         cwd=cwd,
+        env=env,
         check=False,
         text=True,
         stdout=subprocess.PIPE if capture else None,
@@ -334,6 +364,7 @@ def checkout_sdk(repository: str, revision: str, checkout: Path) -> None:
             revision,
         ],
         cwd=checkout,
+        env=github_auth_env(_READ_TOKEN),
     )
     run(["git", "checkout", "--quiet", "--detach", "FETCH_HEAD"], cwd=checkout)
     actual = run(
