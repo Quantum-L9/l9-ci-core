@@ -1224,3 +1224,19 @@ and which now declares the optional `L9_GITHUB_READ_TOKEN` secret that
 `L9_GITHUB_READ_TOKEN` must be visible to every governed repository, this
 public one included. Prove the pins with
 `python3 tools/advance_core_action_pins.py 44d85a66149b0d22d1b298af9b0ee14f1ee24473 --check`.
+
+## 29. The consumer checkout includes the merge commit's base parent (2026-11-17) — amends §8
+
+`org-ci.yml`'s "Checkout immutable event revision" fetches the event revision
+with `github.token`, then resets `origin` to an anonymous URL before any
+consumer code runs. Once a governed repository is private, consumer code can
+no longer fetch from `origin`. A consumer that compares against its pull
+request's base (Quantum-L9/l9-graphiti-memory V-001, ADR-101/ADR-104) then
+failed with `could not read Username`.
+
+The checkout now fetches at depth 2. For `pull_request` and `merge_group` the
+revision is a merge commit, so its base parent (the commit named by
+`pull_request.base.sha` / `merge_group.base_sha`) is present without any
+consumer-held credential. No token reaches consumer code, and the step is
+inline in `org-ci.yml`, so it is live on merge to `main` without a pin
+advance. Test: `tests/workflows/test_org_ci_event_resolution.py`.
