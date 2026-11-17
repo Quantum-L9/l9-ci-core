@@ -38,6 +38,10 @@ on:
         type: boolean
         required: false
         default: false
+    secrets:
+      L9_GITHUB_READ_TOKEN:
+        description: Read-only org token for the private l9-ci-sdk (AGENTS.md §27). Optional.
+        required: false
 permissions:
   contents: read
 jobs:
@@ -70,11 +74,13 @@ jobs:
       - id: sdk
         name: Provision immutable SDK
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@44d85a66149b0d22d1b298af9b0ee14f1ee24473
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
           sdk-revision: ${{ inputs.sdk-revision }}
+          # AGENTS.md §27: private l9-ci-sdk; read-only org token, header-only.
+          github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
       - name: Revalidate downloaded canonical bundle
         # CORE_ACTIONS_PIN
         uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@59cb364615ccd44d824bec6b71d49d2f93e465c9
