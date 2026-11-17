@@ -19,6 +19,10 @@ jobs:
   analyze:
     name: Analyze (semgrep)
     uses: ./.github/workflows/analyze-semgrep.yml
+    # AGENTS.md §27: the reusable workflow reads private l9-ci-sdk with
+    # L9_GITHUB_READ_TOKEN, which a called workflow only sees when passed.
+    secrets:
+      L9_GITHUB_READ_TOKEN: ${{ secrets.L9_GITHUB_READ_TOKEN }}
     permissions:
       contents: read
     with:

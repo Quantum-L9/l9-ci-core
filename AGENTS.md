@@ -1207,3 +1207,20 @@ Activation is the §16 pin advance: after this merges, one PR advances
 `github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}` to both steps. The
 secret must be visible to every governed repository, public ones included
 (organization secret repository access: all repositories).
+
+## 28. Private-read activation (2026-11-17) — the §16 pin advance, applied
+
+`org-ci.yml`'s 16 Core action pins advance to `44d85a6` (the merge of §27,
+Quantum-L9/l9-ci-core#259, an ancestor of `main`), and both private reads
+receive `github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}`:
+`provision-sdk` and `run-repository-verification`. Core's own self-CI gets the
+same token: `sdk-contract-check.yml` (local action), and `analyze-semgrep.yml`,
+whose `provision-sdk` and `install-semgrep` pins advance to `44d85a6` with it
+and which now declares the optional `L9_GITHUB_READ_TOKEN` secret that
+`self-analysis.yml` passes. The pin constants in
+`tests/workflows/test_org_repository_verification.py` and
+`tests/workflows/test_workflow_toolchain_pins.py` move with them.
+
+`L9_GITHUB_READ_TOKEN` must be visible to every governed repository, this
+public one included. Prove the pins with
+`python3 tools/advance_core_action_pins.py 44d85a66149b0d22d1b298af9b0ee14f1ee24473 --check`.
