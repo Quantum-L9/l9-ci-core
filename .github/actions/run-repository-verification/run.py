@@ -465,6 +465,130 @@ def run_v2(workspace: Path) -> None:
         subprocess.run(argv, cwd=workspace, check=True)
 
 
+COMPOSER_WORKFLOW = Path(".github/workflows/governance-pr.yml")
+COMPOSER_REPOSITORY = "https://github.com/Quantum-L9/Cursor-Governance.git"
+COMPOSER_FILES = (
+    "ops/scripts/compose_pr_body.py",
+    "ops/scripts/org_dotgithub.py",
+)
+COMPOSER_PIN = re.compile(
+    r"^ *COMPOSER: Quantum-L9/Cursor-Governance@([0-9a-f]{40}) *$",
+    re.MULTILINE,
+)
+COMPOSER_TIMEOUT_SECONDS = 60
+
+
+class ComposerError(RuntimeError):
+    """Raised when a declared composer pin cannot be fetched."""
+
+
+def composer_pin(workflow_text: str) -> str | None:
+    """Return the single composer pin, ``None`` when the line is absent.
+
+    More than one pin is an error: the consumer's own fetch treats that file
+    the same way, and a guessed pin would fetch the wrong files.
+    """
+
+    pins = COMPOSER_PIN.findall(workflow_text)
+    if not pins:
+        return None
+    if len(pins) != 1:
+        raise ComposerError(
+            f"governance-pr.yml: expected exactly one COMPOSER pin, found {len(pins)}"
+        )
+    return pins[0]
+
+
+def _redact(text: str, token: str) -> str:
+    if token and token in text:
+        return text.replace(token, "[redacted]")
+    return text
+
+
+def fetch_composer(pin: str, destination: Path, token: str) -> None:
+    """Fetch only the two composer files at ``pin`` into ``destination``.
+
+    The git child receives the token as a header via ``github_auth_env`` and
+    never as an argument. ``destination`` matches the layout
+    ``SEED_COMPOSER_ROOT`` consumers already read.
+    """
+
+    auth_env = github_auth_env(token)
+    with tempfile.TemporaryDirectory(prefix="l9-composer-git-") as scratch:
+
+        def git(*args: str, binary: bool = False) -> subprocess.CompletedProcess[bytes]:
+            try:
+                completed = subprocess.run(
+                    ["git", "-C", scratch, *args],
+                    capture_output=True,
+                    check=False,
+                    timeout=COMPOSER_TIMEOUT_SECONDS,
+                    env=auth_env,
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                raise ComposerError(f"cannot run git: {error}") from error
+            if not binary and completed.returncode != 0:
+                detail = _redact(
+                    completed.stderr.decode("utf-8", "replace").strip(), token
+                )
+                raise ComposerError(detail or f"git {args[0]} failed")
+            return completed
+
+        git("init", "-q")
+        git(
+            "fetch",
+            "-q",
+            "--depth=1",
+            "--no-tags",
+            COMPOSER_REPOSITORY,
+            pin,
+        )
+        for relative in COMPOSER_FILES:
+            shown = git("show", f"FETCH_HEAD:{relative}", binary=True)
+            if shown.returncode != 0:
+                detail = _redact(shown.stderr.decode("utf-8", "replace").strip(), token)
+                raise ComposerError(
+                    f"cannot read {relative}: {detail or 'git show failed'}"
+                )
+            target = destination / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(shown.stdout)
+    (destination / ".pin").write_text(f"{pin}\n", encoding="utf-8")
+
+
+def prefetch_composer(workspace: Path, destination: Path) -> int:
+    """Fetch the pinned composer when the workspace declares exactly one pin.
+
+    Pops the read token before returning, including on failure. A workspace
+    with no ``governance-pr.yml``, or one with no COMPOSER line, writes an
+    empty ``seed-root`` and does not fetch. A present pin that cannot be
+    fetched fails this step so the verify step never runs consumer code with
+    the token, and never runs it against a missing composer.
+    """
+
+    token = os.environ.pop(READ_TOKEN_ENV, "").strip()
+    workflow = workspace / COMPOSER_WORKFLOW
+    if not workflow.is_file():
+        _write_output("seed-root", "")
+        return 0
+    try:
+        pin = composer_pin(workflow.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ComposerError) as exc:
+        print(f"::error::composer prefetch: {exc}", file=sys.stderr)
+        return 1
+    if pin is None:
+        _write_output("seed-root", "")
+        return 0
+    try:
+        fetch_composer(pin, destination, token)
+    except ComposerError as exc:
+        print(f"::error::composer prefetch: {exc}", file=sys.stderr)
+        return 1
+    _write_output("seed-root", str(destination))
+    print(f"composer prefetch: {pin} -> {destination}")
+    return 0
+
+
 def snapshot_registry(destination: Path) -> int:
     """Write the live registry to ``destination``; never fails the job.
 
@@ -489,6 +613,9 @@ def snapshot_registry(destination: Path) -> int:
 def main() -> int:
     if len(sys.argv) == 3 and sys.argv[1] == "--snapshot-registry":
         return snapshot_registry(Path(sys.argv[2]))
+    if len(sys.argv) == 3 and sys.argv[1] == "--prefetch-composer":
+        workspace = Path(os.environ.get("L9_REPOSITORY_WORKSPACE", ".")).resolve()
+        return prefetch_composer(workspace, Path(sys.argv[2]))
     os.environ.pop(READ_TOKEN_ENV, None)
     workspace = Path(os.environ.get("L9_REPOSITORY_WORKSPACE", ".")).resolve()
     contract = workspace / CONTRACT_PATH

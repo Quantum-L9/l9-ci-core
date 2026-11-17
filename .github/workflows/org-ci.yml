@@ -472,8 +472,9 @@ jobs:
         uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@44d85a66149b0d22d1b298af9b0ee14f1ee24473
         with:
           workspace: .
-          # AGENTS.md §27: held only by the registry snapshot step, which runs
-          # before and apart from the consumer's make targets.
+          # AGENTS.md §27: held only by the registry snapshot and the composer
+          # prefetch. Both run before and apart from the consumer's make
+          # targets. The verify step does not receive the token.
           github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
 
       # Keep only archives of package versions installed in this evaluation, so
