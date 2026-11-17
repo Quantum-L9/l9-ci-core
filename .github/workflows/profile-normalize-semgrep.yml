@@ -70,7 +70,7 @@ jobs:
             "https://github.com/${REPOSITORY}.git"
       - id: governance
         name: Resolve governance
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@def55c54ff4ba654c2ebea088dde71db0b5f7135
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@a0c717893a444778c8a6993ec4db5d5fd9ce28d5
         with:
           profile: ${{ inputs.profile }}
           provider: semgrep
