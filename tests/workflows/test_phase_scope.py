@@ -49,6 +49,9 @@ EXPECTED_WORKFLOWS = {
     "release-validation.yml",
     "self-analysis.yml",
     "self-security.yml",
+    # Core-only SonarQube Cloud analysis. Not an organization gate and not a
+    # required status check.
+    "self-sonar.yml",
     "security.yml",
     # Core-hosted release runner: releases every registry member that declares
     # .l9/release.json (daily schedule + one-repository dispatch). Never part

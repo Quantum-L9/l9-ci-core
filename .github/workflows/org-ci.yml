@@ -725,7 +725,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce repository verification
-        if: always() && (steps.runtime.outputs.profile == 'pr_fast' || steps.runtime.outputs.profile == 'merge')
+        # Contract and infrastructure failures are fatal on every profile,
+        # including advisory nightly, release, and supply_chain (AGENTS.md §9).
+        # Finding mode stays on the technical-gate step below.
+        if: always()
         env:
           REPOSITORY_VERIFY_STATUS: ${{ steps.repository_verify.outputs.status }}
           REPOSITORY_VERIFY_MODE: ${{ steps.repository_verify.outputs.contract-mode }}
