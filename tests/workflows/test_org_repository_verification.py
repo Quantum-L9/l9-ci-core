@@ -55,14 +55,19 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
         runner = RUNNER.read_text(encoding="utf-8")
         self.assertIn('status="fail"', runner)
 
-    def test_blocking_profiles_enforce_repository_verification(self) -> None:
+    def test_every_profile_enforces_repository_verification(self) -> None:
+        """A contract failure fails nightly, release, and supply_chain too.
+
+        Finding advisories stay on the technical-gate step. This step is the
+        contract failure, and AGENTS.md §9 keeps that fatal on every profile.
+        """
         text = WORKFLOW.read_text(encoding="utf-8")
         enforce = text.index("name: Enforce repository verification")
-        tail = text[enforce:]
-        self.assertIn("steps.runtime.outputs.profile == 'pr_fast'", tail)
-        self.assertIn("steps.runtime.outputs.profile == 'merge'", tail)
-        self.assertIn("steps.repository_verify.outputs.status", tail)
-        self.assertIn("steps.repository_verify.outputs.contract-mode", tail)
+        step = text[enforce : text.index("- name:", enforce + 1)]
+        self.assertIn("if: always()", step)
+        self.assertNotIn("profile ==", step)
+        self.assertIn("steps.repository_verify.outputs.status", step)
+        self.assertIn("steps.repository_verify.outputs.contract-mode", step)
 
     def test_enforcement_accepts_absence_only_in_migration_mode(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

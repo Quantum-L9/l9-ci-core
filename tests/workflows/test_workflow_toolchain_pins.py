@@ -216,6 +216,19 @@ class LockBindingTests(unittest.TestCase):
             pattern = re.compile(re.escape(key) + r"==([0-9][^\s\"']*)")
             self._assert_bound(key, self._literals(pattern), minimum=1)
 
+    def test_security_workflow_installs_are_binary_only(self) -> None:
+        """An sdist runs its setup at install time. The locked security
+        tools are published as wheels, so the install refuses source."""
+        text = (WORKFLOWS / "security.yml").read_text(encoding="utf-8")
+        installs = [
+            line
+            for line in text.splitlines()
+            if "pip install" in line and not line.lstrip().startswith("#")
+        ]
+        self.assertGreaterEqual(len(installs), 3)
+        for line in installs:
+            self.assertIn("--only-binary :all:", line, line)
+
     def test_setup_uv_selections_match_the_lock(self) -> None:
         # A consumer's stamped uv.toml carries `required-version = "==<lock>"`,
         # so a workflow that installs uv for a consumer's make-v1 phases (the

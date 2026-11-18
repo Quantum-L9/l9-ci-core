@@ -1,0 +1,43 @@
+# Core's own SonarQube Cloud analysis.
+#
+# The project Quantum-L9_l9-ci-core exists and had never been analysed, so a
+# clean dashboard meant "not scanned". This job uploads an analysis with the
+# organization SONAR_TOKEN. It is Core self-measurement only: it is not an
+# organization gate, it is not stamped onto consumers, and it is not a
+# required status check. A finding does not fail the job (quality-gate wait
+# stays off). Fork pull requests are skipped: the organization token is not
+# available to them, and an untrusted head is not uploaded.
+name: Core Sonar analysis
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: core-sonar-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  sonar:
+    name: SonarQube Cloud
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout event revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: SonarQube Cloud scan
+        uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8.5.0
+        with:
+          # The action default at this pin. Stated so a later action bump
+          # cannot float the scanner.
+          scannerVersion: 8.4.0.16527
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
