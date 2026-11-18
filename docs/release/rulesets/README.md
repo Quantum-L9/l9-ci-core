@@ -43,22 +43,33 @@ they are the job names of the checks that ran green on `main` at
   yet: their first evidence is the pull request that introduces them. Read
   their check runs on `main` after it merges, before applying.
 
-### This revision (`44071155232a3d5232258a1f1a44f5a45c126f1c`)
+### Implemented split
 
-The context names in the table stay. On this revision, `Unit tests` and
-`make test` each run a full `unittest discover` (`--start-directory tests
---pattern 'test_*.py'`). `Repository contract` still runs `make setup` →
-`validate` → `check` → `test` at the event revision. The parenthetical
-"full `unittest` suite" on `Unit tests` is that observed job.
+The context names in the table stay. `make test` is `repo-test`:
+`python -m unittest --verbose` of the 17 frozen-census modules. A missing
+listed path or a collection of zero fails it. It is not `unittest discover`.
+`Repository contract` still runs `make setup` → `validate` → `check` → `test`
+at the event revision. The portable phases stay `setup`, `validate`, `check`,
+and `test`.
 
-The intended partition is not implemented at this revision: `repo-test` as 17
-listed modules, the `Unit tests` job as 76 listed modules, `test-deep` as the
-only full discover, and a Core `main` schedule at 07:17 UTC. `nightly-deep.yml`
-is not implemented at this revision. The payload does not gain a context for
-it. On the push of this revision, self-ci run 44208286762 spent 31s in
-`make test` and 29s in `Run Phase 1 validation`. No per-test durations were
-read. This document records no speed-up from a partition that is not in the
-tree, and no fired cron. Consumer repositories stay on `Analyze (central Core)`.
+The `Unit tests` job keeps that name and runs `python -m unittest` on the
+other 76 modules, with the same fail-closed checks. It does not run
+`make test` and it does not discover. The table's "full `unittest` suite"
+parenthetical is the pre-split job.
+
+`make test-deep` is the only full discover:
+`python -m unittest discover --start-directory tests --pattern 'test_*.py' --verbose`.
+
+`.github/workflows/nightly-deep.yml` uses cron `17 7 * * *`, allows
+`workflow_dispatch`, sets `permissions: contents: read`, and runs
+`make test-deep` only when the ref is `Quantum-L9/l9-ci-core` default branch
+`main`. It is not a required pull-request check. The retired stem `nightly`
+stays retired. The payload does not gain a context for it.
+
+On the pre-split push `44071155232a3d5232258a1f1a44f5a45c126f1c`, self-ci run
+44208286762 spent 31s in `make test` and 29s in `Run Phase 1 validation`. No
+per-test durations were read. No post-split sample exists. No cron has fired.
+Consumer repositories stay on `Analyze (central Core)`.
 
 **Applying this payload is an organization-admin action. The pull request that
 changes it does not apply it**, and nothing in this repository writes a

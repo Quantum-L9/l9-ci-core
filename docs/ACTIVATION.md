@@ -136,27 +136,36 @@ a permission, or a required check; unknown fields fail closed (`AGENTS.md` §3).
 - Do not expect `Quantum-L9/.github` to seed CI; it distributes no L9
   workflow or governance pack.
 
-## Core's own suites at this revision
+## Core's own suites
 
-At Core `44071155232a3d5232258a1f1a44f5a45c126f1c`, the `Unit tests` job and
-`make test` (the last phase of `Repository contract`) each run:
+`make test` is `repo-test`: `python -m unittest --verbose` of the 17
+frozen-census modules. A missing listed path or a collection of zero fails
+the target. It is not `unittest discover`.
+
+The `Unit tests` job keeps that name and runs `python -m unittest` on the
+other 76 modules, with the same fail-closed checks. It does not run
+`make test` and it does not discover.
+
+`make test-deep` is the only full discover:
 
 ```bash
 python -m unittest discover --start-directory tests --pattern 'test_*.py' --verbose
 ```
 
-Consumer activation is unchanged. Organization CI still requires
-`Analyze (central Core)` and the consumer's own `make setup` → `validate` →
-`check` → `test`. The portable `make-v1` leaves stay `repo-setup`,
-`repo-validate`, `repo-check`, and `repo-test`.
+`.github/workflows/nightly-deep.yml` uses cron `17 7 * * *`, allows
+`workflow_dispatch`, sets `permissions: contents: read`, and runs
+`make test-deep` only when the ref is `Quantum-L9/l9-ci-core` default branch
+`main`. It is not a required pull-request check. The retired stem `nightly`
+stays retired.
 
-The intended partition is not implemented at this revision: `repo-test` as 17
-listed modules, the `Unit tests` job as 76 listed modules, `test-deep` as the
-only full discover, and a Core `main` nightly at 07:17 UTC. `nightly-deep.yml`
-is not implemented at this revision. On the push of this revision, self-ci
-run 44208286762 spent 31s in `make test` and 29s in `Run Phase 1 validation`.
-No per-test durations were read. This document records no speed-up from a
-partition that is not in the tree, and no fired cron.
+The portable phases stay `setup`, `validate`, `check`, and `test`. Consumer
+activation is unchanged. Organization CI still requires
+`Analyze (central Core)` and the consumer's own `make setup` → `validate` →
+`check` → `test`.
+
+On the pre-split push `44071155232a3d5232258a1f1a44f5a45c126f1c`, self-ci run
+44208286762 spent 31s in `make test` and 29s in `Run Phase 1 validation`. No
+per-test durations were read. No post-split sample exists. No cron has fired.
 
 ## Verifying a repository is governed
 
