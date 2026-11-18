@@ -55,8 +55,10 @@ The intended partition is not implemented at this revision: `repo-test` as 17
 listed modules, the `Unit tests` job as 76 listed modules, `test-deep` as the
 only full discover, and a Core `main` schedule at 07:17 UTC. `nightly-deep.yml`
 is not implemented at this revision. The payload does not gain a context for
-it. Durations are UNKNOWN. This document records no measured speed-up and no
-fired cron. Consumer repositories stay on `Analyze (central Core)`.
+it. On the push of this revision, self-ci run 44208286762 spent 31s in
+`make test` and 29s in `Run Phase 1 validation`. No per-test durations were
+read. This document records no speed-up from a partition that is not in the
+tree, and no fired cron. Consumer repositories stay on `Analyze (central Core)`.
 
 **Applying this payload is an organization-admin action. The pull request that
 changes it does not apply it**, and nothing in this repository writes a
