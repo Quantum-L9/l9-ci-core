@@ -758,3 +758,61 @@ jobs:
             echo "Blocking mode: failing job on SDK technical gate '${GATE_STATUS}'" >&2
             exit "${GATE_EXIT}"
           fi
+
+      - id: org-policy
+        name: Enforce pinned organization policy
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import sys
+
+          # Open candidate pin. Not an admission and not a signed release.
+          # Consumer metadata and the checked-out tree are not inputs.
+          EXPECTED = {
+              "repository": "Quantum-L9/.github",
+              "pull_request": "269",
+              "head": "ec3f5c6734530a3a90438a80827ebd8edd876734",
+              "path": "policies/ORG_INVARIANTS.yaml",
+              "version": "4.1.0",
+          }
+          fixture = os.environ.get("L9_ORG_POLICY_SUBJECT_FIXTURE", "") == "1"
+          subject = {
+              key: os.environ.get(f"SUBJECT_{key.upper()}", value) if fixture else value
+              for key, value in EXPECTED.items()
+          }
+          signer = "UNKNOWN"
+          if fixture:
+              signer = os.environ.get("SUBJECT_SIGNER", "UNKNOWN").strip() or "UNKNOWN"
+          print(
+              "org-policy-pin:"
+              f" {EXPECTED['repository']}@{EXPECTED['head']}"
+              f" {EXPECTED['path']} version {EXPECTED['version']}"
+              f" pr {EXPECTED['pull_request']}"
+          )
+          print("org-policy-admission: false")
+          print("org-policy-signed-release: false")
+          print("org-policy-signer: UNKNOWN")
+          print("org-policy-owner: governance-admins")
+          print(
+              "org-policy-attestation:"
+              " in-toto quantum-l9.org-governance-policy.v1"
+          )
+          if subject != EXPECTED:
+              print("org-policy-verdict: fail")
+              print(
+                  "org-policy-detail: subject does not match the pinned candidate",
+                  file=sys.stderr,
+              )
+              raise SystemExit(1)
+          print("org-policy-verdict: critical-unknown")
+          print(
+              "org-policy-detail: signer group governance-admins has no admitted"
+              " signer; in-toto attestation is absent; a named signer is not"
+              " verification",
+              file=sys.stderr,
+          )
+          if signer != "UNKNOWN":
+              print(f"org-policy-unverified-signer: {signer}", file=sys.stderr)
+          raise SystemExit(1)
+          PY
