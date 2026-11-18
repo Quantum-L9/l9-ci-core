@@ -63,6 +63,10 @@ EXPECTED_WORKFLOWS = {
     # Core main protection, immutable releases). Core-only governance
     # assurance: no governed repository runs it.
     "control-plane-attestation.yml",
+    # Full unittest discovery for Core main, daily at 07:17 UTC and by
+    # manual dispatch. Not a pull-request check. The stem is nightly-deep;
+    # the retired stem nightly stays rejected below.
+    "nightly-deep.yml",
 }
 
 
