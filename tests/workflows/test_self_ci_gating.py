@@ -12,11 +12,17 @@ B. No self-CI job ran Core's make-v1 repository contract
 C. The Core main-protection ruleset payload required the bare context
    ``validate``, which ``governance-ci.yml`` and ``release-validation.yml``
    both produce, and omitted the contract, analysis and security checks.
+
+``Unit tests`` runs the frozen explicit module list below. It does not run
+``unittest discover`` or ``make test``. A missing listed file or a zero
+collection fails that job. ``Repository contract`` still runs ``make test``.
+Full discovery runs only from ``nightly-deep.yml`` via ``make test-deep``.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 from typing import Any
@@ -31,6 +37,89 @@ RULESET = ROOT / "docs" / "release" / "rulesets" / "core-main-protection.json"
 REPO_WORKFLOW = ROOT / ".l9" / "repo-workflow.json"
 
 REQUIREMENT_FILES = ("requirements-ci.txt", "requirements-repo-runtime.txt")
+
+# Frozen PR-fast census, Unit tests job. Exact and ordered.
+UNIT_TEST_MODULES = (
+    "tests/actions/test_check_toolchain_alignment.py",
+    "tests/actions/test_detect_language.py",
+    "tests/actions/test_install_biome.py",
+    "tests/actions/test_install_consumer_ci.py",
+    "tests/actions/test_install_semgrep.py",
+    "tests/actions/test_run_biome_check.py",
+    "tests/architecture/test_control_plane_boundary.py",
+    "tests/architecture/test_external_action_pins.py",
+    "tests/architecture/test_forbidden_sdk_ownership.py",
+    "tests/artifacts/test_artifact_handoff.py",
+    "tests/artifacts/test_artifact_integrity.py",
+    "tests/artifacts/test_artifact_protocol.py",
+    "tests/artifacts/test_retrieve_action.py",
+    "tests/artifacts/test_route_artifacts.py",
+    "tests/governance/test_constellation_scope.py",
+    "tests/governance/test_consumer_metadata.py",
+    "tests/governance/test_governance_boundary.py",
+    "tests/governance/test_org_governance_defaults.py",
+    "tests/governance/test_release_profile_strict.py",
+    "tests/governance/test_resolve_governance.py",
+    "tests/governance/test_self_analysis_governance_pack.py",
+    "tests/governance/test_semgrep_policy_file_permissions.py",
+    "tests/governance/test_semgrep_policy_logging.py",
+    "tests/invocation/test_invoke_sdk.py",
+    "tests/invocation/test_validate_bundle.py",
+    "tests/provisioning/test_compatibility_manifest.py",
+    "tests/provisioning/test_private_repository_auth.py",
+    "tests/provisioning/test_required_cli_probing.py",
+    "tests/provisioning/test_runtime_directory_safety.py",
+    "tests/provisioning/test_runtime_shim_path.py",
+    "tests/provisioning/test_sdk_revision_validation.py",
+    "tests/provisioning/test_sdk_runtime_lock.py",
+    "tests/provisioning/test_sdk_source_validation.py",
+    "tests/publication/test_publication_boundary.py",
+    "tests/publication/test_publish_check.py",
+    "tests/publication/test_render_publication.py",
+    "tests/release/test_control_plane_attestation.py",
+    "tests/release/test_release_contract.py",
+    "tests/release/test_release_writers.py",
+    "tests/release/test_validate_release_action.py",
+    "tests/release_engine/test_contract_wiring.py",
+    "tests/release_engine/test_integration.py",
+    "tests/release_engine/test_runner.py",
+    "tests/release_engine/test_units.py",
+    "tests/workflows/test_analyze_semgrep_event_class.py",
+    "tests/workflows/test_artifact_handoff_producers.py",
+    "tests/workflows/test_caller_profile_event_compatibility.py",
+    "tests/workflows/test_compatibility_inputs.py",
+    "tests/workflows/test_consumer_defaulting.py",
+    "tests/workflows/test_container_release_action.py",
+    "tests/workflows/test_org_ci_apt_archive_cache.py",
+    "tests/workflows/test_org_ci_base_retarget.py",
+    "tests/workflows/test_org_ci_event_resolution.py",
+    "tests/workflows/test_org_ci_runtime_environment.py",
+    "tests/workflows/test_org_ci_toolchain_steps.py",
+    "tests/workflows/test_org_repository_verification.py",
+    "tests/workflows/test_org_runtime_contract.py",
+    "tests/workflows/test_org_runtime_interface.py",
+    "tests/workflows/test_phase_2_workflow.py",
+    "tests/workflows/test_phase_3_workflows.py",
+    "tests/workflows/test_phase_4_workflows.py",
+    "tests/workflows/test_phase_scope.py",
+    "tests/workflows/test_private_sdk_read_token.py",
+    "tests/workflows/test_registry_required_mode.py",
+    "tests/workflows/test_release_plane.py",
+    "tests/workflows/test_release_runner_workflow.py",
+    "tests/workflows/test_repository_execution_v2_bridge.py",
+    "tests/workflows/test_reusable_workflow_outputs.py",
+    "tests/workflows/test_reusable_workflow_permission_chain.py",
+    "tests/workflows/test_sdk_contract_check_revision.py",
+    "tests/workflows/test_sdk_contract_smoke_verdict.py",
+    "tests/workflows/test_self_ci_gating.py",
+    "tests/workflows/test_typescript_biome_convergence.py",
+    "tests/workflows/test_workflow_integrity_clean.py",
+    "tests/workflows/test_workflow_permissions.py",
+    "tests/workflows/test_workflow_toolchain_pins.py",
+)
+
+NIGHTLY = WORKFLOWS / "nightly-deep.yml"
+UNITTEST_COMMAND = 'python -m unittest "${modules[@]}" --verbose'
 
 #: The exact check-run names the ruleset payload must require. Reusable-workflow
 #: callers are named ``<caller job name> / <called job name>`` by GitHub.
@@ -79,6 +168,19 @@ def setup_python(steps: list[dict[str, Any]]) -> dict[str, Any]:
     ]
 
 
+def listed_modules(run: str) -> list[str]:
+    match = re.search(r"modules=\((.*?)\)", run, re.S)
+    if match is None:
+        raise AssertionError("Unit tests job has no modules array")
+    return re.findall(r"tests/\S+\.py", match.group(1))
+
+
+def triggers_of(workflow: dict[str, Any]) -> dict[str, Any]:
+    triggers = workflow.get(True, workflow.get("on"))
+    assert isinstance(triggers, dict)
+    return triggers
+
+
 def check_run_name(workflow: dict[str, Any], job_id: str) -> str:
     job = workflow["jobs"][job_id]
     return str(job.get("name", job_id))
@@ -100,12 +202,22 @@ class UnitTestsJobTests(unittest.TestCase):
         self.assertEqual(lint_python["with"], unit_python["with"])
         self.assertEqual("3.12", unit_python["with"]["python-version"])
 
+    def test_job_names_stay_the_existing_three(self) -> None:
+        names = [
+            job.get("name", job_id) for job_id, job in self.workflow["jobs"].items()
+        ]
+        self.assertEqual(
+            ["Lint and Type Check", "Unit tests", "Repository contract"],
+            names,
+        )
+
     def test_unit_tests_install_the_requirements_before_the_suite(self) -> None:
         steps = self.unit["steps"]
         setup = step_index(steps, lambda s: "setup-python" in str(s.get("uses", "")))
         suite = step_index(
-            steps, lambda s: "unittest discover" in str(s.get("run", ""))
+            steps, lambda s: "python -m unittest" in str(s.get("run", ""))
         )
+        self.assertNotIn("unittest discover", str(steps[suite].get("run", "")))
         for requirement in REQUIREMENT_FILES:
             with self.subTest(requirement=requirement):
                 install = step_index(
@@ -126,16 +238,27 @@ class UnitTestsJobTests(unittest.TestCase):
         self.assertEqual(set(REQUIREMENT_FILES), installs(self.lint))
         self.assertEqual(installs(self.lint), installs(self.unit))
 
-    def test_suite_runs_on_the_set_up_interpreter_over_the_whole_tree(self) -> None:
-        run = next(
+    def test_suite_runs_the_explicit_census_modules(self) -> None:
+        matches = [
             str(step["run"])
             for step in self.unit["steps"]
-            if "unittest discover" in str(step.get("run", ""))
-        )
-        self.assertIn("python -m unittest discover", run)
+            if "python -m unittest" in str(step.get("run", ""))
+        ]
+        self.assertEqual(1, len(matches))
+        run = matches[0]
+        pre, post = run.split(UNITTEST_COMMAND, 1)
+        self.assertEqual(list(UNIT_TEST_MODULES), listed_modules(run))
+        self.assertNotIn("unittest discover", run)
+        self.assertNotIn("make test", run)
         self.assertNotIn("python3 -m unittest", run)
-        self.assertIn("--start-directory tests", run)
-        self.assertIn("--pattern 'test_*.py'", run)
+        self.assertIn("missing listed test module", pre)
+        self.assertIn("unit test collection is zero", pre)
+        self.assertIn("unit test collection is zero", post)
+        self.assertIn("set -euo pipefail", run)
+        self.assertNotIn("|| true", run)
+        self.assertNotIn("continue-on-error", self.unit)
+        for step in self.unit["steps"]:
+            self.assertNotIn("continue-on-error", step)
 
 
 class RepositoryContractJobTests(unittest.TestCase):
@@ -223,6 +346,73 @@ class RulesetContextTests(unittest.TestCase):
         for context in self.contexts:
             with self.subTest(context=context):
                 self.assertEqual(1, produced.get(context, 0), context)
+
+
+class NightlyDeepWorkflowTests(unittest.TestCase):
+    """Full discovery is the main-only nightly workflow, not a self-ci job."""
+
+    def setUp(self) -> None:
+        self.workflow = load(NIGHTLY)
+        self.job = job_named(self.workflow, "Nightly deep tests")
+        self.steps = self.job["steps"]
+
+    def test_schedule_is_0717_utc_and_dispatch_is_allowed(self) -> None:
+        triggers = triggers_of(self.workflow)
+        self.assertEqual([{"cron": "17 7 * * *"}], triggers["schedule"])
+        self.assertIn("workflow_dispatch", triggers)
+        self.assertNotIn("pull_request", triggers)
+        self.assertNotIn("push", triggers)
+        text = NIGHTLY.read_text(encoding="utf-8")
+        self.assertNotIn("pull_request:", text)
+        self.assertEqual("nightly-deep.yml", NIGHTLY.name)
+
+    def test_permissions_are_contents_read(self) -> None:
+        self.assertEqual({"contents": "read"}, self.workflow["permissions"])
+
+    def test_ref_guard_fails_closed_unless_default_branch_is_main(self) -> None:
+        guard = self.steps[0]
+        self.assertEqual("Require Core default branch main", guard["name"])
+        self.assertEqual("${{ github.repository }}", guard["env"]["REPOSITORY"])
+        self.assertEqual("${{ github.ref_name }}", guard["env"]["REF_NAME"])
+        self.assertEqual(
+            "${{ github.event.repository.default_branch }}",
+            guard["env"]["DEFAULT_BRANCH"],
+        )
+        run = str(guard["run"])
+        self.assertIn("Quantum-L9/l9-ci-core", run)
+        self.assertIn('"${REF_NAME}" != "${DEFAULT_BRANCH}"', run)
+        self.assertIn('"${DEFAULT_BRANCH}" != "main"', run)
+        self.assertIn("exit 1", run)
+        self.assertIn("set -euo pipefail", run)
+
+    def test_checks_out_the_exact_run_commit(self) -> None:
+        checkout = self.steps[1]
+        self.assertEqual("Checkout immutable event revision", checkout["name"])
+        self.assertEqual("${{ github.sha }}", checkout["env"]["REVISION"])
+        self.assertIn('fetch --depth=1 origin "${REVISION}"', checkout["run"])
+        self.assertIn('test "$(git rev-parse HEAD)" = "${REVISION}"', checkout["run"])
+
+    def test_runs_make_test_deep_fail_closed_on_the_pinned_interpreter(self) -> None:
+        lint = job_named(load(SELF_CI), "Lint and Type Check")
+        nightly_python = setup_python(self.steps)
+        self.assertEqual(setup_python(lint["steps"])["uses"], nightly_python["uses"])
+        self.assertEqual("3.12", nightly_python["with"]["python-version"])
+        self.assertGreaterEqual(self.job["timeout-minutes"], 10)
+        runs = [str(step.get("run", "")) for step in self.steps]
+        self.assertIn("make setup", runs[-2])
+        self.assertIn("make test-deep", runs[-1])
+        self.assertNotIn("unittest discover", runs[-1])
+        self.assertNotIn("continue-on-error", self.job)
+        for step in self.steps:
+            self.assertNotIn("continue-on-error", step)
+            if "run" in step:
+                self.assertIn("set -euo pipefail", step["run"])
+                self.assertNotIn("|| true", step["run"])
+        self.assertNotIn("unittest discover", NIGHTLY.read_text(encoding="utf-8"))
+        self_ci = SELF_CI.read_text(encoding="utf-8")
+        self.assertNotIn("make test-deep", self_ci)
+        self.assertNotIn("nightly-deep.yml", self_ci)
+        self.assertNotIn("17 7 * * *", self_ci)
 
 
 if __name__ == "__main__":
