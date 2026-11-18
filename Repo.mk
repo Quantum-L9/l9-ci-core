@@ -16,6 +16,7 @@ L9_REPO := $(PYTHON) -m tools.l9_repo --workspace "$(CURDIR)"
 	repo-validate \
 	repo-check \
 	repo-test \
+	test-deep \
 	lint \
 	doctor \
 	clean \
@@ -47,12 +48,41 @@ repo-check: ## Toolchain conformance, ruff check, ruff format --check, mypy
 	@$(PYTHON) -m ruff format --check .
 	@$(PYTHON) -m mypy
 
-repo-test: ## Run the complete unittest suite
-	@$(PYTHON) -m unittest discover --start-directory tests --pattern 'test_*.py' --verbose
+# Explicit PR subset from the frozen census. Not unittest discover. The recipe
+# fails if any listed path is missing or if collection is zero. The full suite
+# is the Core-local test-deep target.
+REPO_TEST_MODULES := \
+	tests/repo_execution/test_boundary.py \
+	tests/repo_execution/test_contract.py \
+	tests/repo_execution/test_contract_admission.py \
+	tests/repo_execution/test_core_policy.py \
+	tests/repo_execution/test_core_runtime.py \
+	tests/repo_execution/test_core_self_hosting.py \
+	tests/repo_execution/test_facade.py \
+	tests/repo_execution/test_legacy_v1.py \
+	tests/repo_execution/test_repo_mk.py \
+	tests/repo_execution/test_stamp.py \
+	tests/test_unittest_collectability.py \
+	tests/tools/test_advance_core_action_pins.py \
+	tests/tools/test_check_toolchain_versions.py \
+	tests/tools/test_check_workflow_integrity.py \
+	tests/tools/test_manifest_integrity.py \
+	tests/tools/test_project_required_repositories.py \
+	tests/tools/test_tool_ownership.py
+
+repo-test: ## Run the explicit PR unittest subset
+	@for module in $(REPO_TEST_MODULES); do \
+		test -f "$$module" || { printf 'repo-test: missing %s\n' "$$module" >&2; exit 1; }; \
+	done
+	@$(PYTHON) -c 'import os, sys, unittest; mods = sys.argv[1:]; names = [m[:-3].replace(os.sep, ".") if m.endswith(".py") else m for m in mods]; count = unittest.defaultTestLoader.loadTestsFromNames(names).countTestCases(); sys.exit(0 if count else "repo-test: collection is zero")' $(REPO_TEST_MODULES)
+	@$(PYTHON) -m unittest --verbose $(REPO_TEST_MODULES)
 
 # ---------------------------------------------------------------------------
 # Core-local operations. Not part of the portable ABI.
 # ---------------------------------------------------------------------------
+test-deep: ## Full unittest discover over tests/
+	@$(PYTHON) -m unittest discover --start-directory tests --pattern 'test_*.py' --verbose
+
 lint: repo-check ## Alias of the static-check leaf
 
 doctor: ## Verify local repository-execution tooling
