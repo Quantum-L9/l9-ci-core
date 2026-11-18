@@ -136,6 +136,26 @@ a permission, or a required check; unknown fields fail closed (`AGENTS.md` §3).
 - Do not expect `Quantum-L9/.github` to seed CI; it distributes no L9
   workflow or governance pack.
 
+## Core's own suites at this revision
+
+At Core `44071155232a3d5232258a1f1a44f5a45c126f1c`, the `Unit tests` job and
+`make test` (the last phase of `Repository contract`) each run:
+
+```bash
+python -m unittest discover --start-directory tests --pattern 'test_*.py' --verbose
+```
+
+Consumer activation is unchanged. Organization CI still requires
+`Analyze (central Core)` and the consumer's own `make setup` → `validate` →
+`check` → `test`. The portable `make-v1` leaves stay `repo-setup`,
+`repo-validate`, `repo-check`, and `repo-test`.
+
+The intended partition is not implemented at this revision: `repo-test` as 17
+listed modules, the `Unit tests` job as 76 listed modules, `test-deep` as the
+only full discover, and a Core `main` nightly at 07:17 UTC. `nightly-deep.yml`
+is not implemented at this revision. Runner durations are UNKNOWN. This
+document records no measured speed-up and no fired cron.
+
 ## Verifying a repository is governed
 
 ```bash

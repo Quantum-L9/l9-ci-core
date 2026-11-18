@@ -43,6 +43,21 @@ they are the job names of the checks that ran green on `main` at
   yet: their first evidence is the pull request that introduces them. Read
   their check runs on `main` after it merges, before applying.
 
+### This revision (`44071155232a3d5232258a1f1a44f5a45c126f1c`)
+
+The context names in the table stay. On this revision, `Unit tests` and
+`make test` each run a full `unittest discover` (`--start-directory tests
+--pattern 'test_*.py'`). `Repository contract` still runs `make setup` →
+`validate` → `check` → `test` at the event revision. The parenthetical
+"full `unittest` suite" on `Unit tests` is that observed job.
+
+The intended partition is not implemented at this revision: `repo-test` as 17
+listed modules, the `Unit tests` job as 76 listed modules, `test-deep` as the
+only full discover, and a Core `main` schedule at 07:17 UTC. `nightly-deep.yml`
+is not implemented at this revision. The payload does not gain a context for
+it. Durations are UNKNOWN. This document records no measured speed-up and no
+fired cron. Consumer repositories stay on `Analyze (central Core)`.
+
 **Applying this payload is an organization-admin action. The pull request that
 changes it does not apply it**, and nothing in this repository writes a
 ruleset; until an admin applies it, the live ruleset keeps its previous
