@@ -241,13 +241,8 @@ publication solely because a scanner process was allowed to exit zero.
 
 ## 10. MANIFEST.sha256
 
-`MANIFEST.sha256` records SHA-256 digests for tracked contract/runtime files.
-Regenerate entries for every changed listed file and remove entries for deleted
-files.
-
-Both `make validate` and `tests/tools/test_manifest_integrity.py` verify the
-manifest. `L9_MANIFEST_CHECK=0` exists only for a bounded salvage/bisect command;
-it is not an acceptance path.
+`MANIFEST.sha256` is not a required tracked ledger. Do not add one, and do not
+regenerate digest entries as a merge requirement. §10.1 records the retirement.
 
 ### 10.1 Retired (2026-10-20) — supersedes §10 above and the manifest sentence in §14
 
@@ -272,8 +267,11 @@ Before declaring a Core change complete:
 1. `make validate`
 2. `make change-policy`
 3. `make check`
-4. `python3 -m unittest discover tests`
+4. `make test`
 5. `make agent-check`
+
+`make test` is `repo-test`, the explicit PR unittest subset. `make test-deep`
+is the full `unittest discover` over `tests/`.
 
 The repo-local runtime preserves:
 
@@ -452,8 +450,8 @@ contracts.
 ## 14. Repository Execution V2 (2026-09-25) — supersedes §11 except its completion sequence
 
 This section supersedes all of §11 except the completion sequence at its top
-(`make validate`, `make change-policy`, `make check`, the full `unittest`
-suite, `make agent-check`) and the Cursor-Governance ownership list, which are
+(`make validate`, `make change-policy`, `make check`, `make test`,
+`make agent-check`) and the Cursor-Governance ownership list, which are
 unchanged. Superseded in particular: the contract being "validated by
 `.l9/repo-workflow.schema.json`", `commands.check`, the parity invariant
 naming `tools/l9_make/Makefile.template`, "The generated adapter and local
@@ -500,13 +498,17 @@ compiler (`tools/l9_make`), the generated `Repo.mk`, and the
 `tools/l9_repo/Makefile.template` projection are retired.
 
 `Repo.mk` must declare `repo-setup`, `repo-validate`, `repo-check`, and
-`repo-test`, each `.PHONY`, and may not redefine a facade verb. Everything
-else in it is this repository's business: Core keeps `lint`, `doctor`,
-`clean`, `status`, `change-policy`, `agent-check`, `core-validate`,
-`reconcile`, `attest-control-plane`, and `check-release-writers` there as
-Core-local targets outside the portable ABI. `python3 -m tools.l9_repo
-reconcile` regenerates only `Makefile`, idempotently; it never writes
-`Repo.mk`.
+`repo-test`, each `.PHONY`, and may not redefine a facade verb. `repo-test`
+is the explicit PR unittest subset: `python -m unittest --verbose` of the
+named modules, not `unittest discover`. It fails if any listed path is missing
+or if collection is zero. `test-deep` is the full discover: `python -m
+unittest discover --start-directory tests --pattern 'test_*.py' --verbose`.
+Everything else in it is this repository's business: Core keeps `test-deep`,
+`lint`, `doctor`, `clean`, `status`, `change-policy`, `agent-check`,
+`core-validate`, `reconcile`, `attest-control-plane`, and
+`check-release-writers` there as Core-local targets outside the portable ABI.
+`python3 -m tools.l9_repo reconcile` regenerates only `Makefile`,
+idempotently; it never writes `Repo.mk`.
 
 ### Core-local policy
 
@@ -515,7 +517,9 @@ the reconcile lock, change gates and companion rules, agent-contract wiring,
 evidence reporting, and authority paths — lives in
 `.l9/core-repo-policy.json` (`l9.core-repository-policy/v1`). `make validate`
 runs the portable V2 validation (`validate`) and then `core-validate`, which
-adds the checksum manifest, contract wiring, and authority-path checks. The
+adds contract wiring and authority-path checks. The checksum manifest is not
+a required tracked ledger; `core-validate` verifies a locally generated
+manifest only when `L9_MANIFEST_CHECK=1` (§10.1). The
 Repository Execution V2 test suite is `tests/repo_execution/`; the
 `repository-execution` change gate runs it whenever `tools/l9_repo/`,
 `tests/repo_execution/`, `.l9/repo-workflow.json`, `.l9/core-repo-policy.json`,
