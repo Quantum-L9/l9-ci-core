@@ -80,21 +80,25 @@ retired. There is one Make authority.
 
 ## Core's own Repo.mk
 
-Core implements the four leaves with the commands the retired V1 command
-matrices ran, in the same order:
+Core implements `setup`, `validate`, and `check` with the commands the retired
+V1 command matrices ran, in the same order. `repo-test` is the explicit PR
+unittest subset. `test-deep` is the full discover.
 
 | Phase | Commands |
 |---|---|
 | `setup` | `pip install -r requirements-ci.txt`, `pip install -r requirements-repo-runtime.txt` |
 | `validate` | `tools.l9_repo validate`, `tools.l9_repo core-validate`, `tools/check_workflow_integrity.py` |
 | `check` | `tools/check_toolchain_versions.py`, `ruff check .`, `ruff format --check .`, `mypy` |
-| `test` | `unittest discover --start-directory tests --pattern 'test_*.py' --verbose` |
+| `test` | explicit `python -m unittest --verbose` of the PR modules named in `repo-test` |
+| `test-deep` | `python -m unittest discover --start-directory tests --pattern 'test_*.py' --verbose` |
 
+`repo-test` does not use `unittest discover`. It fails if any listed path is
+missing or if collection is zero. `test-deep` is the only full discover.
 Every command runs through `$(PYTHON)`; see "The check gate resolves its
 toolchain, then proves it" below. Core-local targets outside the portable ABI
-also live in `Repo.mk`: `lint` (alias of `repo-check`), `doctor`, `clean`,
-`status`, `change-policy`, `agent-check`, `core-validate`, `reconcile`,
-`attest-control-plane`, and `check-release-writers`.
+also live in `Repo.mk`: `test-deep`, `lint` (alias of `repo-check`), `doctor`,
+`clean`, `status`, `change-policy`, `agent-check`, `core-validate`,
+`reconcile`, `attest-control-plane`, and `check-release-writers`.
 
 ## Core-local policy
 
@@ -115,7 +119,8 @@ interpreter running the tool) or one of the pinned toolchain `ruff`, `mypy`,
   checker.
 - `make check`: toolchain preflight, `ruff check`, `ruff format --check`,
   `mypy`.
-- `make test`: the complete `unittest` suite.
+- `make test`: `repo-test`, the explicit PR unittest subset.
+- `make test-deep`: the full `unittest discover` over `tests/`.
 - `make doctor`: verify the local execution toolchain (`git`, `make`) and the
   contract. GitHub reachability and credential state are publication concerns
   and are neither required nor probed.

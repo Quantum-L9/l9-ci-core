@@ -1,11 +1,13 @@
 """Core is an ordinary V2 consumer of its own ABI, with V1 behavior preserved.
 
-The four phases must reproduce what the retired V1 command matrices did:
+Setup, validate, and check reproduce what the retired V1 command matrices did.
+``test`` is the explicit PR unittest subset. ``test-deep`` is the full
+unittest discover over ``tests/``.
 
     setup    -> pip install requirements-ci.txt, requirements-repo-runtime.txt
     validate -> structural validation + workflow-integrity checker
     check    -> toolchain preflight, ruff check, ruff format --check, mypy
-    test     -> unittest discover over tests/
+    test     -> explicit unittest modules (the PR subset)
 """
 
 from __future__ import annotations
@@ -34,8 +36,33 @@ from l9_repo.contract import (  # noqa: E402
 BRIDGE = ROOT / ".github" / "actions" / "run-repository-verification" / "run.py"
 REPO_MK = ROOT / "Repo.mk"
 
-# Every command the V1 matrices ran, expressed as the argv fragment the V2
-# leaf must still produce. Order within a phase is asserted too.
+# Frozen PR subset. ``make test`` must invoke these modules explicitly.
+REPO_TEST_MODULES = (
+    "tests/repo_execution/test_boundary.py",
+    "tests/repo_execution/test_contract.py",
+    "tests/repo_execution/test_contract_admission.py",
+    "tests/repo_execution/test_core_policy.py",
+    "tests/repo_execution/test_core_runtime.py",
+    "tests/repo_execution/test_core_self_hosting.py",
+    "tests/repo_execution/test_facade.py",
+    "tests/repo_execution/test_legacy_v1.py",
+    "tests/repo_execution/test_repo_mk.py",
+    "tests/repo_execution/test_stamp.py",
+    "tests/test_unittest_collectability.py",
+    "tests/tools/test_advance_core_action_pins.py",
+    "tests/tools/test_check_toolchain_versions.py",
+    "tests/tools/test_check_workflow_integrity.py",
+    "tests/tools/test_manifest_integrity.py",
+    "tests/tools/test_project_required_repositories.py",
+    "tests/tools/test_tool_ownership.py",
+)
+EXPLICIT_UNITTEST = "-m unittest --verbose " + " ".join(REPO_TEST_MODULES)
+FULL_DISCOVER = (
+    "-m unittest discover --start-directory tests --pattern 'test_*.py' --verbose"
+)
+
+# Setup, validate, and check stay on the V1 command matrices. Test is the
+# explicit module invocation. Order within a phase is asserted too.
 V1_PARITY: dict[str, list[str]] = {
     "setup": [
         "-m pip install -r requirements-ci.txt",
@@ -53,9 +80,7 @@ V1_PARITY: dict[str, list[str]] = {
         "-m ruff format --check .",
         "-m mypy",
     ],
-    "test": [
-        "-m unittest discover --start-directory tests --pattern test_*.py --verbose",
-    ],
+    "test": [EXPLICIT_UNITTEST],
 }
 
 
@@ -77,6 +102,9 @@ class CorePhaseParityTests(unittest.TestCase):
                         found, position, f"{fragment!r} missing/out of order"
                     )
                     position = found
+
+    def test_test_deep_dry_run_contains_the_full_discover_command(self) -> None:
+        self.assertIn(FULL_DISCOVER, self.dry_run("test-deep"))
 
     def test_check_resolves_tools_through_the_interpreter(self) -> None:
         # $(PYTHON) may be a bare name or an absolute interpreter path; either
