@@ -1,10 +1,10 @@
-"""The required job does not verify an unadmitted organization policy.
+"""The required job verifies the pinned organization policy and fails closed.
 
-``.github`` at ``9d68f33220477f48ea427910d59c05848e37d311`` says the
-candidate is not admitted. ``policies/verify_release.py --require-release``
-rejects a subject when ``--admission`` is absent, including a valid
-signature. The required workflow does not call that verifier. This test
-does not supply an admission file and does not change ``--require-release``.
+``.github`` at ``fe4084ca80909f2a40e78bf8e5bc89a54753f45b`` loads the sibling
+admission and trust root. It does not accept an ``--admission`` path. The
+required workflow calls that verifier with ``--require-release`` and does
+not continue on error. A live verified result is still impossible: the
+trust root is empty and no owner admission exists.
 """
 
 from __future__ import annotations
@@ -19,15 +19,18 @@ SELF_CI = ROOT / ".github" / "workflows" / "self-ci.yml"
 RESOLVE = ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
 DEFAULTS = ROOT / ".github" / "actions" / "resolve-governance" / "defaults"
 MODULE = "tests/workflows/test_org_policy_pin.py"
+POLICY_SHA = "fe4084ca80909f2a40e78bf8e5bc89a54753f45b"
 
 
 class OrgPolicyPinTests(unittest.TestCase):
-    def test_required_job_does_not_call_the_unadmitted_verifier(self) -> None:
+    def test_required_job_verifies_the_pinned_policy(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         job = text[text.index("name: Analyze (central Core)") :]
-        self.assertNotIn("id: org-policy", job)
-        self.assertNotIn("verify_release.py", job)
-        self.assertNotIn("--require-release", job)
+        self.assertIn("id: org-policy", job)
+        self.assertIn("verify_release.py", job)
+        self.assertIn("--require-release", job)
+        self.assertIn(POLICY_SHA, job)
+        self.assertIn("policies/admission-trust.yaml", job)
         self.assertNotIn("--admission", job)
         self.assertNotIn("continue-on-error", job)
 
