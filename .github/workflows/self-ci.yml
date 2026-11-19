@@ -156,6 +156,7 @@ jobs:
             tests/workflows/test_org_ci_event_resolution.py
             tests/workflows/test_org_ci_runtime_environment.py
             tests/workflows/test_org_ci_toolchain_steps.py
+            tests/workflows/test_org_policy_pin.py
             tests/workflows/test_org_repository_verification.py
             tests/workflows/test_org_runtime_contract.py
             tests/workflows/test_org_runtime_interface.py

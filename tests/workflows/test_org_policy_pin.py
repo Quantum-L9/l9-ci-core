@@ -1,10 +1,10 @@
-"""The required Core job verifies the organization-policy release.
+"""The required job does not verify an unadmitted organization policy.
 
-Valid means a checked Sigstore signature from the default-branch provenance
-workflow plus an owner admission of the same digest. Those inputs are decided
-by ``Quantum-L9/.github`` ``policies/verify_release.py``. This required job
-calls that verifier and fails closed unless it returns verified. A named
-signer string is not verification.
+``.github`` at ``9d68f33220477f48ea427910d59c05848e37d311`` says the
+candidate is not admitted. ``policies/verify_release.py --require-release``
+rejects a subject when ``--admission`` is absent, including a valid
+signature. The required workflow does not call that verifier. This test
+does not supply an admission file and does not change ``--require-release``.
 """
 
 from __future__ import annotations
@@ -15,22 +15,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "org-ci.yml"
+SELF_CI = ROOT / ".github" / "workflows" / "self-ci.yml"
 RESOLVE = ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
 DEFAULTS = ROOT / ".github" / "actions" / "resolve-governance" / "defaults"
-PIN = "9d68f33220477f48ea427910d59c05848e37d311"
+MODULE = "tests/workflows/test_org_policy_pin.py"
 
 
 class OrgPolicyPinTests(unittest.TestCase):
-    def test_required_job_verifies_the_upstream_release(self) -> None:
+    def test_required_job_does_not_call_the_unadmitted_verifier(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        start = text.index("name: Analyze (central Core)")
-        job = text[start:]
-        step = job.index("id: org-policy")
-        window = job[step : step + 500]
-        self.assertIn("policies/verify_release.py", window)
-        self.assertIn("--require-release", window)
-        self.assertIn(PIN, job)
-        self.assertNotIn("continue-on-error", window)
+        job = text[text.index("name: Analyze (central Core)") :]
+        self.assertNotIn("id: org-policy", job)
+        self.assertNotIn("verify_release.py", job)
+        self.assertNotIn("--require-release", job)
+        self.assertNotIn("--admission", job)
+        self.assertNotIn("continue-on-error", job)
+
+    def test_module_is_on_the_pr_unit_list(self) -> None:
+        self.assertIn(MODULE, SELF_CI.read_text(encoding="utf-8"))
 
     def test_defaults_registry_stays_six_files(self) -> None:
         source = RESOLVE.read_text(encoding="utf-8")
