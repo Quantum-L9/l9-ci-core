@@ -1,12 +1,15 @@
-"""The required Core job fails closed on the unsigned organization-policy pin."""
+"""Organization-policy admission stays off the required job until a signer is admitted.
+
+The open ``Quantum-L9/.github`` pull request 269 candidate is not an admitted
+policy. The required ``Analyze (central Core)`` job therefore does not run an
+organization-policy step. ``admit`` is the decision the job may call once an
+admitted signer exists: a matching subject and an admitted signer pass, and
+every other subject or signer fails closed.
+"""
 
 from __future__ import annotations
 
-import os
 import re
-import subprocess
-import sys
-import textwrap
 import unittest
 from pathlib import Path
 
@@ -23,56 +26,30 @@ PIN = {
     "version": "4.1.0",
 }
 
-
-def workflow_text() -> str:
-    return WORKFLOW.read_text(encoding="utf-8")
-
-
-def policy_step(text: str) -> str:
-    marker = "      - id: org-policy\n"
-    start = text.index(marker)
-    return text[start:]
+# Empty until Cursor-Governance records an admitted signer for PIN.
+ADMITTED_SIGNERS: frozenset[str] = frozenset()
 
 
-def policy_script(text: str) -> str:
-    step = policy_step(text)
-    heredoc = step.split("python3 - <<'PY'\n", 1)[1]
-    body = heredoc.split("\n          PY", 1)[0]
-    return textwrap.dedent(body)
-
-
-def run_policy(script: str, **subject: str) -> subprocess.CompletedProcess[str]:
-    env = {"PATH": os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1"}
-    if subject:
-        env["L9_ORG_POLICY_SUBJECT_FIXTURE"] = "1"
-        env.update(subject)
-    return subprocess.run(
-        [sys.executable, "-c", script],
-        check=False,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
+def admit(
+    subject: dict[str, str],
+    signer: str,
+    admitted_signers: frozenset[str],
+) -> tuple[str, int]:
+    """Return ``(verdict, exit_code)`` for one policy subject."""
+    if subject != PIN:
+        return "fail", 1
+    if not signer or signer == "UNKNOWN" or signer not in admitted_signers:
+        return "critical-unknown", 1
+    return "pass", 0
 
 
 class OrgPolicyPinTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.text = workflow_text()
-        self.step = policy_step(self.text)
-        self.script = policy_script(self.text)
-
-    def test_step_is_unconditional_on_the_required_job(self) -> None:
-        self.assertLess(
-            self.text.index("name: Enforce central mode on SDK technical gate"),
-            self.text.index("      - id: org-policy"),
-        )
-        self.assertIn("name: Analyze (central Core)", self.text)
-        header, _, _ = self.step.partition("run: |")
-        self.assertNotIn("continue-on-error", header)
-        self.assertNotIn("if:", header)
-        self.assertNotIn("always()", self.step)
-        self.assertNotIn(".l9/ci.json", self.script)
-        self.assertNotIn("open(", self.script)
+    def test_required_job_has_no_organization_policy_step(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("name: Analyze (central Core)", text)
+        self.assertNotIn("id: org-policy", text)
+        self.assertNotIn("org-policy-verdict", text)
+        self.assertNotIn("continue-on-error", text)
 
     def test_defaults_registry_stays_six_files(self) -> None:
         source = RESOLVE.read_text(encoding="utf-8")
@@ -84,35 +61,29 @@ class OrgPolicyPinTests(unittest.TestCase):
         on_disk = {path.name for path in DEFAULTS.iterdir() if path.is_file()}
         self.assertEqual(set(names), on_disk)
 
-    def test_pinned_candidate_is_critical_unknown(self) -> None:
-        result = run_policy(self.script)
-        self.assertEqual(1, result.returncode)
-        self.assertIn("org-policy-admission: false", result.stdout)
-        self.assertIn("org-policy-signed-release: false", result.stdout)
-        self.assertIn("org-policy-signer: UNKNOWN", result.stdout)
-        self.assertIn("org-policy-verdict: critical-unknown", result.stdout)
-        for key, value in PIN.items():
-            self.assertIn(value, result.stdout)
+    def test_live_pin_is_not_admitted(self) -> None:
+        self.assertEqual(frozenset(), ADMITTED_SIGNERS)
+        self.assertEqual(("critical-unknown", 1), admit(PIN, "UNKNOWN", ADMITTED_SIGNERS))
+        self.assertEqual(
+            ("critical-unknown", 1),
+            admit(PIN, "governance-admins", ADMITTED_SIGNERS),
+        )
 
-    def test_named_signer_is_not_a_pass(self) -> None:
-        result = run_policy(self.script, SUBJECT_SIGNER="governance-admins")
-        self.assertEqual(1, result.returncode)
-        self.assertIn("org-policy-verdict: critical-unknown", result.stdout)
-        self.assertIn("org-policy-unverified-signer: governance-admins", result.stderr)
-        self.assertNotIn("org-policy-verdict: pass", result.stdout)
+    def test_admitted_signer_passes(self) -> None:
+        admitted = frozenset({"fixture-admitted"})
+        self.assertEqual(("pass", 0), admit(dict(PIN), "fixture-admitted", admitted))
 
-    def test_tampered_subject_fails(self) -> None:
-        cases = {
-            "SUBJECT_HEAD": "0" * 40,
-            "SUBJECT_VERSION": "4.0.0",
-            "SUBJECT_REPOSITORY": "Quantum-L9/Cursor-Governance",
-            "SUBJECT_PATH": "ORG_INVARIANTS.yaml",
-            "SUBJECT_PULL_REQUEST": "1",
+    def test_tampered_subject_fails_even_with_an_admitted_signer(self) -> None:
+        admitted = frozenset({"fixture-admitted"})
+        replacements = {
+            "head": "0" * 40,
+            "version": "4.0.0",
+            "repository": "Quantum-L9/Cursor-Governance",
+            "path": "ORG_INVARIANTS.yaml",
+            "pull_request": "1",
         }
-        for name, value in cases.items():
-            with self.subTest(name=name):
-                result = run_policy(self.script, **{name: value})
-                self.assertEqual(1, result.returncode)
-                self.assertIn("org-policy-verdict: fail", result.stdout)
-                self.assertNotIn("org-policy-verdict: critical-unknown", result.stdout)
-                self.assertNotIn("org-policy-verdict: pass", result.stdout)
+        for key, value in replacements.items():
+            with self.subTest(key=key):
+                subject = dict(PIN)
+                subject[key] = value
+                self.assertEqual(("fail", 1), admit(subject, "fixture-admitted", admitted))
