@@ -165,7 +165,12 @@ activation is unchanged. Organization CI still requires
 
 On the pre-split push `44071155232a3d5232258a1f1a44f5a45c126f1c`, self-ci run
 44208286762 spent 31s in `make test` and 29s in `Run Phase 1 validation`. No
-per-test durations were read. No post-split sample exists. No cron has fired.
+per-test durations were read. After the split, manual dispatch
+[44214710432](https://github.com/Quantum-L9/l9-ci-core/actions/runs/44214710432)
+succeeded on `34f715627d9521cef997f7a31f0f2562b8ece01f`, and the schedule event
+[44347968938](https://github.com/Quantum-L9/l9-ci-core/actions/runs/44347968938)
+succeeded on `027e86543701740c4a238e593bd33c03f59eda00`. That schedule run was
+created at 16:30 UTC, so the 07:17 UTC timing is not proven.
 
 ## Verifying a repository is governed
 

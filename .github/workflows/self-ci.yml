@@ -173,6 +173,7 @@ jobs:
             tests/workflows/test_sdk_contract_check_revision.py
             tests/workflows/test_sdk_contract_smoke_verdict.py
             tests/workflows/test_self_ci_gating.py
+            tests/workflows/test_self_sonar.py
             tests/workflows/test_typescript_biome_convergence.py
             tests/workflows/test_workflow_integrity_clean.py
             tests/workflows/test_workflow_permissions.py
