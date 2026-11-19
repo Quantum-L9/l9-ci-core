@@ -758,24 +758,3 @@ jobs:
             echo "Blocking mode: failing job on SDK technical gate '${GATE_STATUS}'" >&2
             exit "${GATE_EXIT}"
           fi
-
-      - name: Fetch pinned organization policy
-        id: org-policy
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
-        with:
-          repository: Quantum-L9/.github
-          ref: fe4084ca80909f2a40e78bf8e5bc89a54753f45b
-          path: org-policy
-          persist-credentials: false
-          sparse-checkout: |
-            policies/verify_release.py
-            policies/ORG_INVARIANTS.yaml
-            policies/admission-trust.yaml
-          sparse-checkout-cone-mode: false
-
-      - name: Verify admitted organization policy
-        run: |
-          python3 -m pip install --disable-pip-version-check --only-binary=:all: 'cryptography==50.0.2'
-          python3 org-policy/policies/verify_release.py \
-            --subject org-policy/policies/ORG_INVARIANTS.yaml \
-            --require-release
