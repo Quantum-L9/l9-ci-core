@@ -112,6 +112,7 @@ UNIT_TEST_MODULES = (
     "tests/workflows/test_sdk_contract_check_revision.py",
     "tests/workflows/test_sdk_contract_smoke_verdict.py",
     "tests/workflows/test_self_ci_gating.py",
+    "tests/workflows/test_self_sonar.py",
     "tests/workflows/test_typescript_biome_convergence.py",
     "tests/workflows/test_workflow_integrity_clean.py",
     "tests/workflows/test_workflow_permissions.py",
@@ -259,6 +260,38 @@ class UnitTestsJobTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", self.unit)
         for step in self.unit["steps"]:
             self.assertNotIn("continue-on-error", step)
+
+    def test_every_discovered_module_is_classified_once(self) -> None:
+        """A new tests/**/test_*.py file fails this check until it is listed.
+
+        PR lanes are Repo.mk ``REPO_TEST_MODULES`` and the Unit tests job.
+        ``NIGHTLY_ONLY_MODULES`` is the only other bucket, and it is empty:
+        security, governance, SDK, release, and false-green witnesses stay on
+        a pull request. Nightly ``test-deep`` still reruns the full tree.
+        """
+        unit = listed_modules(
+            next(
+                str(step["run"])
+                for step in self.unit["steps"]
+                if "python -m unittest" in str(step.get("run", ""))
+            )
+        )
+        repo_text = (ROOT / "Repo.mk").read_text(encoding="utf-8")
+        repo_block = repo_text.split("REPO_TEST_MODULES :=", 1)[1].split(
+            "repo-test:", 1
+        )[0]
+        repo = re.findall(r"tests/\S+\.py", repo_block)
+        nightly: list[str] = []
+        discovered = sorted(
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / "tests").rglob("test_*.py")
+            if path.is_file()
+        )
+        classified = unit + repo + nightly
+        self.assertEqual(sorted(classified), discovered)
+        self.assertEqual(len(classified), len(set(classified)))
+        self.assertIn("tests/workflows/test_self_sonar.py", unit)
+        self.assertEqual([], nightly)
 
 
 class RepositoryContractJobTests(unittest.TestCase):
