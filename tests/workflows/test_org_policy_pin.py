@@ -6,6 +6,8 @@ workflow. This module reads the candidate file. ``.github`` pull request
 269 is still unmerged. ``verify_release.py`` needs both a verified
 signature and an owner admission, and this workflow supplies neither.
 The call stays off the required job until an admitted release exists.
+The empty-trust candidate is not that release. A future checkout of
+``Quantum-L9/.github`` must include ``policies/ADMISSION.yaml``.
 ``--require-release`` is not weakened and no admission file is added.
 """
 
@@ -33,7 +35,11 @@ class OrgPolicyPinTests(unittest.TestCase):
         self.assertNotIn("--require-release", job)
         self.assertNotIn("--admission", job)
         self.assertNotIn("admission-trust.yaml", job)
+        self.assertNotIn("fe4084ca80909f2a40e78bf8e5bc89a54753f45b", job)
+        self.assertNotIn("9d68f33220477f48ea427910d59c05848e37d311", job)
         self.assertNotIn("continue-on-error", job)
+        if "repository: Quantum-L9/.github" in job:
+            self.assertIn("policies/ADMISSION.yaml", job)
 
     def test_module_is_on_exactly_the_pr_unit_list(self) -> None:
         self.assertIn(MODULE, SELF_CI.read_text(encoding="utf-8"))
