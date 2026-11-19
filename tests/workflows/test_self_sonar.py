@@ -58,6 +58,14 @@ class SelfSonarTests(unittest.TestCase):
         self.assertIn("sonar.organization=quantum-l9", properties)
         self.assertIn("sonar.projectKey=Quantum-L9_l9-ci-core", properties)
         self.assertIn("sonar.python.version=3.12", properties)
+        self.assertIn("sonar.sources=.", properties)
+        self.assertIn("sonar.tests=tests", properties)
+        exclusions = next(
+            line.split("=", 1)[1]
+            for line in properties.splitlines()
+            if line.startswith("sonar.exclusions=")
+        )
+        self.assertIn("tests/**", {item.strip() for item in exclusions.split(",")})
 
     def test_ruleset_does_not_require_the_sonar_check(self) -> None:
         document = json.loads(RULESET.read_text(encoding="utf-8"))
