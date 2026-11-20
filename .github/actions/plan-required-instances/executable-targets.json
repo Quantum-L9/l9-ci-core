@@ -1,0 +1,6 @@
+{
+  "schema": "l9.core-executable-targets/v1",
+  "providers": {
+    "semgrep": ["language:python", "language:typescript"]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "schema": "l9.core-required-instances/v1",
+  "repository": "Quantum-L9/mixed-language-fixture",
+  "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sdk_revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "instances": [
+    { "provider": "semgrep", "target": "language:python", "required": true },
+    { "provider": "semgrep", "target": "language:typescript", "required": true }
+  ]
+}

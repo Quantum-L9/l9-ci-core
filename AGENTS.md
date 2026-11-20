@@ -1298,3 +1298,53 @@ else and repeats none of their text.
   run is claimed.
 - This file stays the one decision trail. A later decision that realizes or
   admits either record is a new dated section here that points at it.
+
+## 31. Required instances are aggregated by one action; activation is a pin advance (2026-11-20)
+
+Decision record for the first realization step of the proposed
+`docs/adr/0001-top-down-ci-control-and-runtime-inheritance.md` decision 4
+(`L9-CI-CORE-003`). The ADR stays Proposed; this section records what exists.
+
+- `.github/actions/aggregate-required-instances/` takes Core's plan of the
+  provider/language instances for one evaluated revision
+  (`l9.core-required-instances/v1`) and one Core record per executed instance
+  (`l9.core-instance-result/v1`), and emits one aggregate
+  (`l9.core-instance-aggregate/v1`): `fail` if a required instance failed,
+  else `incomplete` if any required instance is missing, skipped, timed out,
+  cancelled, duplicated, unreadable or bound to another repository, revision
+  or SDK revision, else `pass`. An empty plan passes only with a stated reason
+  for non-applicability. Exit codes follow the SDK gate (0, 1, 6).
+- An instance is `provider:target`, with the target in the SDK inventory's
+  grammar (`language:<name>` or `framework:<name>`). An instance whose SDK
+  prerequisite is not `applicable`, and a plan marked `unresolved`, can never
+  aggregate to `pass`. An instance the plan marks optional never gates.
+- `.github/actions/plan-required-instances/` builds that plan from the SDK's
+  `l9.capability-inventory/v1` record. The record carries no requiredness;
+  Core adds it. Every `applicable` prerequisite becomes an instance, so no
+  language is chosen over another. An instance is required when central
+  governance resolved its provider as required and Core executes the target
+  (`executable-targets.json`: today `language:python` and
+  `language:typescript`, the identity maps Core ships). An applicable target
+  Core cannot execute is planned and visible, and not required. An inventory
+  that is `failed`, `incomplete` or bound to another revision makes the plan
+  `unresolved`. Unsupported languages are listed, not planned.
+- Both actions read only the inventory and Core's own records. They open no
+  SDK bundle, finding or gate result and derive no verdict: an instance's
+  `pass` or `fail` is the status the SDK technical gate returned (§3,
+  `.l9/governance-contract.yaml` `prohibited`).
+- Proof: `tests/actions/test_plan_required_instances.py` over
+  `tests/fixtures/capability-inventory/` (four records the SDK inventory
+  command printed, held as contract fixtures; Core's SDK pin is unchanged and
+  no Core job runs an unmerged SDK),
+  `tests/actions/test_aggregate_required_instances.py` over
+  `tests/fixtures/required-instances/mixed/` (Python plus TypeScript), and
+  three steps in `sdk-contract-check.yml` that run both languages through the
+  provisioned SDK, aggregate them with the action at the event revision, then
+  aggregate the same records with one instance removed and require
+  `incomplete`.
+- **Not active.** `org-ci.yml` still resolves one language
+  (`detect-language`) and does not call this action. Calling it is a pin
+  advance after this change is on `main` (§16), and it needs an SDK pin that
+  carries `l9-ci providers inventory`. Until then
+  `tests/governance/test_ci_runtime_invariants.py` keeps the
+  `required-instance-scheduling` witness failing closed.
