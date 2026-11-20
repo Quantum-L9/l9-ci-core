@@ -57,6 +57,11 @@ EXPECTED_WORKFLOWS = {
     # .l9/release.json (daily schedule + one-repository dispatch). Never part
     # of the org-CI required workflow (docs/RELEASING.md).
     "release-runner.yml",
+    # Core-hosted GitHub settings runner: plans (and, only on an explicit
+    # dry-run=false dispatch, applies) the settings Quantum-L9/.github declares
+    # under settings/. Scheduled by the factory with the repo-birth App, like
+    # release-runner.yml. Never part of the org-CI required workflow.
+    "settings-runner.yml",
     # Central organization required-workflow source. GitHub org
     # rulesets target repositories and require this workflow directly;
     # consumers do not copy an L9 workflow or governance pack.
