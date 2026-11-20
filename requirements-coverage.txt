@@ -1,0 +1,9 @@
+# Coverage measurement for Core's own SonarQube Cloud analysis.
+#
+# Installed only by the self-ci.yml jobs that already run Core's tests
+# (`Unit tests`, `Repository contract`), which wrap that same run in
+# `coverage run` and hand the Cobertura report to the Sonar job. Not installed
+# by `make setup`, not a gate, and not part of the consumer toolchain lock.
+# Hash-pinned to the CPython 3.12 manylinux x86_64 wheel the runners use.
+coverage==7.16.2 \
+    --hash=sha256:5375ebd99038021b35e99dc88255022912c06565d316212f4a576e4b08d30f5d

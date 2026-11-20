@@ -1,0 +1,13 @@
+# Coverage for Core's own SonarQube Cloud analysis (self-ci.yml, self-sonar.yml).
+#
+# One source, the repository root, so every report path is root-relative
+# (`tools/...`, `.github/actions/...`) and resolves against the Sonar project
+# base in the Sonar job's checkout. Tests are excluded here as they are from
+# `sonar.sources` (sonar-project.properties).
+[run]
+relative_files = True
+source = .
+omit =
+    tests/*
+    .venv/*
+    */site-packages/*
