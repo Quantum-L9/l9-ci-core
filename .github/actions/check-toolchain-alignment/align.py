@@ -21,6 +21,17 @@ Classes per declaration:
 ``range_excludes_lock`` a range that excludes the locked version
 ``unpinned``            no version constraint at all
 ``unparseable``         a constraint this checker cannot evaluate
+``range_admits_older``  a ``requires-python`` that admits a Python older than
+                        the locked minor version (Python is locked to one
+                        minor version, operator decision 2026-11-20)
+
+Surfaces: ``pyproject.toml`` (optional dependencies, dependency groups, uv
+dev-dependencies, ``requires-python``), ``uv.lock``, requirement and
+``*-bootstrap.txt`` files, ``.pre-commit-config.yaml``, ``biome.json``,
+``.python-version``, and the repository's own workflows (``setup-python``
+``python-version`` and ``PYTHON_VERSION`` literals, ``pip install
+tool==version``, ``setup-uv`` ``version``, ``UV_VERSION`` and
+``GITLEAKS_VERSION`` literals, gitleaks release download URLs).
 
 Exit codes: ``0`` report written, ``3`` Core lock or tool list unreadable.
 """
@@ -42,7 +53,7 @@ CORE_DATA = HERE.parent / "install-consumer-ci"
 LOCK_FILE = CORE_DATA / "toolchain-lock.json"
 TOOLS_FILE = CORE_DATA / "core-owned-tools.json"
 
-DRIFT = ("exact_drift", "range_excludes_lock")
+DRIFT = ("exact_drift", "range_excludes_lock", "range_admits_older")
 UNCERTAIN = ("unpinned", "unparseable")
 
 VERSION = re.compile(r"^v?(\d+(?:\.\d+)*)$")
@@ -359,11 +370,33 @@ def scan_uv_lock(
             current = None
 
 
+SKIP_DIRECTORIES = frozenset({".git", ".venv", "venv", "node_modules", ".tox"})
+
+
+def _requirement_files(root: pathlib.Path) -> list[str]:
+    """Requirement-format files: ``*requirements*.txt`` and ``*-bootstrap.txt``.
+
+    Searched to depth three, skipping virtual environments and vendored trees,
+    so a ``tools/deps/uv-bootstrap.txt`` is read as well as the root files.
+    """
+    found: list[str] = []
+    for depth in range(3):
+        for candidate in sorted(root.glob("/".join(["*"] * (depth + 1)))):
+            relative = candidate.relative_to(root)
+            if any(part in SKIP_DIRECTORIES for part in relative.parts):
+                continue
+            name = candidate.name
+            if name.endswith(".txt") and (
+                "requirements" in name or name.endswith("-bootstrap.txt")
+            ):
+                found.append(relative.as_posix())
+    return found
+
+
 def scan_requirements(
     root: pathlib.Path, lock: dict[str, str], pip: dict[str, str]
 ) -> Iterator[Finding]:
-    for candidate in sorted(root.glob("requirements*.txt")):
-        relative = candidate.name
+    for relative in _requirement_files(root):
         path = _safe_file(root, relative)
         if path is None:
             continue
@@ -481,6 +514,188 @@ def scan_biome(
         )
 
 
+PYTHON_LITERAL = re.compile(r"""['"]?(\d+\.\d+(?:\.\d+)?)['"]?""")
+WORKFLOW_PYTHON = re.compile(
+    r"^\s*-?\s*(?:python-version|PYTHON_VERSION)\s*:\s*(?P<value>.+?)\s*$"
+)
+PIP_PIN = re.compile(r"(?<![\w.-])([A-Za-z0-9][A-Za-z0-9._-]*)==(v?\d+(?:\.\d+)*)\b")
+UV_VERSION = re.compile(r"^\s*-?\s*(?:UV_VERSION|version)\s*:\s*['\"]?([^'\"\s]+)")
+GITLEAKS_VERSION = re.compile(r"^\s*-?\s*GITLEAKS_VERSION\s*:\s*['\"]?([^'\"\s]+)")
+STEP_START = re.compile(r"^\s*-\s+(?:uses|name|run|id|with|if)\s*:")
+GITLEAKS_URL = re.compile(r"gitleaks/releases/download/v(\d+\.\d+\.\d+)/")
+
+
+def classify_python(declared: str, lock_version: str) -> str:
+    """A Python declaration against the locked interpreter (minor version bound)."""
+    lock = _release(lock_version)
+    pinned = _release(declared)
+    if lock is None:
+        raise CoreContractError(f"lock version {lock_version!r} is not x.y.z")
+    if pinned is None or len(pinned) < 2:
+        return "unparseable"
+    if pinned[:2] != lock[:2]:
+        return "exact_drift"
+    if len(pinned) == 2:
+        return "range_admits_lock"
+    return "exact_match" if _cmp(pinned, lock) == 0 else "exact_drift"
+
+
+def classify_requires_python(spec: str, lock_version: str) -> tuple[str, str]:
+    """``requires-python`` must admit the lock and nothing older than its minor."""
+    kind, declared = classify_pep440(spec, lock_version)
+    if kind != "range_admits_lock":
+        return kind, declared
+    lock = _release(lock_version)
+    assert lock is not None
+    older = (lock[0], lock[1] - 1, 99) if lock[1] > 0 else (lock[0] - 1, 99, 99)
+    older_kind, _ = classify_pep440(spec, ".".join(str(part) for part in older))
+    if older_kind in ("range_admits_lock", "exact_match"):
+        return "range_admits_older", declared
+    return kind, declared
+
+
+def scan_python(root: pathlib.Path, lock: dict[str, str]) -> Iterator[Finding]:
+    """``requires-python`` and ``.python-version`` against the locked Python."""
+    if "python" not in lock:
+        return
+    path = _safe_file(root, "pyproject.toml")
+    text = _read_text(path) if path is not None else None
+    if text is not None:
+        import tomllib
+
+        try:
+            project = tomllib.loads(text).get("project", {})
+        except tomllib.TOMLDecodeError:
+            project = {}  # reported by scan_pyproject
+        spec = project.get("requires-python") if isinstance(project, dict) else None
+        if isinstance(spec, str):
+            kind, declared = classify_requires_python(spec, lock["python"])
+            line = _line_of(text.splitlines(), "requires-python")
+            yield _finding(
+                "python",
+                "pyproject.toml",
+                line,
+                "requires-python",
+                declared,
+                lock["python"],
+                kind,
+            )
+    marker = _safe_file(root, ".python-version")
+    content = _read_text(marker) if marker is not None else None
+    if content is not None and content.strip():
+        declared = content.strip().splitlines()[0].strip()
+        yield _finding(
+            "python",
+            ".python-version",
+            1,
+            "python-version-file",
+            declared,
+            lock["python"],
+            classify_python(declared, lock["python"]),
+        )
+
+
+def _workflow_python(value: str) -> list[str]:
+    """Literal Python versions in a ``python-version``/``PYTHON_VERSION`` value.
+
+    ``${{ env.PYTHON_VERSION }}`` names a variable reported where it is set;
+    ``${{ vars.X || '3.12' }}`` contributes its literal fallback.
+    """
+    if "${{" in value and "'" not in value and '"' not in value:
+        return []
+    return PYTHON_LITERAL.findall(value.replace("${{", "").replace("}}", ""))
+
+
+def scan_workflows(
+    root: pathlib.Path, lock: dict[str, str], pip: dict[str, str]
+) -> Iterator[Finding]:
+    """The repository's own workflows: interpreter, installs, uv and gitleaks."""
+    directory = root / ".github" / "workflows"
+    if directory.is_symlink() or not directory.is_dir():
+        return
+    for candidate in sorted(directory.iterdir()):
+        if candidate.suffix not in (".yml", ".yaml"):
+            continue
+        relative = candidate.relative_to(root).as_posix()
+        path = _safe_file(root, relative)
+        if path is None:
+            continue
+        text = _read_text(path)
+        if text is None:
+            yield _finding("*", relative, 1, "workflow", "", "", "unparseable")
+            continue
+        yield from _scan_workflow_text(relative, text.splitlines(), lock, pip)
+
+
+def _scan_workflow_text(
+    relative: str, lines: list[str], lock: dict[str, str], pip: dict[str, str]
+) -> Iterator[Finding]:
+    in_setup_uv = 0
+    for number, line in enumerate(lines, 1):
+        code = line.split(" #", 1)[0]
+        python = WORKFLOW_PYTHON.match(code)
+        if python and "python" in lock:
+            for declared in _workflow_python(python.group("value")):
+                yield _finding(
+                    "python",
+                    relative,
+                    number,
+                    "workflow",
+                    declared,
+                    lock["python"],
+                    classify_python(declared, lock["python"]),
+                )
+        if "pip install" in code or "pip3 install" in code:
+            for name, version in PIP_PIN.findall(code):
+                tool = pip.get(_normalise(name, "pip"))
+                if tool is not None:
+                    yield _finding(
+                        tool,
+                        relative,
+                        number,
+                        "workflow",
+                        version,
+                        lock[tool],
+                        classify_exact(version, lock[tool]),
+                    )
+        if "astral-sh/setup-uv@" in code:
+            in_setup_uv = 8
+        elif STEP_START.match(code):
+            in_setup_uv = 0  # a new step ends the setup-uv `with:` block
+        elif in_setup_uv:
+            in_setup_uv -= 1
+        uv = UV_VERSION.match(code)
+        if uv and "uv" in lock and (in_setup_uv or "UV_VERSION" in code):
+            yield _finding(
+                "uv",
+                relative,
+                number,
+                "workflow",
+                uv.group(1),
+                lock["uv"],
+                classify_exact(uv.group(1), lock["uv"]),
+            )
+        if "gitleaks" in lock:
+            gitleaks: str | None = None
+            match = GITLEAKS_VERSION.match(code)
+            if match:
+                gitleaks = match.group(1)
+            else:
+                url = GITLEAKS_URL.search(code)
+                if url and "${" not in url.group(0):
+                    gitleaks = url.group(1)
+            if gitleaks is not None:
+                yield _finding(
+                    "gitleaks",
+                    relative,
+                    number,
+                    "workflow",
+                    gitleaks,
+                    lock["gitleaks"],
+                    classify_exact(gitleaks, lock["gitleaks"]),
+                )
+
+
 def scan(
     root: pathlib.Path, lock: dict[str, str], tools: dict[str, Any]
 ) -> list[Finding]:
@@ -493,6 +708,8 @@ def scan(
         *scan_requirements(root, lock, pip),
         *scan_pre_commit(root, lock, repos),
         *scan_biome(root, lock, npm),
+        *scan_python(root, lock),
+        *scan_workflows(root, lock, pip),
     ]
     return sorted(findings, key=lambda item: (item["path"], item["line"], item["tool"]))
 
