@@ -188,15 +188,15 @@ class PipAuditTargetTests(unittest.TestCase):
 
     def test_requirements_txt_is_audited_when_present(self) -> None:
         self.assertEqual(
-            "pip-audit --desc -r requirements.txt",
+            "pip-audit --desc on -r requirements.txt",
             self.audit({"requirements.txt": "x==1\n", "pyproject.toml": ""}),
         )
 
     def test_a_pyproject_project_is_audited_by_path(self) -> None:
-        self.assertEqual("pip-audit --desc .", self.audit({"pyproject.toml": ""}))
+        self.assertEqual("pip-audit --desc on .", self.audit({"pyproject.toml": ""}))
 
     def test_the_environment_is_audited_only_without_project_files(self) -> None:
-        self.assertEqual("pip-audit --desc", self.audit({}))
+        self.assertEqual("pip-audit --desc on", self.audit({}))
 
 
 class GitleaksInvocationTests(unittest.TestCase):

@@ -235,12 +235,15 @@ jobs:
           # pyproject.toml project; a setup.py-only project is installed by the
           # caller's install command and audited in the environment.
           status=0
+          # `--desc` takes an optional value; it is given explicitly so the
+          # next argument is never read as that value (`--desc .` is a usage
+          # error, exit 2, and audits nothing).
           if [ -f "requirements.txt" ]; then
-            pip-audit --desc -r requirements.txt || status=$?
+            pip-audit --desc on -r requirements.txt || status=$?
           elif [ -f "pyproject.toml" ]; then
-            pip-audit --desc . || status=$?
+            pip-audit --desc on . || status=$?
           else
-            pip-audit --desc || status=$?
+            pip-audit --desc on || status=$?
           fi
           if [ "${status}" -eq 0 ]; then
             echo "outcome=executed_pass" >> "$GITHUB_OUTPUT"
