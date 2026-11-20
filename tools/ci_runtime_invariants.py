@@ -141,40 +141,63 @@ def _text(record: Mapping[str, Any], key: str) -> str:
 # L9-CI-CORE-004: central promotion precedes consumer retirement.
 # ---------------------------------------------------------------------------
 CANARY_PASS = "CURSOR_CANARY_PASS"
+PROMOTED_COORDINATES = ("core_revision", "sdk_revision", "configuration_digest")
+
+
+def _unbound_coordinates(
+    record: Mapping[str, Any], promoted: Mapping[str, Any]
+) -> list[str]:
+    """Return the promoted coordinates a proof record does not carry exactly."""
+    return [
+        key
+        for key in PROMOTED_COORDINATES
+        if not _text(record, key) or _text(record, key) != _text(promoted, key)
+    ]
 
 
 def retirement_decision(evidence: Mapping[str, Any]) -> Decision:
     """Decide whether a consumer-local control may be retired.
 
-    Every proof must be present and bound to the same evaluated revisions. A
-    missing, unknown or differently bound proof refuses the retirement; static
-    configuration similarity and a green unit test are not proofs.
+    The promoted successor is one Core revision, one SDK revision and one
+    configuration digest. Every proof (the known-bad fixture, the known-good
+    fixture, the canary and the parity run) is its own record and must carry
+    those same three coordinates. A missing, unknown or differently bound proof
+    refuses the retirement, so a result observed on an older Core, SDK or
+    configuration cannot be replayed for a newer one. Static configuration
+    similarity and a green unit test are not proofs.
     """
     reasons: list[str] = []
     for key in ("core_revision", "sdk_revision", "rollback_core_revision"):
         if not FULL_SHA.fullmatch(_text(evidence, key)):
             reasons.append(f"{key} is not a full 40-character revision")
-    if evidence.get("known_bad_fails") is not True:
+    if not SHA256.fullmatch(_text(evidence, "configuration_digest")):
+        reasons.append("configuration_digest is not a sha256 content digest")
+
+    def proof(name: str, label: str) -> Mapping[str, Any] | None:
+        record = evidence.get(name)
+        if not isinstance(record, Mapping):
+            reasons.append(f"no {label} record")
+            return None
+        for key in _unbound_coordinates(record, evidence):
+            reasons.append(f"{label} {key} is not the promoted {key}")
+        return record
+
+    known_bad = proof("known_bad", "known-bad fixture")
+    if known_bad is not None and known_bad.get("outcome") != "fail":
         reasons.append("known-bad fixture is not proven to fail in the successor")
-    if evidence.get("known_good_passes") is not True:
+    known_good = proof("known_good", "known-good fixture")
+    if known_good is not None and known_good.get("outcome") != "pass":
         reasons.append("known-good fixture is not proven to pass in the successor")
 
-    canary = evidence.get("canary")
-    if not isinstance(canary, Mapping):
-        reasons.append("no canary execution record")
-    else:
+    canary = proof("canary", "canary")
+    if canary is not None:
         if canary.get("status") != CANARY_PASS:
             reasons.append(f"canary status is not {CANARY_PASS}")
         if not _text(canary, "run_url"):
             reasons.append("canary record names no hosted run")
-        for key in ("core_revision", "sdk_revision"):
-            if _text(canary, key) != _text(evidence, key) or not _text(canary, key):
-                reasons.append(f"canary {key} is not the promoted {key}")
 
-    parity = evidence.get("parity")
-    if not isinstance(parity, Mapping):
-        reasons.append("no integrated parity record")
-    else:
+    parity = proof("parity", "integrated parity")
+    if parity is not None:
         if parity.get("integrated") is not True:
             reasons.append("parity was not observed in an integrated Core+SDK run")
         if not FULL_SHA.fullmatch(_text(parity, "consumer_revision")):
@@ -231,8 +254,15 @@ def trust_boundary_violations(workflow_text: str) -> list[str]:
     if not isinstance(jobs, Mapping) or not jobs:
         return violations + ["workflow declares no jobs"]
     for name, job in jobs.items():
-        if isinstance(job, Mapping):
-            violations += _permission_violations(f"job {name}", job.get("permissions"))
+        if not isinstance(job, Mapping):
+            continue
+        violations += _permission_violations(f"job {name}", job.get("permissions"))
+        # `secrets: inherit` hands every caller secret to a reusable workflow
+        # without naming one, so no named reference exists to allowlist.
+        if "secrets" in job and not isinstance(job["secrets"], Mapping):
+            violations.append(
+                f"job {name}: passes secrets as {job['secrets']!r}, not by name"
+            )
     referenced = {a or b for a, b in SECRET_REFERENCE.findall(workflow_text)}
     for secret in sorted(referenced - READ_ONLY_SECRETS):
         violations.append(f"workflow references secret {secret}")
@@ -253,9 +283,12 @@ def coverage_claim(
     """Decide whether fleet-wide required-CI coverage may be claimed.
 
     Every in-scope repository needs its own current record: a ruleset owned by
-    that repository's account owner, active enforcement, the targeted branch,
-    a recorded bypass policy and a required-check run observed on the evaluated
-    head. A ruleset under another owner covers nothing by implication.
+    that repository's account owner, active enforcement, the targeted branch, a
+    recorded bypass policy, the check that ruleset requires, and a successful
+    run of that same check observed on the evaluated head. A ruleset under
+    another owner covers nothing by implication, and a run of some other,
+    failed, cancelled or still-running workflow on the same head is not the
+    required check.
     """
     reasons: list[str] = []
     scope = list(repositories)
@@ -278,12 +311,26 @@ def coverage_claim(
                 f"{repository}: ruleset is owned by {ruleset_owner}, which does "
                 f"not govern {owner}"
             )
+        if not _text(record, "ruleset_id"):
+            reasons.append(f"{repository}: ruleset identity is unknown")
         if record.get("enforcement") != "active":
             reasons.append(f"{repository}: ruleset enforcement is not active")
         if not _text(record, "target_branch"):
             reasons.append(f"{repository}: targeted branch is unknown")
         if not isinstance(record.get("bypass_actors"), list):
             reasons.append(f"{repository}: bypass policy is unknown")
+        required_check = _text(record, "required_check")
+        if not required_check:
+            reasons.append(f"{repository}: the ruleset's required check is unknown")
+        elif _text(record, "observed_check") != required_check:
+            reasons.append(
+                f"{repository}: the observed run is not the required check "
+                f"{required_check!r}"
+            )
+        if record.get("observed_conclusion") != "success":
+            reasons.append(
+                f"{repository}: the observed required check did not conclude success"
+            )
         head = _text(record, "evaluated_head")
         observed = _text(record, "observed_run_head")
         if not FULL_SHA.fullmatch(head):

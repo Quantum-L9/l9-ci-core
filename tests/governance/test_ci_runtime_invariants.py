@@ -38,6 +38,9 @@ SDK = "2" * 40
 ROLLBACK = "3" * 40
 HEAD = "4" * 40
 OTHER_HEAD = "5" * 40
+CONFIG = "sha256:" + "6" * 64
+OLD_CONFIG = "sha256:" + "7" * 64
+REQUIRED_CHECK = "Analyze (central Core)"
 
 
 def load_consumer_metadata(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -49,28 +52,35 @@ def load_consumer_metadata(payload: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def proven_retirement() -> dict[str, Any]:
-    return {
+    promoted = {
         "core_revision": CORE,
         "sdk_revision": SDK,
+        "configuration_digest": CONFIG,
+    }
+    return {
+        **promoted,
         "rollback_core_revision": ROLLBACK,
-        "known_bad_fails": True,
-        "known_good_passes": True,
+        "known_bad": {**promoted, "outcome": "fail"},
+        "known_good": {**promoted, "outcome": "pass"},
         "canary": {
+            **promoted,
             "status": invariants.CANARY_PASS,
             "run_url": "https://github.com/Quantum-L9/Cursor-Governance/actions/runs/1",
-            "core_revision": CORE,
-            "sdk_revision": SDK,
         },
-        "parity": {"integrated": True, "consumer_revision": HEAD},
+        "parity": {**promoted, "integrated": True, "consumer_revision": HEAD},
     }
 
 
 def enforcement_record(owner: str) -> dict[str, Any]:
     return {
         "ruleset_owner": owner,
+        "ruleset_id": "21895545",
         "enforcement": "active",
         "target_branch": "main",
         "bypass_actors": [],
+        "required_check": REQUIRED_CHECK,
+        "observed_check": REQUIRED_CHECK,
+        "observed_conclusion": "success",
         "evaluated_head": HEAD,
         "observed_run_head": HEAD,
         "observed_run_url": f"https://github.com/{owner}/example/actions/runs/1",
@@ -222,23 +232,37 @@ class RuntimeInvariantWitnessTests(unittest.TestCase):
             del evidence[key]
             return evidence
 
-        def canary(**changes: Any) -> dict[str, Any]:
+        def changed(record: str, **changes: Any) -> dict[str, Any]:
             evidence = proven_retirement()
-            evidence["canary"] = {**evidence["canary"], **changes}
+            evidence[record] = {**evidence[record], **changes}
             return evidence
 
         cases = {
             "static similarity only": {"core_revision": CORE, "sdk_revision": SDK},
             "no canary": without("canary"),
             "no parity": without("parity"),
-            "no known-bad proof": without("known_bad_fails"),
+            "no known-bad proof": without("known_bad"),
+            "no known-good proof": without("known_good"),
             "no rollback revision": without("rollback_core_revision"),
-            "canary blocked": canary(status="CURSOR_CANARY_BLOCKED"),
-            "canary on another SDK": canary(sdk_revision=OTHER_HEAD),
-            "canary without a run": canary(run_url=""),
-            "parity from a unit test": {
+            "no configuration digest": without("configuration_digest"),
+            "known-bad did not fail": changed("known_bad", outcome="pass"),
+            "known-good from an older SDK": changed("known_good", sdk_revision=HEAD),
+            "known-bad from an older Core": changed("known_bad", core_revision=HEAD),
+            "known-bad under another configuration": changed(
+                "known_bad", configuration_digest=OLD_CONFIG
+            ),
+            "parity under another configuration": changed(
+                "parity", configuration_digest=OLD_CONFIG
+            ),
+            "parity from an older Core": changed("parity", core_revision=HEAD),
+            "canary blocked": changed("canary", status="CURSOR_CANARY_BLOCKED"),
+            "canary on another SDK": changed("canary", sdk_revision=OTHER_HEAD),
+            "canary without a run": changed("canary", run_url=""),
+            "parity from a unit test": changed("parity", integrated=False),
+            "bare booleans instead of bound records": {
                 **proven_retirement(),
-                "parity": {"integrated": False, "consumer_revision": HEAD},
+                "known_bad": True,
+                "known_good": True,
             },
             "empty": {},
         }
@@ -271,6 +295,9 @@ class RuntimeInvariantWitnessTests(unittest.TestCase):
                 "permissions:\n  contents: read\n", "permissions: write-all\n", 1
             ),
             "vendor token": text.replace(token, "${{ secrets.SONAR_TOKEN }}", 1),
+            "inherited secrets": text.replace(
+                job_permissions, job_permissions + "    secrets: inherit\n"
+            ),
         }
         for name, mutated in cases.items():
             with self.subTest(case=name):
@@ -308,6 +335,26 @@ class RuntimeInvariantWitnessTests(unittest.TestCase):
             },
             "evaluate-mode ruleset": {
                 "Quantum-L9/example": {**org, "enforcement": "evaluate"},
+                "cryptoxdog/IB-Odoo_19": enforcement_record("cryptoxdog"),
+            },
+            "unrelated workflow run on the same head": {
+                "Quantum-L9/example": {**org, "observed_check": "Core Sonar analysis"},
+                "cryptoxdog/IB-Odoo_19": enforcement_record("cryptoxdog"),
+            },
+            "required check failed": {
+                "Quantum-L9/example": {**org, "observed_conclusion": "failure"},
+                "cryptoxdog/IB-Odoo_19": enforcement_record("cryptoxdog"),
+            },
+            "required check cancelled": {
+                "Quantum-L9/example": {**org, "observed_conclusion": "cancelled"},
+                "cryptoxdog/IB-Odoo_19": enforcement_record("cryptoxdog"),
+            },
+            "required check unknown": {
+                "Quantum-L9/example": {**org, "required_check": ""},
+                "cryptoxdog/IB-Odoo_19": enforcement_record("cryptoxdog"),
+            },
+            "ruleset unidentified": {
+                "Quantum-L9/example": {**org, "ruleset_id": ""},
                 "cryptoxdog/IB-Odoo_19": enforcement_record("cryptoxdog"),
             },
             "unknown bypass policy": {
