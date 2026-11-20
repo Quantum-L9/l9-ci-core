@@ -4,9 +4,9 @@ One known-good and one known-bad witness per invariant, named by ID. The
 statements are Proposed (``docs/adr/``); a passing witness proves the gate
 logic it names and nothing about admission, rollout or a hosted run.
 
-``L9-CI-CORE-002`` needs a capability this revision does not carry, and so
-does the required-workflow half of ``L9-CI-CORE-003``. Those witnesses fail
-closed: they assert the exact missing capability instead of reporting a pass. ``L9-CI-CORE-004`` and
+The required-workflow half of ``L9-CI-CORE-003`` needs a capability this
+revision does not carry. That witness fails closed: it asserts the exact
+missing capability instead of reporting a pass. ``L9-CI-CORE-004`` and
 ``L9-CI-CORE-006`` prove gate logic only; no live canary, ruleset read or
 hosted run observation has been made by these tests.
 """
@@ -38,6 +38,10 @@ spec = importlib.util.spec_from_file_location("resolve_consumer_metadata", METAD
 assert spec and spec.loader
 metadata = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(metadata)
+
+sys.path.insert(0, str(ROOT / "tools"))
+from l9_repo import inherited_config  # noqa: E402
+from l9_repo import stamp as l9_stamp  # noqa: E402
 
 INSTANCE_FIXTURE = ROOT / "tests" / "fixtures" / "required-instances" / "mixed"
 AGGREGATE = (
@@ -230,22 +234,47 @@ class RuntimeInvariantWitnessTests(unittest.TestCase):
     # -- L9-CI-CORE-002: inherited configuration without stamp churn --------
     CAPABILITY_002 = "inherited-configuration-digest"
 
-    def test_L9_CI_CORE_002_known_good_inherited_configuration_fails_closed(
-        self,
-    ) -> None:
-        """Needs PR 2c. Until then the witness refuses instead of passing."""
-        with self.assertRaises(invariants.MissingCapability) as raised:
-            invariants.require_capability(self.CAPABILITY_002)
-        self.assertEqual(self.CAPABILITY_002, raised.exception.capability)
-        self.assertIn("tools.l9_repo.inherited_config.resolve", str(raised.exception))
+    def stamped_without_copies(self, root: Path) -> None:
+        (root / "Repo.mk").write_bytes(
+            b".PHONY: repo-setup repo-validate repo-check repo-test\n"
+            b"repo-setup repo-validate repo-check repo-test:\n\t@true\n"
+        )
+        l9_stamp.stamp(root, "python+typescript", CORE, ["all"])
 
-    def test_L9_CI_CORE_002_known_bad_unpinned_configuration_fails_closed(
+    def test_L9_CI_CORE_002_known_good_repository_inherits_without_copies(
         self,
     ) -> None:
-        """Needs PR 2c. No digest check exists, so nothing may claim one."""
-        with self.assertRaises(invariants.MissingCapability) as raised:
-            invariants.require_capability(self.CAPABILITY_002)
-        self.assertIn("content digest", raised.exception.detail)
+        invariants.require_capability(self.CAPABILITY_002)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.stamped_without_copies(root)
+            for relative in l9_stamp.inheritable_files("python+typescript"):
+                self.assertFalse((root / relative).exists(), relative)
+            self.assertEqual([], l9_stamp.verify_stamp(root)[1])
+            first = inherited_config.resolve(root)
+            second = inherited_config.resolve(root)
+            assert first is not None and second is not None
+            self.assertRegex(first.configuration_digest, r"^sha256:[0-9a-f]{64}$")
+            # Identical evaluated revision, identical resolved configuration.
+            self.assertEqual(first.configuration_digest, second.configuration_digest)
+
+    def test_L9_CI_CORE_002_known_bad_consumer_override_is_refused(self) -> None:
+        invariants.require_capability(self.CAPABILITY_002)
+        overrides = {
+            "version": ("requirements-ci.txt", b"ruff==0.0.1\n"),
+            "mode": ("mypy.ini", b"[mypy]\nstrict = False\n"),
+            "ignore scope": (".gitleaks.toml", b'[allowlist]\npaths = [".*"]\n'),
+        }
+        for name, (relative, data) in overrides.items():
+            with self.subTest(override=name), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self.stamped_without_copies(root)
+                (root / relative).write_bytes(data)
+                findings = l9_stamp.verify_stamp(root)[1]
+                self.assertEqual(1, len(findings))
+                self.assertIn(f"{relative}: local copy overrides", findings[0])
+                self.assertIn("central sha256:", findings[0])
+                self.assertIn("local sha256:", findings[0])
 
     # -- L9-CI-CORE-003: all required applicable checks conclude truthfully -
     # The aggregate decision is witnessed on the mixed-language fixture. The

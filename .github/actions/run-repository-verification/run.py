@@ -73,6 +73,7 @@ from l9_repo.contract import (  # noqa: E402
     load_contract,
     validate_v2_contract_data,
 )
+from l9_repo.inherited_config import materialize, resolve  # noqa: E402
 from l9_repo.stamp import verify_stamp  # noqa: E402
 
 POLICY_PATH = Path(__file__).resolve().parent / "contract-policy.json"
@@ -394,6 +395,7 @@ def check_stamp(workspace: Path, mode: str) -> None:
     revision = record["core"]["revision"]
     if not findings:
         print(f"Core stamp: aligned ({record['profile']}; stamped from {revision})")
+        report_inherited(workspace)
         return
     for finding in findings:
         print(f"::error::Core stamp drift: {finding}")
@@ -402,6 +404,43 @@ def check_stamp(workspace: Path, mode: str) -> None:
         "with `python3 -m tools.l9_repo --workspace . stamp --profile "
         f"{record['profile']}` from the Core revision org-ci.yml pins: "
         + "; ".join(findings)
+    )
+
+
+def report_inherited(workspace: Path) -> None:
+    """State which centrally resolved configuration this run uses.
+
+    Read-only. The digest is computed from this Core checkout's bytes, never
+    from a consumer value, so it names the configuration actually resolved.
+    """
+
+    resolution = resolve(workspace)
+    if resolution is None:
+        return
+    print(
+        f"Core inherited configuration: {len(resolution.files)} file(s) resolved "
+        f"from this Core revision; configuration digest "
+        f"{resolution.configuration_digest}"
+    )
+    for relative, digest in resolution.digests.items():
+        print(f"  {relative} {digest}")
+
+
+def materialize_inherited(workspace: Path) -> None:
+    """Write the inherited configuration before the repository's phases run.
+
+    The repository does not carry these files; its tools read them from disk.
+    ``verify_v2`` has already refused a local copy that differs, so this only
+    adds absent files.
+    """
+
+    resolution = resolve(workspace)
+    if resolution is None:
+        return
+    written = materialize(workspace, resolution)
+    print(
+        f"Core inherited configuration: materialized {len(written)} of "
+        f"{len(resolution.files)} file(s)"
     )
 
 
@@ -459,6 +498,7 @@ def run_v2(workspace: Path) -> None:
     so later phases never run. No consumer Python is imported.
     """
 
+    materialize_inherited(workspace)
     for phase in V2_REQUIRED_PHASES:
         argv = ["make", phase]
         print("+", " ".join(argv), flush=True)

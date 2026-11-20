@@ -1348,3 +1348,57 @@ Decision record for the first realization step of the proposed
   carries `l9-ci providers inventory`. Until then
   `tests/governance/test_ci_runtime_invariants.py` keeps the
   `required-instance-scheduling` witness failing closed.
+
+## 32. A stamp record may inherit tool configuration from Core at runtime (2026-11-20) — amends §24 and §25
+
+Decision record for the first realization step of the proposed
+`docs/adr/0001-top-down-ci-control-and-runtime-inheritance.md` decision 3
+(`L9-CI-CORE-002`). The ADR stays Proposed. §25 "Repository-specific
+settings" said an overlay would change `l9.core-stamp/v1` and needed its own
+decision; this is that decision for inheritance only. It adds no
+repository-specific setting.
+
+- **Record.** `l9.core-stamp/v2` is v1 plus `inherited`: a non-empty list of
+  the profile's paths the repository does not carry. `files` holds digests
+  for the carried paths only. The key set is exact per schema. A v1 record is
+  read exactly as before, and `stamp` without `--inherit` still writes v1.
+- **What may be inherited.** Every Core-owned file of the profile except
+  `.l9/repo-workflow.json` and `Makefile`, which are what make a repository
+  verifiable, and `biome.json`, `.biomeignore` and `.editorconfig`.
+  `org-ci.yml`'s blocking Biome check reads those three from the checkout
+  before the bridge runs and treats a repository without `biome.json` as not
+  applicable, so inheriting them would switch off the only JS/TS gate. They
+  become inheritable when that check resolves its configuration from Core,
+  which is an `org-ci.yml` change. Today that leaves the Python tool
+  configuration and `.gitleaks.toml`.
+- **Resolution.** `tools/l9_repo/inherited_config.py` `resolve` returns the
+  bytes this Core revision renders for the inherited paths, one sha256 per
+  file and one configuration digest over the set. Nothing in the consumer
+  selects content.
+- **Drift.** An inherited path that is absent is aligned, whatever Core's
+  bytes are, so a Core preset change no longer fails a repository that
+  inherits it. A profile path that is neither carried nor inherited is still
+  drift, and a carried path is still byte-checked (§25).
+- **Override.** A local file at an inherited path is accepted only when it is
+  Core's exact bytes. Any other content is a finding that names the central
+  and the local digest, in every mode. The same applies to a symlink.
+  A consumer cannot change version, mode or ignore scope this way.
+- **Bridge.** `run-repository-verification` prints the resolved configuration
+  digest after admission and writes the absent inherited files into the
+  workspace before the first phase. `tools.l9_repo` gains `materialize` for
+  the same step on a developer machine.
+- **Adoption.** A repository adopts inheritance by re-stamping with
+  `--inherit`. `stamp` then removes the Core-owned copy at each inherited path
+  (this revision's bytes, or the bytes the previous record stamped), because a
+  tracked copy left behind would become an override at the next Core change.
+  It refuses to convert a path whose content is anything else. It deletes
+  nothing outside the inherited paths.
+- **Not decided.** No repository is migrated to v2 here and no stamped file
+  is retired. That needs the canary the ADR names.
+
+Activation: inert until the §16 pin advance moves `run-repository-verification`
+to this change's merge revision; a v2 record evaluated by an older pin is
+rejected as malformed, so no repository should carry one before that.
+
+Tests: `tests/repo_execution/test_inherited_config.py`,
+`tests/governance/test_ci_runtime_invariants.py` (`L9-CI-CORE-002`).
