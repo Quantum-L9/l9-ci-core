@@ -342,10 +342,9 @@ jobs:
 
       # Reports consumer declarations of Core-owned tools that drift from
       # Core's toolchain-lock.json, with file:line annotations, into
-      # .l9/runtime/toolchain-alignment.json. The report step itself never
-      # fails on a consumer finding; "Enforce toolchain alignment" below fails
-      # the job on drift, on every profile. The lock ships inside this pinned
-      # Core revision.
+      # .l9/runtime/toolchain-alignment.json. Advisory: drift never fails the
+      # job (housekeeping, operator decision 2026-11-20). The lock ships inside
+      # this pinned Core revision.
       - id: toolchain
         name: Report toolchain alignment
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
@@ -917,7 +916,7 @@ jobs:
             echo "- Technical gate: \`${GATE_STATUS:-unavailable}\`"
             echo "- Required instances: \`${INSTANCES_STATUS:-unavailable}\`"
             echo "- Artifact set: \`${ARTIFACT_NAME:-unavailable}\`"
-            echo "- Toolchain alignment (blocking): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
+            echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
             echo "- Biome (blocking): \`${BIOME_STATUS:-unavailable}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -946,12 +945,12 @@ jobs:
       # language's gate among them. A required instance that is missing,
       # skipped or unfinished makes the aggregate incomplete (exit 6), never
       # pass; no aggregate at all is incomplete too.
-      # Core-owned tool versions are Core's contract (toolchain-lock.json):
-      # a consumer declaration that drifts from the lock fails the job on every
-      # profile, like a repository-verification contract failure. The verdict
-      # is the report's own `status` (align.py decides what drift is); a report
-      # that is missing or unreadable fails closed.
-      - name: Enforce toolchain alignment
+      # Toolchain drift is housekeeping (operator decision 2026-11-20: only
+      # checks that protect working or secure code block a merge). Each
+      # declaration of a Core-owned tool that differs from toolchain-lock.json
+      # is a warning at file:line and a line in the summary; it never fails
+      # the job. align.py decides what drift is (the report's own status).
+      - name: Report toolchain alignment drift (advisory)
         if: always()
         env:
           REPORT: .l9/runtime/toolchain-alignment.json
@@ -960,7 +959,6 @@ jobs:
           python3 -I - <<'PY'
           import json
           import os
-          import sys
           from pathlib import Path
 
           try:
@@ -968,19 +966,25 @@ jobs:
               status = report["status"]
               findings = report["findings"]
           except (OSError, ValueError, KeyError, TypeError) as error:
-              sys.exit(f"::error::toolchain alignment report unreadable ({error}); failing closed")
-          if status in ("aligned", "not_applicable"):
-              print(f"Toolchain alignment: {status}")
-              sys.exit(0)
-          for item in findings:
-              if item.get("class") in ("exact_match", "range_admits_lock"):
-                  continue
-              print(
-                  f"::error file={item.get('path')},line={item.get('line')}::"
-                  f"{item.get('tool')} {item.get('declared') or '(no version)'} "
-                  f"is not Core's locked {item.get('lock')} ({item.get('class')})"
-              )
-          sys.exit(f"Toolchain alignment: {status}; align every Core-owned tool to toolchain-lock.json")
+              print(f"::warning::toolchain alignment report unavailable ({error}); drift not reported")
+          else:
+              drift = [
+                  item
+                  for item in findings
+                  if item.get("class") not in ("exact_match", "range_admits_lock")
+              ]
+              for item in drift:
+                  print(
+                      f"::warning file={item.get('path')},line={item.get('line')}::"
+                      f"{item.get('tool')} {item.get('declared') or '(no version)'} "
+                      f"is not Core's locked {item.get('lock')} ({item.get('class')})"
+                  )
+              line = f"- Toolchain drift (advisory): `{status}`, {len(drift)} declaration(s)"
+              summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as stream:
+                      stream.write(line + "\n")
+              print(line)
           PY
 
       - name: Enforce central mode on SDK technical gate
