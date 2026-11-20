@@ -332,6 +332,11 @@ class ChangeDetectionTests(WorkspaceCase):
         flat = [arg for argv in seen for arg in argv]
         self.assertNotIn("--output=/x", flat)
         self.assertNotIn("-p", flat)
+        # Neither the event nor the --workspace value reaches argv.
+        self.assertEqual(
+            [list(sc._GIT_PARENTS), list(sc._GIT_CHANGED)],
+            seen,
+        )
 
     def test_dependency_file_patterns(self) -> None:
         for path in (

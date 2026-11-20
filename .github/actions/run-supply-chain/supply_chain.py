@@ -325,9 +325,16 @@ def evaluate(sbom: dict[str, Any], policy: Policy) -> dict[str, Any]:
 # --- commands -----------------------------------------------------------------
 
 
-def _git(workspace: Path, *args: str) -> subprocess.CompletedProcess[str]:
+_GIT_PARENTS = ("git", "rev-list", "--parents", "-n", "1", "HEAD")
+_GIT_CHANGED = ("git", "diff", "--name-only", "HEAD^1", "HEAD", "--")
+
+
+def _git(workspace: Path, argv: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+    # argv is one of the module's fixed tuples; the workspace is the working
+    # directory, never an argument, so no command-line value reaches git.
     return subprocess.run(
-        ["git", "-C", str(workspace), *args],
+        list(argv),
+        cwd=workspace,
         capture_output=True,
         text=True,
         check=False,
@@ -346,11 +353,11 @@ def decide_changes(workspace: Path, env: dict[str, str]) -> dict[str, str]:
     event = env.get("EVENT_NAME", "")
     if event not in ("pull_request", "pull_request_target"):
         return {"run": "true", "reason": f"event {event or 'unknown'}"}
-    parents = _git(workspace, "rev-list", "--parents", "-n", "1", "HEAD")
+    parents = _git(workspace, _GIT_PARENTS)
     if parents.returncode != 0 or len(parents.stdout.split()) != 3:
         print("::warning::checkout is not a pull-request merge commit; running")
         return {"run": "true", "reason": "change set unreadable"}
-    completed = _git(workspace, "diff", "--name-only", "HEAD^1", "HEAD", "--")
+    completed = _git(workspace, _GIT_CHANGED)
     if completed.returncode != 0:
         # Undeterminable change set: run rather than skip.
         print(
