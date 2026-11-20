@@ -52,6 +52,14 @@ bytes differ, are missing, or disagree with the record. Whether a finding
 blocks is the caller's decision; the CLI ``validate`` and the organization
 admission bridge both fail on any finding (``AGENTS.md`` §25).
 
+A record may instead declare some of its profile's tool configuration as
+*inherited* (``l9.core-stamp/v2``, ``AGENTS.md`` §32): the repository does not
+carry those bytes, Core resolves them at runtime from the evaluating revision
+with a content digest (``tools/l9_repo/inherited_config.py``), and a change to
+a Core preset is therefore not drift in that repository. A local copy of an
+inherited file that differs from Core's bytes is a consumer override and is a
+finding. The contract and the facade are never inheritable.
+
 Everything here is standard library only, because the admission bridge
 imports it from a pinned Core checkout with no third-party packages.
 """
@@ -62,7 +70,7 @@ import hashlib
 import json
 import pathlib
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, NoReturn
 
 from .contract import (
@@ -78,6 +86,9 @@ CORE_ROOT = pathlib.Path(__file__).resolve().parents[2]
 CORE_REPOSITORY = "Quantum-L9/l9-ci-core"
 STAMP_RECORD_PATH = pathlib.Path(".l9/core-stamp.json")
 STAMP_SCHEMA = "l9.core-stamp/v1"
+# v1 plus ``inherited``: profile paths the repository does not carry.
+STAMP_SCHEMA_V2 = "l9.core-stamp/v2"
+STAMP_SCHEMAS: tuple[str, ...] = (STAMP_SCHEMA, STAMP_SCHEMA_V2)
 STAMP_FACADE = "make-v1"
 
 PRESETS_DIR = CORE_ROOT / "presets"
@@ -133,7 +144,15 @@ _PRESET_SOURCES: Mapping[str, pathlib.Path] = {
     ".biomeignore": PRESETS_DIR / "typescript" / ".biomeignore",
     ".editorconfig": PRESETS_DIR / "typescript" / ".editorconfig",
 }
+# The repository-execution contract and its facade are what make a repository
+# verifiable at all, so the repository always carries them. Every other
+# Core-owned file is tool configuration and may be inherited.
+NEVER_INHERITED: frozenset[str] = frozenset(
+    {CONTRACT_PATH.as_posix(), MAKEFILE_PATH.as_posix()}
+)
+
 _RECORD_KEYS = frozenset({"schema", "core", "profile", "files"})
+_RECORD_KEYS_V2 = _RECORD_KEYS | {"inherited"}
 _CORE_KEYS = frozenset({"repository", "revision"})
 _REVISION = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -299,6 +318,37 @@ def render_profile(profile: str) -> dict[str, bytes]:
     return {relative: render_file(relative) for relative in profile_files(profile)}
 
 
+def inheritable_files(profile: str) -> tuple[str, ...]:
+    """The profile's tool configuration a repository may inherit, in order."""
+    return tuple(
+        relative
+        for relative in profile_files(profile)
+        if relative not in NEVER_INHERITED
+    )
+
+
+def normalize_inherit(profile: str, inherit: Iterable[str]) -> tuple[str, ...]:
+    """Validate an inheritance request; ``all`` means every inheritable file."""
+    requested = list(inherit)
+    allowed = inheritable_files(profile)
+    if requested == ["all"]:
+        return allowed
+    if len(requested) != len(set(requested)):
+        _fail("an inherited path is named more than once")
+    for relative in requested:
+        if relative not in allowed:
+            _fail(
+                f"{relative} cannot be inherited for the {profile} profile; "
+                f"inheritable: {', '.join(allowed)}"
+            )
+    return tuple(relative for relative in allowed if relative in requested)
+
+
+def inherited_paths(record: Mapping[str, Any]) -> tuple[str, ...]:
+    """The paths a validated record declares as inherited (none for v1)."""
+    return tuple(record.get("inherited", ()))
+
+
 def _destination(root: pathlib.Path, relative: str) -> pathlib.Path:
     path = root / relative
     for parent in [path, *path.parents]:
@@ -309,11 +359,21 @@ def _destination(root: pathlib.Path, relative: str) -> pathlib.Path:
     return path
 
 
-def stamp(root: pathlib.Path, profile: str, core_revision: str) -> list[str]:
+def stamp(
+    root: pathlib.Path,
+    profile: str,
+    core_revision: str,
+    inherit: Iterable[str] = (),
+) -> list[str]:
     """Write every Core-owned file for ``profile`` plus the stamp record.
 
     Returns the paths whose bytes changed (the record included). Idempotent: a
     second call with the same profile and revision writes nothing.
+
+    Paths named in ``inherit`` are recorded as inherited and are not written:
+    the record is then ``l9.core-stamp/v2`` and names digests only for the
+    files the repository carries. An existing copy of an inherited file is left
+    alone; ``verify_stamp`` decides whether it is an override.
     """
 
     root = root.resolve()
@@ -323,15 +383,22 @@ def stamp(root: pathlib.Path, profile: str, core_revision: str) -> list[str]:
         _fail(
             f"Core revision must be a full 40-character commit SHA: {core_revision!r}"
         )
-    rendered = render_profile(profile)
-    record = {
-        "schema": STAMP_SCHEMA,
+    inherited = normalize_inherit(profile, inherit)
+    rendered = {
+        relative: data
+        for relative, data in render_profile(profile).items()
+        if relative not in inherited
+    }
+    record: dict[str, Any] = {
+        "schema": STAMP_SCHEMA_V2 if inherited else STAMP_SCHEMA,
         "core": {"repository": CORE_REPOSITORY, "revision": core_revision},
         "profile": profile,
         "files": {
             relative: _digest(data) for relative, data in sorted(rendered.items())
         },
     }
+    if inherited:
+        record["inherited"] = sorted(inherited)
     outputs = {
         **rendered,
         STAMP_RECORD_PATH.as_posix(): (json.dumps(record, indent=2) + "\n").encode(),
@@ -361,12 +428,16 @@ def load_stamp_record(root: pathlib.Path) -> dict[str, Any] | None:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         _fail(f"unreadable stamp record {STAMP_RECORD_PATH}: {error}")
-    if not isinstance(data, dict) or set(data) != _RECORD_KEYS:
+    if not isinstance(data, dict) or data.get("schema") not in STAMP_SCHEMAS:
+        _fail(f"stamp record schema must be one of: {', '.join(STAMP_SCHEMAS)}")
+    # The key set is exact per schema, so a v1 record cannot smuggle in an
+    # inheritance claim and a v2 record cannot omit one.
+    keys = _RECORD_KEYS_V2 if data["schema"] == STAMP_SCHEMA_V2 else _RECORD_KEYS
+    if set(data) != keys:
         _fail(
-            f"stamp record must be an object with exactly: {', '.join(sorted(_RECORD_KEYS))}"
+            f"{data['schema']} stamp record must be an object with exactly: "
+            f"{', '.join(sorted(keys))}"
         )
-    if data["schema"] != STAMP_SCHEMA:
-        _fail(f"stamp record schema must be {STAMP_SCHEMA!r}")
     core = data["core"]
     if not isinstance(core, dict) or set(core) != _CORE_KEYS:
         _fail("stamp record core must carry exactly repository and revision")
@@ -391,6 +462,24 @@ def load_stamp_record(root: pathlib.Path) -> dict[str, Any] | None:
     for relative, digest in files.items():
         if not isinstance(digest, str) or not _DIGEST.fullmatch(digest):
             _fail(f"stamp record digest for {relative} must be sha256:<64 hex>")
+    if data["schema"] == STAMP_SCHEMA_V2:
+        inherited = data["inherited"]
+        if (
+            not isinstance(inherited, list)
+            or not inherited
+            or not all(isinstance(relative, str) for relative in inherited)
+            or len(inherited) != len(set(inherited))
+        ):
+            _fail("stamp record inherited must be a non-empty list of unique paths")
+        allowed = set(inheritable_files(data["profile"]))
+        for relative in inherited:
+            if relative not in allowed:
+                _fail(
+                    f"stamp record cannot inherit {relative}: not inheritable "
+                    f"configuration of the {data['profile']} profile"
+                )
+            if relative in files:
+                _fail(f"stamp record both carries and inherits {relative}")
     return data
 
 
@@ -408,8 +497,24 @@ def verify_stamp(root: pathlib.Path) -> tuple[dict[str, Any] | None, list[str]]:
     if record is None:
         return None, []
     findings: list[str] = []
+    inherited = set(inherited_paths(record))
     for relative, expected in render_profile(record["profile"]).items():
         path = root / relative
+        if relative in inherited:
+            # Inherited: the repository does not carry the file, so its absence
+            # and any change to Core's bytes are both fine. A local copy is
+            # accepted only when it is exactly Core's bytes at this revision.
+            if path.is_symlink():
+                findings.append(f"{relative}: inherited from Core but is a symlink")
+            elif path.exists() and not path.is_file():
+                findings.append(f"{relative}: inherited from Core but is not a file")
+            elif path.is_file() and path.read_bytes() != expected:
+                findings.append(
+                    f"{relative}: local copy overrides configuration inherited "
+                    f"from Core (central {_digest(expected)}, local "
+                    f"{_digest(path.read_bytes())}); remove it"
+                )
+            continue
         if path.is_symlink() or not path.is_file():
             findings.append(f"{relative}: missing (Core-owned; re-stamp)")
             continue

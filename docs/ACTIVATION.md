@@ -53,6 +53,18 @@ a newer, not-yet-pinned Core revision reports drift until the pins advance.
 and fails on any byte that differs, a missing file, or a record digest that
 does not match.
 
+A repository may inherit tool configuration instead of carrying it
+(`AGENTS.md` §32). `stamp --profile <profile> --inherit all` (or
+`--inherit <path>`, repeatable) writes an `l9.core-stamp/v2` record whose
+`inherited` list names those paths and writes no copy of them. Core resolves
+their bytes at runtime from the revision that evaluates the repository and
+prints one configuration digest; a Core preset change is then not drift in
+that repository. `.l9/repo-workflow.json` and `Makefile` are never
+inheritable. A local file at an inherited path that differs from Core's bytes
+is refused with both digests. To run the tools locally, write the inherited
+files with `python3 -m tools.l9_repo --workspace <consumer> materialize` and
+keep them out of version control.
+
 The `make-v1` facade routes `setup`, `validate`, `check` and `test` to leaves
 in `Repo.mk`, which stays repository-owned and hand-maintained. It must
 declare the four leaves, each `.PHONY`, each with an unconditional recipe or

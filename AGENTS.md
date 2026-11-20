@@ -1330,3 +1330,46 @@ Decision record for the first realization step of the proposed
   consumes the SDK's full instance inventory. Until then
   `tests/governance/test_ci_runtime_invariants.py` keeps the
   `required-instance-scheduling` witness failing closed.
+
+## 32. A stamp record may inherit tool configuration from Core at runtime (2026-11-20) — amends §24 and §25
+
+Decision record for the first realization step of the proposed
+`docs/adr/0001-top-down-ci-control-and-runtime-inheritance.md` decision 3
+(`L9-CI-CORE-002`). The ADR stays Proposed. §25 "Repository-specific
+settings" said an overlay would change `l9.core-stamp/v1` and needed its own
+decision; this is that decision for inheritance only. It adds no
+repository-specific setting.
+
+- **Record.** `l9.core-stamp/v2` is v1 plus `inherited`: a non-empty list of
+  the profile's paths the repository does not carry. `files` holds digests
+  for the carried paths only. The key set is exact per schema. A v1 record is
+  read exactly as before, and `stamp` without `--inherit` still writes v1.
+- **What may be inherited.** Every Core-owned file of the profile except
+  `.l9/repo-workflow.json` and `Makefile`. Those two are what make a
+  repository verifiable, so it always carries them.
+- **Resolution.** `tools/l9_repo/inherited_config.py` `resolve` returns the
+  bytes this Core revision renders for the inherited paths, one sha256 per
+  file and one configuration digest over the set. Nothing in the consumer
+  selects content.
+- **Drift.** An inherited path that is absent is aligned, whatever Core's
+  bytes are, so a Core preset change no longer fails a repository that
+  inherits it. A profile path that is neither carried nor inherited is still
+  drift, and a carried path is still byte-checked (§25).
+- **Override.** A local file at an inherited path is accepted only when it is
+  Core's exact bytes. Any other content is a finding that names the central
+  and the local digest, in every mode. The same applies to a symlink.
+  A consumer cannot change version, mode or ignore scope this way.
+- **Bridge.** `run-repository-verification` prints the resolved configuration
+  digest after admission and writes the absent inherited files into the
+  workspace before the first phase. `tools.l9_repo` gains `materialize` for
+  the same step on a developer machine.
+- **Not decided.** No repository is migrated to v2 here and no stamped file
+  is retired. That needs the canary the ADR names. A repository adopts
+  inheritance by re-stamping with `--inherit`.
+
+Activation: inert until the §16 pin advance moves `run-repository-verification`
+to this change's merge revision; a v2 record evaluated by an older pin is
+rejected as malformed, so no repository should carry one before that.
+
+Tests: `tests/repo_execution/test_inherited_config.py`,
+`tests/governance/test_ci_runtime_invariants.py` (`L9-CI-CORE-002`).

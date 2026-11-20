@@ -47,6 +47,7 @@ REPO_TEST_MODULES = (
     "tests/repo_execution/test_core_runtime.py",
     "tests/repo_execution/test_core_self_hosting.py",
     "tests/repo_execution/test_facade.py",
+    "tests/repo_execution/test_inherited_config.py",
     "tests/repo_execution/test_legacy_v1.py",
     "tests/repo_execution/test_repo_mk.py",
     "tests/repo_execution/test_stamp.py",

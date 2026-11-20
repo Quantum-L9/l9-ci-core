@@ -286,6 +286,12 @@ decision from its own Core checkout, never from the consumer:
   `refs/heads/main`) names it with `lifecycle: current`; the registry only
   raises the mode, and an unreadable registry fails the run as
   `infrastructure` (`AGENTS.md` §24).
+- **Inherited configuration.** A stamp record of schema `l9.core-stamp/v2`
+  lists profile paths the repository does not carry. After admission the
+  bridge prints the configuration digest Core resolved for them, and before
+  the first phase it writes the absent files into the workspace. A local copy
+  that differs from Core's bytes is a `contract` failure in every mode
+  (`AGENTS.md` §32).
 - **Core stamp.** A V2 consumer carrying `.l9/core-stamp.json` has every
   Core-owned file compared byte-for-byte with this Core checkout after
   admission and before any phase: drift or a malformed record is a `contract`
