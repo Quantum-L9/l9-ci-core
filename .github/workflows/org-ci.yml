@@ -278,6 +278,51 @@ jobs:
                   stream.write(f"{key}={value}\n")
           PY
 
+      # A pull-request scope failure stays a failure. An explicit full-suite
+      # override is refused. Nothing here selects the deep suite, and a failed
+      # scope does not fall through to one. This runs before checkout so the
+      # apt cache still wraps repository verification directly.
+      - name: Refuse a pull-request full-suite fallback
+        if: >-
+          github.event_name == 'pull_request'
+          || github.event_name == 'merge_group'
+          || steps.runtime.outputs.event-class == 'pull_request'
+          || steps.runtime.outputs.event-class == 'merge'
+        env:
+          # A reusable call keeps the caller's event_name. The class resolved
+          # above is the pull-request or merge path this step is judging.
+          GH_EVENT: ${{ steps.runtime.outputs.event-class }}
+          FULL_SUITE_OVERRIDE: ${{ vars.L9_CI_FULL_SUITE || '' }}
+          PR_SCOPE_STATUS: ${{ vars.L9_PR_SCOPE_STATUS || '' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import sys
+
+
+          def finish(status, code):
+              print(status)
+              print("heavy=false")
+              print("suite_pass=false")
+              print("selected_suite=none")
+              raise SystemExit(code)
+
+
+          event = os.environ["GH_EVENT"]
+          override = os.environ.get("FULL_SUITE_OVERRIDE", "").strip().lower()
+          scope = os.environ.get("PR_SCOPE_STATUS", "").strip().lower()
+          pr_events = ("pull_request", "merge_group", "merge")
+
+          if event not in pr_events:
+              finish("NOT_APPLICABLE", 0)
+          if override not in ("", "0", "false", "no"):
+              finish("POLICY_PR_DEEP_FORBIDDEN", 1)
+          if scope in ("unknown", "failed", "unresolved", "pr_scope_unknown"):
+              finish("PR_SCOPE_UNKNOWN", 1)
+          finish("NO_FULL_SUITE_FALLBACK", 0)
+          PY
+
       - name: Checkout immutable event revision
         env:
           REPOSITORY: ${{ github.repository }}

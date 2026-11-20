@@ -143,7 +143,7 @@ frozen-census modules. A missing listed path or a collection of zero fails
 the target. It is not `unittest discover`.
 
 The `Unit tests` job keeps that name and runs `python -m unittest` on the
-other 76 modules, with the same fail-closed checks. It does not run
+other 79 modules, with the same fail-closed checks. It does not run
 `make test` and it does not discover.
 
 `make test-deep` is the only full discover:
@@ -156,7 +156,10 @@ python -m unittest discover --start-directory tests --pattern 'test_*.py' --verb
 `workflow_dispatch`, sets `permissions: contents: read`, and runs
 `make test-deep` only when the ref is `Quantum-L9/l9-ci-core` default branch
 `main`. It is not a required pull-request check. The retired stem `nightly`
-stays retired.
+stays retired. `.github/workflows/org-nightly-dispatch.yml` uses the same
+cron for a plan-only fleet pass: it checks out no consumer, holds no App
+token and no PAT, and dispatches zero jobs. That plan is not a live schedule
+receipt. `nightly-deep.yml` keeps its cron until an apply path is observed.
 
 The portable phases stay `setup`, `validate`, `check`, and `test`. Consumer
 activation is unchanged. Organization CI still requires

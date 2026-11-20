@@ -70,6 +70,9 @@ EXPECTED_WORKFLOWS = {
     # manual dispatch. Not a pull-request check. The stem is nightly-deep;
     # the retired stem nightly stays rejected below.
     "nightly-deep.yml",
+    # Plan-only fleet timer at the same 07:17 UTC cron. It dispatches nothing
+    # and does not run the deep suite. The retired stem nightly stays rejected.
+    "org-nightly-dispatch.yml",
 }
 
 

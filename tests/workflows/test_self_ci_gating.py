@@ -95,6 +95,7 @@ UNIT_TEST_MODULES = (
     "tests/workflows/test_org_ci_event_resolution.py",
     "tests/workflows/test_org_ci_runtime_environment.py",
     "tests/workflows/test_org_ci_toolchain_steps.py",
+    "tests/workflows/test_org_nightly_dispatch.py",
     "tests/workflows/test_org_policy_pin.py",
     "tests/workflows/test_org_repository_verification.py",
     "tests/workflows/test_org_runtime_contract.py",
@@ -420,7 +421,16 @@ class NightlyDeepWorkflowTests(unittest.TestCase):
         self.assertIn("set -euo pipefail", run)
 
     def test_checks_out_the_exact_run_commit(self) -> None:
-        checkout = self.steps[1]
+        checkout_at = step_index(
+            self.steps,
+            lambda step: step.get("name") == "Checkout immutable event revision",
+        )
+        reject_at = step_index(
+            self.steps,
+            lambda step: step.get("name") == "Reject an unadmitted dispatch",
+        )
+        self.assertLess(reject_at, checkout_at)
+        checkout = self.steps[checkout_at]
         self.assertEqual("Checkout immutable event revision", checkout["name"])
         self.assertEqual("${{ github.sha }}", checkout["env"]["REVISION"])
         self.assertIn('fetch --depth=1 origin "${REVISION}"', checkout["run"])

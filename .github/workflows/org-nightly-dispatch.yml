@@ -1,0 +1,100 @@
+# Plan-only fleet timer for Quantum-L9.
+#
+# Cron 07:17 UTC matches nightly-deep.yml. This workflow does not run that
+# suite and does not replace that cron. Apply is closed: the schedule event
+# is plan, and plan dispatches zero jobs. The job checks out this repository
+# only, reads anonymous public metadata, and writes a plan. It does not check
+# out a consumer, install a consumer dependency, or run a test. It has no App
+# token and no PAT. github.token is used only by the scheduler-source
+# checkout and is cleared before the planner runs.
+#
+# The plan sets live_schedule_receipt false. A green or red plan is not
+# evidence that the cron fired in production or that a deep suite ran.
+name: Organization nightly plan
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Plan only. Apply is closed.
+        type: choice
+        required: true
+        default: plan
+        options:
+          - plan
+permissions:
+  contents: read
+concurrency:
+  group: org-nightly-dispatch
+  cancel-in-progress: false
+jobs:
+  plan:
+    name: Nightly plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require this Core repository
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "${REPOSITORY}" != "Quantum-L9/l9-ci-core" ]]; then
+            echo "REFUSED repository=${REPOSITORY}" >&2
+            exit 1
+          fi
+      - name: Checkout scheduler sources
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          git -c protocol.version=2 \
+              -c "http.https://github.com/.extraheader=${auth_header}" \
+              fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${REVISION}"
+      - name: Write the plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MODE: ${{ github.event_name == 'schedule' && 'plan' || inputs.mode }}
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "schedule" ]]; then
+            MODE=plan
+          fi
+          if [[ "${MODE}" != "plan" ]]; then
+            echo "APPLY_CLOSED" >&2
+            exit 1
+          fi
+          evaluated="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 tools/nightly_dispatch.py plan \
+            --mode plan \
+            --event "${EVENT_NAME}" \
+            --live-metadata \
+            --evaluated-at "${evaluated}" \
+            --output "${RUNNER_TEMP}/nightly-plan.json"
+      # The plan step exits non-zero when the registry is unreadable. This
+      # step still runs, and the job stays failed. The summary is the
+      # retained plan; it is not a live schedule receipt.
+      - name: Publish the plan
+        if: always()
+        env:
+          PLAN: ${{ runner.temp }}/nightly-plan.json
+        run: |
+          set -euo pipefail
+          if [[ ! -f "${PLAN}" ]]; then
+            echo "nightly plan was not written" >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+          {
+            echo '```json'
+            cat "${PLAN}"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
