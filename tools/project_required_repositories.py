@@ -37,8 +37,10 @@ invalid invocation or an unreadable/invalid source (fail closed).
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -61,8 +63,14 @@ REGISTRY_ARTIFACT = "l9.repository-registry/global@1"
 RECEIPT_SCHEMA = "l9.required-repositories-projection/v1"
 LIFECYCLES = frozenset({"current", "superseded", "retired"})
 REQUIRED_LIFECYCLE = "current"
+# Quantum-L9/.github is private: the fetch authenticates with the ambient
+# credential, first one set wins (GH_TOKEN, as gh uses it, then GITHUB_TOKEN).
+TOKEN_ENVS = ("GH_TOKEN", "GITHUB_TOKEN")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+# A ref the fetch accepts: a commit SHA or a plain branch/tag name. It must not
+# start with "-" (git would parse it as an option) and must not contain "..".
+REF = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_./-]{0,254}$")
 
 
 class ProjectionError(RuntimeError):
@@ -171,7 +179,55 @@ def fetch(ref: str) -> tuple[bytes, str]:
         raise ProjectionError(f"cannot read {SOURCE_REPOSITORY}@{ref}: {exc}") from exc
 
 
+def ambient_token() -> str:
+    """The first non-empty ambient GitHub credential, or ``""``."""
+
+    for name in TOKEN_ENVS:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def git_env(token: str) -> dict[str, str]:
+    """Environment that authenticates git to https://github.com/ with ``token``.
+
+    The header travels through GIT_CONFIG_COUNT/KEY/VALUE, so it is on no
+    command line, in no URL and in no stored config. Without a token git keeps
+    the caller's own credential helpers and never prompts.
+    """
+
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    if not token:
+        return env
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode("ascii")
+    inherited = env.get("GIT_CONFIG_COUNT", "0") or "0"
+    if not inherited.isdigit():
+        raise ProjectionError(
+            f"GIT_CONFIG_COUNT must be a non-negative integer, got {inherited!r}"
+        )
+    index = int(inherited)
+    env[f"GIT_CONFIG_KEY_{index}"] = "http.https://github.com/.extraheader"
+    env[f"GIT_CONFIG_VALUE_{index}"] = f"AUTHORIZATION: basic {basic}"
+    env["GIT_CONFIG_COUNT"] = str(index + 1)
+    return env
+
+
+def checked_ref(ref: str) -> str:
+    """``ref`` when it is a plain branch, tag or commit name; else ProjectionError."""
+
+    if not REF.fullmatch(ref) or ".." in ref or ref.endswith((".lock", "/", ".")):
+        raise ProjectionError(
+            f"--ref must be a branch, tag or commit name, got {ref!r}"
+        )
+    return ref
+
+
 def _fetch(ref: str) -> tuple[bytes, str]:
+    ref = checked_ref(ref)
+    token = ambient_token()
+    env = git_env(token)
     with tempfile.TemporaryDirectory(prefix="l9-registry-") as tmp:
         store = Path(tmp) / "store.git"
         steps = (
@@ -184,15 +240,25 @@ def _fetch(ref: str) -> tuple[bytes, str]:
                 "--quiet",
                 "--depth",
                 "1",
+                "--",
                 SOURCE_URL,
                 ref,
             ],
         )
         for argv in steps:
-            proc = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+            proc = subprocess.run(
+                argv, capture_output=True, text=True, timeout=120, env=env
+            )
             if proc.returncode:
+                hint = (
+                    ""
+                    if token
+                    else f" ({SOURCE_REPOSITORY} is private: set GH_TOKEN or GITHUB_TOKEN"
+                    " to a token that can read it)"
+                )
                 raise ProjectionError(
-                    f"cannot fetch {SOURCE_REPOSITORY}@{ref}: {proc.stderr.strip()[-300:]}"
+                    f"cannot fetch {SOURCE_REPOSITORY}@{ref}{hint}: "
+                    f"{proc.stderr.strip()[-300:]}"
                 )
         commit = subprocess.run(
             ["git", "--git-dir", str(store), "rev-parse", "FETCH_HEAD"],
