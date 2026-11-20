@@ -98,11 +98,13 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12.14"
+      # tools/l9_settings imports PyYAML and jsonschema; requirements-ci.txt
+      # carries only PyYAML. This is the engine's whole closure, hash-locked.
       - name: Install Core-pinned declaration reader
         working-directory: core
         run: >-
           python -m pip install --quiet --disable-pip-version-check
-          --only-binary :all: --requirement requirements-ci.txt
+          --require-hashes --only-binary :all: --requirement requirements-settings.txt
       - id: declaration-token
         name: Mint a contents:read token for Quantum-L9/.github alone
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0

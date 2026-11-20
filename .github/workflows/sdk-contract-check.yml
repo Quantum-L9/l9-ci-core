@@ -1,6 +1,9 @@
 name: SDK v2 contract validation
 on:
   pull_request:
+  # Core main uses a merge queue (docs/release/rulesets/README.md, 2026-11-20
+  # revision): every required check must also report on the merge group.
+  merge_group:
   push:
     branches:
       - main

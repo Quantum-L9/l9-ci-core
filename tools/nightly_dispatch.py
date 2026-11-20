@@ -28,6 +28,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -997,12 +998,31 @@ def _emit(plan: Mapping[str, object], code: int) -> None:
             handle.write(RECEIPT_NOTE + "\n")
 
 
+def confined(path: str | Path) -> Path:
+    """``path`` resolved, refused unless it lies under an allowed directory.
+
+    A CLI path names a plan to write or a fixture to read. It must resolve
+    inside the working directory, the runner's temp directory, or the system
+    temp directory; a path that escapes them is refused, never followed.
+    """
+    resolved = Path(os.path.realpath(path))
+    roots = [Path.cwd(), Path(tempfile.gettempdir())]
+    runner_temp = os.environ.get("RUNNER_TEMP", "")
+    if runner_temp:
+        roots.append(Path(runner_temp))
+    for root in roots:
+        base = Path(os.path.realpath(root))
+        if resolved == base or resolved.is_relative_to(base):
+            return resolved
+    raise FixtureError(f"{path} is outside the working and temp directories")
+
+
 def _write_plan(plan: Mapping[str, object], output: str | None) -> None:
     encoded = json.dumps(plan, indent=2, sort_keys=True) + "\n"
     if output is None:
         print(encoded, end="")
         return
-    Path(output).write_text(encoded, encoding="utf-8")
+    confined(output).write_text(encoded, encoding="utf-8")
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
@@ -1030,14 +1050,18 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         print(str(error), file=sys.stderr)
         return 2
     code = plan_exit_code(plan)
-    _write_plan(plan, args.output)
+    try:
+        _write_plan(plan, args.output)
+    except FixtureError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     _emit(plan, code)
     return code
 
 
 def _load_fixture(path: Path) -> dict[str, object]:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(confined(path).read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise FixtureError(f"unreadable fixture: {error}") from error
     if not isinstance(data, dict):

@@ -179,7 +179,13 @@ core_main_protection:
     - pull_request
     - required_status_checks
   pull_request:
-    require_code_owner_review: true
+    # Operator decision, 2026-11-20: a pull request is required, with no
+    # required approval and no code-owner review. Core has a sole operator
+    # plus agents; a required approval cannot be given by the author, so the
+    # rule blocked every merge or was bypassed. Admission rests on the
+    # required checks and the merge queue (production.admission_freshness).
+    require_code_owner_review: false
+    required_approving_review_count: 0
   required_status_checks:
     contexts_declared_here: false
     minimum_bound_contexts: 1
@@ -190,12 +196,12 @@ core_main_protection:
       attestation therefore proves that at least one required status check is
       bound to main, never a specific context string.
   note: >-
-    This is the machine-readable form of the protection already documented in
+    This is the machine-readable form of the protection documented in
     docs/release/README.md under "Core main protection" (pull request
-    required; independent approval for governed paths through CODEOWNERS;
-    required checks taken from real successful self-CI runs). It declares no
-    new policy; it exists so an attestation reads the expectation from a
-    contract instead of hard-coding it.
+    required without a required approval, operator decision 2026-11-20;
+    required checks taken from real successful self-CI runs; a merge queue).
+    An attestation reads the expectation from this contract instead of
+    hard-coding it, and holds the live rule to it exactly.
 
 attestation:
   live_control_plane:

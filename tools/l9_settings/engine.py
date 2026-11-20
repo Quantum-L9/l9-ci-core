@@ -187,6 +187,7 @@ class _Repo:
         self.actions(live_visibility, effective)
         self.environments()
         self.rulesets()
+        self.releases()
         return self.plan
 
     def visibility(self, live: Any) -> None:
@@ -595,6 +596,43 @@ class _Repo:
         if live_bypass != self._canonical(ruleset["bypass_actors"]):
             differs.append("bypass_actors")
         return differs
+
+    def releases(self) -> None:
+        """``releases.immutable``: GitHub immutable releases for the repository.
+
+        Optional: a declaration without ``releases`` plans nothing here. The
+        live state is ``GET /repos/{o}/{r}/immutable-releases``; GitHub answers
+        404 when immutable releases are not enabled. Enabling is ``PUT`` and
+        disabling ``DELETE`` on the same path (Administration: write).
+        """
+        releases = self.declared.get("releases")
+        if not isinstance(releases, dict):
+            return
+        desired = releases.get("immutable", UNKNOWN)
+        if not _known(desired):
+            return
+        path = f"{self.base}/immutable-releases"
+        status, body = self.api.call("GET", path)
+        if status == 404:
+            live = False
+        elif (
+            status == 200
+            and isinstance(body, dict)
+            and isinstance(body.get("enabled"), bool)
+        ):
+            live = body["enabled"]
+        else:
+            self.unreadable("releases.immutable", status)
+            return
+        if live != desired:
+            self.change(
+                "releases.immutable",
+                live,
+                desired,
+                "PUT" if desired else "DELETE",
+                path,
+                None,
+            )
 
     def rulesets(self) -> None:
         rulesets = self.declared["rulesets"]

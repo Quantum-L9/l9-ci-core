@@ -88,9 +88,11 @@ separate from the organization CI ruleset that governs consumers:
 ```text
 Ruleset:  L9 / CI Control Plane
 Target:   Quantum-L9/l9-ci-core, branch main
-Rules:    pull request required; independent approval for governed paths
-          (.l9/, .github/workflows/, .github/actions/, CODEOWNERS);
-          required checks taken from real successful self-CI runs
+Rules:    pull request required, with no required approval and no
+          code-owner review (operator decision 2026-11-20;
+          docs/release/rulesets/README.md, 2026-11-20 revision);
+          required checks taken from real successful self-CI runs;
+          a merge queue as the final admission step
 ```
 
 Required check context strings are deliberately not written here. The
@@ -125,8 +127,8 @@ branch, repository setting, release, or tag:
 | Check | What must hold |
 |---|---|
 | organization required-workflow binding | the rule active on Core `main` resolves to this repository's own id, `refs/heads/main`, and `.github/workflows/org-ci.yml`, from an **organization** ruleset in `active` enforcement |
-| Core `main` protection | the rules declared under `core_main_protection` are active on `main`, with code-owner review required and at least one bound status check |
-| immutable releases | `GET /repos/{owner}/{repo}/immutable-releases` reports `enabled: true` |
+| Core `main` protection | the rules declared under `core_main_protection` are active on `main`, the `pull_request` rule carries exactly the declared `require_code_owner_review` and `required_approving_review_count`, and at least one status check is bound |
+| immutable releases | `GET /repos/{owner}/{repo}/immutable-releases` reports `enabled: true`; a 404 means disabled (FAIL); a 403 without `L9_CONTROL_PLANE_TOKEN` names the missing credential |
 | required status-check freshness | the organization `required_status_checks` rule has `strict_required_status_checks_policy: true`, or an active `merge_queue` rule makes the queue the final admission mechanism (`production.admission_freshness`) |
 
 A green required check only proves freshness if it evaluated the head

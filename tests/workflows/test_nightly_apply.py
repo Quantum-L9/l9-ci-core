@@ -716,6 +716,27 @@ class PlannerCommandTests(unittest.TestCase):
                 with self.subTest(name=name):
                     self.assertEqual(2, self.plan_main(argv, {})[0])
 
+    def test_paths_outside_the_work_and_temp_directories_are_refused(self) -> None:
+        outside = "/proc/self/l9-nightly-plan.json"
+        code, printed = self.plan_main(
+            ["plan", "--mode", "plan", "--live", "--output", outside], {}
+        )
+        self.assertEqual(2, code)
+        self.assertIn("outside the working and temp directories", printed)
+        code, printed = self.plan_main(
+            ["plan", "--mode", "plan", "--fixture", "/etc/hostname"], {}
+        )
+        self.assertEqual(2, code)
+        self.assertIn("outside the working and temp directories", printed)
+
+    def test_confined_admits_the_runner_temp_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"RUNNER_TEMP": tmp}):
+                target = Path(tmp) / "plan.json"
+                self.assertEqual(target.resolve(), nightly.confined(target))
+            with self.assertRaises(nightly.FixtureError):
+                nightly.confined(Path(tmp) / ".." / ".." / "etc" / "passwd")
+
     def test_projection_rejections(self) -> None:
         receipt = json.loads(nightly.REGISTRY_PROJECTION.read_text(encoding="utf-8"))
         repeated = ["Quantum-L9/a", "Quantum-L9/a"]

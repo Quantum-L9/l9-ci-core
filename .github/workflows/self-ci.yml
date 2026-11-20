@@ -1,6 +1,9 @@
 name: Core Phase 1 self-validation
 on:
   pull_request:
+  # Core main uses a merge queue (docs/release/rulesets/README.md, 2026-11-20
+  # revision): every required check must also report on the merge group.
+  merge_group:
   push:
     branches:
       - main
@@ -296,7 +299,9 @@ jobs:
   sonar:
     name: SonarQube Cloud
     needs: [validate, repository-contract]
-    if: ${{ !cancelled() }}
+    # Not on a merge group: the queue's temporary branch is not an analysis
+    # target, and this check is advisory, never a queue requirement.
+    if: ${{ !cancelled() && github.event_name != 'merge_group' }}
     permissions:
       contents: read
     uses: ./.github/workflows/self-sonar.yml

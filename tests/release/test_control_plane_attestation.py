@@ -115,7 +115,8 @@ def merge_queue_rule() -> dict:
     }
 
 
-def pull_request_rule(*, code_owner: bool = True) -> dict:
+def pull_request_rule(*, code_owner: bool = False, approvals: int = 0) -> dict:
+    """The rule the operator decided on (2026-11-20): a PR, no approval."""
     return {
         "type": "pull_request",
         "ruleset_id": 99,
@@ -123,7 +124,7 @@ def pull_request_rule(*, code_owner: bool = True) -> dict:
         "ruleset_source": REPOSITORY,
         "parameters": {
             "require_code_owner_review": code_owner,
-            "required_approving_review_count": 1,
+            "required_approving_review_count": approvals,
         },
     }
 
@@ -170,6 +171,9 @@ class ExpectedContractTests(unittest.TestCase):
         self.assertGreaterEqual(expected.minimum_bound_contexts, 1)
         self.assertTrue(expected.strict_status_checks)
         self.assertTrue(expected.merge_queue_satisfies)
+        # Operator decision 2026-11-20: a PR is required, without approval.
+        self.assertFalse(expected.require_code_owner_review)
+        self.assertEqual(0, expected.required_approving_review_count)
 
     def test_release_plane_and_org_runtime_contract_agree(self) -> None:
         import yaml
@@ -280,6 +284,25 @@ class ContractLoadingFailureTests(unittest.TestCase):
 
     def write(self, body: str) -> None:
         (self.tmp / MODULE.CONTRACT).write_text(body, encoding="utf-8")
+
+    def test_malformed_pull_request_expectations_are_errors(self) -> None:
+        plane = (ROOT / MODULE.CONTRACT).read_text(encoding="utf-8")
+        for old, new in (
+            ("require_code_owner_review: false", 'require_code_owner_review: "no"'),
+            (
+                "required_approving_review_count: 0",
+                "required_approving_review_count: -1",
+            ),
+            (
+                "required_approving_review_count: 0",
+                "required_approving_review_count: true",
+            ),
+        ):
+            with self.subTest(new=new):
+                self.assertIn(old, plane)
+                self.write(plane.replace(old, new, 1))
+                with self.assertRaises(MODULE.ContractError):
+                    MODULE.load_expected(self.tmp)
 
     def test_absent_contract_is_an_error(self) -> None:
         with self.assertRaises(MODULE.ContractError):
@@ -445,16 +468,39 @@ class AttestationTests(unittest.TestCase):
         self.assertEqual(MODULE.FAIL, self.status(MODULE.PROTECTION_CHECK))
         self.assertIn("pull_request", self.by_name[MODULE.PROTECTION_CHECK].reason)
 
-    def test_pull_request_without_code_owner_review_fails(self) -> None:
+    def test_pull_request_stricter_than_declared_fails(self) -> None:
+        # A required approval or code-owner review blocks a sole operator's
+        # merges; the operator decided against both (2026-11-20).
+        for rule in (
+            pull_request_rule(code_owner=True),
+            pull_request_rule(approvals=1),
+            pull_request_rule(code_owner=True, approvals=1),
+        ):
+            with self.subTest(parameters=rule["parameters"]):
+                self.run_checks(rules=[workflows_rule(), status_checks_rule(), rule])
+                self.assertEqual(MODULE.FAIL, self.status(MODULE.PROTECTION_CHECK))
+                self.assertIn(
+                    "pull_request parameters differ",
+                    self.by_name[MODULE.PROTECTION_CHECK].reason,
+                )
+
+    def test_pull_request_without_parameters_fails(self) -> None:
+        rule = pull_request_rule()
+        rule.pop("parameters")
+        self.run_checks(rules=[workflows_rule(), status_checks_rule(), rule])
+        self.assertEqual(MODULE.FAIL, self.status(MODULE.PROTECTION_CHECK))
+        self.assertIn("no parameters", self.by_name[MODULE.PROTECTION_CHECK].reason)
+
+    def test_one_matching_pull_request_rule_among_several_passes(self) -> None:
         self.run_checks(
             rules=[
                 workflows_rule(),
                 status_checks_rule(),
-                pull_request_rule(code_owner=False),
+                pull_request_rule(approvals=2),
+                pull_request_rule(),
             ]
         )
-        self.assertEqual(MODULE.FAIL, self.status(MODULE.PROTECTION_CHECK))
-        self.assertIn("code-owner", self.by_name[MODULE.PROTECTION_CHECK].reason)
+        self.assertEqual(MODULE.PASS, self.status(MODULE.PROTECTION_CHECK))
 
     def test_no_bound_status_check_contexts_fails(self) -> None:
         self.run_checks(
@@ -543,6 +589,27 @@ class AttestationTests(unittest.TestCase):
     def test_immutable_releases_disabled_fails(self) -> None:
         self.run_checks(immutable={"enabled": False, "enforced_by_owner": False})
         self.assertEqual(MODULE.FAIL, self.status(MODULE.IMMUTABLE_CHECK))
+
+    def test_immutable_releases_not_found_means_disabled(self) -> None:
+        # GitHub answers 404 when immutable releases are not enabled.
+        self.run_checks(immutable=MODULE.ApiResult(404, error="HTTP 404: Not Found"))
+        self.assertEqual(MODULE.FAIL, self.status(MODULE.IMMUTABLE_CHECK))
+        self.assertIn("disabled", self.by_name[MODULE.IMMUTABLE_CHECK].actual)
+
+    def test_forbidden_without_the_admin_credential_names_it(self) -> None:
+        reader = FakeReader(
+            responses(
+                immutable=MODULE.ApiResult(
+                    403, error="HTTP 403: Resource not accessible by integration"
+                )
+            )
+        )
+        results = MODULE.verify(reader, self.expected, admin_credential=False)
+        immutable = {result.name: result for result in results}[MODULE.IMMUTABLE_CHECK]
+        self.assertEqual(MODULE.UNKNOWN, immutable.status)
+        self.assertIn(MODULE.ADMIN_TOKEN_VARIABLE, immutable.reason)
+        self.assertIn("Administration:read", immutable.reason)
+        self.assertEqual(3, MODULE.exit_code(results))
 
     def test_immutable_releases_forbidden_is_unknown_not_pass(self) -> None:
         self.run_checks(

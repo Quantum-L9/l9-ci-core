@@ -6,6 +6,9 @@
 name: Core self analysis
 on:
   pull_request:
+  # Core main uses a merge queue (docs/release/rulesets/README.md, 2026-11-20
+  # revision): every required check must also report on the merge group.
+  merge_group:
   push:
     branches:
       - main
@@ -30,6 +33,7 @@ jobs:
       # dogfood caller and organization surface use the same analysis semantics.
       profile: >-
         ${{ github.event_name == 'push' && 'merge'
+         || github.event_name == 'merge_group' && 'merge'
          || github.event_name == 'workflow_dispatch' && 'nightly'
          || 'pr_fast' }}
       matrix-id: self-semgrep
