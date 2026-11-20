@@ -12,7 +12,9 @@ for an instance.
 Aggregate rule, in order: any required instance that ``fail``ed makes the
 aggregate ``fail``; otherwise any required instance without a trusted completed
 record makes it ``incomplete``; otherwise it is ``pass``. An empty plan passes
-only with explicit evidence of non-applicability.
+only with explicit evidence of non-applicability. An instance the plan marks
+optional never gates: its missing, unfinished or untrusted record stays visible
+in the aggregate and changes no verdict.
 
 The step exits 0 after writing the aggregate; the workflow enforces the central
 mode on the outputs. It exits 2 when the plan itself is unusable, because then
@@ -160,12 +162,22 @@ def _untrusted(record: object, plan: Plan, planned: set[str]) -> str:
 def aggregate(plan: Plan, records: list[tuple[str, object]]) -> dict[str, Any]:
     """Return the aggregate for ``plan`` given ``(source name, record)`` pairs."""
     planned = {instance.identifier for instance in plan.instances}
+    optional = {i.identifier for i in plan.instances if not i.required}
     trusted: dict[str, list[str]] = {}
-    untrusted: list[dict[str, str]] = []
+    untrusted: list[dict[str, Any]] = []
     for source, record in records:
         reason = _untrusted(record, plan, planned)
         if reason:
-            untrusted.append({"source": source, "reason": reason})
+            # An untrusted record gates unless it can only concern an instance
+            # the plan marks optional. One that names a required instance, an
+            # unplanned instance or nothing readable could be hiding a required
+            # result, so it stays gating.
+            claimed = ""
+            if isinstance(record, dict):
+                claimed = f"{record.get('provider')}:{record.get('language')}"
+            untrusted.append(
+                {"source": source, "reason": reason, "gating": claimed not in optional}
+            )
             continue
         assert isinstance(record, dict)
         identifier = f"{record['provider']}:{record['language']}"
@@ -209,7 +221,8 @@ def aggregate(plan: Plan, records: list[tuple[str, object]]) -> dict[str, Any]:
                 f"required instance {row.identifier} is {row.status}{detail}"
             )
     for entry in untrusted:
-        reasons.append(f"untrusted record {entry['source']}: {entry['reason']}")
+        if entry["gating"]:
+            reasons.append(f"untrusted record {entry['source']}: {entry['reason']}")
     if not plan.instances and not plan.not_applicable_reason:
         reasons.append(
             "plan lists no instance and gives no evidence of non-applicability"

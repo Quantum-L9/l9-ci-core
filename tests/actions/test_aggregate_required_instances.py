@@ -146,6 +146,51 @@ class MixedLanguageFixtureTests(unittest.TestCase):
         self.assertEqual("missing", result["instances"][1]["status"])
         self.assertFalse(result["instances"][1]["required"])
 
+    def test_untrusted_record_for_an_optional_instance_does_not_gate(self) -> None:
+        plan = fixture_plan()
+        plan["instances"][1]["required"] = False
+        for name, change in {
+            "stale revision": {"revision": "c" * 40},
+            "another SDK": {"sdk_revision": "c" * 40},
+            "no status": {"status": None},
+        }.items():
+            with self.subTest(case=name):
+                records = fixture_records()
+                records["semgrep-typescript.json"].update(change)
+                result = run(plan, records)
+                self.assertEqual("pass", result["status"])
+                self.assertTrue(result["accounted"])
+                self.assertEqual([], result["reasons"])
+                self.assertEqual("missing", result["instances"][1]["status"])
+                self.assertEqual(1, len(result["untrusted_records"]))
+                self.assertFalse(result["untrusted_records"][0]["gating"])
+
+    def test_known_bad_untrusted_record_still_gates_when_not_optional(self) -> None:
+        plan = fixture_plan()
+        plan["instances"][1]["required"] = False
+        records = fixture_records()
+        cases: dict[str, dict[str, Any]] = {
+            "stale record for the required instance": {
+                **records,
+                "semgrep-python.json": {
+                    **records["semgrep-python.json"],
+                    "revision": "c" * 40,
+                },
+            },
+            "record for an unplanned instance": {
+                **records,
+                "x.json": {**records["semgrep-python.json"], "language": "go"},
+            },
+            "unreadable record": {**records, "junk.json": "unreadable: bad JSON"},
+        }
+        for name, mutated in cases.items():
+            with self.subTest(case=name):
+                result = run(plan, mutated)
+                self.assertEqual("incomplete", result["status"])
+                self.assertTrue(
+                    [entry for entry in result["untrusted_records"] if entry["gating"]]
+                )
+
     def test_empty_plan_needs_evidence_of_non_applicability(self) -> None:
         plan = fixture_plan()
         plan["instances"] = []
