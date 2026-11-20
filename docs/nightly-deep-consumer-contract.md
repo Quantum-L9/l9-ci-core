@@ -94,9 +94,8 @@ retired before CURSOR_CANARY_PASS.**
   - `supply-chain.yml` schedule, weekly Mon 03:00: Scorecard, licences and
     SBOM. `dependency-review` stays on pull requests.
   - `docs-code-sync.yml` schedule, weekly Mon 00:00. Its PR trigger stays.
-- Blocked in Core: CEG is a current member of the canonical registry, but
-  Core's projection (source `133f243`) predates it. Until the projection is
-  regenerated, the plan records it as SKIPPED_NOT_PROJECTED.
+- Projected: Core's projection was regenerated from `.github@08b2d07`, so
+  CEG is a member, and the plan records it as SKIPPED_APPLY_CLOSED.
 
 ### Quantum-L9/Enrichment.Inference.Engine (admitted, `eie-deep/v1`)
 
@@ -112,7 +111,7 @@ retired before CURSOR_CANARY_PASS.**
   - `codeql.yml`, weekly Mon 04:00. It has no `workflow_dispatch` today.
   - `supply-chain.yml` schedule, weekly Mon 03:00: licences, SBOM and the
     GPL/AGPL scan. `dependency-review` stays on pull requests.
-- Blocked in Core: same projection gap as CEG.
+- Projected, as CEG.
 
 ### Quantum-L9/Cursor-Governance (not admitted)
 
@@ -158,9 +157,9 @@ Apply stays closed until an operator does all of these:
    `L9_NIGHTLY_APPLY=open` and the credential in
    `L9_NIGHTLY_DISPATCH_TOKEN`. No workflow sets either today, and
    `tests/workflows/test_nightly_apply.py` fails if one does.
-3. Regenerate Core's registry projection so CEG and EIE are members. This
-   uses `tools/project_required_repositories.py`, and the projection also
-   feeds run-repository-verification.
+3. Keep Core's registry projection current
+   (`tools/project_required_repositories.py --ref main --check`), so every
+   admitted consumer is a member.
 
 Apply only dispatches. It never merges, never checks out a consumer and
 never runs a suite itself.
