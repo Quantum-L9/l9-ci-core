@@ -1496,3 +1496,43 @@ Tests: `tests/tools/test_check_core_pin_ancestry.py`,
 
 Tests: `tests/workflows/test_org_ci_required_instances.py` (the embedded
 runner against a fake SDK, with Core's real planner and aggregator).
+
+## 37. Supply-chain lane, step one: the organization licence policy is Core data (2026-11-20)
+
+CTO lane N1e-CORE-LANES item 1 (taken over from L2 item 5): a Core supply-chain
+lane in the `supply_chain` event class — dependency review, a licence allow/deny
+policy with per-repository policy data, and an SBOM with a GPL/AGPL audit.
+Licence and policy failures are correctness/security and block; SBOM generation
+reports. Donors read for behaviour: Cursor-Governance, Cognitive.Engine.Graphs
+and Enrichment.Inference.Engine `supply-chain.yml`.
+
+Step one (this section) ships the policy and its evaluator; nothing calls it yet.
+
+- `.github/actions/license-policy/policy.json` (`l9.license-policy/v1`) is the
+  organization allow-list (SPDX ids) and the copyleft families never allowed by
+  default: GPL, AGPL, LGPL, SSPL, EUPL. A test refuses an allow-list entry of a
+  denied family.
+- `repositories/<Owner>__<Repo>.json` (`l9.license-policy-repository/v1`) holds a
+  repository's package exemptions, each a purl, the licence and a reason. It
+  ships in the pinned action, so a consumer cannot mint one (§3). Core's own
+  file exempts `SonarSource/sonarqube-scan-action` (LGPL-3.0), the exemption
+  the CTO accepted for Cognitive.Engine.Graphs in #521.
+- `render` emits the policy as `actions/dependency-review-action`
+  `allow-licenses` / `allow-dependencies-licenses`, so pull-request review and
+  the SBOM audit enforce one policy (`deny-licenses` is deprecated upstream and
+  cannot be combined with `allow-licenses`).
+- `audit` classifies every component of a CycloneDX SBOM: allowed, exempted,
+  copyleft (the GPL/AGPL audit, by SPDX id or licence name; `LGPL-*` is never
+  read as `GPL-*`, the substring defect two donors carry), not allowed, or
+  unknown. Copyleft and not-allowed block (exit 1). Unknown — an SBOM read from
+  lockfiles often carries no licence — is counted and reported unless the
+  caller passes `--unknown fail`. An unreadable, non-CycloneDX or empty SBOM is
+  an infrastructure failure (exit 3) in every mode (§9).
+
+Step two adds `.github/workflows/supply-chain.yml` (dependency review on pull
+requests that change a dependency manifest, a CycloneDX SBOM as a report
+artifact, and `audit` over it), pinning this action at this change's merge
+commit (§8, §16, §34); how organization CI calls it is a CTO decision.
+
+Tests: `tests/actions/test_license_policy.py`.
+

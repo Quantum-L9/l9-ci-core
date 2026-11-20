@@ -1,0 +1,11 @@
+{
+  "schema": "l9.license-policy-repository/v1",
+  "repository": "Quantum-L9/l9-ci-core",
+  "exemptions": [
+    {
+      "package": "pkg:githubactions/SonarSource/sonarqube-scan-action",
+      "license": "LGPL-3.0",
+      "reason": "CI-only action, invoked as a pinned remote action and not redistributed; the same exemption the CTO accepted for Cognitive.Engine.Graphs in #521."
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "schema": "l9.license-policy/v1",
+  "description": "Core's organization licence policy. Licences are SPDX identifiers. A dependency passes when every licence it declares is allowed, or when a per-repository exemption names it with a reason. Strong-copyleft licences (GPL/AGPL family, SSPL, EUPL) are never allowed by default; LGPL is weak copyleft and is denied too unless exempted per package.",
+  "allow": [
+    "0BSD",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "HPND-Markus-Kuhn",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "PSF-2.0",
+    "Python-2.0",
+    "Unlicense",
+    "Zlib"
+  ],
+  "deny_families": [
+    "AGPL",
+    "GPL",
+    "LGPL",
+    "SSPL",
+    "EUPL"
+  ]
+}

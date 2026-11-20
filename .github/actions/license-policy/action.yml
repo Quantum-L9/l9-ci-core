@@ -1,0 +1,60 @@
+name: Licence policy (Core)
+description: >
+  Core's organization licence policy, shipped inside this pinned action so a
+  consumer can never author it (AGENTS.md §3). `render` emits the policy as
+  actions/dependency-review-action inputs; `audit` checks a CycloneDX SBOM and
+  fails on a copyleft (GPL/AGPL/LGPL/SSPL/EUPL) or otherwise not-allowed
+  licence that no per-repository exemption covers. An unreadable or empty SBOM
+  is an infrastructure failure and is fatal.
+inputs:
+  operation:
+    description: "`render` or `audit`."
+    required: true
+  repository:
+    description: OWNER/REPO whose per-repository exemptions apply.
+    required: true
+  sbom:
+    description: Workspace-relative CycloneDX JSON SBOM (audit only).
+    required: false
+    default: ""
+  unknown:
+    description: "`report` (default) or `fail` for components that declare no licence (audit only)."
+    required: false
+    default: report
+outputs:
+  allow-licenses:
+    description: Comma-separated allowed SPDX ids (render only).
+    value: ${{ steps.policy.outputs.allow-licenses }}
+  allow-dependencies-licenses:
+    description: Comma-separated exempted package URLs (render only).
+    value: ${{ steps.policy.outputs.allow-dependencies-licenses }}
+runs:
+  using: composite
+  steps:
+    - id: policy
+      name: Apply Core licence policy
+      shell: bash
+      env:
+        L9_POLICY_OPERATION: ${{ inputs.operation }}
+        L9_POLICY_REPOSITORY: ${{ inputs.repository }}
+        L9_POLICY_SBOM: ${{ inputs.sbom }}
+        L9_POLICY_UNKNOWN: ${{ inputs.unknown }}
+      run: |
+        set -euo pipefail
+        script="${GITHUB_ACTION_PATH}/license_policy.py"
+        case "${L9_POLICY_OPERATION}" in
+          render)
+            python3 -I "${script}" render --repository "${L9_POLICY_REPOSITORY}" \
+              --github-output "${GITHUB_OUTPUT}"
+            ;;
+          audit)
+            python3 -I "${script}" audit --repository "${L9_POLICY_REPOSITORY}" \
+              --sbom "${L9_POLICY_SBOM}" --unknown "${L9_POLICY_UNKNOWN}" \
+              --output .l9/runtime/license-audit.json \
+              --summary "${GITHUB_STEP_SUMMARY}"
+            ;;
+          *)
+            echo "::error title=Licence policy::operation must be render or audit" >&2
+            exit 2
+            ;;
+        esac

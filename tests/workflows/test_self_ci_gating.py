@@ -45,6 +45,7 @@ UNIT_TEST_MODULES = (
     "tests/actions/test_install_biome.py",
     "tests/actions/test_install_consumer_ci.py",
     "tests/actions/test_install_semgrep.py",
+    "tests/actions/test_license_policy.py",
     "tests/actions/test_run_biome_check.py",
     "tests/architecture/test_control_plane_boundary.py",
     "tests/architecture/test_external_action_pins.py",
