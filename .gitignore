@@ -8,3 +8,6 @@ __pycache__/
 .l9/autonomy/
 artifacts/
 .DS_Store
+.coverage
+.coverage.*
+coverage-reports/
