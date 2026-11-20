@@ -1467,3 +1467,32 @@ aggregator, and advance the SDK pin.
 Tests: `tests/tools/test_check_core_pin_ancestry.py`,
 `tests/provisioning/test_compatibility_manifest.py`,
 `tests/workflows/test_org_repository_verification.py`.
+
+## 35. SDK `dc783c64` activation and the required-instance verdict (2026-11-20) — the §16 pin advance, applied; step two of §34
+
+- `org-ci.yml`'s Core action pins advance to `8554ce96` (#292's merge, an
+  ancestor of `main`), and its `sdk-revision` fallback moves from `d09d3963`
+  to `dc783c64`. Between `d09d3963` and `dc783c64` the fleet gains
+  `9fd4efe7`'s L9-PYTHON-WRITABLE-FILE-MODE rule (group or other write
+  permission on chmod) and the `providers inventory` command; `semgrep run`
+  otherwise scans the same rules.
+- `Analyze (central Core)` keeps its name and becomes the L9-CI-CORE-003
+  verdict. The SDK inventories the snapshot before repository verification
+  can touch the tree; `plan-required-instances` plans every applicable
+  provider/language instance (requiredness from central governance's
+  `required-provider`); the detected language reuses its full pipeline's gate
+  status and every other planned language runs `semgrep run` → `bundle
+  validate` → `gate evaluate` with the same policy, identity map and
+  strictness; `aggregate-required-instances` turns the records into one
+  status. The blocking-mode enforcement reads that aggregate: a required
+  instance that is missing, skipped or unfinished is `incomplete` (exit 6),
+  never pass, and no aggregate at all is `incomplete`.
+- An SDK execution error in a second language (`semgrep run` or `bundle
+  validate` failing, or `gate evaluate` exiting outside 0/1/6) fails the job in
+  every mode, as the detected language's own steps do; it is never folded into
+  an advisory aggregate.
+- Only the detected language's bundle is published (artifact set, SARIF,
+  agent payload); a second language contributes its verdict, not artifacts.
+
+Tests: `tests/workflows/test_org_ci_required_instances.py` (the embedded
+runner against a fake SDK, with Core's real planner and aggregator).
