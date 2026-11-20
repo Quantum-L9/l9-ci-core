@@ -25,7 +25,7 @@ entrypoint:
       main is production for the next governed pull_request or merge_group
       evaluation. Release contract: .l9/release-plane.yaml.
   required_check:
-    name: Analyze (Central Core)
+    name: Analyze (central Core)
     job: analyze
     note: >-
       The one place the organization's required check name is written.
@@ -33,7 +33,10 @@ entrypoint:
       tests/workflows/test_required_check_name.py, and the organization
       ruleset's required_status_checks entry must list it. Consumers and Core
       documents reference this key, never the literal, so a rename changes
-      this value, the job name and the ruleset entry, nothing else.
+      this value, the job name and the ruleset entry, nothing else. The
+      operator has asked for "Analyze (Central Core)"; that one-value change
+      lands only after the organization ruleset's old status-check entry is
+      removed, so the required name always reports.
   native_events: [push, pull_request, merge_group]
   ruleset_events: [pull_request, merge_group]
   cross_repository_push_fanout:

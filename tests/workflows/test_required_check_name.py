@@ -47,7 +47,7 @@ class RequiredCheckNameTests(unittest.TestCase):
     def test_the_contract_names_the_check_and_its_job(self) -> None:
         contract = yaml.safe_load(CONTRACT.read_text(encoding="utf-8"))
         required = contract["entrypoint"]["required_check"]
-        self.assertEqual("Analyze (Central Core)", required["name"])
+        self.assertEqual("Analyze (central Core)", required["name"])
         self.assertEqual("analyze", required["job"])
 
     def test_org_ci_job_carries_exactly_the_contract_name(self) -> None:
