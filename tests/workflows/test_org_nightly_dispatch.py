@@ -687,11 +687,17 @@ class WorkflowContractTests(unittest.TestCase):
         nightly_on = triggers_of(nightly_workflow)
         self.assertEqual([{"cron": nightly.NIGHTLY_CRON}], scheduler_on["schedule"])
         self.assertEqual([{"cron": nightly.NIGHTLY_CRON}], nightly_on["schedule"])
+        # Operator decision 2026-11-20 (AGENTS.md §37): apply is open. The plan
+        # job still only plans; the apply job alone holds the App private key.
         self.assertEqual(
-            ["plan"], scheduler_on["workflow_dispatch"]["inputs"]["mode"]["options"]
+            ["plan", "apply"],
+            scheduler_on["workflow_dispatch"]["inputs"]["mode"]["options"],
         )
         text = SCHEDULER.read_text(encoding="utf-8")
-        self.assertNotIn("secrets.", text)
+        plan_text = yaml.safe_dump(scheduler["jobs"]["plan"])
+        self.assertNotIn("secrets.", plan_text)
+        self.assertNotIn("nightly_apply.py", plan_text)
+        self.assertEqual(["plan"], [scheduler["jobs"]["apply"]["needs"]])
         self.assertNotIn("make test", text)
         self.assertNotIn("make setup", text)
         self.assertNotIn("pip install", text)

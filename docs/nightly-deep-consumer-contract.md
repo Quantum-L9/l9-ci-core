@@ -113,11 +113,19 @@ retired before CURSOR_CANARY_PASS.**
     GPL/AGPL scan. `dependency-review` stays on pull requests.
 - Projected, as CEG.
 
-### Quantum-L9/Cursor-Governance (not admitted)
+### Quantum-L9/Cursor-Governance (admitted 2026-11-20, `cursor-governance-deep/v1`)
 
-- It has no deep entry point. Its test suite runs only on PR, push and
-  dispatch (`l9-lint-test.yml`).
-- Would replace, once it exposes one:
+- Entry point `.github/workflows/sonarcloud.yml`: dispatch-only, the five
+  string inputs, the SHA and key admission before pytest, and a refusal of a
+  repeated dispatch key.
+- It does not conform yet on one row: its `run-name` is
+  `SonarCloud <mode> <dispatch_key> <expected_sha>`, not
+  `deep <mode> <utc_slot> <deep_contract> <dispatch_key>`. Core skips a title
+  it cannot parse, so it sees no Cursor-Governance history: every night reads
+  as changed and is dispatched, and Core cannot deduplicate a key (the
+  repository's own guard refuses the repeat). Setting the contract
+  `run-name` restores change gating; that is a Cursor-Governance change.
+- Would replace, once apply has run it:
   - `codeql-nightly.yml`, daily 03:24, CodeQL security-extended;
   - `supply-chain.yml` schedule, weekly Mon 03:00, licences and SBOM.
 - Not replaced (housekeeping, not a change-gated suite):
@@ -146,17 +154,21 @@ runs tests or a change-gated scan, so none is replaced:
 The planner skips it as `outside_organization`. Its own
 `nightly-full-python.yml` (daily 07:17, `Staging` only) is unaffected.
 
-## Opening apply (operator decision)
+## Opening apply (operator decision, taken 2026-11-20)
 
-Apply stays closed until an operator does all of these:
+The operator opened apply on 2026-11-20 (AGENTS.md §37):
 
-1. Provide a credential that can read contents and metadata and write
-   `actions` on the admitted consumers, as an installation token. This
-   repository holds no such credential and creates none.
-2. Add a step that runs `python3 tools/nightly_apply.py apply` with
-   `L9_NIGHTLY_APPLY=open` and the credential in
-   `L9_NIGHTLY_DISPATCH_TOKEN`. No workflow sets either today, and
-   `tests/workflows/test_nightly_apply.py` fails if one does.
+1. The credential is the `l9-nightly-dispatch` GitHub App (installed on the
+   organization; actions read/write, contents read, metadata read). Its ID is
+   repository variable `L9_NIGHTLY_APP_ID` and its key repository secret
+   `L9_NIGHTLY_APP_PRIVATE_KEY` in `Quantum-L9/l9-ci-core`. No PAT is used.
+2. `org-nightly-dispatch.yml` job `apply` (on the schedule, or a dispatch with
+   `mode: apply`) mints an installation token scoped to the admitted
+   `dispatch` repositories alone with `actions: write` and `contents: read`,
+   and runs `python3 tools/nightly_apply.py apply` with
+   `L9_NIGHTLY_APPLY=open` and the token in `L9_NIGHTLY_DISPATCH_TOKEN`.
+   `tests/workflows/test_nightly_apply.py` fails if any other workflow does
+   either, or if the token is not App-minted.
 3. Keep Core's registry projection current
    (`tools/project_required_repositories.py --ref main --check`), so every
    admitted consumer is a member.
