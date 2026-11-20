@@ -52,6 +52,9 @@ repo-check: ## Toolchain conformance, ruff check, ruff format --check, mypy
 # fails if any listed path is missing or if collection is zero. The full suite
 # is the Core-local test-deep target.
 REPO_TEST_MODULES := \
+	tests/actions/test_aggregate_required_instances.py \
+	tests/actions/test_plan_required_instances.py \
+	tests/governance/test_ci_runtime_invariants.py \
 	tests/repo_execution/test_boundary.py \
 	tests/repo_execution/test_contract.py \
 	tests/repo_execution/test_contract_admission.py \
@@ -59,6 +62,7 @@ REPO_TEST_MODULES := \
 	tests/repo_execution/test_core_runtime.py \
 	tests/repo_execution/test_core_self_hosting.py \
 	tests/repo_execution/test_facade.py \
+	tests/repo_execution/test_inherited_config.py \
 	tests/repo_execution/test_legacy_v1.py \
 	tests/repo_execution/test_repo_mk.py \
 	tests/repo_execution/test_stamp.py \
@@ -68,14 +72,21 @@ REPO_TEST_MODULES := \
 	tests/tools/test_check_workflow_integrity.py \
 	tests/tools/test_manifest_integrity.py \
 	tests/tools/test_project_required_repositories.py \
-	tests/tools/test_tool_ownership.py
+	tests/tools/test_tool_ownership.py \
+	tests/workflows/test_security_scan_outcomes.py
+
+# The interpreter command that runs the subset. self-ci.yml's Repository
+# contract job sets it to `python -m coverage run --parallel-mode -m unittest`
+# so Core's Sonar analysis gets coverage from this same run (.coveragerc); the
+# default runs the suite exactly as before.
+REPO_TEST_RUNNER ?= $(PYTHON) -m unittest
 
 repo-test: ## Run the explicit PR unittest subset
 	@for module in $(REPO_TEST_MODULES); do \
 		test -f "$$module" || { printf 'repo-test: missing %s\n' "$$module" >&2; exit 1; }; \
 	done
 	@$(PYTHON) -c 'import os, sys, unittest; mods = sys.argv[1:]; names = [m[:-3].replace(os.sep, ".") if m.endswith(".py") else m for m in mods]; count = unittest.defaultTestLoader.loadTestsFromNames(names).countTestCases(); sys.exit(0 if count else "repo-test: collection is zero")' $(REPO_TEST_MODULES)
-	@$(PYTHON) -m unittest --verbose $(REPO_TEST_MODULES)
+	@$(REPO_TEST_RUNNER) --verbose $(REPO_TEST_MODULES)
 
 # ---------------------------------------------------------------------------
 # Core-local operations. Not part of the portable ABI.

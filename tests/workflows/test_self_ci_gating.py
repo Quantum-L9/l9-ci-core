@@ -125,7 +125,12 @@ UNIT_TEST_MODULES = (
 )
 
 NIGHTLY = WORKFLOWS / "nightly-deep.yml"
-UNITTEST_COMMAND = 'python -m unittest "${modules[@]}" --verbose'
+# The census run, measured for Core's Sonar analysis (requirements-coverage.txt,
+# .coveragerc). Coverage wraps the one run; it adds no second test run.
+UNITTEST_COMMAND = (
+    'python -m coverage run --parallel-mode -m unittest "${modules[@]}" --verbose'
+)
+SUITE_MARKER = "-m unittest"
 
 #: The exact check-run names the ruleset payload must require. Reusable-workflow
 #: callers are named ``<caller job name> / <called job name>`` by GitHub.
@@ -208,21 +213,24 @@ class UnitTestsJobTests(unittest.TestCase):
         self.assertEqual(lint_python["with"], unit_python["with"])
         self.assertEqual("3.12", unit_python["with"]["python-version"])
 
-    def test_job_names_stay_the_existing_three(self) -> None:
+    def test_job_names_are_the_three_gates_and_the_sonar_caller(self) -> None:
         names = [
             job.get("name", job_id) for job_id, job in self.workflow["jobs"].items()
         ]
         self.assertEqual(
-            ["Lint and Type Check", "Unit tests", "Repository contract"],
+            [
+                "Lint and Type Check",
+                "Unit tests",
+                "Repository contract",
+                "SonarQube Cloud",
+            ],
             names,
         )
 
     def test_unit_tests_install_the_requirements_before_the_suite(self) -> None:
         steps = self.unit["steps"]
         setup = step_index(steps, lambda s: "setup-python" in str(s.get("uses", "")))
-        suite = step_index(
-            steps, lambda s: "python -m unittest" in str(s.get("run", ""))
-        )
+        suite = step_index(steps, lambda s: SUITE_MARKER in str(s.get("run", "")))
         self.assertNotIn("unittest discover", str(steps[suite].get("run", "")))
         for requirement in REQUIREMENT_FILES:
             with self.subTest(requirement=requirement):
@@ -248,7 +256,7 @@ class UnitTestsJobTests(unittest.TestCase):
         matches = [
             str(step["run"])
             for step in self.unit["steps"]
-            if "python -m unittest" in str(step.get("run", ""))
+            if SUITE_MARKER in str(step.get("run", ""))
         ]
         self.assertEqual(1, len(matches))
         run = matches[0]
@@ -278,7 +286,7 @@ class UnitTestsJobTests(unittest.TestCase):
             next(
                 str(step["run"])
                 for step in self.unit["steps"]
-                if "python -m unittest" in str(step.get("run", ""))
+                if SUITE_MARKER in str(step.get("run", ""))
             )
         )
         repo_text = (ROOT / "Repo.mk").read_text(encoding="utf-8")
@@ -330,7 +338,20 @@ class RepositoryContractJobTests(unittest.TestCase):
         ]
         self.assertEqual(["setup", "validate", "check", "test"], phases)
         runs = [str(step["run"]).strip() for step in self.steps if "run" in step][1:]
-        self.assertEqual([f"make {phase}" for phase in phases], runs)
+        makes = [run for run in runs if run.startswith("make ")]
+        self.assertEqual([f"make {phase}" for phase in phases], makes)
+        # The only other steps measure `make test` for Core's Sonar analysis:
+        # install the hash-pinned coverage after setup, write the report after
+        # the test phase. Neither replaces or repeats a phase.
+        others = [run for run in runs if not run.startswith("make ")]
+        self.assertEqual(2, len(others))
+        self.assertLess(runs.index("make setup"), runs.index(others[0]))
+        self.assertLess(runs.index(others[0]), runs.index("make validate"))
+        self.assertIn("--require-hashes", others[0])
+        self.assertIn("-r requirements-coverage.txt", others[0])
+        self.assertLess(runs.index("make test"), runs.index(others[1]))
+        self.assertIn("python -m coverage combine", others[1])
+        self.assertNotIn("unittest", others[0] + others[1])
 
     def test_no_step_tolerates_failure(self) -> None:
         for step in self.steps:

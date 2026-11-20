@@ -1277,3 +1277,128 @@ Out of scope here, a follow-up: Core pull requests are still evaluated by
 pinned older actions — `analyze-semgrep.yml` pins `resolve-governance`,
 `detect-language` and `invoke-sdk` to `a0c7178` rather than the revision
 under review.
+
+## 30. Proposed CI control-plane decisions live in `docs/adr/` (2026-11-20)
+
+Decision record for where two proposed decisions are kept. It decides nothing
+else and repeats none of their text.
+
+- `docs/adr/0001-top-down-ci-control-and-runtime-inheritance.md` and
+  `docs/adr/0002-governed-promotion-native-provider-boundaries-and-cost.md`
+  are **Proposed**. `docs/adr/README.md` is their index and carries the status.
+  Neither is in force until its owner admits it; until then §1 to §29 are
+  unchanged.
+- Their scoped statements are `.l9/governance-contract.yaml`
+  `ci_runtime_invariants`, `L9-CI-CORE-001` to `006`. A statement there is a
+  proposal, not enforcement.
+- Witnesses: `tests/governance/test_ci_runtime_invariants.py`, one known-good
+  and one known-bad per ID, over `tools/ci_runtime_invariants.py`. The `002`
+  and `003` witnesses fail closed on a named missing capability. The `004` and
+  `006` witnesses prove gate logic only; no live canary, ruleset read or hosted
+  run is claimed.
+- This file stays the one decision trail. A later decision that realizes or
+  admits either record is a new dated section here that points at it.
+
+## 31. Required instances are aggregated by one action; activation is a pin advance (2026-11-20)
+
+Decision record for the first realization step of the proposed
+`docs/adr/0001-top-down-ci-control-and-runtime-inheritance.md` decision 4
+(`L9-CI-CORE-003`). The ADR stays Proposed; this section records what exists.
+
+- `.github/actions/aggregate-required-instances/` takes Core's plan of the
+  provider/language instances for one evaluated revision
+  (`l9.core-required-instances/v1`) and one Core record per executed instance
+  (`l9.core-instance-result/v1`), and emits one aggregate
+  (`l9.core-instance-aggregate/v1`): `fail` if a required instance failed,
+  else `incomplete` if any required instance is missing, skipped, timed out,
+  cancelled, duplicated, unreadable or bound to another repository, revision
+  or SDK revision, else `pass`. An empty plan passes only with a stated reason
+  for non-applicability. Exit codes follow the SDK gate (0, 1, 6).
+- An instance is `provider:target`, with the target in the SDK inventory's
+  grammar (`language:<name>` or `framework:<name>`). An instance whose SDK
+  prerequisite is not `applicable`, and a plan marked `unresolved`, can never
+  aggregate to `pass`. An instance the plan marks optional never gates.
+- `.github/actions/plan-required-instances/` builds that plan from the SDK's
+  `l9.capability-inventory/v1` record. The record carries no requiredness;
+  Core adds it. Every `applicable` prerequisite becomes an instance, so no
+  language is chosen over another. An instance is required when central
+  governance resolved its provider as required and Core executes the target
+  (`executable-targets.json`: today `language:python` and
+  `language:typescript`, the identity maps Core ships). An applicable target
+  Core cannot execute is planned and visible, and not required. An inventory
+  that is `failed`, `incomplete` or bound to another revision makes the plan
+  `unresolved`. Unsupported languages are listed, not planned.
+- Both actions read only the inventory and Core's own records. They open no
+  SDK bundle, finding or gate result and derive no verdict: an instance's
+  `pass` or `fail` is the status the SDK technical gate returned (§3,
+  `.l9/governance-contract.yaml` `prohibited`).
+- Proof: `tests/actions/test_plan_required_instances.py` over
+  `tests/fixtures/capability-inventory/` (four records the SDK inventory
+  command printed, held as contract fixtures; Core's SDK pin is unchanged and
+  no Core job runs an unmerged SDK),
+  `tests/actions/test_aggregate_required_instances.py` over
+  `tests/fixtures/required-instances/mixed/` (Python plus TypeScript), and
+  three steps in `sdk-contract-check.yml` that run both languages through the
+  provisioned SDK, aggregate them with the action at the event revision, then
+  aggregate the same records with one instance removed and require
+  `incomplete`.
+- **Not active.** `org-ci.yml` still resolves one language
+  (`detect-language`) and does not call this action. Calling it is a pin
+  advance after this change is on `main` (§16), and it needs an SDK pin that
+  carries `l9-ci providers inventory`. Until then
+  `tests/governance/test_ci_runtime_invariants.py` keeps the
+  `required-instance-scheduling` witness failing closed.
+
+## 32. A stamp record may inherit tool configuration from Core at runtime (2026-11-20) — amends §24 and §25
+
+Decision record for the first realization step of the proposed
+`docs/adr/0001-top-down-ci-control-and-runtime-inheritance.md` decision 3
+(`L9-CI-CORE-002`). The ADR stays Proposed. §25 "Repository-specific
+settings" said an overlay would change `l9.core-stamp/v1` and needed its own
+decision; this is that decision for inheritance only. It adds no
+repository-specific setting.
+
+- **Record.** `l9.core-stamp/v2` is v1 plus `inherited`: a non-empty list of
+  the profile's paths the repository does not carry. `files` holds digests
+  for the carried paths only. The key set is exact per schema. A v1 record is
+  read exactly as before, and `stamp` without `--inherit` still writes v1.
+- **What may be inherited.** Every Core-owned file of the profile except
+  `.l9/repo-workflow.json` and `Makefile`, which are what make a repository
+  verifiable, and `biome.json`, `.biomeignore` and `.editorconfig`.
+  `org-ci.yml`'s blocking Biome check reads those three from the checkout
+  before the bridge runs and treats a repository without `biome.json` as not
+  applicable, so inheriting them would switch off the only JS/TS gate. They
+  become inheritable when that check resolves its configuration from Core,
+  which is an `org-ci.yml` change. Today that leaves the Python tool
+  configuration and `.gitleaks.toml`.
+- **Resolution.** `tools/l9_repo/inherited_config.py` `resolve` returns the
+  bytes this Core revision renders for the inherited paths, one sha256 per
+  file and one configuration digest over the set. Nothing in the consumer
+  selects content.
+- **Drift.** An inherited path that is absent is aligned, whatever Core's
+  bytes are, so a Core preset change no longer fails a repository that
+  inherits it. A profile path that is neither carried nor inherited is still
+  drift, and a carried path is still byte-checked (§25).
+- **Override.** A local file at an inherited path is accepted only when it is
+  Core's exact bytes. Any other content is a finding that names the central
+  and the local digest, in every mode. The same applies to a symlink.
+  A consumer cannot change version, mode or ignore scope this way.
+- **Bridge.** `run-repository-verification` prints the resolved configuration
+  digest after admission and writes the absent inherited files into the
+  workspace before the first phase. `tools.l9_repo` gains `materialize` for
+  the same step on a developer machine.
+- **Adoption.** A repository adopts inheritance by re-stamping with
+  `--inherit`. `stamp` then removes the Core-owned copy at each inherited path
+  (this revision's bytes, or the bytes the previous record stamped), because a
+  tracked copy left behind would become an override at the next Core change.
+  It refuses to convert a path whose content is anything else. It deletes
+  nothing outside the inherited paths.
+- **Not decided.** No repository is migrated to v2 here and no stamped file
+  is retired. That needs the canary the ADR names.
+
+Activation: inert until the §16 pin advance moves `run-repository-verification`
+to this change's merge revision; a v2 record evaluated by an older pin is
+rejected as malformed, so no repository should carry one before that.
+
+Tests: `tests/repo_execution/test_inherited_config.py`,
+`tests/governance/test_ci_runtime_invariants.py` (`L9-CI-CORE-002`).

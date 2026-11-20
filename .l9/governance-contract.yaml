@@ -93,3 +93,42 @@ outputs:
   - selected SDK policy path
   - applicable waiver identifiers
   - governance configuration digest
+
+ci_runtime_invariants:
+  - id: L9-CI-CORE-001
+    statement: >-
+      Core resolves provider requiredness and enforcement policy from SDK-detected
+      capabilities, as well as immutable tool versions, event profiles and central
+      configuration at the evaluated revision. A consumer may declare its native project
+      facts but must not select, override, disable or shadow these central decisions.
+  - id: L9-CI-CORE-002
+    statement: >-
+      For centrally governed tools, the effective configuration is selected from reviewed
+      Core/SDK revision-bound sources at runtime, with an exact content digest.
+      Consumer-stamped defaults are not required once the owning stamp and
+      repository-execution contracts are safely migrated; genuine product settings remain
+      product-owned.
+  - id: L9-CI-CORE-003
+    statement: >-
+      Core must schedule every required provider/language instance selected by the SDK for
+      the exact evaluated repository revision, account for each terminal status and enforce
+      the applicable technical gate. Missing, skipped, timed-out, untrusted or unevaluated
+      required instances cannot yield a passing required check.
+  - id: L9-CI-CORE-004
+    statement: >-
+      A centrally changed tool, rulepack or enforcement policy is promoted only through
+      pinned Core/SDK compatibility, representative known-bad and known-good tests, canary
+      execution, integrated parity evidence and a reversible rollout. A consumer-local
+      equivalent control remains until its central successor is proven.
+  - id: L9-CI-CORE-005
+    statement: >-
+      Central CI must not move write-scoped SaaS, CodeQL or vendor publication credentials
+      into untrusted read-only pull-request execution. Native providers may execute at their
+      authorized owners and contribute exact-run evidence without Core or SDK impersonating
+      their execution or authority.
+  - id: L9-CI-CORE-006
+    statement: >-
+      Claims of fleet-wide required CI coverage require current effective GitHub ruleset
+      targeting, branches, required-check freshness, bypass policy and execution
+      observations for every in-scope repository. Other account owners are not covered by
+      Quantum-L9 rulesets by implication.

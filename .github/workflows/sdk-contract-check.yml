@@ -173,3 +173,145 @@ jobs:
           PYC
             rm -rf "${work}"
           done
+      # L9-CI-CORE-003, hosted. The plan action at this revision turns a
+      # recorded SDK capability inventory (l9.capability-inventory/v1, mixed
+      # Python and TypeScript) into the instance plan. Two real SDK executions
+      # each write one Core instance record, and the aggregate action turns
+      # them into one status. The same records with one instance removed must
+      # not aggregate to pass. The inventory is a recorded contract fixture:
+      # the SDK pinned here predates `providers inventory`, and no Core job
+      # runs an unmerged SDK. org-ci.yml does not call either action until its
+      # pins advance (AGENTS.md §16).
+      - id: inventory
+        name: Read the recorded mixed-language inventory
+        env:
+          INVENTORY: tests/fixtures/capability-inventory/mixed.json
+        run: |
+          set -euo pipefail
+          revision="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["result"]["snapshot"]["revision"])' "${INVENTORY}")"
+          echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+          echo "path=${INVENTORY}" >> "$GITHUB_OUTPUT"
+      - id: plan
+        name: Plan the instances from the inventory
+        uses: ./.github/actions/plan-required-instances
+        with:
+          inventory: ${{ steps.inventory.outputs.path }}
+          repository: ${{ github.repository }}
+          revision: ${{ steps.inventory.outputs.revision }}
+          sdk-revision: ${{ steps.sdk.outputs.sdk-revision }}
+          required-providers: semgrep
+          output: .l9/runtime/required-instances-fixture/mixed/plan.json
+      - name: Run the planned instances through the SDK
+        env:
+          SDK_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          SDK_REVISION: ${{ steps.sdk.outputs.sdk-revision }}
+          WORKSPACE: ${{ github.workspace }}
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ steps.inventory.outputs.revision }}
+          PLANNED: ${{ steps.plan.outputs.targets }}
+          REQUIRED_COUNT: ${{ steps.plan.outputs['required-count'] }}
+        run: |
+          set -euo pipefail
+          fixture="${WORKSPACE}/.l9/runtime/required-instances-fixture"
+          mkdir -p "${fixture}/mixed/results"
+          if [ "${PLANNED}" != "semgrep:language:python,semgrep:language:typescript" ] \
+            || [ "${REQUIRED_COUNT}" != "2" ]; then
+            echo "plan did not select both languages as required: ${PLANNED} (${REQUIRED_COUNT})" >&2
+            exit 1
+          fi
+          for lang in python typescript; do
+            case "${lang}" in
+              python) ext=py ;;
+              typescript) ext=ts ;;
+            esac
+            work="$(mktemp -d)"
+            mkdir -p "${work}/src"
+            printf 'x\n' > "${work}/src/example.${ext}"
+            cp "${WORKSPACE}/tests/fixtures/smoke/${lang}-clean-report.json" \
+              "${work}/report.json"
+            policy="${WORKSPACE}/.github/actions/resolve-governance/semgrep-policy.yaml"
+            identity="${WORKSPACE}/.github/actions/resolve-governance/identity-maps/${lang}.yaml"
+            ( cd "${work}" && "${SDK_EXECUTABLE}" semgrep normalize \
+                --input report.json --output finding-bundle.json \
+                --provider-version 1.171.0 --root . \
+                --snapshot-id "${REVISION}" --revision "${REVISION}" \
+                --policy "${policy}" --identity-map "${identity}" --strict )
+            ( cd "${work}" && "${SDK_EXECUTABLE}" bundle validate finding-bundle.json )
+            gate_rc=0
+            ( cd "${work}" && "${SDK_EXECUTABLE}" gate evaluate \
+                --bundle finding-bundle.json --output gate-result.json \
+                --strict-unresolved ) || gate_rc=$?
+            case "${gate_rc}" in
+              0) status="pass" ;;
+              1) status="fail" ;;
+              6) status="incomplete" ;;
+              *) echo "gate evaluate failed with unexpected exit ${gate_rc}" >&2; exit "${gate_rc}" ;;
+            esac
+            LANGUAGE="${lang}" STATUS="${status}" \
+              python3 -I - "${fixture}/mixed/results/semgrep-${lang}.json" <<'PYR'
+          import json, os, sys
+          record = {
+              "schema": "l9.core-instance-result/v1",
+              "repository": os.environ["REPOSITORY"],
+              "provider": "semgrep",
+              "target": "language:" + os.environ["LANGUAGE"],
+              "revision": os.environ["REVISION"],
+              "sdk_revision": os.environ["SDK_REVISION"],
+              "status": os.environ["STATUS"],
+          }
+          with open(sys.argv[1], "w", encoding="utf-8") as stream:
+              json.dump(record, stream, indent=2)
+          print(f"instance semgrep:{record['target']}: {record['status']}")
+          PYR
+            rm -rf "${work}"
+          done
+          # The known-bad twin: the same plan, with the TypeScript instance gone.
+          mkdir -p "${fixture}/killed/results"
+          cp "${fixture}/mixed/plan.json" "${fixture}/killed/plan.json"
+          cp "${fixture}/mixed/results/semgrep-python.json" "${fixture}/killed/results/"
+      - id: mixed
+        name: Aggregate the mixed-language fixture
+        uses: ./.github/actions/aggregate-required-instances
+        with:
+          plan: .l9/runtime/required-instances-fixture/mixed/plan.json
+          results-directory: .l9/runtime/required-instances-fixture/mixed/results
+          output: .l9/runtime/required-instances-fixture/mixed/aggregate.json
+      - id: killed
+        name: Aggregate the same fixture with one instance removed
+        uses: ./.github/actions/aggregate-required-instances
+        with:
+          plan: .l9/runtime/required-instances-fixture/killed/plan.json
+          results-directory: .l9/runtime/required-instances-fixture/killed/results
+          output: .l9/runtime/required-instances-fixture/killed/aggregate.json
+      - name: Prove both aggregate verdicts
+        env:
+          MIXED_STATUS: ${{ steps.mixed.outputs.status }}
+          MIXED_ACCOUNTED: ${{ steps.mixed.outputs.accounted }}
+          KILLED_STATUS: ${{ steps.killed.outputs.status }}
+          KILLED_EXIT: ${{ steps.killed.outputs['exit-code'] }}
+          KILLED_ACCOUNTED: ${{ steps.killed.outputs.accounted }}
+          FIXTURE: ${{ github.workspace }}/.l9/runtime/required-instances-fixture
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PYV'
+          import json, os
+          from pathlib import Path
+
+          env = os.environ
+          fixture = Path(env["FIXTURE"])
+          mixed = json.loads((fixture / "mixed" / "aggregate.json").read_text("utf-8"))
+          killed = json.loads((fixture / "killed" / "aggregate.json").read_text("utf-8"))
+          problems = []
+          if (env["MIXED_STATUS"], env["MIXED_ACCOUNTED"]) != ("pass", "true"):
+              problems.append(f"mixed fixture: {env['MIXED_STATUS']} accounted={env['MIXED_ACCOUNTED']}")
+          if (mixed["planned"], mixed["completed"]) != (2, 2):
+              problems.append(f"mixed fixture: planned {mixed['planned']} completed {mixed['completed']}")
+          if (env["KILLED_STATUS"], env["KILLED_EXIT"], env["KILLED_ACCOUNTED"]) != ("incomplete", "6", "false"):
+              problems.append(f"killed fixture: {env['KILLED_STATUS']} exit {env['KILLED_EXIT']} accounted={env['KILLED_ACCOUNTED']}")
+          if (killed["planned"], killed["completed"]) != (2, 1):
+              problems.append(f"killed fixture: planned {killed['planned']} completed {killed['completed']}")
+          if problems:
+              raise SystemExit("; ".join(problems))
+          print("mixed fixture: 2 completed executions, 1 aggregate, pass")
+          print("same fixture with one instance removed: incomplete (exit 6)")
+          PYV

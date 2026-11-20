@@ -62,7 +62,8 @@ from .contract import (
 from .contract_wiring import ContractWiringError, validate_contract_wiring
 from .locking import LockBusy, single_flight
 from .reporting import StepEvidence, redact_text, write_reports
-from .stamp import CORE_ROOT, PROFILES, stamp, verify_stamp
+from .inherited_config import materialize, resolve
+from .stamp import CORE_ROOT, PROFILES, inherited_paths, stamp, verify_stamp
 
 CORE_POLICY_PATH = pathlib.Path(".l9/core-repo-policy.json")
 CORE_POLICY_SCHEMA = "l9.core-repository-policy/v1"
@@ -70,6 +71,7 @@ COMMANDS = (
     "validate",
     "reconcile",
     "stamp",
+    "materialize",
     "core-validate",
     "doctor",
     "change-policy",
@@ -1143,6 +1145,35 @@ def validate_stamp(root: pathlib.Path) -> None:
         f"stamp: PASS ({record['profile']}; stamped from "
         f"{record['core']['repository']}@{record['core']['revision']})"
     )
+    resolution = resolve(root)
+    if resolution is not None:
+        print(
+            f"stamp: {len(resolution.files)} file(s) inherited from Core; "
+            f"configuration digest {resolution.configuration_digest}"
+        )
+
+
+def materialize_inherited(root: pathlib.Path) -> None:
+    """Write the configuration a stamped repository inherits from this Core."""
+
+    record, findings = verify_stamp(root)
+    if record is None:
+        _fail("materialize requires a stamp record (.l9/core-stamp.json)")
+    if findings:
+        _fail(
+            "Core-owned files drift from this Core revision:\n  "
+            + "\n  ".join(findings)
+        )
+    resolution = resolve(root)
+    if resolution is None:
+        print("materialize: the stamp record inherits nothing")
+        return
+    for relative in materialize(root, resolution):
+        print(f"materialized {relative}")
+    print(
+        f"materialize: {len(inherited_paths(record))} inherited file(s); "
+        f"configuration digest {resolution.configuration_digest}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1157,6 +1188,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--head-ref", default="HEAD")
     parser.add_argument("--changed-file", action="append", default=[])
     parser.add_argument("--profile", choices=PROFILES)
+    parser.add_argument(
+        "--inherit",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "stamp only: record PATH as inherited from Core instead of writing "
+            "it (repeatable; `all` inherits every inheritable file)"
+        ),
+    )
     parser.add_argument("command", choices=COMMANDS)
     return parser
 
@@ -1172,13 +1213,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif arguments.command == "stamp":
             if arguments.profile is None:
                 _fail("stamp requires --profile (" + ", ".join(PROFILES) + ")")
-            changed = stamp(core.root, arguments.profile, core_stamp_revision())
+            changed = stamp(
+                core.root,
+                arguments.profile,
+                core_stamp_revision(),
+                arguments.inherit,
+            )
             for relative in changed:
-                print(f"stamped {relative}")
+                written = (core.root / relative).is_file()
+                print(
+                    f"{'stamped' if written else 'removed (now inherited)'} {relative}"
+                )
             print(
                 f"stamp: {arguments.profile}; "
-                + (f"{len(changed)} file(s) written" if changed else "already current")
+                + (f"{len(changed)} file(s) changed" if changed else "already current")
             )
+        elif arguments.command == "materialize":
+            materialize_inherited(core.root)
         elif arguments.command == "reconcile":
             core.locked_reconcile()
         elif arguments.command == "core-validate":
