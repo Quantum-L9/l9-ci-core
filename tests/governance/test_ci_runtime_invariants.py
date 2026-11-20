@@ -25,7 +25,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 # Core's tools/ is not a package, and under `unittest discover --start-directory
 # tests` the name `tools` resolves to tests/tools. Import the module the way the
-# other suites import from tools/ (AGENTS.md §29, test-deep).
+# other suites import from tools/ (Repo.mk test-deep).
 sys.path.insert(0, str(ROOT / "tools"))
 
 import ci_runtime_invariants as invariants  # noqa: E402
