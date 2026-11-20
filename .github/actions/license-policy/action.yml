@@ -44,14 +44,12 @@ runs:
         script="${GITHUB_ACTION_PATH}/license_policy.py"
         case "${L9_POLICY_OPERATION}" in
           render)
-            python3 -I "${script}" render --repository "${L9_POLICY_REPOSITORY}" \
-              --github-output "${GITHUB_OUTPUT}"
+            python3 -I "${script}" render --repository "${L9_POLICY_REPOSITORY}"
             ;;
           audit)
             python3 -I "${script}" audit --repository "${L9_POLICY_REPOSITORY}" \
               --sbom "${L9_POLICY_SBOM}" --unknown "${L9_POLICY_UNKNOWN}" \
-              --output .l9/runtime/license-audit.json \
-              --summary "${GITHUB_STEP_SUMMARY}"
+              --output .l9/runtime/license-audit.json
             ;;
           *)
             echo "::error title=Licence policy::operation must be render or audit" >&2

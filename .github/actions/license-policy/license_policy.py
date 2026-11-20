@@ -28,15 +28,21 @@ invalid invocation or invalid policy data; ``3`` the SBOM is missing, unreadable
 not CycloneDX JSON, or has no components — an infrastructure failure, fatal in
 every mode (AGENTS.md §9).
 
-    python3 license_policy.py render --repository OWNER/REPO [--github-output FILE]
+    python3 license_policy.py render --repository OWNER/REPO
     python3 license_policy.py audit --repository OWNER/REPO --sbom FILE
-        [--output RECORD.json] [--unknown report|fail] [--summary FILE]
+        [--output RECORD.json] [--workspace DIR] [--unknown report|fail]
+
+``--sbom`` and ``--output`` must resolve inside ``--workspace`` (default: the
+current directory). ``render`` appends to ``$GITHUB_OUTPUT`` and ``audit`` to
+``$GITHUB_STEP_SUMMARY`` when the runner sets them; no argument names a file
+outside the workspace.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -96,9 +102,7 @@ def repository_file(repository: str) -> Path:
     return REPOSITORIES / (repository.replace("/", "__") + ".json")
 
 
-def load_policy(repository: str) -> Policy:
-    if not REPOSITORY.match(repository):
-        raise PolicyError(2, f"repository {repository!r} is not OWNER/REPO")
+def _load_base() -> tuple[frozenset[str], tuple[str, ...]]:
     doc = _load_json(POLICY, 2)
     if not isinstance(doc, dict) or doc.get("schema") != POLICY_SCHEMA:
         raise PolicyError(2, f"policy.json is not {POLICY_SCHEMA}")
@@ -116,36 +120,48 @@ def load_policy(repository: str) -> Policy:
     clash = sorted(item for item in allow if family_of(item, tuple(families)))
     if clash:
         raise PolicyError(2, f"policy.json allows a denied-family licence: {clash}")
-    exemptions: dict[str, dict[str, str]] = {}
+    return frozenset(allow), tuple(families)
+
+
+def _valid_exemption(entry: object) -> bool:
+    return isinstance(entry, dict) and all(
+        isinstance(entry.get(key), str) and entry[key].strip()
+        for key in ("package", "license", "reason")
+    )
+
+
+def _load_exemptions(repository: str) -> dict[str, dict[str, str]]:
     path = repository_file(repository)
-    if path.exists():
-        data = _load_json(path, 2)
-        if (
-            not isinstance(data, dict)
-            or data.get("schema") != REPOSITORY_SCHEMA
-            or data.get("repository") != repository
-            or not isinstance(data.get("exemptions"), list)
-        ):
+    if not path.exists():
+        return {}
+    data = _load_json(path, 2)
+    if (
+        not isinstance(data, dict)
+        or data.get("schema") != REPOSITORY_SCHEMA
+        or data.get("repository") != repository
+        or not isinstance(data.get("exemptions"), list)
+    ):
+        raise PolicyError(2, f"{path.name} is not {REPOSITORY_SCHEMA} for {repository}")
+    exemptions: dict[str, dict[str, str]] = {}
+    for entry in data["exemptions"]:
+        if not _valid_exemption(entry):
             raise PolicyError(
-                2, f"{path.name} is not {REPOSITORY_SCHEMA} for {repository}"
+                2, f"{path.name}: every exemption names package, license and reason"
             )
-        for entry in data["exemptions"]:
-            if not isinstance(entry, dict) or not all(
-                isinstance(entry.get(key), str) and entry[key].strip()
-                for key in ("package", "license", "reason")
-            ):
-                raise PolicyError(
-                    2, f"{path.name}: every exemption names package, license and reason"
-                )
-            if not entry["package"].startswith("pkg:"):
-                raise PolicyError(2, f"{path.name}: {entry['package']!r} is not a purl")
-            key = normalize_purl(entry["package"])
-            if key in exemptions:
-                raise PolicyError(
-                    2, f"{path.name}: {entry['package']} is exempted twice"
-                )
-            exemptions[key] = entry
-    return Policy(frozenset(allow), tuple(families), exemptions)
+        if not entry["package"].startswith("pkg:"):
+            raise PolicyError(2, f"{path.name}: {entry['package']!r} is not a purl")
+        key = normalize_purl(entry["package"])
+        if key in exemptions:
+            raise PolicyError(2, f"{path.name}: {entry['package']} is exempted twice")
+        exemptions[key] = entry
+    return exemptions
+
+
+def load_policy(repository: str) -> Policy:
+    if not REPOSITORY.match(repository):
+        raise PolicyError(2, f"repository {repository!r} is not OWNER/REPO")
+    allow, families = _load_base()
+    return Policy(allow, families, _load_exemptions(repository))
 
 
 def family_of(license_id: str, families: tuple[str, ...]) -> str | None:
@@ -164,18 +180,25 @@ def named_family(name: str, families: tuple[str, ...]) -> str | None:
 
 
 def alternatives(expression: str) -> list[list[str]]:
-    """An SPDX expression as OR-alternatives of AND-terms; ``WITH`` exceptions dropped."""
-    flat = re.sub(r"[()]", " ", expression)
-    flat = re.sub(r"\s+WITH\s+\S+", " ", flat, flags=re.IGNORECASE)
-    return [
-        [
-            term
-            for term in re.split(r"\s+AND\s+", alt.strip(), flags=re.IGNORECASE)
-            if term
-        ]
-        for alt in re.split(r"\s+OR\s+", flat.strip(), flags=re.IGNORECASE)
-        if alt.strip()
-    ]
+    """An SPDX expression as OR-alternatives of AND-terms; ``WITH`` exceptions dropped.
+
+    A single linear pass over whitespace tokens: no regex runs over the
+    expression, which is untrusted SBOM content.
+    """
+    tokens = expression.replace("(", " ").replace(")", " ").split()
+    result: list[list[str]] = [[]]
+    skip_next = False
+    for token in tokens:
+        operator = token.upper()
+        if skip_next:
+            skip_next = False
+        elif operator == "WITH":
+            skip_next = True
+        elif operator == "OR":
+            result.append([])
+        elif operator != "AND":
+            result[-1].append(token)
+    return [alt for alt in result if alt]
 
 
 def classify_licence_set(
@@ -305,40 +328,57 @@ def summary(record: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def confined(path: Path, workspace: Path) -> Path:
+    """A CLI path, resolved, only when it stays inside the workspace."""
+    resolved = (workspace / path).resolve()
+    try:
+        resolved.relative_to(workspace.resolve())
+    except ValueError as exc:
+        raise PolicyError(2, f"{path} resolves outside the workspace") from exc
+    return resolved
+
+
+def _append(env_name: str, text: str) -> None:
+    """Append to a runner file named by the runner, never by an argument."""
+    target = os.environ.get(env_name, "")
+    if target:
+        with Path(target).open("a", encoding="utf-8") as handle:
+            handle.write(text)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     rend = sub.add_parser("render")
     rend.add_argument("--repository", required=True)
-    rend.add_argument("--github-output", type=Path)
     aud = sub.add_parser("audit")
     aud.add_argument("--repository", required=True)
     aud.add_argument("--sbom", type=Path, required=True)
     aud.add_argument("--output", type=Path)
-    aud.add_argument("--summary", type=Path)
+    aud.add_argument("--workspace", type=Path, default=Path.cwd())
     aud.add_argument("--unknown", choices=("report", "fail"), default="report")
     args = parser.parse_args(argv)
     try:
         if args.command == "render":
             rendered = render(args.repository)
-            if args.github_output is not None:
-                with args.github_output.open("a", encoding="utf-8") as handle:
-                    for key, value in rendered.items():
-                        handle.write(f"{key}={value}\n")
+            _append(
+                "GITHUB_OUTPUT",
+                "".join(f"{key}={value}\n" for key, value in rendered.items()),
+            )
             print(json.dumps(rendered, indent=2, sort_keys=True))
             return 0
-        record = audit(args.sbom, args.repository, args.unknown == "fail")
+        sbom = confined(args.sbom, args.workspace)
+        output = confined(args.output, args.workspace) if args.output else None
+        record = audit(sbom, args.repository, args.unknown == "fail")
     except PolicyError as exc:
         print(f"::error title=Licence policy::{exc}", file=sys.stderr)
         return exc.code
-    if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
             json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-    if args.summary is not None:
-        with args.summary.open("a", encoding="utf-8") as handle:
-            handle.write(summary(record))
+    _append("GITHUB_STEP_SUMMARY", summary(record))
     for entry in record["violations"]:
         print(
             f"::error title=Licence policy::{entry['status']}: "

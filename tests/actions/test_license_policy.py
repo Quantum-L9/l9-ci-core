@@ -9,15 +9,20 @@ infrastructure failure (exit 3, AGENTS.md §9).
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
+from unittest import mock
 
 import yaml
 
@@ -27,10 +32,18 @@ SCRIPT = ACTION_DIR / "license_policy.py"
 REPO = "Quantum-L9/l9-ci-core"
 
 spec = importlib.util.spec_from_file_location("license_policy", SCRIPT)
-assert spec and spec.loader
+assert spec is not None
+assert spec.loader is not None
 policy = importlib.util.module_from_spec(spec)
 sys.modules["license_policy"] = policy
 spec.loader.exec_module(policy)
+
+
+@dataclass(frozen=True)
+class Result:
+    returncode: int
+    stdout: str
+    stderr: str
 
 
 def component(name: str, purl: str, *licences: dict[str, Any]) -> dict[str, Any]:
@@ -64,13 +77,17 @@ class AuditTests(unittest.TestCase):
         )
         return path
 
-    def _cli(self, *args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [sys.executable, "-I", str(SCRIPT), *args],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+    def _cli(self, *args: str) -> Result:
+        """Run the CLI in-process with the temp dir as workspace, so coverage measures it."""
+        stdout, stderr = io.StringIO(), io.StringIO()
+        extra = ["--workspace", str(self.tmp)] if args and args[0] == "audit" else []
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            code = policy.main([*args, *extra])
+        return Result(code, stdout.getvalue(), stderr.getvalue())
 
     def _status(self, *licences: dict[str, Any], purl: str = "pkg:pypi/example") -> str:
         record = policy.audit(
@@ -184,9 +201,99 @@ class AuditTests(unittest.TestCase):
             self._cli("audit", "--repository", REPO, "--sbom", str(garbage)).returncode,
         )
 
+    def test_paths_outside_the_workspace_are_refused(self) -> None:
+        ok = self._sbom(component("ok", "pkg:pypi/ok", spdx("MIT")))
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        escape = outside / "record.json"
+        result = self._cli(
+            "audit", "--repository", REPO, "--sbom", str(ok), "--output", str(escape)
+        )
+        self.assertEqual(2, result.returncode)
+        self.assertIn("resolves outside the workspace", result.stderr)
+        self.assertFalse(escape.exists())
+        result = self._cli("audit", "--repository", REPO, "--sbom", "../sbom.json")
+        self.assertEqual(2, result.returncode)
+
+    def test_the_script_runs_isolated_as_the_action_calls_it(self) -> None:
+        self._sbom(component("ok", "pkg:pypi/ok", spdx("MIT")))
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                str(SCRIPT),
+                "audit",
+                "--repository",
+                REPO,
+                "--sbom",
+                "sbom.json",
+            ],
+            cwd=self.tmp,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+
     def test_repository_must_be_owner_slash_repo(self) -> None:
         result = self._cli("render", "--repository", "../escape")
         self.assertEqual(2, result.returncode)
+
+
+class ExpressionTests(unittest.TestCase):
+    def test_spdx_expression_is_split_without_regex(self) -> None:
+        self.assertEqual(
+            [["MIT"], ["Apache-2.0"]], policy.alternatives("MIT OR Apache-2.0")
+        )
+        self.assertEqual(
+            [["Apache-2.0", "BSD-3-Clause"]],
+            policy.alternatives("(Apache-2.0 AND BSD-3-Clause)"),
+        )
+        self.assertEqual(
+            [["GPL-2.0-only"], ["MIT"]],
+            policy.alternatives("GPL-2.0-only WITH Classpath-exception-2.0 or MIT"),
+        )
+        self.assertEqual([], policy.alternatives(" OR AND "))
+        long = " OR ".join(["MIT"] * 20000)
+        self.assertEqual(20000, len(policy.alternatives(long)))
+
+    def test_audit_summary_reaches_the_step_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sbom = Path(tmp) / "sbom.json"
+            sbom.write_text(
+                json.dumps(
+                    {
+                        "bomFormat": "CycloneDX",
+                        "components": [
+                            component("gpl", "pkg:pypi/gpl", spdx("GPL-3.0-only"))
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            summary = Path(tmp) / "summary.md"
+            with (
+                mock.patch.dict(
+                    os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}, clear=True
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                code = policy.main(
+                    [
+                        "audit",
+                        "--repository",
+                        REPO,
+                        "--sbom",
+                        "sbom.json",
+                        "--workspace",
+                        tmp,
+                    ]
+                )
+            self.assertEqual(1, code)
+            text = summary.read_text(encoding="utf-8")
+        self.assertIn("Licence audit — FAIL", text)
+        self.assertIn("**copyleft** `pkg:pypi/gpl`", text)
 
 
 class RenderTests(unittest.TestCase):
@@ -206,12 +313,11 @@ class RenderTests(unittest.TestCase):
     def test_render_writes_github_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "output"
-            self.assertEqual(
-                0,
-                policy.main(
-                    ["render", "--repository", REPO, "--github-output", str(out)]
-                ),
-            )
+            with (
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}, clear=True),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(0, policy.main(["render", "--repository", REPO]))
             text = out.read_text(encoding="utf-8")
         self.assertIn("allow-licenses=", text)
         self.assertIn("allow-dependencies-licenses=pkg:githubactions/", text)
@@ -221,7 +327,7 @@ class PolicyDataTests(unittest.TestCase):
     def test_policy_never_allows_a_denied_family(self) -> None:
         doc = json.loads((ACTION_DIR / "policy.json").read_text(encoding="utf-8"))
         families = tuple(doc["deny_families"])
-        self.assertTrue({"GPL", "AGPL"} <= set(families))
+        self.assertLessEqual({"GPL", "AGPL"}, set(families))
         self.assertEqual([], [i for i in doc["allow"] if policy.family_of(i, families)])
         self.assertEqual(sorted(doc["allow"]), doc["allow"])
 
