@@ -115,10 +115,13 @@ class ScanReportTests(unittest.TestCase):
         "NODE_PROJECT": "false",
         "NPM_AUDIT_REQUESTED": "false",
         "GITLEAKS_STEP": "success",
+        "GITLEAKS_OUTCOME": "executed_pass",
         "PIP_AUDIT_STEP": "success",
+        "PIP_AUDIT_OUTCOME": "executed_pass",
         "BANDIT_STEP": "success",
         "BANDIT_OUTCOME": "executed_no_findings",
         "NPM_AUDIT_STEP": "skipped",
+        "NPM_AUDIT_OUTCOME": "",
     }
 
     def rows(self, **changes: str) -> dict[str, tuple[str, str]]:
@@ -132,8 +135,12 @@ class ScanReportTests(unittest.TestCase):
         return table
 
     def test_report_runs_even_when_an_earlier_step_failed(self) -> None:
-        self.assertEqual("always()", _step(REPORT_STEP)["if"])
+        step = _step(REPORT_STEP)
+        self.assertEqual("always()", step["if"])
         self.assertEqual(REPORT_STEP, _steps()[-1]["name"])
+        # The job default is the caller's working-directory; if that path is
+        # missing, a step that inherits it cannot start and reports nothing.
+        self.assertEqual("${{ github.workspace }}", step["working-directory"])
 
     def test_known_good_python_project(self) -> None:
         rows = self.rows()
@@ -153,11 +160,40 @@ class ScanReportTests(unittest.TestCase):
                 "not_executed",
             ),
             "pip-audit skipped after gitleaks failed": (
-                {"GITLEAKS_STEP": "failure", "PIP_AUDIT_STEP": "skipped"},
+                {
+                    "GITLEAKS_STEP": "failure",
+                    "GITLEAKS_OUTCOME": "executed_fail",
+                    "PIP_AUDIT_STEP": "skipped",
+                    "PIP_AUDIT_OUTCOME": "",
+                },
                 "pip-audit",
                 "not_executed",
             ),
-            "gitleaks failed": ({"GITLEAKS_STEP": "failure"}, "gitleaks", "executed_f"),
+            "gitleaks found a secret": (
+                {"GITLEAKS_STEP": "failure", "GITLEAKS_OUTCOME": "executed_fail"},
+                "gitleaks",
+                "executed_fail",
+            ),
+            "gitleaks download failed before the scan": (
+                {"GITLEAKS_STEP": "failure", "GITLEAKS_OUTCOME": ""},
+                "gitleaks",
+                "not_executed (the step failed before",
+            ),
+            "pip-audit install failed before the scan": (
+                {"PIP_AUDIT_STEP": "failure", "PIP_AUDIT_OUTCOME": ""},
+                "pip-audit",
+                "not_executed (the step failed before",
+            ),
+            "npm audit refused a missing lockfile": (
+                {
+                    "NPM_AUDIT_REQUESTED": "true",
+                    "NODE_PROJECT": "true",
+                    "NPM_AUDIT_STEP": "failure",
+                    "NPM_AUDIT_OUTCOME": "",
+                },
+                "npm audit",
+                "not_executed (the step failed before",
+            ),
             "no python project": (
                 {"PYTHON_PROJECT": "false", "BANDIT_OUTCOME": ""},
                 "bandit",
@@ -173,6 +209,7 @@ class ScanReportTests(unittest.TestCase):
                     "NPM_AUDIT_REQUESTED": "true",
                     "NODE_PROJECT": "true",
                     "NPM_AUDIT_STEP": "failure",
+                    "NPM_AUDIT_OUTCOME": "executed_fail",
                 },
                 "npm audit",
                 "executed_fail",
@@ -192,7 +229,10 @@ class ScanReportTests(unittest.TestCase):
 
     def test_requested_npm_audit_is_required_and_reported(self) -> None:
         rows = self.rows(
-            NPM_AUDIT_REQUESTED="true", NODE_PROJECT="true", NPM_AUDIT_STEP="success"
+            NPM_AUDIT_REQUESTED="true",
+            NODE_PROJECT="true",
+            NPM_AUDIT_STEP="success",
+            NPM_AUDIT_OUTCOME="executed_pass",
         )
         self.assertEqual(("required", "executed_pass"), rows["npm audit"])
 
@@ -206,3 +246,42 @@ class ScanReportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RequiredScanOutcomeTests(unittest.TestCase):
+    """A required scan states its outcome only once its scanner has run."""
+
+    def test_npm_audit_states_an_outcome_only_after_the_lockfile_check(self) -> None:
+        script = str(_step("Node dependency audit (npm audit)")["run"])
+        with tempfile.TemporaryDirectory() as temp:
+            code, text = _run(f"cd {temp}\n{script}", {}, {"npm": 0})
+            self.assertEqual(1, code)
+            self.assertNotIn("outcome=", text)
+            (Path(temp) / "package-lock.json").write_text("{}", encoding="utf-8")
+            code, text = _run(f"cd {temp}\n{script}", {}, {"npm": 0})
+            self.assertEqual(0, code)
+            self.assertIn("outcome=executed_pass", text)
+            code, text = _run(f"cd {temp}\n{script}", {}, {"npm": 1})
+            self.assertEqual(1, code, "npm audit stays required when requested")
+            self.assertIn("outcome=executed_fail", text)
+
+    def test_pip_audit_keeps_its_exit_code_and_states_its_outcome(self) -> None:
+        script = str(_step("Python dependency audit (pip-audit)")["run"])
+        env = {"L9_CI_INSTALL_COMMAND": ""}
+        code, text = _run(script, env, {"python": 0, "pip": 0, "pip-audit": 0})
+        self.assertEqual(0, code)
+        self.assertIn("outcome=executed_pass", text)
+        code, text = _run(script, env, {"python": 0, "pip": 0, "pip-audit": 1})
+        self.assertEqual(1, code, "pip-audit stays required")
+        self.assertIn("outcome=executed_fail", text)
+        code, text = _run(script, env, {"python": 0, "pip": 1, "pip-audit": 0})
+        self.assertNotEqual(0, code)
+        self.assertNotIn("outcome=", text)
+
+    def test_gitleaks_states_an_outcome_only_after_acquisition(self) -> None:
+        script = str(_step("Secret scan (gitleaks)")["run"])
+        acquisition, scan = script.split("tar -xzf", 1)
+        self.assertNotIn("outcome=", acquisition)
+        self.assertIn("outcome=executed_pass", scan)
+        self.assertIn("outcome=executed_fail", scan)
+        self.assertIn('exit "${status}"', scan)
