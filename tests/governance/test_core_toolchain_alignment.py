@@ -44,9 +44,14 @@ class CoreToolchainAlignmentTests(unittest.TestCase):
 
     def test_every_core_pin_of_a_lock_owned_tool_matches_the_lock(self) -> None:
         off = [
-            f"{item['path']}:{item['line']} {item['tool']} "
-            f"{item['declared'] or '(no version)'} vs lock {item['lock']} "
-            f"({item['class']})"
+            "{path}:{line} {tool} {declared} vs lock {lock} ({kind})".format(
+                path=item["path"],
+                line=item["line"],
+                tool=item["tool"],
+                declared=item["declared"] or "(no version)",
+                lock=item["lock"],
+                kind=item["class"],
+            )
             for item in self.findings
             if item["class"] not in ALIGNED
         ]

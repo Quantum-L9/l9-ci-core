@@ -523,6 +523,7 @@ class SurfaceTests(WorkspaceCase):
         self.assertNotIn((".github/workflows/uv.yml", 11, "uv", "exact_drift"), found)
 
     def test_gitleaks_env_and_release_url(self) -> None:
+        RELEASES = "https://github.com/gitleaks/gitleaks/releases/download"
         self.put(
             ".github/workflows/secrets.yml",
             "\n".join(
@@ -532,10 +533,8 @@ class SurfaceTests(WorkspaceCase):
                     "jobs:",  # 3
                     "  a:",  # 4
                     "    steps:",  # 5
-                    "      - run: curl -sSL https://github.com/gitleaks/gitleaks/"
-                    f"releases/download/v{LOCK['gitleaks']}/x.tar.gz",  # 6
-                    "      - run: curl https://github.com/gitleaks/gitleaks/"
-                    "releases/download/v${GITLEAKS_VERSION}/x.tar.gz",  # 7
+                    f"      - run: curl -sSL {RELEASES}/v{LOCK['gitleaks']}/x.tar.gz",  # 6
+                    f"      - run: curl {RELEASES}/v${{GITLEAKS_VERSION}}/x.tar.gz",  # 7
                 ]
             )
             + "\n",
