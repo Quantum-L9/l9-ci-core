@@ -21,8 +21,8 @@ Authority files in Core:
 
 - `.github/actions/install-consumer-ci/toolchain-lock.json` — **the** organization
   toolchain-version authority: `ruff`, `mypy`, `pytest`, `biome`, `semgrep`,
-  `python`, `pre-commit`, `pip`. Every other Core copy of a version is bound to
-  it by a test.
+  `python`, `pre-commit`, `pip`, `bandit`, `gitleaks`, `pip-audit`, `uv`. Every
+  other Core copy of a version is bound to it by a test.
 - `.github/actions/install-consumer-ci/requirements-consumer-ci.txt` (pip,
   pre-commit, ruff, mypy, pytest, uv installer pins; test-bound copy)
 - `presets/typescript/biome.json` `$schema` (the locked consumer Biome
@@ -58,14 +58,31 @@ copy-first preset and starter callers were retired on 2026-10-22
 
 ## Toolchain alignment (advisory)
 
-`check-toolchain-alignment` reads the consumer checkout (`pyproject.toml`
-dependency groups and optional dependencies, `uv.lock`, root
-`requirements*.txt`, `.pre-commit-config.yaml` revs, `biome.json`/`biome.jsonc`
-`$schema`, `package.json` `@biomejs/biome`) and classifies each Core-owned tool
-declaration as `exact_match`, `exact_drift`, `range_admits_lock`,
-`range_excludes_lock`, `unpinned`, or `unparseable`. Drift is annotated at
-`file:line`; the job never fails on a consumer finding. The report is
-`l9.toolchain-alignment/v1` JSON at `.l9/runtime/toolchain-alignment.json`.
+`check-toolchain-alignment` reads the consumer checkout and classifies each
+declaration of a lock-owned tool as `exact_match`, `exact_drift`,
+`range_admits_lock`, `range_excludes_lock`, `range_admits_older`, `unpinned`, or
+`unparseable`. Drift (`exact_drift`, `range_excludes_lock`,
+`range_admits_older`) is annotated at `file:line`; the job never fails on a
+consumer finding. The report is `l9.toolchain-alignment/v1` JSON at
+`.l9/runtime/toolchain-alignment.json`. Surfaces read:
+
+| Surface | Tools |
+|---|---|
+| `pyproject.toml` dependencies, optional dependencies, dependency groups | every `pip` name in `core-owned-tools.json` |
+| `pyproject.toml` `requires-python`, `.python-version` | `python` (a `requires-python` that admits a minor older than the lock is `range_admits_older`) |
+| `uv.lock` | every `pip` name |
+| `*requirements*.txt`, `*-bootstrap.txt` (to depth three, not `.venv`/vendored trees) | every `pip` name, `uv` |
+| `.pre-commit-config.yaml` `rev` | every `pre-commit` repository URL |
+| `biome.json`/`biome.jsonc` `$schema`, `package.json` `@biomejs/biome` | `biome` |
+| workflow `python-version` / `PYTHON_VERSION` literals | `python` |
+| workflow `pip install name==x` | every `pip` name |
+| workflow setup-uv `version`, `UV_VERSION` | `uv` |
+| workflow `GITLEAKS_VERSION`, gitleaks release-download URLs | `gitleaks` |
+
+Core applies the same scanner to itself and fails on anything but
+`exact_match`/`range_admits_lock`
+(`tests/governance/test_core_toolchain_alignment.py`): every Core-internal pin
+of a lock-owned tool equals the lock.
 
 Both advisory steps run in the organization workflow (`org-ci.yml`, job
 `Analyze (central Core)`) for every governed repository: the alignment report
@@ -86,6 +103,23 @@ finding.
 There is deliberately no Dependabot entry for the lock: Dependabot updates
 manifests and lock files of supported package ecosystems and `uses:` action
 references, not a JSON version map or digest locks.
+
+The lock-bump path, end to end:
+
+4. The advisory alignment report in `Analyze (central Core)` then shows every
+   consumer declaration that still names the old version (`exact_drift`,
+   `range_excludes_lock`) at `file:line`; owners bring those declarations to
+   the lock. Changing `align.py` itself reaches consumers only through the next
+   AGENTS.md §16 pin advance of `org-ci.yml`.
+5. A consumer found **ahead** of the lock is not brought down by default: when
+   the newer release is unyanked and past Dependabot's 7-day cooldown, the lock
+   bumps through steps 1–3, and the consumer is then aligned.
+6. Dependabot never proposes a lock-owned tool. Consumers get the ignores from
+   the `Quantum-L9/.github` renderer (`ops/render-dependabot.js`, ADR 0019),
+   which reads `core-owned-tools.json`. Core is `self_governed` there and
+   receives no rendered file, so Core's own `.github/dependabot.yml` carries
+   the same ignores by hand, bound to `core-owned-tools.json` by
+   `tests/governance/test_dependabot_core_owned_tools.py`.
 
 ## Consumer type-check contract (Python / mypy)
 

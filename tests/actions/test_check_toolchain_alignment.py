@@ -402,6 +402,195 @@ class ContainmentTests(WorkspaceCase):
         self.assertIn("unreadable", proc.stderr)
 
 
+class SurfaceTests(WorkspaceCase):
+    """Interpreter, workflow, uv and gitleaks declarations (L2h)."""
+
+    def put(self, relative: str, text: str) -> None:
+        path = self.workspace / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def classes(self) -> set[tuple[str, int, str, str]]:
+        proc = self.run_action()
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        return self.findings()
+
+    def test_requires_python_that_admits_an_older_minor_is_drift(self) -> None:
+        self.put(
+            "pyproject.toml", '[project]\nname = "x"\nrequires-python = ">=3.11"\n'
+        )
+        self.assertEqual(
+            {("pyproject.toml", 3, "python", "range_admits_older")}, self.classes()
+        )
+        self.assertIn("range_admits_older", align.DRIFT)
+
+    def test_requires_python_bounded_to_the_locked_minor_is_clean(self) -> None:
+        for spec in (">=3.12", ">=3.12,<3.13"):
+            with self.subTest(spec=spec):
+                self.put(
+                    "pyproject.toml",
+                    f'[project]\nname = "x"\nrequires-python = "{spec}"\n',
+                )
+                self.assertEqual(
+                    {("pyproject.toml", 3, "python", "range_admits_lock")},
+                    self.classes(),
+                )
+
+    def test_requires_python_older_minor_behind_an_exclusion_is_drift(self) -> None:
+        # One probed sentinel is not enough: each spec still admits an older minor.
+        for spec in (">=3.10,!=3.11.*", ">=3.11,!=3.11.99"):
+            with self.subTest(spec=spec):
+                kind, _ = align.classify_requires_python(spec, LOCK["python"])
+                self.assertEqual("range_admits_older", kind)
+        for spec in (">=3.12", ">=3.12,<3.13", "~=3.12.0"):
+            with self.subTest(spec=spec):
+                kind, _ = align.classify_requires_python(spec, LOCK["python"])
+                self.assertEqual("range_admits_lock", kind)
+
+    def test_python_version_file(self) -> None:
+        self.put(".python-version", "3.11\n")
+        self.assertEqual(
+            {(".python-version", 1, "python", "exact_drift")}, self.classes()
+        )
+        self.put(".python-version", LOCK["python"] + "\n")
+        self.assertEqual(
+            {(".python-version", 1, "python", "exact_match")}, self.classes()
+        )
+
+    def test_workflow_python_versions(self) -> None:
+        self.put(
+            ".github/workflows/ci.yml",
+            "\n".join(
+                [
+                    "jobs:",  # 1
+                    "  a:",  # 2
+                    "    steps:",  # 3
+                    "      - uses: actions/setup-python@" + "0" * 40,  # 4
+                    "        with:",  # 5
+                    '          python-version: "3.11"',  # 6 drift
+                    "      - with:",  # 7
+                    "          python-version: ${{ matrix.python }}",  # 8 skipped
+                    "env:",  # 9
+                    "  PYTHON_VERSION: '3.12'",  # 10 admits the lock
+                    "  X: ${{ vars.PY || '3.13' }}",  # 11 not a python key
+                    "      - with:",  # 12
+                    "          python-version: ${{ vars.PY || '3.10' }}",  # 13
+                ]
+            )
+            + "\n",
+        )
+        self.assertEqual(
+            {
+                (".github/workflows/ci.yml", 6, "python", "exact_drift"),
+                (".github/workflows/ci.yml", 10, "python", "range_admits_lock"),
+                (".github/workflows/ci.yml", 13, "python", "exact_drift"),
+            },
+            self.classes(),
+        )
+
+    def test_workflow_pip_install_pins(self) -> None:
+        self.put(
+            ".github/workflows/lint.yml",
+            "jobs:\n  a:\n    steps:\n"
+            f"      - run: pip install ruff=={LOCK['ruff']} mypy==0.0.1 requests==2.0\n"
+            "      - run: echo ruff==0.0.1\n",
+        )
+        self.assertEqual(
+            {
+                (".github/workflows/lint.yml", 4, "ruff", "exact_match"),
+                (".github/workflows/lint.yml", 4, "mypy", "exact_drift"),
+            },
+            self.classes(),
+        )
+
+    def test_setup_uv_and_uv_version_env(self) -> None:
+        self.put(
+            ".github/workflows/uv.yml",
+            "\n".join(
+                [
+                    "env:",  # 1
+                    "  UV_VERSION: 0.0.1",  # 2
+                    "jobs:",  # 3
+                    "  a:",  # 4
+                    "    steps:",  # 5
+                    "      - uses: astral-sh/setup-uv@" + "0" * 40,  # 6
+                    "        with:",  # 7
+                    f"          version: {LOCK['uv']}",  # 8
+                    "      - uses: actions/setup-node@" + "0" * 40,  # 9
+                    "        with:",  # 10
+                    "          version: 9.9.9",  # 11 not uv
+                ]
+            )
+            + "\n",
+        )
+        found = self.classes()
+        self.assertEqual(
+            {
+                (".github/workflows/uv.yml", 2, "uv", "exact_drift"),
+                (".github/workflows/uv.yml", 8, "uv", "exact_match"),
+            },
+            {f for f in found if f[2] == "uv"},
+        )
+        self.assertNotIn((".github/workflows/uv.yml", 11, "uv", "exact_drift"), found)
+
+    def test_gitleaks_env_and_release_url(self) -> None:
+        RELEASES = "https://github.com/gitleaks/gitleaks/releases/download"
+        self.put(
+            ".github/workflows/secrets.yml",
+            "\n".join(
+                [
+                    "env:",  # 1
+                    "  GITLEAKS_VERSION: 8.18.4",  # 2
+                    "jobs:",  # 3
+                    "  a:",  # 4
+                    "    steps:",  # 5
+                    f"      - run: curl -sSL {RELEASES}/v{LOCK['gitleaks']}/x.tar.gz",  # 6
+                    f"      - run: curl {RELEASES}/v${{GITLEAKS_VERSION}}/x.tar.gz",  # 7
+                ]
+            )
+            + "\n",
+        )
+        self.assertEqual(
+            {
+                (".github/workflows/secrets.yml", 2, "gitleaks", "exact_drift"),
+                (".github/workflows/secrets.yml", 6, "gitleaks", "exact_match"),
+            },
+            self.classes(),
+        )
+
+    def test_gitleaks_shell_assignment_in_a_run_block(self) -> None:
+        self.put(
+            ".github/workflows/scan.yml",
+            "\n".join(
+                [
+                    "jobs:",  # 1
+                    "  a:",  # 2
+                    "    steps:",  # 3
+                    "      - run: |",  # 4
+                    '          GITLEAKS_VERSION="8.18.4"',  # 5
+                    f"          export GITLEAKS_VERSION={LOCK['gitleaks']}",  # 6
+                    '          echo "${GITLEAKS_VERSION}"',  # 7
+                ]
+            )
+            + "\n",
+        )
+        self.assertEqual(
+            {
+                (".github/workflows/scan.yml", 5, "gitleaks", "exact_drift"),
+                (".github/workflows/scan.yml", 6, "gitleaks", "exact_match"),
+            },
+            self.classes(),
+        )
+
+    def test_nested_bootstrap_requirement_files(self) -> None:
+        self.put("tools/deps/uv-bootstrap.txt", "uv==0.0.1\n")
+        self.put(".venv/lib/requirements.txt", "ruff==0.0.1\n")
+        self.assertEqual(
+            {("tools/deps/uv-bootstrap.txt", 1, "uv", "exact_drift")},
+            self.classes(),
+        )
+
+
 class ActionContractTests(unittest.TestCase):
     def test_action_is_a_local_stdlib_leaf(self) -> None:
         action = yaml.safe_load((ACTION / "action.yml").read_text(encoding="utf-8"))

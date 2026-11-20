@@ -10,6 +10,22 @@ updates:
     # freshly published (possibly compromised) release is not adopted on day 0.
     cooldown:
       default-days: 7
+    # Lock-owned tools move only through toolchain-lock.json
+    # (docs/consumer-lint-test.md "Bumping a tool version"), never by
+    # Dependabot: every `uv` name in
+    # .github/actions/install-consumer-ci/core-owned-tools.json is ignored.
+    # tests/governance/test_dependabot_core_owned_tools.py keeps this list
+    # equal to that file.
+    ignore:
+      - dependency-name: "bandit"
+      - dependency-name: "mypy"
+      - dependency-name: "pip"
+      - dependency-name: "pip-audit"
+      - dependency-name: "pre-commit"
+      - dependency-name: "pytest"
+      - dependency-name: "ruff"
+      - dependency-name: "semgrep"
+      - dependency-name: "uv"
     groups:
       python-minor-patch:
         patterns: ["*"]
@@ -31,6 +47,13 @@ updates:
     # freshly published (possibly compromised) release is not adopted on day 0.
     cooldown:
       default-days: 7
+    # core-owned-tools.json names no github-actions identifier, so no lock-owned
+    # tool is reachable here; Core's own self-pins move only through
+    # tools/advance_core_action_pins.py (AGENTS.md §16) and the SDK pin only
+    # through .l9/sdk-compatibility.yaml, so neither is proposed either.
+    ignore:
+      - dependency-name: "Quantum-L9/l9-ci-core*"
+      - dependency-name: "Quantum-L9/l9-ci-sdk*"
     groups:
       github-actions-minor-patch:
         patterns: ["*"]
