@@ -311,6 +311,28 @@ class ChangeDetectionTests(WorkspaceCase):
             )
         self.assertEqual("true", unread["run"])
 
+    def test_option_shaped_shas_never_reach_git(self) -> None:
+        with (
+            redirect_stdout(io.StringIO()),
+            mock.patch.object(sc.subprocess, "run") as run,
+        ):
+            for base, head in (
+                ("--output=/tmp/x", "1" * 40),
+                ("0" * 40, "-p"),
+                ("", ""),
+            ):
+                with self.subTest(base=base, head=head):
+                    decided = sc.decide_changes(
+                        self.root,
+                        {
+                            "EVENT_NAME": "pull_request",
+                            "BASE_SHA": base,
+                            "HEAD_SHA": head,
+                        },
+                    )
+                    self.assertEqual("true", decided["run"])
+            run.assert_not_called()
+
     def test_dependency_file_patterns(self) -> None:
         for path in (
             "uv.lock",

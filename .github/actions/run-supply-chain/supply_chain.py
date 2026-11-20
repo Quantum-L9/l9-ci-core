@@ -44,6 +44,7 @@ REPO_POLICY = Path(".l9") / "supply-chain-policy.json"
 POLICY_SCHEMA = "l9.supply-chain-policy/v1"
 REPO_POLICY_SCHEMA = "l9.supply-chain-repo-policy/v1"
 SEVERITIES = ("low", "moderate", "high", "critical")
+FULL_SHA = re.compile(r"[0-9a-f]{40}")
 PURL = re.compile(r"^pkg:[a-z0-9.+-]+/[^\s,]+$")
 
 # Manifests and lock files whose change makes a pull request a dependency
@@ -331,13 +332,17 @@ def decide_changes(workspace: Path, env: dict[str, str]) -> dict[str, str]:
     if event not in ("pull_request", "pull_request_target"):
         return {"run": "true", "reason": f"event {event or 'unknown'}"}
     base, head = env.get("BASE_SHA", ""), env.get("HEAD_SHA", "")
+    if not (FULL_SHA.fullmatch(base) and FULL_SHA.fullmatch(head)):
+        # Only full commit SHAs reach git: an option-shaped value never does.
+        print("::warning::pull request base/head are not commit SHAs; running")
+        return {"run": "true", "reason": "change set unreadable"}
     completed = subprocess.run(
-        ["git", "-C", str(workspace), "diff", "--name-only", f"{base}...{head}"],
+        ["git", "-C", str(workspace), "diff", "--name-only", f"{base}...{head}", "--"],
         capture_output=True,
         text=True,
         check=False,
     )
-    if completed.returncode != 0 or not base or not head:
+    if completed.returncode != 0:
         # Undeterminable change set: run rather than skip.
         print(
             f"::warning::cannot list changed files; running: {completed.stderr.strip()}"
