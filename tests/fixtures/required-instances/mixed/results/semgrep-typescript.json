@@ -2,7 +2,7 @@
   "schema": "l9.core-instance-result/v1",
   "repository": "Quantum-L9/mixed-language-fixture",
   "provider": "semgrep",
-  "language": "typescript",
+  "target": "language:typescript",
   "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "sdk_revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "status": "pass"

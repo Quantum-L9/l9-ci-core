@@ -236,7 +236,7 @@ class RuntimeInvariantWitnessTests(unittest.TestCase):
         self.assertEqual("pass", result["status"])
         self.assertEqual(2, result["completed"])
         self.assertEqual(
-            ["semgrep:python", "semgrep:typescript"],
+            ["semgrep:language:python", "semgrep:language:typescript"],
             [row["id"] for row in result["instances"]],
         )
 

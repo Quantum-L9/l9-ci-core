@@ -109,10 +109,10 @@ CAPABILITIES: dict[str, Capability] = {
         Capability(
             name="required-instance-scheduling",
             detail=(
-                "org-ci.yml does not yet schedule every SDK-selected language "
-                "and provider instance and call aggregate-required-instances "
-                "at a pinned Core revision; the required job still evaluates "
-                "one language"
+                "org-ci.yml does not yet plan every SDK-selected language and "
+                "provider instance (plan-required-instances) and call "
+                "aggregate-required-instances at a pinned Core revision; the "
+                "required job still evaluates one language"
             ),
             present=lambda: (
                 f"{CORE_ACTIONS}aggregate-required-instances@" in _read(ORG_CI)

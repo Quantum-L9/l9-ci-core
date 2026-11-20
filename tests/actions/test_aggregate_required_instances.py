@@ -57,7 +57,7 @@ class MixedLanguageFixtureTests(unittest.TestCase):
         self.assertEqual(2, result["planned"])
         self.assertEqual(2, result["completed"])
         self.assertEqual(
-            ["semgrep:python", "semgrep:typescript"],
+            ["semgrep:language:python", "semgrep:language:typescript"],
             [row["id"] for row in result["instances"]],
         )
         self.assertEqual([], result["reasons"])
@@ -120,7 +120,7 @@ class MixedLanguageFixtureTests(unittest.TestCase):
     def test_known_bad_unplanned_duplicate_and_malformed_records(self) -> None:
         records = fixture_records()
         extra = copy.deepcopy(records["semgrep-python.json"])
-        extra["language"] = "go"
+        extra["target"] = "language:go"
         with self.subTest(case="unplanned instance"):
             result = run(fixture_plan(), {**records, "semgrep-go.json": extra})
             self.assertEqual("incomplete", result["status"])
@@ -179,7 +179,7 @@ class MixedLanguageFixtureTests(unittest.TestCase):
             },
             "record for an unplanned instance": {
                 **records,
-                "x.json": {**records["semgrep-python.json"], "language": "go"},
+                "x.json": {**records["semgrep-python.json"], "target": "language:go"},
             },
             "unreadable record": {**records, "junk.json": "unreadable: bad JSON"},
         }
@@ -190,6 +190,28 @@ class MixedLanguageFixtureTests(unittest.TestCase):
                 self.assertTrue(
                     [entry for entry in result["untrusted_records"] if entry["gating"]]
                 )
+
+    def test_known_bad_unmet_prerequisite_is_never_a_pass(self) -> None:
+        """A record cannot rescue an instance the SDK says cannot run."""
+        for state in ("incomplete", "failed"):
+            with self.subTest(prerequisite=state):
+                plan = fixture_plan()
+                plan["instances"][1]["prerequisite"] = state
+                result = run(plan, fixture_records())
+                self.assertEqual("incomplete", result["status"])
+                self.assertEqual(
+                    f"prerequisite_{state}", result["instances"][1]["status"]
+                )
+                self.assertEqual(1, result["completed"])
+
+    def test_known_bad_unresolved_plan_is_never_a_pass(self) -> None:
+        plan = fixture_plan()
+        plan["unresolved"] = ["SDK capability inventory status is failed"]
+        result = run(plan, fixture_records())
+        self.assertEqual("incomplete", result["status"])
+        self.assertFalse(result["accounted"])
+        self.assertEqual(2, result["completed"])
+        self.assertIn("plan is unresolved", " ".join(result["reasons"]))
 
     def test_empty_plan_needs_evidence_of_non_applicability(self) -> None:
         plan = fixture_plan()
@@ -282,7 +304,7 @@ class EntrypointTests(unittest.TestCase):
             self.assertEqual("incomplete", outputs["status"])
             self.assertEqual("6", outputs["exit-code"])
             self.assertEqual("false", outputs["accounted"])
-            self.assertIn("semgrep:typescript is missing", summary)
+            self.assertIn("semgrep:language:typescript is missing", summary)
 
     def test_unreadable_record_and_missing_results_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

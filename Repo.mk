@@ -53,6 +53,7 @@ repo-check: ## Toolchain conformance, ruff check, ruff format --check, mypy
 # is the Core-local test-deep target.
 REPO_TEST_MODULES := \
 	tests/actions/test_aggregate_required_instances.py \
+	tests/actions/test_plan_required_instances.py \
 	tests/governance/test_ci_runtime_invariants.py \
 	tests/repo_execution/test_boundary.py \
 	tests/repo_execution/test_contract.py \

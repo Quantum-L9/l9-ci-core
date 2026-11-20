@@ -1,0 +1,56 @@
+name: Plan required instances
+description: >
+  Turns the SDK capability inventory for one evaluated revision
+  (l9.capability-inventory/v1) into Core's plan of provider/target instances
+  (l9.core-required-instances/v1). The inventory states facts; requiredness is
+  Core's and comes only from the inputs Core resolved. Every applicable
+  prerequisite becomes an instance, so no language is dropped in favour of
+  another. Reads no SDK bundle, finding or gate result.
+inputs:
+  inventory:
+    description: >
+      Workspace-relative path to the SDK inventory, either the bare record or
+      the `l9-ci providers inventory --format json` envelope.
+    required: true
+  repository:
+    description: owner/name identity of the evaluated repository.
+    required: true
+  revision:
+    description: Full immutable revision that was evaluated.
+    required: true
+  sdk-revision:
+    description: Full immutable SDK revision that produced the inventory.
+    required: true
+  required-providers:
+    description: >
+      Comma-separated providers central governance resolved as required for
+      this profile. A provider not listed is planned but not required.
+    required: false
+    default: ""
+  output:
+    description: New workspace-relative destination for the plan JSON.
+    required: true
+outputs:
+  plan-path:
+    description: Safe workspace-relative path to the plan JSON.
+    value: ${{ steps.plan.outputs['plan-path'] }}
+  targets:
+    description: Comma-separated provider:target identifiers that were planned.
+    value: ${{ steps.plan.outputs.targets }}
+  required-count:
+    description: Number of planned instances that are required.
+    value: ${{ steps.plan.outputs['required-count'] }}
+runs:
+  using: composite
+  steps:
+    - id: plan
+      name: Plan required instances
+      shell: bash
+      env:
+        L9_PLAN_INVENTORY: ${{ inputs.inventory }}
+        L9_PLAN_REPOSITORY: ${{ inputs.repository }}
+        L9_PLAN_REVISION: ${{ inputs.revision }}
+        L9_PLAN_SDK_REVISION: ${{ inputs.sdk-revision }}
+        L9_PLAN_REQUIRED_PROVIDERS: ${{ inputs.required-providers }}
+        L9_PLAN_OUTPUT: ${{ inputs.output }}
+      run: python3 "${{ github.action_path }}/plan.py"

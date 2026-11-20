@@ -1,0 +1,68 @@
+{
+  "ok": true,
+  "result": {
+    "examined_file_count": 1,
+    "frameworks": [
+      {
+        "evidence_count": 0,
+        "evidence_paths": [],
+        "framework": "odoo",
+        "language_file_counts": {},
+        "languages": [
+          "python",
+          "xml"
+        ],
+        "reason": "no Odoo addon manifest among 1 examined file(s)",
+        "state": "not_applicable"
+      }
+    ],
+    "languages": [
+      {
+        "file_count": 1,
+        "language": "python",
+        "reason": "a declared analysis target consumes this language",
+        "sample_paths": [
+          "app.py"
+        ],
+        "state": "applicable"
+      }
+    ],
+    "manifests": [],
+    "package_managers": [],
+    "provider_prerequisites": [
+      {
+        "executable": "not_probed",
+        "executable_version": null,
+        "file_count": 1,
+        "provider_id": "semgrep",
+        "reason": "1 file(s) and a resolved rulepack",
+        "rulepack": "l9_ci/rulesets/semgrep/python",
+        "state": "applicable",
+        "target": "language:python"
+      },
+      {
+        "executable": "not_probed",
+        "executable_version": null,
+        "file_count": 0,
+        "provider_id": "semgrep",
+        "reason": "no typescript file among 1 examined file(s)",
+        "rulepack": "l9_ci/rulesets/semgrep/typescript",
+        "state": "not_applicable",
+        "target": "language:typescript"
+      }
+    ],
+    "reasons": [
+      "semgrep language:python: 1 file(s) and a resolved rulepack"
+    ],
+    "schema": "l9.capability-inventory/v1",
+    "schema_version": "1.0.0",
+    "snapshot": {
+      "dirty": false,
+      "revision": "a69cee8a94a824112c0d85d338292f95544b2a9a",
+      "snapshot_id": "snapshot_470f1fdb48e11f9c392d5b44b19035817cbcf16b78a715aca8c6a3667ec20ea2",
+      "source": "git"
+    },
+    "status": "applicable",
+    "unclassified_file_count": 0
+  }
+}

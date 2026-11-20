@@ -173,23 +173,52 @@ jobs:
           PYC
             rm -rf "${work}"
           done
-      # L9-CI-CORE-003, hosted: two real SDK executions (Python and TypeScript)
-      # each write one Core instance record, and the aggregate action at this
-      # revision turns them into one status. The same records with one instance
-      # removed must not aggregate to pass. This proves the aggregate at the
-      # event revision; org-ci.yml does not call the action until its pins
-      # advance (AGENTS.md §16).
-      - name: Run a mixed-language fixture as two required instances
+      # L9-CI-CORE-003, hosted. The plan action at this revision turns a
+      # recorded SDK capability inventory (l9.capability-inventory/v1, mixed
+      # Python and TypeScript) into the instance plan. Two real SDK executions
+      # each write one Core instance record, and the aggregate action turns
+      # them into one status. The same records with one instance removed must
+      # not aggregate to pass. The inventory is a recorded contract fixture:
+      # the SDK pinned here predates `providers inventory`, and no Core job
+      # runs an unmerged SDK. org-ci.yml does not call either action until its
+      # pins advance (AGENTS.md §16).
+      - id: inventory
+        name: Read the recorded mixed-language inventory
+        env:
+          INVENTORY: tests/fixtures/capability-inventory/mixed.json
+        run: |
+          set -euo pipefail
+          revision="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["result"]["snapshot"]["revision"])' "${INVENTORY}")"
+          echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+          echo "path=${INVENTORY}" >> "$GITHUB_OUTPUT"
+      - id: plan
+        name: Plan the instances from the inventory
+        uses: ./.github/actions/plan-required-instances
+        with:
+          inventory: ${{ steps.inventory.outputs.path }}
+          repository: ${{ github.repository }}
+          revision: ${{ steps.inventory.outputs.revision }}
+          sdk-revision: ${{ steps.sdk.outputs.sdk-revision }}
+          required-providers: semgrep
+          output: .l9/runtime/required-instances-fixture/mixed/plan.json
+      - name: Run the planned instances through the SDK
         env:
           SDK_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
           SDK_REVISION: ${{ steps.sdk.outputs.sdk-revision }}
           WORKSPACE: ${{ github.workspace }}
           REPOSITORY: ${{ github.repository }}
-          REVISION: ${{ github.sha }}
+          REVISION: ${{ steps.inventory.outputs.revision }}
+          PLANNED: ${{ steps.plan.outputs.targets }}
+          REQUIRED_COUNT: ${{ steps.plan.outputs['required-count'] }}
         run: |
           set -euo pipefail
           fixture="${WORKSPACE}/.l9/runtime/required-instances-fixture"
           mkdir -p "${fixture}/mixed/results"
+          if [ "${PLANNED}" != "semgrep:language:python,semgrep:language:typescript" ] \
+            || [ "${REQUIRED_COUNT}" != "2" ]; then
+            echo "plan did not select both languages as required: ${PLANNED} (${REQUIRED_COUNT})" >&2
+            exit 1
+          fi
           for lang in python typescript; do
             case "${lang}" in
               python) ext=py ;;
@@ -225,32 +254,17 @@ jobs:
               "schema": "l9.core-instance-result/v1",
               "repository": os.environ["REPOSITORY"],
               "provider": "semgrep",
-              "language": os.environ["LANGUAGE"],
+              "target": "language:" + os.environ["LANGUAGE"],
               "revision": os.environ["REVISION"],
               "sdk_revision": os.environ["SDK_REVISION"],
               "status": os.environ["STATUS"],
           }
           with open(sys.argv[1], "w", encoding="utf-8") as stream:
               json.dump(record, stream, indent=2)
-          print(f"instance semgrep:{record['language']}: {record['status']}")
+          print(f"instance semgrep:{record['target']}: {record['status']}")
           PYR
             rm -rf "${work}"
           done
-          python3 -I - "${fixture}/mixed/plan.json" <<'PYP'
-          import json, os, sys
-          plan = {
-              "schema": "l9.core-required-instances/v1",
-              "repository": os.environ["REPOSITORY"],
-              "revision": os.environ["REVISION"],
-              "sdk_revision": os.environ["SDK_REVISION"],
-              "instances": [
-                  {"provider": "semgrep", "language": language, "required": True}
-                  for language in ("python", "typescript")
-              ],
-          }
-          with open(sys.argv[1], "w", encoding="utf-8") as stream:
-              json.dump(plan, stream, indent=2)
-          PYP
           # The known-bad twin: the same plan, with the TypeScript instance gone.
           mkdir -p "${fixture}/killed/results"
           cp "${fixture}/mixed/plan.json" "${fixture}/killed/plan.json"

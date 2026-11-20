@@ -1,0 +1,87 @@
+{
+  "ok": true,
+  "result": {
+    "examined_file_count": 3,
+    "frameworks": [
+      {
+        "evidence_count": 0,
+        "evidence_paths": [],
+        "framework": "odoo",
+        "language_file_counts": {},
+        "languages": [
+          "python",
+          "xml"
+        ],
+        "reason": "no Odoo addon manifest among 3 examined file(s)",
+        "state": "not_applicable"
+      }
+    ],
+    "languages": [
+      {
+        "file_count": 1,
+        "language": "python",
+        "reason": "a declared analysis target consumes this language",
+        "sample_paths": [
+          "app.py"
+        ],
+        "state": "applicable"
+      },
+      {
+        "file_count": 1,
+        "language": "typescript",
+        "reason": "a declared analysis target consumes this language",
+        "sample_paths": [
+          "web.ts"
+        ],
+        "state": "applicable"
+      }
+    ],
+    "manifests": [
+      {
+        "kind": "python-project",
+        "path": "pyproject.toml",
+        "reason": "parsed",
+        "state": "applicable"
+      }
+    ],
+    "package_managers": [
+      "python"
+    ],
+    "provider_prerequisites": [
+      {
+        "executable": "not_probed",
+        "executable_version": null,
+        "file_count": 1,
+        "provider_id": "semgrep",
+        "reason": "1 file(s) and a resolved rulepack",
+        "rulepack": "l9_ci/rulesets/semgrep/python",
+        "state": "applicable",
+        "target": "language:python"
+      },
+      {
+        "executable": "not_probed",
+        "executable_version": null,
+        "file_count": 1,
+        "provider_id": "semgrep",
+        "reason": "1 file(s) and a resolved rulepack",
+        "rulepack": "l9_ci/rulesets/semgrep/typescript",
+        "state": "applicable",
+        "target": "language:typescript"
+      }
+    ],
+    "reasons": [
+      "semgrep language:python: 1 file(s) and a resolved rulepack",
+      "semgrep language:typescript: 1 file(s) and a resolved rulepack"
+    ],
+    "schema": "l9.capability-inventory/v1",
+    "schema_version": "1.0.0",
+    "snapshot": {
+      "dirty": false,
+      "revision": "7190183c6588ce21b43eb586ae5d411a5af3e038",
+      "snapshot_id": "snapshot_c085d0821aa7b8ad98ba284092cd83a2e50c93f13d14e5104378ba71517e843e",
+      "source": "git"
+    },
+    "status": "applicable",
+    "unclassified_file_count": 1
+  }
+}
