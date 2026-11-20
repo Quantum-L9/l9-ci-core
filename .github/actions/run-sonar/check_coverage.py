@@ -11,7 +11,12 @@ A report is admitted only when it is:
 * a workspace-relative path made of ``[A-Za-z0-9._/-]`` characters, with no
   ``..`` segment, that resolves inside the workspace (no symlink escape);
 * a regular, non-empty file;
-* well-formed XML whose root element is Cobertura's ``coverage``.
+* XML whose first element is Cobertura's ``coverage`` root, with no DTD.
+
+The report is untrusted repository output, so it is never handed to an XML
+parser here (no entity expansion, no external entities): the head of the file
+is read, bounded, and only its root element is identified. Sonar parses the
+report itself.
 
 The token is checked for presence only and never printed: a blank token fails
 here, with its name, instead of as an opaque scanner error.
@@ -33,10 +38,16 @@ import argparse
 import os
 import re
 import sys
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._/-]+$")
+HEAD_BYTES = 65536
+# Optional BOM, XML declaration, comments and whitespace, then the root tag.
+PROLOGUE = re.compile(
+    r"\A\ufeff?\s*(?:<\?xml[^>]*\?>\s*)?(?:<!--.*?-->\s*)*<([A-Za-z_][\w.:-]*)",
+    re.DOTALL,
+)
+DTD = re.compile(r"<!(?:DOCTYPE|ENTITY)", re.IGNORECASE)
 TOKEN_ENV = "SONAR_TOKEN"
 
 
@@ -76,16 +87,20 @@ def admit(report: str, base: Path, workspace: Path) -> str:
         )
     if path.stat().st_size == 0:
         raise Refused(1, f"coverage report {report} is empty")
-    try:
-        root = ET.parse(path).getroot()
-    except ET.ParseError as exc:
+    with path.open("rb") as handle:
+        head = handle.read(HEAD_BYTES).decode("utf-8", errors="replace")
+    if DTD.search(head):
         raise Refused(
-            1, f"coverage report {report} is not well-formed XML: {exc}"
-        ) from exc
-    if root.tag != "coverage":
+            1, f"coverage report {report} declares a DTD; Cobertura reports carry none"
+        )
+    match = PROLOGUE.match(head)
+    if match is None:
+        raise Refused(1, f"coverage report {report} is not XML: no root element")
+    if match.group(1) != "coverage":
         raise Refused(
             1,
-            f"coverage report {report} is not Cobertura XML (root element <{root.tag}>)",
+            f"coverage report {report} is not Cobertura XML "
+            f"(root element <{match.group(1)}>)",
         )
     return report
 
