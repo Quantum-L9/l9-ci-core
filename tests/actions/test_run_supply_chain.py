@@ -357,7 +357,7 @@ class WiringTests(unittest.TestCase):
         [sbom] = [s for s in self.steps if "anchore/sbom-action" in str(s.get("uses"))]
         self.assertEqual("cyclonedx-json", sbom["with"]["format"])
         self.assertEqual("${{ steps.environment.outputs.path }}", sbom["with"]["path"])
-        self.assertEqual(False, sbom["with"]["upload-artifact"])
+        self.assertIs(False, sbom["with"]["upload-artifact"])
         install = next(s for s in self.steps if s.get("id") == "environment")
         self.assertIn("--locked", install["run"])
         self.assertIn("--no-default-groups", install["run"])

@@ -95,7 +95,7 @@ def _strings(value: object, what: str) -> list[str]:
     return list(value)
 
 
-def load_policy(workspace: Path, default: Path = DEFAULT_POLICY) -> Policy:
+def _load_base(default: Path) -> tuple[set[str], set[str], dict[str, str], str]:
     base = _read_json(default, "Core supply-chain policy")
     if not isinstance(base, dict) or base.get("schema") != POLICY_SCHEMA:
         raise PolicyError("Core supply-chain policy has the wrong schema")
@@ -109,46 +109,53 @@ def load_policy(workspace: Path, default: Path = DEFAULT_POLICY) -> Policy:
     severity = base.get("fail_on_severity")
     if severity not in SEVERITIES:
         raise PolicyError(f"fail_on_severity must be one of {SEVERITIES}")
-    exempt: list[str] = []
-    repo_path = workspace / REPO_POLICY
-    if repo_path.is_symlink():
+    return allowed, denied, dict(aliases), str(severity)
+
+
+def _load_repo(workspace: Path, denied: set[str]) -> tuple[set[str], list[str]]:
+    """(additional allowed licences, exempt purls) from the repository policy."""
+    path = workspace / REPO_POLICY
+    if path.is_symlink():
         raise PolicyError(f"{REPO_POLICY} must not be a symlink")
-    if repo_path.is_file():
-        repo = _read_json(repo_path, str(REPO_POLICY))
-        if not isinstance(repo, dict) or repo.get("schema") != REPO_POLICY_SCHEMA:
-            raise PolicyError(f"{REPO_POLICY} must declare schema {REPO_POLICY_SCHEMA}")
-        unknown = set(repo) - {
-            "schema",
-            "additional_allowed_licenses",
-            "allow_dependencies_licenses",
-        }
-        if unknown:
-            raise PolicyError(f"{REPO_POLICY} has unknown keys: {sorted(unknown)}")
-        extra = set(
-            _strings(
-                repo.get("additional_allowed_licenses", []),
-                "additional_allowed_licenses",
-            )
+    if not path.is_file():
+        return set(), []
+    repo = _read_json(path, str(REPO_POLICY))
+    if not isinstance(repo, dict) or repo.get("schema") != REPO_POLICY_SCHEMA:
+        raise PolicyError(f"{REPO_POLICY} must declare schema {REPO_POLICY_SCHEMA}")
+    unknown = set(repo) - {
+        "schema",
+        "additional_allowed_licenses",
+        "allow_dependencies_licenses",
+    }
+    if unknown:
+        raise PolicyError(f"{REPO_POLICY} has unknown keys: {sorted(unknown)}")
+    extra = set(
+        _strings(
+            repo.get("additional_allowed_licenses", []), "additional_allowed_licenses"
         )
-        conflict = extra & denied
-        if conflict:
-            raise PolicyError(
-                f"{REPO_POLICY} cannot allow a Core-denied licence: {sorted(conflict)}"
-            )
-        allowed |= extra
-        exempt = _strings(
-            repo.get("allow_dependencies_licenses", []), "allow_dependencies_licenses"
+    )
+    conflict = extra & denied
+    if conflict:
+        raise PolicyError(
+            f"{REPO_POLICY} cannot allow a Core-denied licence: {sorted(conflict)}"
         )
-        bad = [p for p in exempt if not PURL.match(p)]
-        if bad:
-            raise PolicyError(
-                f"allow_dependencies_licenses entries must be purls: {bad}"
-            )
+    exempt = _strings(
+        repo.get("allow_dependencies_licenses", []), "allow_dependencies_licenses"
+    )
+    bad = [p for p in exempt if not PURL.match(p)]
+    if bad:
+        raise PolicyError(f"allow_dependencies_licenses entries must be purls: {bad}")
+    return extra, exempt
+
+
+def load_policy(workspace: Path, default: Path = DEFAULT_POLICY) -> Policy:
+    allowed, denied, aliases, severity = _load_base(default)
+    extra, exempt = _load_repo(workspace, denied)
     return Policy(
-        fail_on_severity=str(severity),
-        allowed=frozenset(allowed - denied),
+        fail_on_severity=severity,
+        allowed=frozenset((allowed | extra) - denied),
         denied=frozenset(denied),
-        aliases=dict(aliases),
+        aliases=aliases,
         exempt=tuple(sorted(set(exempt))),
     )
 
@@ -162,44 +169,52 @@ def _tokens(expression: str) -> list[str]:
     return _TOKEN.findall(expression)
 
 
-def _parse(tokens: list[str]) -> Any:
+class _Parser:
     """SPDX expression -> nested ("OR"|"AND", [...]) or a licence id string."""
 
-    def expr(pos: int) -> tuple[Any, int]:
-        left, pos = term(pos)
-        terms = [left]
-        while pos < len(tokens) and tokens[pos] == "OR":
-            right, pos = term(pos + 1)
-            terms.append(right)
-        return (("OR", terms) if len(terms) > 1 else left), pos
+    def __init__(self, tokens: list[str]) -> None:
+        self.tokens = tokens
+        self.pos = 0
 
-    def term(pos: int) -> tuple[Any, int]:
-        left, pos = atom(pos)
-        factors = [left]
-        while pos < len(tokens) and tokens[pos] == "AND":
-            right, pos = atom(pos + 1)
-            factors.append(right)
-        return (("AND", factors) if len(factors) > 1 else left), pos
+    def _peek(self) -> str | None:
+        return self.tokens[self.pos] if self.pos < len(self.tokens) else None
 
-    def atom(pos: int) -> tuple[Any, int]:
-        if pos >= len(tokens):
+    def _join(self, operator: str, operand: Any) -> Any:
+        parts = [operand()]
+        while self._peek() == operator:
+            self.pos += 1
+            parts.append(operand())
+        return (operator, parts) if len(parts) > 1 else parts[0]
+
+    def expression(self) -> Any:
+        return self._join("OR", self.term)
+
+    def term(self) -> Any:
+        return self._join("AND", self.atom)
+
+    def atom(self) -> Any:
+        token = self._peek()
+        if token is None:
             raise ValueError("unexpected end of expression")
-        token = tokens[pos]
+        self.pos += 1
         if token == "(":
-            inner, pos = expr(pos + 1)
-            if pos >= len(tokens) or tokens[pos] != ")":
+            inner = self.expression()
+            if self._peek() != ")":
                 raise ValueError("unbalanced parenthesis")
-            return inner, pos + 1
+            self.pos += 1
+            return inner
         if token in (")", "AND", "OR", "WITH"):
             raise ValueError(f"unexpected {token}")
-        pos += 1
-        if pos < len(tokens) and tokens[pos] == "WITH":
+        if self._peek() == "WITH":
             # An exception narrows the licence it modifies; judge the licence.
-            pos += 2
-        return token, pos
+            self.pos += 2
+        return token
 
-    tree, end = expr(0)
-    if end != len(tokens):
+
+def _parse(tokens: list[str]) -> Any:
+    parser = _Parser(tokens)
+    tree = parser.expression()
+    if parser.pos != len(tokens):
         raise ValueError("trailing tokens")
     return tree
 
@@ -263,42 +278,45 @@ def _component_licences(component: dict[str, Any]) -> list[str]:
     return found
 
 
+def _row(component: dict[str, Any], policy: Policy) -> dict[str, str]:
+    purl = str(component.get("purl") or "")
+    base_purl = purl.split("@", 1)[0].split("?", 1)[0]
+    verdict, rendered = classify_licences(_component_licences(component), policy)
+    if verdict != "allowed" and base_purl in policy.exempt:
+        verdict = "exempt"
+    return {
+        "name": str(component.get("name") or "?"),
+        "version": str(component.get("version") or "?"),
+        "purl": purl,
+        "licence": rendered,
+        "verdict": verdict,
+    }
+
+
+def _status(counts: dict[str, int]) -> str:
+    if not counts:
+        return "empty"
+    if counts.get("denied") or counts.get("not_allowed"):
+        return "fail"
+    return "pass"
+
+
 def evaluate(sbom: dict[str, Any], policy: Policy) -> dict[str, Any]:
     components = sbom.get("components")
     if not isinstance(components, list):
         raise PolicyError("SBOM has no components list")
-    rows: list[dict[str, str]] = []
-    for component in components:
-        if not isinstance(component, dict):
-            continue
-        if component.get("type") not in (None, "library", "framework"):
-            continue
-        purl = str(component.get("purl") or "")
-        base_purl = purl.split("@", 1)[0].split("?", 1)[0]
-        verdict, rendered = classify_licences(_component_licences(component), policy)
-        if verdict != "allowed" and base_purl in policy.exempt:
-            verdict = "exempt"
-        rows.append(
-            {
-                "name": str(component.get("name") or "?"),
-                "version": str(component.get("version") or "?"),
-                "purl": purl,
-                "licence": rendered,
-                "verdict": verdict,
-            }
-        )
+    rows = [
+        _row(component, policy)
+        for component in components
+        if isinstance(component, dict)
+        and component.get("type") in (None, "library", "framework")
+    ]
     counts: dict[str, int] = {}
     for row in rows:
         counts[row["verdict"]] = counts.get(row["verdict"], 0) + 1
-    if not rows:
-        status = "empty"
-    elif counts.get("denied") or counts.get("not_allowed"):
-        status = "fail"
-    else:
-        status = "pass"
     return {
         "schema": "l9.supply-chain-licences/v1",
-        "status": status,
+        "status": _status(counts),
         "counts": dict(sorted(counts.items())),
         "components": sorted(rows, key=lambda r: (r["verdict"], r["name"])),
     }
@@ -307,35 +325,28 @@ def evaluate(sbom: dict[str, Any], policy: Policy) -> dict[str, Any]:
 # --- commands -----------------------------------------------------------------
 
 
-def _cmd_changes(args: argparse.Namespace) -> int:
-    event = os.environ.get("EVENT_NAME", "")
+def decide_changes(workspace: Path, env: dict[str, str]) -> dict[str, str]:
+    """``run`` and ``reason`` for the lane on this event."""
+    event = env.get("EVENT_NAME", "")
     if event not in ("pull_request", "pull_request_target"):
-        _write_output({"run": "true", "reason": f"event {event or 'unknown'}"})
-        return 0
-    base, head = os.environ.get("BASE_SHA", ""), os.environ.get("HEAD_SHA", "")
+        return {"run": "true", "reason": f"event {event or 'unknown'}"}
+    base, head = env.get("BASE_SHA", ""), env.get("HEAD_SHA", "")
     completed = subprocess.run(
-        ["git", "-C", str(args.workspace), "diff", "--name-only", f"{base}...{head}"],
+        ["git", "-C", str(workspace), "diff", "--name-only", f"{base}...{head}"],
         capture_output=True,
         text=True,
         check=False,
     )
     if completed.returncode != 0 or not base or not head:
         # Undeterminable change set: run rather than skip.
-        _write_output({"run": "true", "reason": "change set unreadable"})
         print(
             f"::warning::cannot list changed files; running: {completed.stderr.strip()}"
         )
-        return 0
+        return {"run": "true", "reason": "change set unreadable"}
     changed = [p for p in completed.stdout.splitlines() if DEPENDENCY_FILES.search(p)]
-    _write_output(
-        {
-            "run": "true" if changed else "false",
-            "reason": ", ".join(changed[:10])
-            if changed
-            else "no dependency file changed",
-        }
-    )
-    return 0
+    if not changed:
+        return {"run": "false", "reason": "no dependency file changed"}
+    return {"run": "true", "reason": ", ".join(changed[:10])}
 
 
 def _cmd_policy(args: argparse.Namespace) -> int:
@@ -391,8 +402,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     evaluate_parser.add_argument("--sbom", type=Path, required=True)
     evaluate_parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args(list(argv) if argv is not None else None)
+    if args.command == "changes":
+        _write_output(decide_changes(args.workspace, dict(os.environ)))
+        return 0
     handlers = {
-        "changes": _cmd_changes,
         "policy": _cmd_policy,
         "evaluate": _cmd_evaluate,
     }
