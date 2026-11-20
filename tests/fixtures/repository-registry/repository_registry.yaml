@@ -18,7 +18,12 @@ purpose: >
   a repository is a member because it is listed here with a class_ref, never
   because of its name, prefix, hosting organization, shape, ProductKind, or
   birth profile. An unlisted repository has no implied membership and no
-  implied class.
+  implied class. Since v3.43.0 (ADR-040) the registry is organization-complete:
+  every repository the Quantum-L9 GitHub organization hosts, archived ones
+  included, must be registered, and an unregistered hosted repository is a
+  completeness violation, never an implied member. Membership is organization
+  membership only. It does not imply a ProductKind, a Node, or participation
+  in the constellation, which Constellation.Gate and Gate_SDK define.
 class_catalog_ref: l9.repository-classes/global@1
 global_rules:
   registry_names_repository_identity_and_classification_only: true
@@ -31,7 +36,10 @@ global_rules:
   every_class_ref_must_resolve_to_an_admitted_class: true
   repository_name_does_not_imply_repository_class: true
   repository_prefix_does_not_imply_repository_class: true
-  organization_hosting_does_not_imply_l9_membership: true
+  organization_hosted_repositories_must_be_registered: true
+  membership_is_conferred_by_registry_entry_never_by_organization_hosting: true
+  registry_membership_does_not_imply_product_kind: true
+  registry_membership_does_not_imply_constellation_participation: true
   repository_shape_does_not_imply_repository_class: true
   product_kind_does_not_imply_repository_class: true
   birth_profile_does_not_imply_repository_class: true
@@ -73,6 +81,73 @@ repository_lifecycle:
     Repository retained for historical resolution but no longer a current
     operational source. Class-defined historical obligations may continue to
     apply.
+organization_completeness:
+  decision_record: ADR-040
+  supersedes: >
+    The v3.15.0 global rule organization_hosting_does_not_imply_l9_membership,
+    under which a repository hosted in the organization could stay
+    unregistered. Hosting still confers nothing: a hosted repository is a
+    member only through its entry here, and that entry is still an explicit
+    admission decision. What changed is that leaving a hosted repository out
+    is now a violation.
+  scope:
+    provider: github
+    organization: Quantum-L9
+    includes_archived_repositories: true
+    includes_forked_repositories: true
+  archived_repository_lifecycle: retired
+  id_rule: >
+    The id is the repository name lowercased with every run of '.', '_' and
+    '-' folded to one '-', trimmed. Every entry follows it except the
+    grandfathered pre-rule id dot-github (Quantum-L9/.github), whose name
+    folds to no valid id. Memory derives namespace addresses from these ids.
+  enforcement: >
+    ops/registry-completeness.js compares the live organization listing with
+    this registry and fails on a hosted repository that is not registered.
+    The check is observational: it never writes the registry.
+  admission_path: >
+    auto-seed-new-repo.yml's admit job runs ops/register-org-repository.py,
+    which proposes one entry (folded id, the single current admitted class,
+    lifecycle current, no ProductKind) plus its registry-only release record
+    as a reviewable pull request. The owner's merge of that exact entry is the
+    admission decision. A factory-born repository is registered by the birth
+    path (ADR-039) instead, and an already-archived repository is refused and
+    left to a hand admission with lifecycle retired. Nothing merges
+    automatically.
+  organization_admission_fields:
+    basis: organization_completeness
+    decision_record: ADR-040
+    github_repository_id: the GitHub repository's immutable numeric id
+    observed_at: the time the organization listing returned the repository
+  pinned_entries_never_carry_organization_admission: true
+  organization_admission_and_birth_provenance_are_exclusive: true
+factory_born_entries:
+  decision_record: ADR-039
+  identification: >
+    An entry carrying birth_provenance was registered from the factory's
+    attested birth record by ops/register-birth.py, which opens a reviewable
+    pull request; the owner's merge of that exact entry is the admission
+    decision. birth_provenance is evidence of what the factory produced. It
+    confers no authority, does not admit a product, and does not imply a
+    RepositoryClass.
+  id_rule: >
+    The id is the repository name lowercased with every run of '.', '_' and
+    '-' folded to one '-'. It is never typed.
+  lifecycle_at_registration: current
+  class_ref_rule: >
+    The single current admitted RepositoryClass. If the class catalog admits
+    more than one current class, registration fails closed.
+  birth_provenance_fields:
+    factory: Quantum-L9/l9-repo-template
+    receipt_schema: l9.birth-receipt/v1
+    receipt_digest: sha256 digest recorded in the newborn's .l9/birth-receipt.json
+    root_commit: the newborn's single root commit, whose trailers carry the digest
+    template_sha: the factory commit the repository was born from
+    template_version: the factory version recorded at that commit
+    org_policy_sha: the Quantum-L9/.github commit the birth applied
+    birth_profile: the birth profile (policies/repo-classes.yml), not a RepositoryClass
+    born_at: the receipt's birth timestamp
+  pinned_entries_never_carry_birth_provenance: true
 repositories:
   - id: dot-github
     coordinate:
@@ -305,10 +380,219 @@ repositories:
       repository: l9-wip
     lifecycle: current
     class_ref: l9.repository-class/l9@1
+  - id: splitwisely-ai
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: SplitWisely.ai
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: llm-router
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: LLM-Router
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: cognitive-engine-graphs
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: Cognitive.Engine.Graphs
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: enrichment-inference-engine
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: Enrichment.Inference.Engine
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: constellation-gate
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: Constellation.Gate
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: gate-sdk
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: Gate_SDK
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: safehavenrr-site
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: safehavenrr-site
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: quantum-website-cursor
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: Quantum-Website-Cursor
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: odoo-enterprise
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: odoo-enterprise
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: clawdbot
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: clawdbot
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: ideaos
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: IdeaOS
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: sm-microbidlocal
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: SM-MicroBidLocal
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: mack-5-0
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: Mack-5.0
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: quantum-dashboard
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: quantum-dashboard
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: sustainabilitysolutions1
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: SustainabilitySolutions1
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: infisical-config
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: infisical-config
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-cto
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-cto
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: platform-state-service
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: platform-state-service
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: venture-forge-toolbox
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: venture-forge-toolbox
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: openclaw
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: openclaw
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: ib-identityos
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: IB-IdentityOS
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: deckhouseodoo
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: DeckhouseOdoo
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: emma-v1-0
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: emma_v1.0
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: governance-active
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: Governance-Active
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: golden-repo
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: golden-repo
+    lifecycle: retired
+    class_ref: l9.repository-class/l9@1
+  - id: ib-founderos-runtime
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: IB-Founderos-Runtime
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: deckhouse
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: Deckhouse
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+  - id: l9-state
+    coordinate:
+      provider: github
+      organization: Quantum-L9
+      repository: l9-state
+    lifecycle: current
+    class_ref: l9.repository-class/l9@1
+    birth_provenance:
+      factory: Quantum-L9/l9-repo-template
+      receipt_schema: l9.birth-receipt/v1
+      receipt_digest: sha256:dcf1d70fc8390e6729f2f962b595fb35f19535b25171ba2875bd0a45ec0011a0
+      root_commit: 6cbe0fe16231eb9f347c64643dea6362c0e9d838
+      template_sha: 923ae91457ea5fb1d0099bbf2a6b4128a7eb42bb
+      template_version: 2.3.0
+      org_policy_sha: 496842bf029996a75f17fd1533baa79029bc95db
+      birth_profile: org_seeded_self_governed
+      born_at: "2026-11-15T16:14:16+00:00"
 aliases: []
 downstream_obligations:
   resolve_repository_class_against: l9.repository-classes/global@1
   reject_unregistered_repository_as_implicit_l9_member: true
+  registry_is_organization_complete_from_v3_43_0: true
+  reproject_on_every_registry_release: true
+  registry_membership_is_not_product_kind_or_node_admission: true
   reject_unadmitted_class_ref: true
   preserve_registry_id_in_generated_views: true
   preserve_repository_coordinate_in_generated_views: true
