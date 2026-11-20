@@ -248,6 +248,9 @@ class EvaluateTests(WorkspaceCase):
         self.assertEqual(2, code)
 
 
+IDENTITY = ("-c", "user.name=core", "-c", "user.email=core@invalid")
+
+
 class ChangeDetectionTests(WorkspaceCase):
     def git(self, *args: str) -> str:
         return subprocess.run(
@@ -262,18 +265,19 @@ class ChangeDetectionTests(WorkspaceCase):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
-        self.git("add", "--all")
-        self.git(
-            "-c",
-            "user.name=core",
-            "-c",
-            "user.email=core@invalid",
-            "commit",
-            "--quiet",
-            "-m",
-            "c",
-        )
+            self.git("add", "--", name)
+        self.git(*IDENTITY, "commit", "--quiet", "-m", "c")
         return self.git("rev-parse", "HEAD")
+
+    def pull_request_checkout(self, change: dict[str, str]) -> None:
+        """main + a feature commit, checked out as GitHub's merge commit."""
+        self.git("init", "--quiet", "--initial-branch=main")
+        self.commit({"app.py": "x = 1\n", "pyproject.toml": "[project]\n"})
+        self.git("checkout", "--quiet", "-b", "feature")
+        self.commit(change)
+        self.git("checkout", "--quiet", "main")
+        self.commit({"unrelated.txt": "main moved\n"})
+        self.git(*IDENTITY, "merge", "--quiet", "--no-ff", "-m", "merge", "feature")
 
     def changes(self, env: dict[str, str]) -> dict[str, str]:
         out = io.StringIO()
@@ -286,52 +290,48 @@ class ChangeDetectionTests(WorkspaceCase):
             line.split("=", 1) for line in out.getvalue().splitlines() if "=" in line
         )
 
-    def test_a_pull_request_runs_only_when_a_dependency_file_changed(self) -> None:
-        self.git("init", "--quiet")
-        base = self.commit({"app.py": "x = 1\n", "pyproject.toml": "[project]\n"})
-        code_only = self.commit({"app.py": "x = 2\n"})
-        dependency = self.commit({"services/api/requirements-dev.txt": "ruff\n"})
-        pr = {"EVENT_NAME": "pull_request", "BASE_SHA": base}
-        self.assertEqual("false", self.changes({**pr, "HEAD_SHA": code_only})["run"])
-        found = self.changes({**pr, "HEAD_SHA": dependency})
+    def test_a_pull_request_with_a_dependency_change_runs(self) -> None:
+        self.pull_request_checkout({"services/api/requirements-dev.txt": "ruff\n"})
+        found = self.changes({"EVENT_NAME": "pull_request"})
         self.assertEqual("true", found["run"])
         self.assertIn("requirements-dev.txt", found["reason"])
 
-    def test_other_events_always_run_and_an_unreadable_diff_runs(self) -> None:
+    def test_a_pull_request_without_one_does_not_run(self) -> None:
+        self.pull_request_checkout({"app.py": "x = 2\n"})
+        found = self.changes({"EVENT_NAME": "pull_request"})
+        self.assertEqual("false", found["run"])
+
+    def test_other_events_always_run_and_a_non_merge_checkout_runs(self) -> None:
         for event in ("schedule", "workflow_dispatch", "push"):
             with self.subTest(event=event):
                 self.assertEqual("true", self.changes({"EVENT_NAME": event})["run"])
+        self.git("init", "--quiet")
+        self.commit({"app.py": "x = 1\n"})
         with redirect_stdout(io.StringIO()):
-            unread = self.changes(
-                {
-                    "EVENT_NAME": "pull_request",
-                    "BASE_SHA": "0" * 40,
-                    "HEAD_SHA": "1" * 40,
-                }
-            )
-        self.assertEqual("true", unread["run"])
+            single = self.changes({"EVENT_NAME": "pull_request"})
+        self.assertEqual(
+            ("true", "change set unreadable"), (single["run"], single["reason"])
+        )
 
-    def test_option_shaped_shas_never_reach_git(self) -> None:
-        with (
-            redirect_stdout(io.StringIO()),
-            mock.patch.object(sc.subprocess, "run") as run,
-        ):
-            for base, head in (
-                ("--output=/tmp/x", "1" * 40),
-                ("0" * 40, "-p"),
-                ("", ""),
-            ):
-                with self.subTest(base=base, head=head):
-                    decided = sc.decide_changes(
-                        self.root,
-                        {
-                            "EVENT_NAME": "pull_request",
-                            "BASE_SHA": base,
-                            "HEAD_SHA": head,
-                        },
-                    )
-                    self.assertEqual("true", decided["run"])
-            run.assert_not_called()
+    def test_event_values_never_reach_git(self) -> None:
+        self.pull_request_checkout({"uv.lock": "x\n"})
+        seen: list[list[str]] = []
+        real = sc.subprocess.run
+
+        def spy(argv, *args, **kwargs):  # type: ignore[no-untyped-def]
+            seen.append(list(argv))
+            return real(argv, *args, **kwargs)
+
+        hostile = {
+            "EVENT_NAME": "pull_request",
+            "BASE_SHA": "--output=/x",
+            "HEAD_SHA": "-p",
+        }
+        with mock.patch.object(sc.subprocess, "run", side_effect=spy):
+            self.changes(hostile)
+        flat = [arg for argv in seen for arg in argv]
+        self.assertNotIn("--output=/x", flat)
+        self.assertNotIn("-p", flat)
 
     def test_dependency_file_patterns(self) -> None:
         for path in (

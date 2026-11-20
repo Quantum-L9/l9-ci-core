@@ -44,7 +44,6 @@ REPO_POLICY = Path(".l9") / "supply-chain-policy.json"
 POLICY_SCHEMA = "l9.supply-chain-policy/v1"
 REPO_POLICY_SCHEMA = "l9.supply-chain-repo-policy/v1"
 SEVERITIES = ("low", "moderate", "high", "critical")
-FULL_SHA = re.compile(r"[0-9a-f]{40}")
 PURL = re.compile(r"^pkg:[a-z0-9.+-]+/[^\s,]+$")
 
 # Manifests and lock files whose change makes a pull request a dependency
@@ -326,22 +325,32 @@ def evaluate(sbom: dict[str, Any], policy: Policy) -> dict[str, Any]:
 # --- commands -----------------------------------------------------------------
 
 
-def decide_changes(workspace: Path, env: dict[str, str]) -> dict[str, str]:
-    """``run`` and ``reason`` for the lane on this event."""
-    event = env.get("EVENT_NAME", "")
-    if event not in ("pull_request", "pull_request_target"):
-        return {"run": "true", "reason": f"event {event or 'unknown'}"}
-    base, head = env.get("BASE_SHA", ""), env.get("HEAD_SHA", "")
-    if not (FULL_SHA.fullmatch(base) and FULL_SHA.fullmatch(head)):
-        # Only full commit SHAs reach git: an option-shaped value never does.
-        print("::warning::pull request base/head are not commit SHAs; running")
-        return {"run": "true", "reason": "change set unreadable"}
-    completed = subprocess.run(
-        ["git", "-C", str(workspace), "diff", "--name-only", f"{base}...{head}", "--"],
+def _git(workspace: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(workspace), *args],
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+def decide_changes(workspace: Path, env: dict[str, str]) -> dict[str, str]:
+    """``run`` and ``reason`` for the lane on this event.
+
+    A pull request is checked out as GitHub's merge commit, whose first
+    parent is the base: the pull request's changes are ``HEAD^1..HEAD``. Git
+    is given fixed arguments only; nothing from the event reaches its argv.
+    A checkout that is not a two-parent merge commit is an unreadable change
+    set, and the lane runs.
+    """
+    event = env.get("EVENT_NAME", "")
+    if event not in ("pull_request", "pull_request_target"):
+        return {"run": "true", "reason": f"event {event or 'unknown'}"}
+    parents = _git(workspace, "rev-list", "--parents", "-n", "1", "HEAD")
+    if parents.returncode != 0 or len(parents.stdout.split()) != 3:
+        print("::warning::checkout is not a pull-request merge commit; running")
+        return {"run": "true", "reason": "change set unreadable"}
+    completed = _git(workspace, "diff", "--name-only", "HEAD^1", "HEAD", "--")
     if completed.returncode != 0:
         # Undeterminable change set: run rather than skip.
         print(

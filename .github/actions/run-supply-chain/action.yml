@@ -31,8 +31,6 @@ runs:
       shell: bash
       env:
         EVENT_NAME: ${{ github.event_name }}
-        BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       run: python3 -I "${GITHUB_ACTION_PATH}/supply_chain.py" --workspace . changes
 
     - id: policy
