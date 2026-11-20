@@ -9,21 +9,26 @@ activity, permission, run history, registry, or pagination dispatches nothing.
 A fixture result and a plan-mode artifact set ``live_schedule_receipt`` false.
 Neither is evidence that GitHub ran the cron or that a deep suite ran.
 
+The live plan reads two committed inputs and no network: Core's projection
+of the repository registry (``required-repositories.receipt.json``) and the
+admitted deep entrypoints (``.github/nightly/deep-entrypoints.json``). With
+apply closed, a dispatch entrypoint is recorded as SKIPPED_APPLY_CLOSED: its
+evidence is deliberately not read, which is not an unknown. The credentialed
+apply path is ``tools/nightly_apply.py``, behind a switch that defaults closed.
+
 This module is Core runtime code. It does not admit organization policy.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -42,7 +47,7 @@ MAX_REPOSITORIES = 500
 _IDENTITY = re.compile(r"^[A-Za-z0-9._-]+\Z")
 _SHA = re.compile(r"^[0-9a-f]{40}\Z")
 _SLOT = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
-Fetch = Callable[[str], tuple[int, Mapping[str, str], bytes]]
+ROOT = Path(__file__).resolve().parents[1]
 
 # Standalone pre-checkout gate. nightly-deep.yml embeds this exact text
 # because the SHA check has to run before the suite checkout. admit_runner
@@ -131,12 +136,6 @@ finish("NO_FULL_SUITE_FALLBACK", 0)
 
 class FixtureError(ValueError):
     """The caller handed the planner an unusable fixture or flag."""
-
-
-@dataclass(frozen=True)
-class MetadataProbe:
-    status: str
-    public_count: int | None
 
 
 @dataclass(frozen=True)
@@ -315,7 +314,14 @@ def dispatch_key(
     workflow: str,
     contract: str,
 ) -> str:
-    return f"{ORGANIZATION}|{repository_id}|{slot}|{workflow}|{contract}"
+    """Bounded idempotency token for one repository, slot, entrypoint and contract.
+
+    The canonical tuple is hashed so the key is a plain token
+    (``nd1-`` plus 40 hex). Consumer deep entrypoints refuse a key outside
+    ``[A-Za-z0-9._:-]``; the tuple itself carries ``|`` and ``/``.
+    """
+    canonical = f"{ORGANIZATION}|{repository_id}|{slot}|{workflow}|{contract}"
+    return "nd1-" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:40]
 
 
 def _row(
@@ -411,7 +417,13 @@ def _classify(
             evidence=reason,
             alert=True,
         )
-    if pushed_at < window_start or pushed_at > window_end:
+    # A head that differs from the last successful deep run is still a
+    # change after the window has passed: a failed or missed nightly does
+    # not make the repository inactive.
+    changed_since_success = raw.get("changed_since_success") is True
+    if not changed_since_success and (
+        pushed_at < window_start or pushed_at > window_end
+    ):
         return _row(
             repository=repository,
             verdict="SKIPPED_INACTIVE",
@@ -715,117 +727,242 @@ def build_plan(
     )
 
 
-def plan_from_probe(
-    probe: MetadataProbe,
+REGISTRY_PROJECTION = (
+    ROOT
+    / ".github"
+    / "actions"
+    / "run-repository-verification"
+    / "required-repositories.receipt.json"
+)
+ENTRYPOINTS = ROOT / ".github" / "nightly" / "deep-entrypoints.json"
+ENTRYPOINTS_SCHEMA = "l9.nightly-deep-entrypoints/v1"
+PROJECTION_SCHEMA = "l9.required-repositories-projection/v1"
+SCHEDULING = ("self", "dispatch")
+
+
+@dataclass(frozen=True)
+class RegistryProjection:
+    members: tuple[str, ...]
+    commit: str
+
+
+@dataclass(frozen=True)
+class DeepEntrypoint:
+    repository: str
+    workflow: str
+    contract: str
+    scheduling: str
+
+
+def _repository_coordinate(value: object, label: str) -> str:
+    if not isinstance(value, str) or value.count("/") != 1:
+        raise FixtureError(f"{label} must be owner/name")
+    owner, name = value.split("/")
+    _text(owner, f"{label} owner")
+    _text(name, f"{label} name")
+    return value
+
+
+def load_registry_projection(path: Path = REGISTRY_PROJECTION) -> RegistryProjection:
+    """Read Core's committed, non-canonical projection of the registry.
+
+    The projection names ``Quantum-L9/.github`` registry members whose
+    lifecycle is ``current``, with the source commit and a members digest.
+    A digest that does not match its members, or an unreadable file, is an
+    unreadable registry.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise FixtureError(f"registry projection unreadable: {error}") from error
+    if not isinstance(data, dict) or data.get("schema") != PROJECTION_SCHEMA:
+        raise FixtureError("registry projection has the wrong schema")
+    source = data.get("source")
+    commit = source.get("commit") if isinstance(source, dict) else None
+    if not isinstance(commit, str) or _SHA.fullmatch(commit) is None:
+        raise FixtureError("registry projection has no source commit")
+    members = data.get("members")
+    if not isinstance(members, list) or not members:
+        raise FixtureError("registry projection has no members")
+    names = [_repository_coordinate(item, "member") for item in members]
+    digest = hashlib.sha256(("\n".join(names) + "\n").encode()).hexdigest()
+    if data.get("members_sha256") != digest:
+        raise FixtureError("registry projection members_sha256 does not match")
+    if len(set(names)) != len(names):
+        raise FixtureError("registry projection repeats a member")
+    return RegistryProjection(tuple(names), commit)
+
+
+def load_entrypoints(path: Path = ENTRYPOINTS) -> tuple[DeepEntrypoint, ...]:
+    """Read the admitted deep entrypoints (docs/nightly-deep-consumer-contract.md)."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise FixtureError(f"deep entrypoints unreadable: {error}") from error
+    if not isinstance(data, dict) or data.get("schema") != ENTRYPOINTS_SCHEMA:
+        raise FixtureError("deep entrypoints have the wrong schema")
+    raw = data.get("entrypoints")
+    if not isinstance(raw, list):
+        raise FixtureError("deep entrypoints must be a list")
+    entries: list[DeepEntrypoint] = []
+    seen: set[str] = set()
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise FixtureError(f"entrypoints[{index}] must be an object")
+        repository = _repository_coordinate(item.get("repository"), "repository")
+        if repository in seen:
+            raise FixtureError(f"{repository} has two deep entrypoints")
+        seen.add(repository)
+        workflow = _plain(item.get("workflow"), "workflow")
+        if (
+            not workflow.startswith(".github/workflows/")
+            or not workflow.endswith((".yml", ".yaml"))
+            or "/" in workflow[len(".github/workflows/") :]
+        ):
+            raise FixtureError(f"{repository} workflow is not a workflow file")
+        contract = _plain(item.get("contract"), "contract")
+        if re.fullmatch(r"[A-Za-z0-9._:/-]{1,200}", contract) is None:
+            raise FixtureError(f"{repository} contract is not a bounded name")
+        scheduling = item.get("scheduling")
+        if scheduling not in SCHEDULING:
+            raise FixtureError(f"{repository} scheduling must be self or dispatch")
+        if (scheduling == "self") != (repository == CORE_REPOSITORY):
+            raise FixtureError("only Core schedules its own deep suite")
+        entries.append(DeepEntrypoint(repository, workflow, contract, str(scheduling)))
+    return tuple(entries)
+
+
+def plan_from_projection(
+    projection: RegistryProjection | None,
+    entrypoints: tuple[DeepEntrypoint, ...] | None,
     *,
     evaluated_at: datetime,
     event: str,
     mode: str,
+    unreadable: str = "",
 ) -> dict[str, object]:
-    """Plan when the canonical registry was not read.
+    """Live plan from committed inputs. It reads no network and no token.
 
-    A public metadata count is evidence of an anonymous read. It is not
-    membership and it does not make any repository eligible.
+    Apply is closed, so a dispatch entrypoint is SKIPPED_APPLY_CLOSED: its
+    activity, permission and run history are deliberately not read, which is
+    not an unknown. An unreadable projection or entrypoint file is.
     """
     mode_requested, mode_forced, blocked = _prepare_mode(event, mode)
     if evaluated_at.tzinfo is None or evaluated_at.utcoffset() != timedelta(0):
         raise FixtureError("evaluated_at must be UTC")
+    evaluated = evaluated_at.astimezone(timezone.utc)
+    rows: list[dict[str, object]]
+    if projection is None:
+        registry_status = "unreadable"
+        rows = [_fleet_row("registry_unreadable", unreadable or "projection")]
+    elif entrypoints is None:
+        registry_status = "projection"
+        rows = [_fleet_row("entrypoints_unreadable", unreadable or "entrypoints")]
+    else:
+        registry_status = "projection"
+        evidence = f"projection@{projection.commit[:12]}"
+        by_repository = {entry.repository: entry for entry in entrypoints}
+        rows = []
+        for member in projection.members:
+            entry = by_repository.get(member)
+            if entry is None:
+                rows.append(
+                    _row(
+                        repository=member,
+                        verdict="SKIPPED_NO_DEEP_ENTRYPOINT",
+                        reason="no_admitted_deep_workflow",
+                        evidence=evidence,
+                        alert=False,
+                    )
+                )
+            elif entry.scheduling == "self":
+                rows.append(
+                    _row(
+                        repository=member,
+                        verdict="SKIPPED_SELF_SCHEDULED",
+                        reason="nightly_deep_receipt_gate",
+                        evidence=f"{entry.workflow}@{entry.contract}",
+                        alert=False,
+                    )
+                )
+            else:
+                rows.append(
+                    _row(
+                        repository=member,
+                        verdict="SKIPPED_APPLY_CLOSED",
+                        reason="apply_switch_closed",
+                        evidence=f"{entry.workflow}@{entry.contract}",
+                        alert=False,
+                    )
+                )
+        members = set(projection.members)
+        for entry in entrypoints:
+            if entry.repository not in members:
+                rows.append(
+                    _row(
+                        repository=entry.repository,
+                        verdict="SKIPPED_NOT_PROJECTED",
+                        reason="not_in_registry_projection",
+                        evidence=evidence,
+                        alert=False,
+                    )
+                )
     return _assemble(
         event=event,
         mode_requested=mode_requested,
         mode_forced=mode_forced,
         blocked_reason=blocked,
-        evaluated=evaluated_at.astimezone(timezone.utc),
+        evaluated=evaluated,
         source="live",
-        registry_status="unreadable",
+        registry_status=registry_status,
         pagination_status="not_applicable",
-        metadata_status=probe.status,
-        metadata_public_count=probe.public_count,
-        rows=[_fleet_row("registry_unreadable", f"anonymous_metadata:{probe.status}")],
+        metadata_status="not_read",
+        metadata_public_count=None,
+        rows=rows,
     )
 
 
-def _default_open(url: str) -> tuple[int, Mapping[str, str], bytes]:
-    parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname != "api.github.com":
-        raise ValueError("refusing a URL that is not https://api.github.com")
-    request = urllib.request.Request(
-        url,
-        method="GET",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "l9-ci-core-nightly-plan",
-        },
-    )
-    opener = urllib.request.build_opener(_NoRedirect())
-    try:
-        with opener.open(request, timeout=10) as response:
-            status = int(getattr(response, "status", 0))
-            headers = {key.lower(): value for key, value in response.headers.items()}
-            return status, headers, response.read(1_000_000)
-    except urllib.error.HTTPError as error:
-        return int(error.code), {}, b""
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Refuse redirects so a metadata read cannot leave api.github.com."""
-
-    def redirect_request(
-        self,
-        req: urllib.request.Request,
-        fp: object,
-        code: int,
-        msg: str,
-        headers: object,
-        newurl: str,
-    ) -> urllib.request.Request | None:
-        raise urllib.error.HTTPError(
-            req.full_url,
-            code,
-            msg,
-            headers,  # type: ignore[arg-type]
-            fp,  # type: ignore[arg-type]
-        )
-
-
-def fetch_public_org_metadata(
-    org: str,
+def live_plan(
     *,
-    opener: Fetch | None = None,
-    page_limit: int = 3,
-) -> MetadataProbe:
-    """Anonymous public listing. Sends no credential header and reads no token."""
-    if _IDENTITY.fullmatch(org) is None or page_limit < 1:
-        return MetadataProbe("unavailable", None)
-    fetch = opener or _default_open
-    seen = 0
-    for page in range(1, page_limit + 1):
-        url = (
-            "https://api.github.com/orgs/"
-            f"{org}/repos?per_page=100&page={page}&type=public"
+    evaluated_at: datetime,
+    event: str,
+    mode: str,
+    projection_path: Path = REGISTRY_PROJECTION,
+    entrypoints_path: Path = ENTRYPOINTS,
+) -> dict[str, object]:
+    try:
+        projection: RegistryProjection | None = load_registry_projection(
+            projection_path
         )
-        try:
-            status, headers, body = fetch(url)
-        except (OSError, ValueError, urllib.error.URLError):
-            return MetadataProbe("unavailable", None)
-        lowered = {str(key).lower(): str(value) for key, value in headers.items()}
-        if status != 200:
-            return MetadataProbe("unavailable", None)
-        try:
-            payload = json.loads(body)
-        except json.JSONDecodeError:
-            return MetadataProbe("unavailable", None)
-        if not isinstance(payload, list):
-            return MetadataProbe("unavailable", None)
-        seen += len(payload)
-        has_next = 'rel="next"' in lowered.get("link", "")
-        if not has_next:
-            if len(payload) >= 100:
-                return MetadataProbe("incomplete", seen)
-            return MetadataProbe("complete", seen)
-        if page == page_limit:
-            return MetadataProbe("incomplete", seen)
-    return MetadataProbe("incomplete", seen)
+    except FixtureError as error:
+        return plan_from_projection(
+            None,
+            None,
+            evaluated_at=evaluated_at,
+            event=event,
+            mode=mode,
+            unreadable=str(error),
+        )
+    try:
+        entrypoints: tuple[DeepEntrypoint, ...] | None = load_entrypoints(
+            entrypoints_path
+        )
+    except FixtureError as error:
+        return plan_from_projection(
+            projection,
+            None,
+            evaluated_at=evaluated_at,
+            event=event,
+            mode=mode,
+            unreadable=str(error),
+        )
+    return plan_from_projection(
+        projection,
+        entrypoints,
+        evaluated_at=evaluated_at,
+        event=event,
+        mode=mode,
+    )
 
 
 def plan_exit_code(plan: Mapping[str, object]) -> int:
@@ -860,11 +997,8 @@ def _write_plan(plan: Mapping[str, object], output: str | None) -> None:
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
-    if bool(args.fixture) == bool(args.live_metadata):
-        print(
-            "pass exactly one of --fixture and --live-metadata",
-            file=sys.stderr,
-        )
+    if bool(args.fixture) == bool(args.live):
+        print("pass exactly one of --fixture and --live", file=sys.stderr)
         return 2
     if args.evaluated_at and args.fixture:
         print("--evaluated-at cannot override a fixture clock", file=sys.stderr)
@@ -882,13 +1016,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
                 if args.evaluated_at
                 else datetime.now(timezone.utc)
             )
-            probe = fetch_public_org_metadata(ORGANIZATION)
-            plan = plan_from_probe(
-                probe,
-                evaluated_at=evaluated,
-                event=args.event,
-                mode=args.mode,
-            )
+            plan = live_plan(evaluated_at=evaluated, event=args.event, mode=args.mode)
     except FixtureError as error:
         print(str(error), file=sys.stderr)
         return 2
@@ -920,7 +1048,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     plan.add_argument("--mode", required=True)
     plan.add_argument("--event", default="schedule")
     plan.add_argument("--fixture")
-    plan.add_argument("--live-metadata", action="store_true")
+    plan.add_argument("--live", action="store_true")
     plan.add_argument("--evaluated-at")
     plan.add_argument("--output")
     args = parser.parse_args(list(argv) if argv is not None else None)

@@ -12,6 +12,11 @@
 # mode=apply after the SHA matches this ref. mode=plan records no suite.
 # A SHA mismatch fails as STALE_SHA before checkout. Default mode is plan.
 # This campaign's scheduler does not send apply.
+#
+# Change gate: a scheduled run skips the suite, with the reason in the step
+# summary, when main's HEAD already has a successful scheduled run of this
+# workflow (tools/nightly_apply.py receipt). Unreadable history runs the
+# suite. That read is the only reason this job holds actions: read.
 name: Nightly deep tests
 on:
   schedule:
@@ -56,6 +61,9 @@ jobs:
           && inputs.mode == 'apply')
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Require Core default branch main
         env:
@@ -161,30 +169,33 @@ jobs:
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "${REVISION}"
           echo "nightly-deep commit ${REVISION}"
-      - name: Set up Python
+      - name: Gate on a successful deep receipt
+        id: receipt
         if: >-
           github.event_name == 'schedule'
           || (github.event_name == 'workflow_dispatch'
               && inputs.mode == 'apply'
               && inputs.expected_sha == github.sha)
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          L9_RECEIPT_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 tools/nightly_apply.py receipt --sha "${SHA}" --run-id "${RUN_ID}"
+      - name: Set up Python
+        if: steps.receipt.outputs.run == 'true'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: make setup
-        if: >-
-          github.event_name == 'schedule'
-          || (github.event_name == 'workflow_dispatch'
-              && inputs.mode == 'apply'
-              && inputs.expected_sha == github.sha)
+        if: steps.receipt.outputs.run == 'true'
         run: |
           set -euo pipefail
           make setup
       - name: make test-deep
-        if: >-
-          github.event_name == 'schedule'
-          || (github.event_name == 'workflow_dispatch'
-              && inputs.mode == 'apply'
-              && inputs.expected_sha == github.sha)
+        if: steps.receipt.outputs.run == 'true'
         run: |
           set -euo pipefail
           make test-deep

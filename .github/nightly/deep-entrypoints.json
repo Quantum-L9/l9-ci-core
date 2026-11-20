@@ -1,0 +1,24 @@
+{
+  "schema": "l9.nightly-deep-entrypoints/v1",
+  "contract_document": "docs/nightly-deep-consumer-contract.md",
+  "entrypoints": [
+    {
+      "repository": "Quantum-L9/l9-ci-core",
+      "workflow": ".github/workflows/nightly-deep.yml",
+      "contract": "core-deep/v1",
+      "scheduling": "self"
+    },
+    {
+      "repository": "Quantum-L9/Cognitive.Engine.Graphs",
+      "workflow": ".github/workflows/deep-plan.yml",
+      "contract": "ceg-deep/v1",
+      "scheduling": "dispatch"
+    },
+    {
+      "repository": "Quantum-L9/Enrichment.Inference.Engine",
+      "workflow": ".github/workflows/ci.yml",
+      "contract": "eie-deep/v1",
+      "scheduling": "dispatch"
+    }
+  ]
+}

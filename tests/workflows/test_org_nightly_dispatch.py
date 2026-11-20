@@ -378,41 +378,156 @@ class PlanTests(unittest.TestCase):
                 ],
             )
 
-    def test_public_metadata_without_a_registry_dispatches_nothing(self) -> None:
-        def opener(url: str) -> tuple[int, dict[str, str], bytes]:
-            self.assertTrue(url.startswith("https://api.github.com/orgs/Quantum-L9/"))
-            body = json.dumps([{"name": "a"}, {"name": "b"}]).encode()
-            return 200, {}, body
+    def test_scheduled_live_plan_reads_the_projection_and_exits_zero(self) -> None:
+        """Witness for scheduled run 44770234202 (2026-11-20 16:07Z).
 
-        probe = nightly.fetch_public_org_metadata("Quantum-L9", opener=opener)
-        self.assertEqual(
-            MetadataStatus("complete", 2), (probe.status, probe.public_count)
+        The live path hard-coded ``registry_unreadable``, so every scheduled
+        plan alerted and exited 1. It now reads Core's committed registry
+        projection and the admitted entrypoints; apply is closed, so nothing
+        is unknown and nothing is dispatched.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "plan.json"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools" / "nightly_dispatch.py"),
+                    "plan",
+                    "--mode",
+                    "plan",
+                    "--event",
+                    "schedule",
+                    "--live",
+                    "--evaluated-at",
+                    "2026-11-20T16:07:59Z",
+                    "--output",
+                    str(out),
+                ],
+                env={"PATH": "/usr/bin:/bin", "GITHUB_TOKEN": "", "GH_TOKEN": ""},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            plan = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual("projection", plan["registry_status"])
+        self.assertEqual("not_read", plan["metadata_status"])
+        self.assertIs(False, plan["alert"])
+        self.assertFalse(
+            [row for row in plan["rows"] if row["verdict"].startswith("UNKNOWN")]
         )
-        plan = nightly.plan_from_probe(
-            probe,
-            evaluated_at=datetime(2026, 11, 19, 7, 17, tzinfo=timezone.utc),
+        verdicts = {row["repository"]: row["verdict"] for row in plan["rows"]}
+        self.assertEqual("SKIPPED_SELF_SCHEDULED", verdicts["Quantum-L9/l9-ci-core"])
+        projection = nightly.load_registry_projection()
+        for member in projection.members:
+            self.assertIn(member, verdicts)
+        assert_closed(self, plan)
+
+    def test_dispatch_entrypoint_is_closed_not_unknown(self) -> None:
+        projection = nightly.RegistryProjection(
+            ("Quantum-L9/l9-ci-core", "Quantum-L9/alpha", "Quantum-L9/beta"), SHA_A
+        )
+        entries = (
+            nightly.DeepEntrypoint(
+                "Quantum-L9/l9-ci-core",
+                ".github/workflows/nightly-deep.yml",
+                "core-deep/v1",
+                "self",
+            ),
+            nightly.DeepEntrypoint(
+                "Quantum-L9/alpha", ".github/workflows/deep.yml", "a/v1", "dispatch"
+            ),
+            nightly.DeepEntrypoint(
+                "Quantum-L9/gamma", ".github/workflows/deep.yml", "g/v1", "dispatch"
+            ),
+        )
+        plan = nightly.plan_from_projection(
+            projection,
+            entries,
+            evaluated_at=datetime(2026, 11, 20, 7, 17, tzinfo=timezone.utc),
             event="schedule",
             mode="plan",
         )
-        self.assertEqual(0, plan["eligible_count"])
-        self.assertEqual("unreadable", plan["registry_status"])
-        self.assertEqual(2, plan["metadata_public_count"])
-        self.assertEqual(1, nightly.plan_exit_code(plan))
+        verdicts = {row["repository"]: row["verdict"] for row in plan["rows"]}
+        self.assertEqual(
+            {
+                "Quantum-L9/l9-ci-core": "SKIPPED_SELF_SCHEDULED",
+                "Quantum-L9/alpha": "SKIPPED_APPLY_CLOSED",
+                "Quantum-L9/beta": "SKIPPED_NO_DEEP_ENTRYPOINT",
+                "Quantum-L9/gamma": "SKIPPED_NOT_PROJECTED",
+            },
+            verdicts,
+        )
+        self.assertEqual(0, nightly.plan_exit_code(plan))
         assert_closed(self, plan)
 
-        def refuse(url: str) -> tuple[int, dict[str, str], bytes]:
-            raise AssertionError(url)
+    def test_unreadable_projection_or_entrypoints_alert_and_dispatch_nothing(
+        self,
+    ) -> None:
+        evaluated = datetime(2026, 11, 20, 7, 17, tzinfo=timezone.utc)
+        receipt = json.loads(nightly.REGISTRY_PROJECTION.read_text(encoding="utf-8"))
+        tampered = dict(receipt, members=receipt["members"][:-1])
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = {
+                "missing": (Path(tmp) / "absent.json", nightly.ENTRYPOINTS),
+                "digest": (Path(tmp) / "tampered.json", nightly.ENTRYPOINTS),
+                "entrypoints": (
+                    nightly.REGISTRY_PROJECTION,
+                    Path(tmp) / "entrypoints.json",
+                ),
+            }
+            (Path(tmp) / "tampered.json").write_text(
+                json.dumps(tampered), encoding="utf-8"
+            )
+            (Path(tmp) / "entrypoints.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "l9.nightly-deep-entrypoints/v1",
+                        "entrypoints": [
+                            {
+                                "repository": "Quantum-L9/alpha",
+                                "workflow": ".github/workflows/deep.yml",
+                                "contract": "a/v1",
+                                "scheduling": "self",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            for name, (projection_path, entrypoints_path) in cases.items():
+                with self.subTest(name=name):
+                    plan = nightly.live_plan(
+                        evaluated_at=evaluated,
+                        event="schedule",
+                        mode="plan",
+                        projection_path=projection_path,
+                        entrypoints_path=entrypoints_path,
+                    )
+                    self.assertIs(True, plan["alert"])
+                    self.assertEqual(1, nightly.plan_exit_code(plan))
+                    self.assertEqual(0, plan["eligible_count"])
+                    self.assertEqual(
+                        ["UNKNOWN"], [row["verdict"] for row in plan["rows"]]
+                    )
+                    assert_closed(self, plan)
 
-        hidden = nightly.fetch_public_org_metadata("../secret", opener=refuse)
-        self.assertEqual("unavailable", hidden.status)
-        with self.assertRaises(ValueError):
-            nightly._default_open("https://example.com/repos")
-        with self.assertRaises(ValueError):
-            nightly._default_open("http://api.github.com/orgs/Quantum-L9/repos")
-
-
-def MetadataStatus(status: str, count: int) -> tuple[str, int]:
-    return status, count
+    def test_dispatch_key_is_a_bounded_token_consumers_accept(self) -> None:
+        key = nightly.dispatch_key(
+            repository_id=1,
+            slot="2026-11-19",
+            workflow=".github/workflows/deep-plan.yml",
+            contract="ceg-deep/v1",
+        )
+        self.assertRegex(key, r"^nd1-[0-9a-f]{40}\Z")
+        self.assertRegex(key, r"^[A-Za-z0-9._:-]{8,200}\Z")
+        other = nightly.dispatch_key(
+            repository_id=1,
+            slot="2026-11-20",
+            workflow=".github/workflows/deep-plan.yml",
+            contract="ceg-deep/v1",
+        )
+        self.assertNotEqual(key, other)
 
 
 class RunnerAndPullRequestTests(unittest.TestCase):
@@ -583,7 +698,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("pytest", text)
         self.assertNotIn("unittest", text)
         self.assertIn("--mode plan", text)
-        self.assertIn("--live-metadata", text)
+        self.assertIn("--live \\\n", text)
+        self.assertNotIn("--live-metadata", text)
         self.assertNotIn("--fixture", text)
         self.assertIn('REPOSITORY}" != "Quantum-L9/l9-ci-core"', text)
         self.assertEqual({"contents": "read"}, scheduler["permissions"])
@@ -632,14 +748,31 @@ class WorkflowContractTests(unittest.TestCase):
             names.index("Checkout immutable event revision"),
             names.index("make test-deep"),
         )
+        self.assertLess(
+            names.index("Checkout immutable event revision"),
+            names.index("Gate on a successful deep receipt"),
+        )
+        self.assertLess(
+            names.index("Gate on a successful deep receipt"),
+            names.index("Set up Python"),
+        )
         for step in job["steps"]:
             if step["name"] in {
                 "Checkout immutable event revision",
-                "Set up Python",
-                "make setup",
-                "make test-deep",
+                "Gate on a successful deep receipt",
             }:
                 self.assertEqual(HEAVY_IF, " ".join(str(step["if"]).split()))
+            if step["name"] in {"Set up Python", "make setup", "make test-deep"}:
+                self.assertEqual("steps.receipt.outputs.run == 'true'", str(step["if"]))
+        gate = next(
+            step
+            for step in job["steps"]
+            if step["name"] == "Gate on a successful deep receipt"
+        )
+        self.assertEqual("receipt", gate["id"])
+        self.assertIn("tools/nightly_apply.py receipt", gate["run"])
+        self.assertEqual("${{ github.token }}", gate["env"]["L9_RECEIPT_TOKEN"])
+        self.assertEqual({"contents": "read", "actions": "read"}, job["permissions"])
         plan_job = workflow["jobs"]["dispatch-plan"]
         self.assertNotIn("make ", str(plan_job))
         self.assertNotIn("git ", str(plan_job))
