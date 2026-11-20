@@ -53,7 +53,7 @@ at the event revision. The portable phases stay `setup`, `validate`, `check`,
 and `test`.
 
 The `Unit tests` job keeps that name and runs `python -m unittest` on the
-other 76 modules, with the same fail-closed checks. It does not run
+other 79 modules, with the same fail-closed checks. It does not run
 `make test` and it does not discover. The table's "full `unittest` suite"
 parenthetical is the pre-split job.
 
@@ -65,6 +65,9 @@ parenthetical is the pre-split job.
 `make test-deep` only when the ref is `Quantum-L9/l9-ci-core` default branch
 `main`. It is not a required pull-request check. The retired stem `nightly`
 stays retired. The payload does not gain a context for it.
+`.github/workflows/org-nightly-dispatch.yml` uses the same cron for a
+plan-only fleet pass that dispatches zero jobs and is not a required check.
+A fixture from that planner is not a live schedule receipt.
 
 On the pre-split push `44071155232a3d5232258a1f1a44f5a45c126f1c`, self-ci run
 44208286762 spent 31s in `make test` and 29s in `Run Phase 1 validation`. No
