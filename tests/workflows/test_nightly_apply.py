@@ -16,7 +16,7 @@ import tempfile
 import unittest
 import urllib.error
 from contextlib import redirect_stdout
-from unittest import mock
+import unittest.mock as mock
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
