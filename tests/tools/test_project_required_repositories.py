@@ -146,6 +146,86 @@ class FetchFailureTests(unittest.TestCase):
                     )
 
 
+class FetchAuthenticationTests(unittest.TestCase):
+    """Quantum-L9/.github is private: the fetch carries the ambient credential."""
+
+    def _capture(self, environ: dict[str, str], returncode: int = 0):
+        seen: list[tuple[list[str], dict[str, str]]] = []
+
+        def fake_run(argv, **kwargs):
+            seen.append((list(argv), dict(kwargs.get("env") or {})))
+            if "fetch" in argv:
+                return subprocess.CompletedProcess(argv, returncode, "", "fatal: nope")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        clean = {
+            k: v
+            for k, v in projection.os.environ.items()
+            if k not in ("GH_TOKEN", "GITHUB_TOKEN") and not k.startswith("GIT_CONFIG_")
+        }
+        clean.update(environ)
+        with (
+            unittest.mock.patch.dict(projection.os.environ, clean, clear=True),
+            unittest.mock.patch.object(
+                projection.subprocess, "run", side_effect=fake_run
+            ),
+        ):
+            try:
+                projection._fetch("main")
+            except projection.ProjectionError as error:
+                return seen, str(error)
+        return seen, ""
+
+    def _fetch_call(self, seen):
+        return next((argv, env) for argv, env in seen if "fetch" in argv)
+
+    def test_the_fetch_sends_the_token_as_a_header_never_in_argv(self) -> None:
+        seen, _ = self._capture({"GITHUB_TOKEN": "ghs_ambient"})
+        argv, env = self._fetch_call(seen)
+        self.assertNotIn("ghs_ambient", " ".join(argv))
+        self.assertIn(projection.SOURCE_URL, argv)
+        self.assertEqual("1", env["GIT_CONFIG_COUNT"])
+        self.assertEqual(
+            "http.https://github.com/.extraheader", env["GIT_CONFIG_KEY_0"]
+        )
+        expected = projection.base64.b64encode(b"x-access-token:ghs_ambient").decode()
+        self.assertEqual(f"AUTHORIZATION: basic {expected}", env["GIT_CONFIG_VALUE_0"])
+        self.assertEqual("0", env["GIT_TERMINAL_PROMPT"])
+
+    def test_gh_token_wins_over_github_token(self) -> None:
+        seen, _ = self._capture({"GH_TOKEN": "gh_first", "GITHUB_TOKEN": "gh_second"})
+        _, env = self._fetch_call(seen)
+        expected = projection.base64.b64encode(b"x-access-token:gh_first").decode()
+        self.assertEqual(f"AUTHORIZATION: basic {expected}", env["GIT_CONFIG_VALUE_0"])
+
+    def test_an_existing_git_config_entry_is_kept(self) -> None:
+        seen, _ = self._capture(
+            {
+                "GH_TOKEN": "t",
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "core.askpass",
+                "GIT_CONFIG_VALUE_0": "",
+            }
+        )
+        _, env = self._fetch_call(seen)
+        self.assertEqual("2", env["GIT_CONFIG_COUNT"])
+        self.assertEqual("core.askpass", env["GIT_CONFIG_KEY_0"])
+        self.assertEqual(
+            "http.https://github.com/.extraheader", env["GIT_CONFIG_KEY_1"]
+        )
+
+    def test_without_a_credential_a_failure_names_the_private_source(self) -> None:
+        seen, error = self._capture({}, returncode=128)
+        _, env = self._fetch_call(seen)
+        self.assertNotIn("GIT_CONFIG_COUNT", env)
+        self.assertIn("is private: set GH_TOKEN or GITHUB_TOKEN", error)
+
+    def test_with_a_credential_a_failure_does_not_blame_its_absence(self) -> None:
+        _, error = self._capture({"GH_TOKEN": "t"}, returncode=128)
+        self.assertIn("cannot fetch Quantum-L9/.github@main", error)
+        self.assertNotIn("set GH_TOKEN", error)
+
+
 class ShippedProjectionTests(unittest.TestCase):
     def test_shipped_policy_matches_its_receipt(self) -> None:
         self.assertEqual([], projection.verify())
