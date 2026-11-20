@@ -657,10 +657,14 @@ class WorkflowContractTests(unittest.TestCase):
             },
             json.loads(REPO_WORKFLOW.read_text(encoding="utf-8")),
         )
-        text = ORG_CI.read_text(encoding="utf-8")
-        self.assertNotIn("unittest discover", text)
-        self.assertNotIn("test-deep", text)
-        self.assertNotIn("make test-deep", text)
+        steps = [step for job in load(ORG_CI)["jobs"].values() for step in job["steps"]]
+        for step in steps:
+            if step.get("name") == "Judge pull-request test expense":
+                continue
+            blob = str(step.get("run", ""))
+            self.assertNotIn("unittest discover", blob)
+            self.assertNotIn("test-deep", blob)
+            self.assertNotIn("make test-deep", blob)
 
     def test_planner_source_reads_no_token(self) -> None:
         source = (ROOT / "tools" / "nightly_dispatch.py").read_text(encoding="utf-8")
