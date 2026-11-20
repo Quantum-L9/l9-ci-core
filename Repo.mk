@@ -69,7 +69,8 @@ REPO_TEST_MODULES := \
 	tests/tools/test_check_workflow_integrity.py \
 	tests/tools/test_manifest_integrity.py \
 	tests/tools/test_project_required_repositories.py \
-	tests/tools/test_tool_ownership.py
+	tests/tools/test_tool_ownership.py \
+	tests/workflows/test_security_scan_outcomes.py
 
 # The interpreter command that runs the subset. self-ci.yml's Repository
 # contract job sets it to `python -m coverage run --parallel-mode -m unittest`
