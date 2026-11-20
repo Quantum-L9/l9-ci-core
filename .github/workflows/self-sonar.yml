@@ -7,18 +7,23 @@
 # required status check. A finding does not fail the job (quality-gate wait
 # stays off). Fork pull requests are skipped: the organization token is not
 # available to them, and an untrusted head is not uploaded.
+#
+# Called by self-ci.yml after `Unit tests` and `Repository contract`, on the
+# same events it ran on before (pull_request, push to main, dispatch). Those
+# jobs measure coverage on the runs they already make and upload one Cobertura
+# report each; this job downloads both into coverage-reports/, which
+# sonar-project.properties names. The reports are data the scanner parses, as
+# it parses the source tree: this job runs no repository code, and the token
+# is passed to it by name and to no other job.
 name: Core Sonar analysis
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+  workflow_call:
+    secrets:
+      SONAR_TOKEN:
+        description: Organization SonarQube Cloud token, used by this job only.
+        required: false
 permissions:
   contents: read
-concurrency:
-  group: core-sonar-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
   sonar:
     name: SonarQube Cloud
@@ -27,12 +32,32 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - name: Checkout event revision
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         with:
           fetch-depth: 0
           persist-credentials: false
+      # Both reports are required: a scan without one would read as 0% coverage
+      # for the code that report measures, which is the false signal this
+      # replaces.
+      - name: Download coverage reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: coverage-*
+          path: coverage-reports
+          merge-multiple: true
+      - name: Require both coverage reports
+        run: |
+          set -euo pipefail
+          for report in coverage-unit-tests.xml coverage-repository-contract.xml; do
+            if [ ! -s "coverage-reports/${report}" ]; then
+              echo "::error::coverage report ${report} is missing" >&2
+              exit 1
+            fi
+          done
       - name: SonarQube Cloud scan
         uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8.5.0
         with:
