@@ -68,6 +68,9 @@ REQUIRED_LIFECYCLE = "current"
 TOKEN_ENVS = ("GH_TOKEN", "GITHUB_TOKEN")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
+# A ref the fetch accepts: a commit SHA or a plain branch/tag name. It must not
+# start with "-" (git would parse it as an option) and must not contain "..".
+REF = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_./-]{0,254}$")
 
 
 class ProjectionError(RuntimeError):
@@ -206,7 +209,18 @@ def git_env(token: str) -> dict[str, str]:
     return env
 
 
+def checked_ref(ref: str) -> str:
+    """``ref`` when it is a plain branch, tag or commit name; else ProjectionError."""
+
+    if not REF.fullmatch(ref) or ".." in ref or ref.endswith((".lock", "/", ".")):
+        raise ProjectionError(
+            f"--ref must be a branch, tag or commit name, got {ref!r}"
+        )
+    return ref
+
+
 def _fetch(ref: str) -> tuple[bytes, str]:
+    ref = checked_ref(ref)
     token = ambient_token()
     env = git_env(token)
     with tempfile.TemporaryDirectory(prefix="l9-registry-") as tmp:
@@ -221,6 +235,7 @@ def _fetch(ref: str) -> tuple[bytes, str]:
                 "--quiet",
                 "--depth",
                 "1",
+                "--",
                 SOURCE_URL,
                 ref,
             ],

@@ -226,6 +226,51 @@ class FetchAuthenticationTests(unittest.TestCase):
         self.assertNotIn("set GH_TOKEN", error)
 
 
+class RefValidationTests(unittest.TestCase):
+    """--ref reaches git argv: anything but a plain ref name is refused before git runs."""
+
+    def test_option_shaped_and_traversing_refs_are_refused(self) -> None:
+        for ref in (
+            "--upload-pack=touch /tmp/x",
+            "-c",
+            "a..b",
+            "",
+            "main.lock",
+            "a b",
+            "x/",
+        ):
+            with (
+                self.subTest(ref=ref),
+                unittest.mock.patch.object(projection.subprocess, "run") as run,
+                contextlib.redirect_stderr(io.StringIO()) as err,
+            ):
+                self.assertEqual(2, projection.main([f"--ref={ref}"]))
+                run.assert_not_called()
+                self.assertIn(
+                    "--ref must be a branch, tag or commit name", err.getvalue()
+                )
+
+    def test_plain_refs_pass_and_follow_end_of_options(self) -> None:
+        for ref in ("main", "v1.2.3", "release/2026-11", COMMIT):
+            seen: list[list[str]] = []
+
+            def fake_run(argv, **_kwargs):
+                seen.append(list(argv))
+                code = 128 if "fetch" in argv else 0
+                return subprocess.CompletedProcess(argv, code, "", "fatal")
+
+            with (
+                self.subTest(ref=ref),
+                unittest.mock.patch.object(
+                    projection.subprocess, "run", side_effect=fake_run
+                ),
+                self.assertRaises(projection.ProjectionError),
+            ):
+                projection._fetch(ref)
+            fetch = next(argv for argv in seen if "fetch" in argv)
+            self.assertEqual(["--", projection.SOURCE_URL, ref], fetch[-3:])
+
+
 class ShippedProjectionTests(unittest.TestCase):
     def test_shipped_policy_matches_its_receipt(self) -> None:
         self.assertEqual([], projection.verify())
