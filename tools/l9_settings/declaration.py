@@ -81,6 +81,10 @@ def load_declaration(settings: pathlib.Path, owner: str) -> Declaration:
         document = _load(path)
         _check(validator, f"repos/{path.name}", document)
         name = document["repository"]
+        if name in repositories:
+            raise SettingsRefused(
+                f"repos/{path.name}: {name} is already declared by another file"
+            )
         if path.stem != name:
             raise SettingsRefused(f"repos/{path.name}: must be named {name}.yml")
         repositories[name] = document

@@ -61,9 +61,13 @@ class SettingsRunnerWorkflowTests(unittest.TestCase):
         first = self.steps[0]
         self.assertEqual("Quantum-L9/l9-ci-core", first["with"]["repository"])
         self.assertEqual("${{ inputs.core-ref }}", first["with"]["ref"])
-        refuse = self.steps[1]["run"]
-        self.assertIn("git rev-parse HEAD", refuse)
-        self.assertIn("[0-9a-f]{40}", refuse)
+        refuse = self.steps[1]
+        self.assertIn("git rev-parse HEAD", refuse["run"])
+        self.assertIn("[0-9a-f]{40}", refuse["run"])
+        # The caller-supplied core-ref is bound to the commit GitHub resolved
+        # this reusable workflow from, not merely to the checkout it chose.
+        self.assertEqual("${{ job.workflow_sha }}", refuse["env"]["WORKFLOW_SHA"])
+        self.assertIn('[ "${WORKFLOW_SHA}" = "${CORE_REF}" ]', refuse["run"])
 
     def test_declaration_token_is_contents_read_on_dotgithub_alone(self) -> None:
         token = self.step("declaration-token")

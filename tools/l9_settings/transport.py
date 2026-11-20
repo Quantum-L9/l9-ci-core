@@ -79,7 +79,7 @@ class UrllibTransport:
                 return Response(response.status, response.read())
         except urllib.error.HTTPError as error:
             return Response(error.code, error.read())
-        except (urllib.error.URLError, TimeoutError, OSError) as error:
+        except OSError as error:  # URLError and TimeoutError are OSErrors
             path = urllib.parse.urlsplit(url).path
             raise SettingsInfrastructureError(
                 f"GitHub {method} {path} failed: {error}"

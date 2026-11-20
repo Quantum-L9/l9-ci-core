@@ -36,6 +36,8 @@ MERGE_KEYS = (
 WORKFLOW_KEYS = ("default_workflow_permissions", "can_approve_pull_request_reviews")
 RULESET_KEYS = ("name", "target", "enforcement", "conditions", "rules", "bypass_actors")
 NOT_READABLE = "n/a"
+ACCESS_LEVEL = "actions.access_level"
+BRANCH_POLICY = "deployment_branch_policy"
 
 
 def _known(value: Any) -> bool:
@@ -236,7 +238,7 @@ class _Repo:
             elif live_visibility == "public":
                 # The visibility change above runs first; access is set right after it.
                 self.change(
-                    "actions.access_level",
+                    ACCESS_LEVEL,
                     NOT_READABLE,
                     access,
                     "PUT",
@@ -250,10 +252,10 @@ class _Repo:
                     or not isinstance(body, dict)
                     or "access_level" not in body
                 ):
-                    self.unreadable("actions.access_level", status)
+                    self.unreadable(ACCESS_LEVEL, status)
                 elif body["access_level"] != access:
                     self.change(
-                        "actions.access_level",
+                        ACCESS_LEVEL,
                         body["access_level"],
                         access,
                         "PUT",
@@ -384,65 +386,81 @@ class _Repo:
         else:
             self.unreadable(f"environments[{name}]", status)
             return
-
-        desired_branch = env["deployment_branch_policy"]
-        if _known(desired_branch) and desired_branch != "none":
-            if desired_branch["protected_branches"] == (
-                "custom_branches" in desired_branch
-            ):
-                raise SettingsRefused(
-                    f"{self.full} environments[{name}]: deployment_branch_policy takes exactly one of "
-                    "protected_branches: true or custom_branches"
-                )
-        wanted: dict[str, Any] = {}
-        for key in ("wait_timer", "prevent_self_review"):
-            if _known(env[key]):
-                wanted[key] = env[key]
-        if _known(env["reviewers"]):
-            wanted["reviewers"] = sorted(
-                (r["type"], r["name"]) for r in env["reviewers"]
-            )
-        if _known(desired_branch):
-            wanted["deployment_branch_policy"] = self._branch_policy(desired_branch)
-
-        current: dict[str, Any] = {}
-        if live is not None:
-            current = {
-                "wait_timer": live["wait_timer"],
-                "prevent_self_review": live["prevent_self_review"],
-                "reviewers": sorted((r["type"], r["name"]) for r in live["reviewers"]),
-                "deployment_branch_policy": live["deployment_branch_policy"],
-            }
+        self._refuse_invalid_branch_policy(name, env[BRANCH_POLICY])
+        wanted = self._wanted_environment(env)
+        current = self._current_environment(live)
         differs = {
             k: v for k, v in wanted.items() if live is None or current.get(k) != v
         }
-        setting = f"environments[{name}]"
-        if (
-            live is None
-            or any(k != "deployment_branch_policy" for k in differs)
-            or (
-                "deployment_branch_policy" in differs
-                and self._shape(differs["deployment_branch_policy"])
-                != self._shape(current.get("deployment_branch_policy"))
-            )
-        ):
+        if self._needs_put(live, differs, current):
             body = self._environment_body(env, live)
             if body is None:
                 return
             self.change(
-                setting,
+                f"environments[{name}]",
                 None if live is None else {k: current[k] for k in differs},
                 differs,
                 "PUT",
                 env_path,
                 body,
             )
-        self._custom_branches(
-            name, env_path, wanted.get("deployment_branch_policy"), live
-        )
+        self._custom_branches(name, env_path, wanted.get(BRANCH_POLICY), live)
         self._required_secrets(
             name, env_path, env["required_secrets"], live is not None
         )
+
+    def _refuse_invalid_branch_policy(self, name: str, policy: Any) -> None:
+        if (
+            _known(policy)
+            and policy != "none"
+            and policy["protected_branches"] == ("custom_branches" in policy)
+        ):
+            raise SettingsRefused(
+                f"{self.full} environments[{name}]: deployment_branch_policy takes "
+                "exactly one of protected_branches: true or custom_branches"
+            )
+
+    def _wanted_environment(self, env: dict[str, Any]) -> dict[str, Any]:
+        wanted: dict[str, Any] = {
+            key: env[key]
+            for key in ("wait_timer", "prevent_self_review")
+            if _known(env[key])
+        }
+        if _known(env["reviewers"]):
+            wanted["reviewers"] = sorted(
+                (r["type"], r["name"]) for r in env["reviewers"]
+            )
+        if _known(env[BRANCH_POLICY]):
+            wanted[BRANCH_POLICY] = self._branch_policy(env[BRANCH_POLICY])
+        return wanted
+
+    @staticmethod
+    def _current_environment(live: dict[str, Any] | None) -> dict[str, Any]:
+        if live is None:
+            return {}
+        return {
+            "wait_timer": live["wait_timer"],
+            "prevent_self_review": live["prevent_self_review"],
+            "reviewers": sorted((r["type"], r["name"]) for r in live["reviewers"]),
+            BRANCH_POLICY: live[BRANCH_POLICY],
+        }
+
+    def _needs_put(
+        self,
+        live: dict[str, Any] | None,
+        differs: dict[str, Any],
+        current: dict[str, Any],
+    ) -> bool:
+        """A PUT creates the environment or changes what the PUT itself sets.
+
+        A change confined to custom branch names is made by the branch-policy
+        endpoints, not by the environment PUT.
+        """
+        if live is None or any(k != BRANCH_POLICY for k in differs):
+            return True
+        return BRANCH_POLICY in differs and self._shape(
+            differs[BRANCH_POLICY]
+        ) != self._shape(current.get(BRANCH_POLICY))
 
     @staticmethod
     def _shape(policy: Any) -> Any:
@@ -475,9 +493,9 @@ class _Repo:
             body["reviewers"] = [
                 {"type": r["type"], "id": r["id"]} for r in live["reviewers"]
             ]
-        policy = env["deployment_branch_policy"]
+        policy = env[BRANCH_POLICY]
         if not _known(policy):
-            policy = live["deployment_branch_policy"] if live is not None else None
+            policy = live[BRANCH_POLICY] if live is not None else None
         if policy is not None:
             body["deployment_branch_policy"] = (
                 None
@@ -563,6 +581,21 @@ class _Repo:
     def _canonical(items: list[Any]) -> list[str]:
         return sorted(json.dumps(i, sort_keys=True) for i in items)
 
+    def _ruleset_differences(
+        self, ruleset: dict[str, Any], detail: dict[str, Any]
+    ) -> list[str]:
+        differs = [
+            key
+            for key in ("target", "enforcement", "conditions")
+            if detail.get(key) != ruleset[key]
+        ]
+        if not self._rules_match(ruleset["rules"], detail.get("rules") or []):
+            differs.append("rules")
+        live_bypass = self._canonical(detail.get("bypass_actors") or [])
+        if live_bypass != self._canonical(ruleset["bypass_actors"]):
+            differs.append("bypass_actors")
+        return differs
+
     def rulesets(self) -> None:
         rulesets = self.declared["rulesets"]
         if not isinstance(rulesets, list):
@@ -597,17 +630,7 @@ class _Repo:
             if status != 200 or not isinstance(detail, dict):
                 self.unreadable(setting, status)
                 continue
-            differs = [
-                key
-                for key in ("target", "enforcement", "conditions")
-                if detail.get(key) != ruleset[key]
-            ]
-            if not self._rules_match(ruleset["rules"], detail.get("rules") or []):
-                differs.append("rules")
-            if self._canonical(detail.get("bypass_actors") or []) != self._canonical(
-                ruleset["bypass_actors"]
-            ):
-                differs.append("bypass_actors")
+            differs = self._ruleset_differences(ruleset, detail)
             if differs:
                 self.change(
                     setting,

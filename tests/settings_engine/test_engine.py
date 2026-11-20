@@ -521,6 +521,14 @@ class DeclarationAndCliTests(unittest.TestCase):
         with self.assertRaises(SettingsRefused):
             load_declaration(self.settings, OWNER)
 
+    def test_one_repository_declared_twice_is_refused(self) -> None:
+        (self.settings / "repos" / "svc.yaml").write_text(
+            yaml.safe_dump(declared(merge={"allow_merge_commit": True})),
+            encoding="utf-8",
+        )
+        with self.assertRaises(SettingsRefused):
+            load_declaration(self.settings, OWNER)
+
     def test_wrong_owner_refused(self) -> None:
         with self.assertRaises(SettingsRefused):
             load_declaration(self.settings, "Someone-Else")
