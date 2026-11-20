@@ -8,8 +8,15 @@ is deduped, and an unknown permission or history dispatches nothing.
 
 from __future__ import annotations
 
+import io
+import json
+import os
 import sys
+import tempfile
 import unittest
+import urllib.error
+from contextlib import redirect_stdout
+from unittest import mock
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -134,7 +141,8 @@ def run(
 
 def only_row(result: Mapping[str, object]) -> Mapping[str, object]:
     rows = result["rows"]
-    assert isinstance(rows, list) and len(rows) == 1
+    assert isinstance(rows, list)
+    assert len(rows) == 1
     row = rows[0]
     assert isinstance(row, dict)
     return row
@@ -376,6 +384,366 @@ class ReceiptGateTests(unittest.TestCase):
         ):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 call("GET", path, None)
+
+
+class _Response:
+    def __init__(self, status: int, body: bytes) -> None:
+        self.status = status
+        self._body = body
+
+    def __enter__(self) -> _Response:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def read(self, _limit: int) -> bytes:
+        return self._body
+
+
+class _Opener:
+    def __init__(self, outcome: object) -> None:
+        self.outcome = outcome
+        self.requests: list[object] = []
+
+    def open(self, request: object, timeout: int) -> _Response:
+        self.requests.append(request)
+        if isinstance(self.outcome, BaseException):
+            raise self.outcome
+        assert isinstance(self.outcome, _Response)
+        return self.outcome
+
+
+class TransportTests(unittest.TestCase):
+    PREFIX = "/repos/Quantum-L9/"
+
+    def call(self, outcome: object) -> tuple[tuple[int, object], _Opener]:
+        opener = _Opener(outcome)
+        with mock.patch.object(
+            apply.urllib.request, "build_opener", return_value=opener
+        ):
+            transport = apply.http_transport("tok", self.PREFIX)
+            result = transport("POST", "/repos/Quantum-L9/a/x", {"ref": "main"})
+        return result, opener
+
+    def test_json_body_is_parsed_and_headers_are_set(self) -> None:
+        result, opener = self.call(_Response(200, b'{"ok": true}'))
+        self.assertEqual((200, {"ok": True}), result)
+        request = opener.requests[0]
+        assert isinstance(request, apply.urllib.request.Request)
+        self.assertEqual(
+            "https://api.github.com/repos/Quantum-L9/a/x", request.full_url
+        )
+        self.assertEqual("Bearer tok", request.get_header("Authorization"))
+        self.assertEqual(b'{"ref": "main"}', request.data)
+
+    def test_empty_error_and_unparseable_responses(self) -> None:
+        self.assertEqual((204, None), self.call(_Response(204, b""))[0])
+        self.assertEqual((0, None), self.call(_Response(200, b"not json"))[0])
+        refused = urllib.error.HTTPError("u", 403, "no", {}, None)  # type: ignore[arg-type]
+        self.assertEqual((403, None), self.call(refused)[0])
+        self.assertEqual((0, None), self.call(urllib.error.URLError("down"))[0])
+        self.assertEqual((0, None), self.call(TimeoutError())[0])
+
+    def test_redirects_are_refused(self) -> None:
+        handler = apply._NoRedirect()
+        request = apply.urllib.request.Request("https://api.github.com/x")
+        with self.assertRaises(urllib.error.HTTPError):
+            handler.redirect_request(request, None, 302, "Found", {}, "https://e.x")
+
+
+class HistoryTests(unittest.TestCase):
+    def test_latest_successful_apply_under_the_contract_wins(self) -> None:
+        runs: list[object] = [
+            {
+                "display_title": f"deep apply {SLOT} {CONTRACT} k3",
+                "conclusion": "failure",
+                "head_sha": HEAD,
+            },
+            {
+                "display_title": f"deep plan {SLOT} {CONTRACT} k2",
+                "conclusion": "success",
+                "head_sha": HEAD,
+            },
+            {
+                "display_title": f"deep apply {SLOT} other/v1 k1",
+                "conclusion": "success",
+                "head_sha": HEAD,
+            },
+            {"display_title": "CI Pipeline", "conclusion": "success"},
+            {
+                "display_title": f"deep apply {SLOT} {CONTRACT} k0",
+                "conclusion": "success",
+                "head_sha": OLD,
+            },
+        ]
+        self.assertEqual(
+            (["k3", "k2", "k1", "k0"], OLD), apply.history_from_runs(runs, CONTRACT)
+        )
+        self.assertIsNone(apply.history_from_runs(["bad"], CONTRACT))
+
+    def test_malformed_history_is_unknown(self) -> None:
+        github = FakeGitHub()
+        github.runs = ["not-a-run"]  # type: ignore[list-item]
+        self.assertEqual("UNKNOWN_RUN_HISTORY", only_row(run(github))["verdict"])
+
+    def test_inactive_entrypoint_is_unknown_permission(self) -> None:
+        github = FakeGitHub()
+        original = github.__call__
+
+        def inactive(
+            method: str, path: str, body: Mapping[str, object] | None
+        ) -> tuple[int, object]:
+            if path == f"{BASE}/actions/workflows/deep-plan.yml":
+                return 200, {"state": "disabled_manually"}
+            return original(method, path, body)
+
+        result = apply.apply_plan(
+            PROJECTION, ENTRIES, env=OPEN, transport=inactive, evaluated_at=EVALUATED
+        )
+        self.assertEqual("UNKNOWN_PERMISSION", only_row(result)["verdict"])
+
+
+class CommandTests(unittest.TestCase):
+    def run_main(self, argv: list[str], env: dict[str, str]) -> tuple[int, str]:
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True), redirect_stdout(out):
+            code = apply.main(argv)
+        return code, out.getvalue()
+
+    def test_receipt_outside_a_schedule_runs_and_records_why(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            summary = Path(tmp) / "summary"
+            code, printed = self.run_main(
+                ["receipt", "--sha", "f" * 40, "--run-id", "1"],
+                {
+                    "EVENT_NAME": "workflow_dispatch",
+                    "GITHUB_OUTPUT": str(output),
+                    "GITHUB_STEP_SUMMARY": str(summary),
+                },
+            )
+            self.assertEqual(0, code)
+            self.assertIn("run=true", printed)
+            self.assertEqual(
+                "run=true\nreason=not_scheduled:workflow_dispatch\n",
+                output.read_text(encoding="utf-8"),
+            )
+            self.assertIn("runs the suite", summary.read_text(encoding="utf-8"))
+
+    def test_scheduled_receipt_without_a_token_runs(self) -> None:
+        code, printed = self.run_main(
+            ["receipt", "--sha", "f" * 40, "--run-id", "1"],
+            {"EVENT_NAME": "schedule"},
+        )
+        self.assertEqual(0, code)
+        self.assertIn("reason=receipt_unknown:no_token", printed)
+
+    def test_scheduled_receipt_reads_history_with_the_token(self) -> None:
+        seen: list[str] = []
+
+        def fake(token: str, prefix: str) -> apply.Transport:
+            seen.append(prefix)
+
+            def call(
+                method: str, path: str, body: Mapping[str, object] | None
+            ) -> tuple[int, object]:
+                return 200, {
+                    "workflow_runs": [
+                        {
+                            "id": 4,
+                            "head_sha": "f" * 40,
+                            "conclusion": "success",
+                            "event": "schedule",
+                        }
+                    ]
+                }
+
+            return call
+
+        with mock.patch.object(apply, "http_transport", fake):
+            code, printed = self.run_main(
+                ["receipt", "--sha", "f" * 40, "--run-id", "9"],
+                {"EVENT_NAME": "schedule", apply.RECEIPT_TOKEN_ENV: "t"},
+            )
+        self.assertEqual(0, code)
+        self.assertIn("run=false", printed)
+        self.assertEqual(["/repos/Quantum-L9/l9-ci-core/actions/"], seen)
+
+    def test_apply_command_is_closed_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            code, printed = self.run_main(
+                ["apply", "--evaluated-at", "2026-11-20T07:17:00Z"],
+                {"RUNNER_TEMP": tmp, apply.DISPATCH_TOKEN_ENV: "t"},
+            )
+            self.assertEqual(1, code)
+            self.assertIn("status=APPLY_CLOSED switch=closed dispatch_count=0", printed)
+            written = json.loads(
+                (Path(tmp) / apply.APPLY_RESULT_NAME).read_text(encoding="utf-8")
+            )
+        self.assertEqual("APPLY_CLOSED", written["status"])
+
+    def test_apply_command_fails_on_an_unreadable_input(self) -> None:
+        with mock.patch.object(
+            apply.planner,
+            "load_registry_projection",
+            side_effect=nightly.FixtureError("gone"),
+        ):
+            code, _ = self.run_main(["apply"], {})
+        self.assertEqual(2, code)
+
+
+class EntrypointLoaderTests(unittest.TestCase):
+    def load(self, entries: object, schema: str = nightly.ENTRYPOINTS_SCHEMA) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "e.json"
+            path.write_text(
+                json.dumps({"schema": schema, "entrypoints": entries}),
+                encoding="utf-8",
+            )
+            nightly.load_entrypoints(path)
+
+    def test_committed_entrypoints_load(self) -> None:
+        entries = nightly.load_entrypoints()
+        self.assertEqual(
+            ["self", "dispatch", "dispatch"], [entry.scheduling for entry in entries]
+        )
+
+    def test_malformed_entrypoints_are_refused(self) -> None:
+        good = {
+            "repository": REPO,
+            "workflow": WORKFLOW,
+            "contract": CONTRACT,
+            "scheduling": "dispatch",
+        }
+        cases: dict[str, object] = {
+            "not_list": {"a": 1},
+            "not_object": ["x"],
+            "repository": [dict(good, repository="alpha")],
+            "workflow_dir": [dict(good, workflow="ci/deep.yml")],
+            "workflow_nested": [dict(good, workflow=".github/workflows/a/b.yml")],
+            "workflow_suffix": [dict(good, workflow=".github/workflows/deep.sh")],
+            "contract": [dict(good, contract="bad contract")],
+            "scheduling": [dict(good, scheduling="cron")],
+            "self_not_core": [dict(good, scheduling="self")],
+            "duplicate": [good, good],
+        }
+        for name, entries in cases.items():
+            with self.subTest(name=name), self.assertRaises(nightly.FixtureError):
+                self.load(entries)
+        with self.assertRaises(nightly.FixtureError):
+            self.load([good], schema="other")
+
+
+class PlannerCommandTests(unittest.TestCase):
+    """The plan CLI in process, so its live path is measured, not only run."""
+
+    def plan_main(self, argv: list[str], env: dict[str, str]) -> tuple[int, str]:
+        out = io.StringIO()
+        err = io.StringIO()
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            redirect_stdout(out),
+            mock.patch.object(sys, "stderr", err),
+        ):
+            code = nightly.main(argv)
+        return code, out.getvalue() + err.getvalue()
+
+    def test_live_plan_writes_output_and_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "plan.json"
+            summary = Path(tmp) / "summary"
+            code, printed = self.plan_main(
+                [
+                    "plan",
+                    "--mode",
+                    "plan",
+                    "--live",
+                    "--output",
+                    str(output),
+                    "--evaluated-at",
+                    "2026-11-20T16:07:59Z",
+                ],
+                {"GITHUB_STEP_SUMMARY": str(summary)},
+            )
+            self.assertEqual(0, code)
+            self.assertIn("exit=0", printed)
+            plan = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual("projection", plan["registry_status"])
+            self.assertIn("not a live schedule receipt", summary.read_text("utf-8"))
+
+    def test_live_plan_without_output_prints_the_plan(self) -> None:
+        code, printed = self.plan_main(["plan", "--mode", "plan", "--live"], {})
+        self.assertEqual(0, code)
+        self.assertIn('"schema": "l9.nightly-plan/v1"', printed)
+
+    def test_fixture_plan_and_flag_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp) / "f.json"
+            fixture.write_text(
+                json.dumps(
+                    {
+                        "evaluated_at": "2026-11-19T07:17:00Z",
+                        "slot": "2026-11-19",
+                        "registry_readable": True,
+                        "pagination_complete": True,
+                        "repositories": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                0,
+                self.plan_main(
+                    ["plan", "--mode", "plan", "--fixture", str(fixture)], {}
+                )[0],
+            )
+            cases = {
+                "neither": ["plan", "--mode", "plan"],
+                "both": ["plan", "--mode", "plan", "--live", "--fixture", str(fixture)],
+                "clock": [
+                    "plan",
+                    "--mode",
+                    "plan",
+                    "--fixture",
+                    str(fixture),
+                    "--evaluated-at",
+                    "2026-11-19T07:17:00Z",
+                ],
+                "mode": ["plan", "--mode", "deploy", "--live"],
+            }
+            for name, argv in cases.items():
+                with self.subTest(name=name):
+                    self.assertEqual(2, self.plan_main(argv, {})[0])
+
+    def test_projection_rejections(self) -> None:
+        receipt = json.loads(nightly.REGISTRY_PROJECTION.read_text(encoding="utf-8"))
+        repeated = ["Quantum-L9/a", "Quantum-L9/a"]
+        digest = (
+            __import__("hashlib")
+            .sha256(("\n".join(repeated) + "\n").encode())
+            .hexdigest()
+        )
+        cases: dict[str, object] = {
+            "schema": dict(receipt, schema="other"),
+            "commit": dict(receipt, source={"commit": "main"}),
+            "members": dict(receipt, members=[]),
+            "repeat": dict(receipt, members=repeated, members_sha256=digest),
+            "not_object": ["x"],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, body in cases.items():
+                path = Path(tmp) / f"{name}.json"
+                path.write_text(json.dumps(body), encoding="utf-8")
+                with self.subTest(name=name), self.assertRaises(nightly.FixtureError):
+                    nightly.load_registry_projection(path)
+
+    def test_projection_plan_requires_a_utc_clock(self) -> None:
+        local = datetime(2026, 11, 20, 7, 17)
+        with self.assertRaises(nightly.FixtureError):
+            nightly.plan_from_projection(
+                PROJECTION, ENTRIES, evaluated_at=local, event="schedule", mode="plan"
+            )
 
 
 if __name__ == "__main__":

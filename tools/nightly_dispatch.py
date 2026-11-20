@@ -771,10 +771,7 @@ def load_registry_projection(path: Path = REGISTRY_PROJECTION) -> RegistryProjec
     A digest that does not match its members, or an unreadable file, is an
     unreadable registry.
     """
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise FixtureError(f"registry projection unreadable: {error}") from error
+    data = _read_json(path, "registry projection")
     if not isinstance(data, dict) or data.get("schema") != PROJECTION_SCHEMA:
         raise FixtureError("registry projection has the wrong schema")
     source = data.get("source")
@@ -793,43 +790,101 @@ def load_registry_projection(path: Path = REGISTRY_PROJECTION) -> RegistryProjec
     return RegistryProjection(tuple(names), commit)
 
 
+def _read_json(path: Path, label: str) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise FixtureError(f"{label} unreadable: {error}") from error
+
+
+def _workflow_file(value: object, repository: str) -> str:
+    workflow = _plain(value, "workflow")
+    prefix = ".github/workflows/"
+    name = workflow[len(prefix) :]
+    if (
+        not workflow.startswith(prefix)
+        or not name.endswith((".yml", ".yaml"))
+        or "/" in name
+    ):
+        raise FixtureError(f"{repository} workflow is not a workflow file")
+    return workflow
+
+
+def _entrypoint(item: object, index: int) -> DeepEntrypoint:
+    if not isinstance(item, dict):
+        raise FixtureError(f"entrypoints[{index}] must be an object")
+    repository = _repository_coordinate(item.get("repository"), "repository")
+    workflow = _workflow_file(item.get("workflow"), repository)
+    contract = _plain(item.get("contract"), "contract")
+    if re.fullmatch(r"[A-Za-z0-9._:/-]{1,200}", contract) is None:
+        raise FixtureError(f"{repository} contract is not a bounded name")
+    scheduling = item.get("scheduling")
+    if scheduling not in SCHEDULING:
+        raise FixtureError(f"{repository} scheduling must be self or dispatch")
+    if (scheduling == "self") != (repository == CORE_REPOSITORY):
+        raise FixtureError("only Core schedules its own deep suite")
+    return DeepEntrypoint(repository, workflow, contract, str(scheduling))
+
+
 def load_entrypoints(path: Path = ENTRYPOINTS) -> tuple[DeepEntrypoint, ...]:
     """Read the admitted deep entrypoints (docs/nightly-deep-consumer-contract.md)."""
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise FixtureError(f"deep entrypoints unreadable: {error}") from error
+    data = _read_json(path, "deep entrypoints")
     if not isinstance(data, dict) or data.get("schema") != ENTRYPOINTS_SCHEMA:
         raise FixtureError("deep entrypoints have the wrong schema")
     raw = data.get("entrypoints")
     if not isinstance(raw, list):
         raise FixtureError("deep entrypoints must be a list")
-    entries: list[DeepEntrypoint] = []
-    seen: set[str] = set()
-    for index, item in enumerate(raw):
-        if not isinstance(item, dict):
-            raise FixtureError(f"entrypoints[{index}] must be an object")
-        repository = _repository_coordinate(item.get("repository"), "repository")
-        if repository in seen:
-            raise FixtureError(f"{repository} has two deep entrypoints")
-        seen.add(repository)
-        workflow = _plain(item.get("workflow"), "workflow")
-        if (
-            not workflow.startswith(".github/workflows/")
-            or not workflow.endswith((".yml", ".yaml"))
-            or "/" in workflow[len(".github/workflows/") :]
-        ):
-            raise FixtureError(f"{repository} workflow is not a workflow file")
-        contract = _plain(item.get("contract"), "contract")
-        if re.fullmatch(r"[A-Za-z0-9._:/-]{1,200}", contract) is None:
-            raise FixtureError(f"{repository} contract is not a bounded name")
-        scheduling = item.get("scheduling")
-        if scheduling not in SCHEDULING:
-            raise FixtureError(f"{repository} scheduling must be self or dispatch")
-        if (scheduling == "self") != (repository == CORE_REPOSITORY):
-            raise FixtureError("only Core schedules its own deep suite")
-        entries.append(DeepEntrypoint(repository, workflow, contract, str(scheduling)))
-    return tuple(entries)
+    entries = tuple(_entrypoint(item, index) for index, item in enumerate(raw))
+    repositories = [entry.repository for entry in entries]
+    if len(set(repositories)) != len(repositories):
+        raise FixtureError("a repository has two deep entrypoints")
+    return entries
+
+
+def _member_row(
+    member: str, entry: DeepEntrypoint | None, evidence: str
+) -> dict[str, object]:
+    if entry is None:
+        return _row(
+            repository=member,
+            verdict="SKIPPED_NO_DEEP_ENTRYPOINT",
+            reason="no_admitted_deep_workflow",
+            evidence=evidence,
+            alert=False,
+        )
+    closed = entry.scheduling != "self"
+    return _row(
+        repository=member,
+        verdict="SKIPPED_APPLY_CLOSED" if closed else "SKIPPED_SELF_SCHEDULED",
+        reason="apply_switch_closed" if closed else "nightly_deep_receipt_gate",
+        evidence=f"{entry.workflow}@{entry.contract}",
+        alert=False,
+    )
+
+
+def projection_rows(
+    projection: RegistryProjection, entrypoints: tuple[DeepEntrypoint, ...]
+) -> list[dict[str, object]]:
+    """One row per projected member, then one per unprojected entry point."""
+    evidence = f"projection@{projection.commit[:12]}"
+    by_repository = {entry.repository: entry for entry in entrypoints}
+    rows = [
+        _member_row(member, by_repository.get(member), evidence)
+        for member in projection.members
+    ]
+    members = set(projection.members)
+    rows.extend(
+        _row(
+            repository=entry.repository,
+            verdict="SKIPPED_NOT_PROJECTED",
+            reason="not_in_registry_projection",
+            evidence=evidence,
+            alert=False,
+        )
+        for entry in entrypoints
+        if entry.repository not in members
+    )
+    return rows
 
 
 def plan_from_projection(
@@ -860,53 +915,7 @@ def plan_from_projection(
         rows = [_fleet_row("entrypoints_unreadable", unreadable or "entrypoints")]
     else:
         registry_status = "projection"
-        evidence = f"projection@{projection.commit[:12]}"
-        by_repository = {entry.repository: entry for entry in entrypoints}
-        rows = []
-        for member in projection.members:
-            entry = by_repository.get(member)
-            if entry is None:
-                rows.append(
-                    _row(
-                        repository=member,
-                        verdict="SKIPPED_NO_DEEP_ENTRYPOINT",
-                        reason="no_admitted_deep_workflow",
-                        evidence=evidence,
-                        alert=False,
-                    )
-                )
-            elif entry.scheduling == "self":
-                rows.append(
-                    _row(
-                        repository=member,
-                        verdict="SKIPPED_SELF_SCHEDULED",
-                        reason="nightly_deep_receipt_gate",
-                        evidence=f"{entry.workflow}@{entry.contract}",
-                        alert=False,
-                    )
-                )
-            else:
-                rows.append(
-                    _row(
-                        repository=member,
-                        verdict="SKIPPED_APPLY_CLOSED",
-                        reason="apply_switch_closed",
-                        evidence=f"{entry.workflow}@{entry.contract}",
-                        alert=False,
-                    )
-                )
-        members = set(projection.members)
-        for entry in entrypoints:
-            if entry.repository not in members:
-                rows.append(
-                    _row(
-                        repository=entry.repository,
-                        verdict="SKIPPED_NOT_PROJECTED",
-                        reason="not_in_registry_projection",
-                        evidence=evidence,
-                        alert=False,
-                    )
-                )
+        rows = projection_rows(projection, entrypoints)
     return _assemble(
         event=event,
         mode_requested=mode_requested,

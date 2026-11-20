@@ -45,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nightly_dispatch as planner  # noqa: E402
 
 APPLY_SCHEMA = "l9.nightly-apply/v1"
+APPLY_RESULT_NAME = "nightly-apply.json"
 SWITCH_ENV = "L9_NIGHTLY_APPLY"
 SWITCH_OPEN = "open"
 DISPATCH_TOKEN_ENV = "L9_NIGHTLY_DISPATCH_TOKEN"
@@ -88,7 +89,8 @@ def http_transport(token: str, allowed_prefix: str) -> Transport:
                 raw = response.read(5_000_000)
         except urllib.error.HTTPError as error:
             return int(error.code), None
-        except (OSError, urllib.error.URLError):
+        except OSError:
+            # URLError and timeouts are OSError subclasses.
             return 0, None
         if not raw:
             return status, None
@@ -135,16 +137,9 @@ def parse_run_name(title: object) -> tuple[str, str, str, str] | None:
     return parts[1], parts[2], parts[3], parts[4]
 
 
-def read_evidence(
-    entry: planner.DeepEntrypoint,
-    transport: Transport,
-    *,
-    window_start: datetime,
-) -> dict[str, object]:
-    """Build one ``_classify`` input from REST reads. A failed read is unknown."""
+def _fresh_evidence(entry: planner.DeepEntrypoint) -> dict[str, object]:
     owner, name = entry.repository.split("/")
-    base = f"/repos/{_quote(owner)}/{_quote(name)}"
-    raw: dict[str, object] = {
+    return {
         "owner": owner,
         "name": name,
         "archived": False,
@@ -165,81 +160,127 @@ def read_evidence(
         "successful_contract": None,
         "existing_dispatch_keys": [],
     }
+
+
+def _read_repository(raw: dict[str, object], base: str, transport: Transport) -> str:
+    """Fill repository fields; return a failure reason or ``""``."""
     status, repo = transport("GET", base, None)
     if status in {403, 404}:
         raw["permission"] = "denied"
     if status != 200 or not isinstance(repo, dict):
-        return _unread_activity(raw, f"repository_read:{status}")
+        return f"repository_read:{status}"
     raw["archived"] = repo.get("archived") is True
     raw["disabled"] = repo.get("disabled") is True
     raw["fork"] = repo.get("fork") is True
     branch = repo.get("default_branch")
     repository_id = repo.get("id")
-    if (
-        not isinstance(branch, str)
-        or not isinstance(repository_id, int)
-        or isinstance(repository_id, bool)
-    ):
-        return _unread_activity(raw, "repository_fields")
+    if not isinstance(branch, str) or type(repository_id) is not int:
+        return "repository_fields"
     raw["default_branch"] = branch
     raw["repository_id"] = repository_id
+    return ""
+
+
+def _read_head(raw: dict[str, object], base: str, transport: Transport) -> str:
+    """Fill the default-branch head; return a failure reason or ``""``."""
+    branch = str(raw["default_branch"])
     status, commit = transport("GET", f"{base}/commits/{_quote(branch)}", None)
     sha = commit.get("sha") if isinstance(commit, dict) else None
     detail = commit.get("commit") if isinstance(commit, dict) else None
     committer = detail.get("committer") if isinstance(detail, dict) else None
     date = committer.get("date") if isinstance(committer, dict) else None
     if status != 200 or not isinstance(sha, str) or not isinstance(date, str):
-        return _unread_activity(raw, f"head_read:{status}")
+        return f"head_read:{status}"
     raw["default_sha"] = sha
     raw["pushed_at"] = date
-    workflow_file = entry.workflow.rsplit("/", 1)[-1]
-    status, workflow = transport(
-        "GET", f"{base}/actions/workflows/{_quote(workflow_file)}", None
-    )
+    return ""
+
+
+def _read_permission(
+    raw: dict[str, object], workflow_path: str, transport: Transport
+) -> bool:
+    """True when the entry point exists and is active."""
+    status, workflow = transport("GET", workflow_path, None)
     if status in {403, 404}:
         raw["permission"] = "denied"
-        return _known_activity(raw, sha, window_start)
-    if (
-        status != 200
-        or not isinstance(workflow, dict)
-        or workflow.get("state") != "active"
-    ):
-        return _known_activity(raw, sha, window_start)
-    raw["permission"] = "known_allowed"
-    query = urllib.parse.urlencode(
-        {"event": "workflow_dispatch", "branch": branch, "per_page": "100"}
-    )
-    status, runs = transport(
-        "GET", f"{base}/actions/workflows/{_quote(workflow_file)}/runs?{query}", None
-    )
-    listed = runs.get("workflow_runs") if isinstance(runs, dict) else None
-    if status != 200 or not isinstance(listed, list):
-        return _known_activity(raw, sha, window_start)
+        return False
+    if isinstance(workflow, dict) and status == 200:
+        if workflow.get("state") == "active":
+            raw["permission"] = "known_allowed"
+            return True
+    return False
+
+
+def history_from_runs(
+    runs: list[object], contract: str
+) -> tuple[list[str], str | None] | None:
+    """Keys seen and the latest successful ``apply`` head, or None if malformed."""
     keys: list[str] = []
     success_sha: str | None = None
-    for run in listed:
+    for run in runs:
         if not isinstance(run, dict):
-            return _known_activity(raw, sha, window_start)
+            return None
         parsed = parse_run_name(run.get("display_title"))
         if parsed is None:
             continue
-        mode, _slot, contract, key = parsed
+        mode, _slot, run_contract, key = parsed
         keys.append(key)
-        if (
-            success_sha is None
-            and mode == "apply"
-            and contract == entry.contract
-            and run.get("conclusion") == "success"
-            and isinstance(run.get("head_sha"), str)
-        ):
-            success_sha = str(run["head_sha"])
+        head = run.get("head_sha")
+        succeeded = run.get("conclusion") == "success" and isinstance(head, str)
+        if success_sha is None and mode == "apply" and run_contract == contract:
+            success_sha = str(head) if succeeded else None
+    return keys, success_sha
+
+
+def _read_history(
+    raw: dict[str, object],
+    workflow_path: str,
+    contract: str,
+    transport: Transport,
+) -> None:
+    query = urllib.parse.urlencode(
+        {
+            "event": "workflow_dispatch",
+            "branch": str(raw["default_branch"]),
+            "per_page": "100",
+        }
+    )
+    status, runs = transport("GET", f"{workflow_path}/runs?{query}", None)
+    listed = runs.get("workflow_runs") if isinstance(runs, dict) else None
+    history = (
+        history_from_runs(listed, contract)
+        if status == 200 and isinstance(listed, list)
+        else None
+    )
+    if history is None:
+        return
+    keys, success_sha = history
     raw["run_history"] = "known"
     raw["existing_dispatch_keys"] = keys
     if success_sha is not None:
         raw["successful_sha"] = success_sha
-        raw["successful_contract"] = entry.contract
-    raw["changed_since_success"] = success_sha != sha
-    return _known_activity(raw, sha, window_start)
+        raw["successful_contract"] = contract
+    raw["changed_since_success"] = success_sha != raw["default_sha"]
+
+
+def read_evidence(
+    entry: planner.DeepEntrypoint,
+    transport: Transport,
+    *,
+    window_start: datetime,
+) -> dict[str, object]:
+    """Build one ``_classify`` input from REST reads. A failed read is unknown."""
+    owner, name = entry.repository.split("/")
+    base = f"/repos/{_quote(owner)}/{_quote(name)}"
+    raw = _fresh_evidence(entry)
+    failure = _read_repository(raw, base, transport) or _read_head(raw, base, transport)
+    if failure:
+        return _unread_activity(raw, failure)
+    workflow_file = entry.workflow.rsplit("/", 1)[-1]
+    workflow_path = f"{base}/actions/workflows/{_quote(workflow_file)}"
+    if _read_permission(raw, workflow_path, transport):
+        _read_history(raw, workflow_path, entry.contract, transport)
+    return _known_activity(raw, str(raw["default_sha"]), window_start)
 
 
 def _unread_activity(raw: dict[str, object], reason: str) -> dict[str, object]:
@@ -463,10 +504,11 @@ def _cmd_apply(args: argparse.Namespace) -> int:
         evaluated_at=evaluated,
     )
     encoded = json.dumps(result, indent=2, sort_keys=True) + "\n"
-    if args.output:
-        Path(args.output).write_text(encoded, encoding="utf-8")
-    else:
-        print(encoded, end="")
+    print(encoded, end="")
+    runner_temp = os.environ.get("RUNNER_TEMP", "")
+    if runner_temp:
+        # A fixed name in the runner's temp directory; no caller-chosen path.
+        (Path(runner_temp) / APPLY_RESULT_NAME).write_text(encoded, encoding="utf-8")
     code = apply_exit_code(result)
     print(
         f"status={result['status']} switch={result['switch']} "
@@ -480,7 +522,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     apply = sub.add_parser("apply")
     apply.add_argument("--evaluated-at")
-    apply.add_argument("--output")
     receipt = sub.add_parser("receipt")
     receipt.add_argument("--sha", required=True)
     receipt.add_argument("--run-id", type=int, required=True)
