@@ -1497,7 +1497,34 @@ Tests: `tests/tools/test_check_core_pin_ancestry.py`,
 Tests: `tests/workflows/test_org_ci_required_instances.py` (the embedded
 runner against a fake SDK, with Core's real planner and aggregator).
 
-## 36. `security.yml` scans a consumer on what it changes, with the Core rules (2026-11-20) — step one of the org-ci security wiring
+## 36. One reusable Sonar step reuses the consumer's coverage (2026-11-20)
+
+CI_CONFIG_FINDINGS row 6 (Cursor-Governance campaign evidence): coverage reached
+Sonar in two of six campaign repositories, and each repository carried its own
+`sonarcloud.yml`. Core offers the #289 pattern as one step instead.
+
+- `.github/actions/run-sonar/` is a composite action a consumer workflow calls
+  after its test run and checkout (`fetch-depth: 0`), passing the organization
+  `SONAR_TOKEN` as `sonar-token`. It runs no second test: it imports the
+  Cobertura `coverage.xml` that run wrote (`coverage-reports`, default
+  `coverage.xml`, relative to `project-base-dir`).
+- It fails closed before scanning when the token is blank, or a named report is
+  missing, empty, not well-formed XML, not Cobertura (`<coverage>` root), or
+  outside the workspace (`check_coverage.py`). A scan that would read 0% because
+  coverage never arrived does not run.
+- `SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4`
+  (v8.5.0) with `scannerVersion: 8.4.0.16527`, the pins of `self-sonar.yml`;
+  `tests/actions/test_run_sonar.py` binds the two.
+- `quality-gate: advisory` (default) uploads without waiting; `blocking` waits up
+  to 300 s and fails the step on a failed gate. The caller decides, and skips the
+  step on fork pull requests, which carry no token.
+- Not a required check and not an organization gate: nothing in `org-ci.yml`
+  calls it. Consumers reach it by full-SHA pin once it is on `main` (§8); moving
+  EIE and CEG onto it is their canary agents' work.
+
+Tests: `tests/actions/test_run_sonar.py`.
+
+## 37. `security.yml` scans a consumer on what it changes, with the Core rules (2026-11-20) — step one of the org-ci security wiring
 
 `security.yml` (gitleaks required, pip-audit required for a Python project,
 bandit advisory) is about to run for every governed repository through

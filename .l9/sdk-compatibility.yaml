@@ -6,8 +6,43 @@ metadata:
 default:
   source: git
   repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-  revision: dc783c648d42c5a6d9e197a533adc7d8f2841b06
+  revision: 9af1a202cfd83d2a277bc7d1f789192a6ad442eb
 supported:
+  # 9af1a202 (l9-ci-sdk#128-#131, SDK main): `providers inventory` plans a
+  # Semgrep target only on files its scan reaches (#130: a language whose files
+  # all sit under .semgrepignore'd or out-of-scope paths is not_applicable, so a
+  # required instance can no longer scan zero files; the P0 behind every red
+  # Cursor-Governance PR after #294); unfinished rule/file analysis counts as
+  # incomplete coverage (#131); required central runs disable nosem and scan a
+  # declared scope (#128); lock-owned tool pins aligned with Core's lock (#129).
+  # No CLI path, integration-contract or artifact-protocol change (one new
+  # schema, semgrep-scan-scope, is the SDK's own input); requirements.txt is
+  # byte-identical to dc783c64, so requirements_sha256 is unchanged.
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: 9af1a202cfd83d2a277bc7d1f789192a6ad442eb
+    integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+      - l9.sarif-log/v1
+    required_cli_paths:
+      - providers detect
+      - providers inventory
+      - semgrep run
+      - semgrep normalize
+      - gate evaluate
+      - bundle validate
+      - bundle project-agent-payload
+      - bundle project-sarif
+      - compatibility check
+      - baseline compare-tests
+      - baseline scan-packet-envelope
+      - baseline compare-scan
+      - baseline validate-ledger
   # dc783c64 (l9-ci-sdk#122-#127, the CI unified-leverage stack on SDK main):
   # the capability inventory `providers inventory` (l9.capability-inventory/v1,
   # one record per evaluated snapshot, consumed by Core's plan-required-instances),

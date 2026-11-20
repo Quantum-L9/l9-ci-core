@@ -172,9 +172,10 @@ python -m unittest discover --start-directory tests --pattern 'test_*.py' --verb
 `make test-deep` only when the ref is `Quantum-L9/l9-ci-core` default branch
 `main`. It is not a required pull-request check. The retired stem `nightly`
 stays retired. `.github/workflows/org-nightly-dispatch.yml` uses the same
-cron for a plan-only fleet pass: it checks out no consumer, holds no App
-token and no PAT, and dispatches zero jobs. That plan is not a live schedule
-receipt. `nightly-deep.yml` keeps its cron until an apply path is observed.
+cron for a fleet pass: its plan job checks out no consumer and holds no
+credential, and its apply job (opened 2026-11-20, docs/nightly-deep-consumer-contract.md "Opening apply") dispatches
+each changed consumer's admitted deep entrypoint with an App-minted token, never
+a PAT. A plan is not a live schedule receipt. `nightly-deep.yml` keeps its cron until an apply path is observed.
 
 The portable phases stay `setup`, `validate`, `check`, and `test`. Consumer
 activation is unchanged. Organization CI still requires

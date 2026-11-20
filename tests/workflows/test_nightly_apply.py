@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -20,6 +21,8 @@ import unittest.mock as mock
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -174,13 +177,53 @@ class SwitchTests(unittest.TestCase):
         self.assertEqual(0, result["dispatch_count"])
         self.assertEqual(1, apply.apply_exit_code(result))
 
-    def test_no_workflow_opens_the_switch_or_holds_the_credential(self) -> None:
+    def test_only_the_dispatch_workflow_opens_apply_with_an_app_token(self) -> None:
+        # Operator decision 2026-11-20 (docs/nightly-deep-consumer-contract.md "Opening apply"): apply is open in
+        # org-nightly-dispatch.yml alone, with an installation token minted for
+        # the l9-nightly-dispatch GitHub App, never a PAT.
+        opener = "org-nightly-dispatch.yml"
         for workflow in (ROOT / ".github" / "workflows").glob("*.yml"):
             text = workflow.read_text(encoding="utf-8")
+            if workflow.name == opener:
+                continue
             with self.subTest(workflow=workflow.name):
                 self.assertNotIn(apply.SWITCH_ENV, text)
                 self.assertNotIn(apply.DISPATCH_TOKEN_ENV, text)
                 self.assertNotIn("nightly_apply.py apply", text)
+        document = yaml.safe_load(
+            (ROOT / ".github" / "workflows" / opener).read_text(encoding="utf-8")
+        )
+        steps = document["jobs"]["apply"]["steps"]
+        [run] = [s for s in steps if "nightly_apply.py apply" in str(s.get("run", ""))]
+        self.assertEqual("open", run["env"][apply.SWITCH_ENV])
+        self.assertEqual(
+            "${{ steps.token.outputs.token }}", run["env"][apply.DISPATCH_TOKEN_ENV]
+        )
+        self.assertEqual("", run["env"]["GITHUB_TOKEN"])
+        self.assertEqual("", run["env"]["GH_TOKEN"])
+        [token] = [s for s in steps if s.get("id") == "token"]
+        self.assertRegex(
+            token["uses"], r"^actions/create-github-app-token@[0-9a-f]{40}$"
+        )
+        self.assertEqual("${{ vars.L9_NIGHTLY_APP_ID }}", token["with"]["app-id"])
+        self.assertEqual(
+            "${{ secrets.L9_NIGHTLY_APP_PRIVATE_KEY }}", token["with"]["private-key"]
+        )
+        self.assertEqual(
+            "${{ steps.scope.outputs.repositories }}", token["with"]["repositories"]
+        )
+        permissions = {
+            k: v for k, v in token["with"].items() if k.startswith("permission-")
+        }
+        self.assertEqual(
+            {"permission-actions": "write", "permission-contents": "read"}, permissions
+        )
+        # The private key is the workflow's only secret: no PAT anywhere.
+        text = (ROOT / ".github" / "workflows" / opener).read_text(encoding="utf-8")
+        self.assertEqual(
+            ["secrets.L9_NIGHTLY_APP_PRIVATE_KEY"],
+            sorted(set(re.findall(r"secrets\.[A-Za-z0-9_]+", text))),
+        )
 
 
 class ApplyTests(unittest.TestCase):
@@ -606,7 +649,12 @@ class EntrypointLoaderTests(unittest.TestCase):
     def test_committed_entrypoints_load(self) -> None:
         entries = nightly.load_entrypoints()
         self.assertEqual(
-            ["self", "dispatch", "dispatch"], [entry.scheduling for entry in entries]
+            ["self", "dispatch", "dispatch", "dispatch"],
+            [entry.scheduling for entry in entries],
+        )
+        self.assertEqual(
+            ("Quantum-L9/Cursor-Governance", ".github/workflows/sonarcloud.yml"),
+            (entries[-1].repository, entries[-1].workflow),
         )
 
     def test_malformed_entrypoints_are_refused(self) -> None:
