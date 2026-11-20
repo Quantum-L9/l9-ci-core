@@ -59,6 +59,7 @@ REPO_TEST_MODULES = (
     "tests/tools/test_manifest_integrity.py",
     "tests/tools/test_project_required_repositories.py",
     "tests/tools/test_tool_ownership.py",
+    "tests/workflows/test_nightly_apply.py",
     "tests/workflows/test_security_scan_outcomes.py",
 )
 EXPLICIT_UNITTEST = "-m unittest --verbose " + " ".join(REPO_TEST_MODULES)

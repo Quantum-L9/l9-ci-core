@@ -3,10 +3,14 @@
 # Cron 07:17 UTC matches nightly-deep.yml. This workflow does not run that
 # suite and does not replace that cron. Apply is closed: the schedule event
 # is plan, and plan dispatches zero jobs. The job checks out this repository
-# only, reads anonymous public metadata, and writes a plan. It does not check
-# out a consumer, install a consumer dependency, or run a test. It has no App
-# token and no PAT. github.token is used only by the scheduler-source
-# checkout and is cleared before the planner runs.
+# only, reads the committed registry projection and the admitted deep
+# entrypoints (.github/nightly/deep-entrypoints.json), and writes a plan. It
+# reads no network. It does not check out a consumer, install a consumer
+# dependency, or run a test. It has no App token and no PAT. github.token is
+# used only by the scheduler-source checkout and is cleared before the
+# planner runs. The credentialed apply path (tools/nightly_apply.py) is not
+# wired here; opening it is an operator decision
+# (docs/nightly-deep-consumer-contract.md).
 #
 # The plan sets live_schedule_receipt false. A green or red plan is not
 # evidence that the cron fired in production or that a deep suite ran.
@@ -77,11 +81,12 @@ jobs:
           python3 tools/nightly_dispatch.py plan \
             --mode plan \
             --event "${EVENT_NAME}" \
-            --live-metadata \
+            --live \
             --evaluated-at "${evaluated}" \
             --output "${RUNNER_TEMP}/nightly-plan.json"
-      # The plan step exits non-zero when the registry is unreadable. This
-      # step still runs, and the job stays failed. The summary is the
+      # The plan step exits non-zero when the registry projection or the
+      # entrypoint admission is unreadable, or a row is unknown. This step
+      # still runs, and the job stays failed. The summary is the
       # retained plan; it is not a live schedule receipt.
       - name: Publish the plan
         if: always()
