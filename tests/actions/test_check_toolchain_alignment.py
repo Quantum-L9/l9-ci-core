@@ -436,6 +436,17 @@ class SurfaceTests(WorkspaceCase):
                     self.classes(),
                 )
 
+    def test_requires_python_older_minor_behind_an_exclusion_is_drift(self) -> None:
+        # One probed sentinel is not enough: each spec still admits an older minor.
+        for spec in (">=3.10,!=3.11.*", ">=3.11,!=3.11.99"):
+            with self.subTest(spec=spec):
+                kind, _ = align.classify_requires_python(spec, LOCK["python"])
+                self.assertEqual("range_admits_older", kind)
+        for spec in (">=3.12", ">=3.12,<3.13", "~=3.12.0"):
+            with self.subTest(spec=spec):
+                kind, _ = align.classify_requires_python(spec, LOCK["python"])
+                self.assertEqual("range_admits_lock", kind)
+
     def test_python_version_file(self) -> None:
         self.put(".python-version", "3.11\n")
         self.assertEqual(
@@ -543,6 +554,30 @@ class SurfaceTests(WorkspaceCase):
             {
                 (".github/workflows/secrets.yml", 2, "gitleaks", "exact_drift"),
                 (".github/workflows/secrets.yml", 6, "gitleaks", "exact_match"),
+            },
+            self.classes(),
+        )
+
+    def test_gitleaks_shell_assignment_in_a_run_block(self) -> None:
+        self.put(
+            ".github/workflows/scan.yml",
+            "\n".join(
+                [
+                    "jobs:",  # 1
+                    "  a:",  # 2
+                    "    steps:",  # 3
+                    "      - run: |",  # 4
+                    '          GITLEAKS_VERSION="8.18.4"',  # 5
+                    f"          export GITLEAKS_VERSION={LOCK['gitleaks']}",  # 6
+                    '          echo "${GITLEAKS_VERSION}"',  # 7
+                ]
+            )
+            + "\n",
+        )
+        self.assertEqual(
+            {
+                (".github/workflows/scan.yml", 5, "gitleaks", "exact_drift"),
+                (".github/workflows/scan.yml", 6, "gitleaks", "exact_match"),
             },
             self.classes(),
         )

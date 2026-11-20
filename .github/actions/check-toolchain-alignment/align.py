@@ -539,6 +539,18 @@ def classify_python(declared: str, lock_version: str) -> str:
     return "exact_match" if _cmp(pinned, lock) == 0 else "exact_drift"
 
 
+def _older_interpreters(lock: tuple[int, ...]) -> Iterator[str]:
+    """Every release of every minor older than the lock's, in the lock's major.
+
+    Probing a single sentinel is defeatable (``>=3.10,!=3.11.*`` excludes
+    3.11.99 yet admits all of 3.10), so the effective lower bound is found by
+    probing each older minor at every patch level a specifier could single out.
+    """
+    for minor in range(lock[1] - 1, -1, -1):
+        for patch in range(100):
+            yield f"{lock[0]}.{minor}.{patch}"
+
+
 def classify_requires_python(spec: str, lock_version: str) -> tuple[str, str]:
     """``requires-python`` must admit the lock and nothing older than its minor."""
     kind, declared = classify_pep440(spec, lock_version)
@@ -546,10 +558,10 @@ def classify_requires_python(spec: str, lock_version: str) -> tuple[str, str]:
         return kind, declared
     lock = _release(lock_version)
     assert lock is not None
-    older = (lock[0], lock[1] - 1, 99) if lock[1] > 0 else (lock[0] - 1, 99, 99)
-    older_kind, _ = classify_pep440(spec, ".".join(str(part) for part in older))
-    if older_kind in ("range_admits_lock", "exact_match"):
-        return "range_admits_older", declared
+    for older in _older_interpreters(lock):
+        older_kind, _ = classify_pep440(spec, older)
+        if older_kind in ("range_admits_lock", "exact_match"):
+            return "range_admits_older", declared
     return kind, declared
 
 
@@ -695,6 +707,13 @@ def _exact_workflow_finding(
 def _gitleaks_declared(code: str, key: str, value: str) -> str | None:
     if key == "GITLEAKS_VERSION":
         return _first_token(value) or None
+    # Shell assignment inside a `run:` block: `GITLEAKS_VERSION="8.24.3"`,
+    # optionally `export`ed. A reference (`${GITLEAKS_VERSION}`) is not one.
+    _, assigned, rest = code.partition("GITLEAKS_VERSION=")
+    if assigned and not code.partition("GITLEAKS_VERSION=")[0].endswith("{"):
+        declared = _first_token(rest)
+        if declared and "$" not in declared:
+            return declared
     url = GITLEAKS_URL.search(code)
     if url and "${" not in url.group(0):
         return url.group(1)

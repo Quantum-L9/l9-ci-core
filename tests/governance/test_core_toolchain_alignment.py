@@ -68,6 +68,7 @@ class CoreToolchainAlignmentTests(unittest.TestCase):
             (".pre-commit-config.yaml", "ruff"),
             (".github/workflows/security.yml", "bandit"),
             (".github/workflows/security.yml", "pip-audit"),
+            (".github/workflows/security.yml", "gitleaks"),
             (".github/workflows/release-runner.yml", "uv"),
         ):
             with self.subTest(expected=expected):
