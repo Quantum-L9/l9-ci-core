@@ -1523,3 +1523,35 @@ Sonar in two of six campaign repositories, and each repository carried its own
   EIE and CEG onto it is their canary agents' work.
 
 Tests: `tests/actions/test_run_sonar.py`.
+
+## 37. `security.yml` scans a consumer on what it changes, with the Core rules (2026-11-20) — step one of the org-ci security wiring
+
+`security.yml` (gitleaks required, pip-audit required for a Python project,
+bandit advisory) is about to run for every governed repository through
+`org-ci.yml`. Step one (this section) makes it correct for a consumer. Step two
+pins it from `org-ci.yml` at this change's merge commit (§16, §34).
+
+- **Core rules plus the consumer's.** The Core preset
+  (`presets/security/.gitleaks.toml`) is gitleaks' default rule set. A
+  repository's `.gitleaks.toml` is honoured on top of it. A file with no
+  `[extend]` gains `useDefault = true` in a runtime copy, so its own rules and
+  allowlists apply and the defaults are kept. An `[extend]` naming a `path`, or
+  one not setting `useDefault = true`, is refused (no outcome, so
+  `not_executed`), never scanned with fewer rules. Reviewed false positives
+  go in `.gitleaksignore`.
+- **Scope.** `gitleaks-scope: event` scans what the event adds: base..head
+  for a pull request or merge group, before..after for a push (the pushed
+  commit alone for a new branch), and full history otherwise.
+  `gitleaks-log-opts` sets a range explicitly. A range that does not resolve
+  in the clone is refused before gitleaks runs, because gitleaks exits 1 for a
+  git error as it does for a finding.
+- **pip-audit audits the project.** `requirements.txt` when present, else the
+  `pyproject.toml` project by path; the runner environment only when neither
+  exists. Before this, `pip-audit --desc` audited the runner's own toolchain
+  and passed without reading the project.
+
+Tests: `tests/workflows/test_security_consumer_scope.py` (config layering
+executed, the scan invocation with a stub gitleaks, event ranges, pip-audit
+target selection). Layering was also checked with gitleaks 8.24.3 itself: a
+consumer config alone reports only its own rule; the layered copy reports it
+and gitleaks' default `github-pat`.
