@@ -39,7 +39,8 @@ COBERTURA = '<?xml version="1.0" ?>\n<coverage version="7.6" line-rate="0.5"><pa
 
 
 _spec = importlib.util.spec_from_file_location("run_sonar_check_coverage", CHECK)
-assert _spec and _spec.loader
+assert _spec is not None
+assert _spec.loader is not None
 check = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(check)
 
