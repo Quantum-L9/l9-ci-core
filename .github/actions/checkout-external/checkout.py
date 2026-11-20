@@ -84,7 +84,9 @@ def load_declaration(workspace: Path) -> dict[str, str] | None:
     }
 
 
-def fetch_revision(destination: Path, repository: str, revision: str, token: str) -> None:
+def fetch_revision(
+    destination: Path, repository: str, revision: str, token: str
+) -> None:
     """Fetch ``revision`` of ``owner/name`` into a new git directory."""
     if destination.exists():
         raise CheckoutError(f"checkout path already exists: {destination.name}")
@@ -93,11 +95,24 @@ def fetch_revision(destination: Path, repository: str, revision: str, token: str
     commands = (
         ["git", "init", "--quiet"],
         ["git", "remote", "add", "origin", url],
-        ["git", "-c", "protocol.version=2", "fetch", "--quiet", "--depth=1", "origin", revision],
+        [
+            "git",
+            "-c",
+            "protocol.version=2",
+            "fetch",
+            "--quiet",
+            "--depth=1",
+            "origin",
+            revision,
+        ],
         ["git", "checkout", "--quiet", "--detach", "FETCH_HEAD"],
     )
     for command in commands:
-        env = github_auth_env(token) if command[1:4] == ["-c", "protocol.version=2", "fetch"] else None
+        env = (
+            github_auth_env(token)
+            if command[1:4] == ["-c", "protocol.version=2", "fetch"]
+            else None
+        )
         completed = subprocess.run(command, cwd=destination, env=env, check=False)
         if completed.returncode != 0:
             raise CheckoutError(f"git failed ({completed.returncode})")

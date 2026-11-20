@@ -33,8 +33,9 @@ class ExternalCheckoutTests(unittest.TestCase):
             self.assertIsNone(self.module.load_declaration(Path(tmp)))
 
     def test_a_required_missing_declaration_fails(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, unittest.mock.patch.dict(
-            os.environ, {self.module.REQUIRED_ENV: "true"}
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            unittest.mock.patch.dict(os.environ, {self.module.REQUIRED_ENV: "true"}),
         ):
             with self.assertRaises(self.module.CheckoutError):
                 self.module.load_declaration(Path(tmp))
@@ -42,7 +43,9 @@ class ExternalCheckoutTests(unittest.TestCase):
     def test_fetch_passes_the_token_only_in_the_fetch_environment(self) -> None:
         calls: list[tuple[list[str], dict[str, str] | None]] = []
 
-        def fake_run(command, cwd=None, env=None, check=False, capture_output=False, text=False):
+        def fake_run(
+            command, cwd=None, env=None, check=False, capture_output=False, text=False
+        ):
             calls.append((list(command), env))
             completed = subprocess.CompletedProcess(command, 0)
             completed.stdout = "3d7212355cfa7db838807c2f39181cf95473ca76\n"
@@ -71,7 +74,9 @@ class ExternalCheckoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             handle = Path(tmp) / "env"
             with unittest.mock.patch.dict(os.environ, {"GITHUB_ENV": str(handle)}):
-                self.module.publish("L9_ODOO_CONSUMER", str(Path(tmp) / "odoo-consumer"))
+                self.module.publish(
+                    "L9_ODOO_CONSUMER", str(Path(tmp) / "odoo-consumer")
+                )
             text = handle.read_text(encoding="utf-8")
         self.assertIn("L9_ODOO_CONSUMER=", text)
         self.assertNotIn(TOKEN, text)
