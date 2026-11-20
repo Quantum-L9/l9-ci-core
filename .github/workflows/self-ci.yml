@@ -94,6 +94,7 @@ jobs:
           python -m pip install --upgrade --only-binary :all: pip
           pip install --only-binary :all: -r requirements-ci.txt
           pip install --only-binary :all: -r requirements-repo-runtime.txt
+          pip install --require-hashes --only-binary :all: -r requirements-coverage.txt
       # Explicit census modules. An empty list must not fall through to
       # unittest's implicit discovery, and a missing file or a zero collection
       # fails the job before a green result is possible.
@@ -198,7 +199,7 @@ jobs:
           fi
           log="${RUNNER_TEMP:?}/unit-tests.log"
           status=0
-          python -m unittest "${modules[@]}" --verbose 2>&1 | tee "${log}" || status=$?
+          python -m coverage run --parallel-mode -m unittest "${modules[@]}" --verbose 2>&1 | tee "${log}" || status=$?
           if [[ "${status}" -ne 0 ]]; then
             exit "${status}"
           fi
@@ -207,6 +208,23 @@ jobs:
             echo "unit test collection is zero" >&2
             exit 1
           fi
+      # Core's Sonar analysis imports coverage from this run rather than running
+      # the suite a second time. Written even when a test failed, so a missing
+      # report is never mistaken for an unmeasured one.
+      - name: Write coverage report
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python -m coverage combine
+          python -m coverage xml -o coverage-reports/coverage-unit-tests.xml
+      - name: Upload coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-unit-tests
+          path: coverage-reports/coverage-unit-tests.xml
+          if-no-files-found: error
+          retention-days: 3
   # Core's own repository contract (.l9/repo-workflow.json, make-v1), executed
   # at the event revision through the Repo.mk repo-* leaves. Organization CI
   # only reaches Core's contract through its pinned repository verification,
@@ -240,9 +258,45 @@ jobs:
           python-version: "3.12"
       - name: make setup
         run: make setup
+      # Coverage measures the `make test` run below for Core's Sonar analysis
+      # (requirements-coverage.txt); `make setup` itself is unchanged.
+      - name: Install coverage
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --only-binary :all: -r requirements-coverage.txt
       - name: make validate
         run: make validate
       - name: make check
         run: make check
+      # The same `make test` run, measured: Repo.mk's REPO_TEST_RUNNER is the only
+      # thing that changes, so the phase still runs Core's own leaf.
       - name: make test
+        env:
+          REPO_TEST_RUNNER: python -m coverage run --parallel-mode -m unittest
         run: make test
+      - name: Write coverage report
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python -m coverage combine
+          python -m coverage xml -o coverage-reports/coverage-repository-contract.xml
+      - name: Upload coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-repository-contract
+          path: coverage-reports/coverage-repository-contract.xml
+          if-no-files-found: error
+          retention-days: 3
+  # Core's own SonarQube Cloud analysis, with the coverage the two test jobs
+  # above measured. The called workflow alone holds SONAR_TOKEN, runs no
+  # repository code, and skips fork pull requests; it stays advisory.
+  sonar:
+    name: SonarQube Cloud
+    needs: [validate, repository-contract]
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/self-sonar.yml
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
