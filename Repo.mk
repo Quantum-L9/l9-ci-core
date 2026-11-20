@@ -54,6 +54,7 @@ repo-check: ## Toolchain conformance, ruff check, ruff format --check, mypy
 REPO_TEST_MODULES := \
 	tests/actions/test_aggregate_required_instances.py \
 	tests/actions/test_plan_required_instances.py \
+	tests/actions/test_run_supply_chain.py \
 	tests/governance/test_ci_runtime_invariants.py \
 	tests/governance/test_core_toolchain_alignment.py \
 	tests/governance/test_dependabot_core_owned_tools.py \

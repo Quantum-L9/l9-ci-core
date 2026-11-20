@@ -1,0 +1,124 @@
+name: Run supply chain (Core)
+description: >
+  Core's single supply-chain mechanism, with per-repository policy data.
+  On a pull request it runs only when a dependency manifest or lock file
+  changed; any other event (schedule, dispatch, push) always runs. It runs
+  dependency review on a pull request, installs the repository's locked
+  dependencies into an isolated environment, writes a CycloneDX SBOM of that
+  environment (Syft), and judges every package's licence against Core's
+  default-policy.json plus the repository's optional
+  .l9/supply-chain-policy.json. A denied licence, or a known licence that is
+  not allowed, fails; an undetermined licence is reported; an SBOM with no
+  packages fails closed. The caller provides python3 and permissions
+  contents: read.
+inputs:
+  artifact-name:
+    description: Name of the uploaded SBOM + licence-report artifact.
+    required: false
+    default: supply-chain
+outputs:
+  run:
+    description: true when the lane ran (any non-PR event, or a PR changing dependencies).
+    value: ${{ steps.changes.outputs.run }}
+  licences:
+    description: pass, fail or empty, from the licence evaluation (unset when the lane did not run).
+    value: ${{ steps.licences.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - id: changes
+      name: Decide whether the dependencies changed
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: python3 -I "${GITHUB_ACTION_PATH}/supply_chain.py" --workspace . changes
+
+    - id: policy
+      name: Merge Core and repository supply-chain policy
+      if: steps.changes.outputs.run == 'true'
+      shell: bash
+      run: python3 -I "${GITHUB_ACTION_PATH}/supply_chain.py" --workspace . policy
+
+    - name: Dependency review (pull request)
+      if: steps.changes.outputs.run == 'true' && github.event_name == 'pull_request'
+      uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+      with:
+        fail-on-severity: ${{ steps.policy.outputs.fail-on-severity }}
+        allow-licenses: ${{ steps.policy.outputs.allow-licenses }}
+        allow-dependencies-licenses: ${{ steps.policy.outputs.allow-dependencies-licenses }}
+        comment-summary-in-pr: never
+
+    # The repository's own locked dependencies, isolated from the runner and
+    # from the CI toolchain, so the SBOM lists what the project ships. uv is
+    # installed at Core's locked version. A tree with no Python manifest is
+    # inventoried as it stands (package-lock.json and the like).
+    - id: environment
+      name: Install the locked dependencies into an isolated environment
+      if: steps.changes.outputs.run == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        target=".l9/runtime/supply-chain/env"
+        rm -rf -- ".l9/runtime/supply-chain"
+        mkdir -p ".l9/runtime/supply-chain"
+        lock="${GITHUB_ACTION_PATH}/../install-consumer-ci/toolchain-lock.json"
+        if [ -f uv.lock ]; then
+          uv_version="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["uv"])' "${lock}")"
+          python3 -m pip install --quiet --disable-pip-version-check --only-binary :all: "uv==${uv_version}"
+          # Runtime dependencies and every extra: what the project ships. Dev
+          # and other default groups are tools, not shipped code; dependency
+          # review still checks every changed dependency on a pull request.
+          UV_PROJECT_ENVIRONMENT="${PWD}/${target}" python3 -m uv sync --locked \
+            --no-install-project --all-extras --no-default-groups
+          echo "path=${target}" >> "${GITHUB_OUTPUT}"
+        elif [ -f requirements.txt ]; then
+          python3 -m venv "${target}"
+          "${target}/bin/python" -m pip install --quiet --disable-pip-version-check -r requirements.txt
+          echo "path=${target}" >> "${GITHUB_OUTPUT}"
+        elif [ -f pyproject.toml ]; then
+          python3 -m venv "${target}"
+          "${target}/bin/python" -m pip install --quiet --disable-pip-version-check .
+          echo "path=${target}" >> "${GITHUB_OUTPUT}"
+        else
+          echo "path=." >> "${GITHUB_OUTPUT}"
+        fi
+
+    - name: Write the SBOM (CycloneDX, Syft)
+      if: steps.changes.outputs.run == 'true'
+      uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      with:
+        path: ${{ steps.environment.outputs.path }}
+        format: cyclonedx-json
+        output-file: .l9/runtime/supply-chain/sbom.cdx.json
+        upload-artifact: false
+        upload-release-assets: false
+
+    - id: licences
+      name: Judge every package licence against the policy
+      if: steps.changes.outputs.run == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        status=0
+        python3 -I "${GITHUB_ACTION_PATH}/supply_chain.py" --workspace . evaluate \
+          --sbom .l9/runtime/supply-chain/sbom.cdx.json \
+          --report .l9/runtime/supply-chain/licences.json || status=$?
+        report=".l9/runtime/supply-chain/licences.json"
+        if [ -f "${report}" ]; then
+          python3 -I -c 'import json,sys; print("status=" + json.load(open(sys.argv[1]))["status"])' \
+            "${report}" >> "${GITHUB_OUTPUT}"
+        fi
+        exit "${status}"
+
+    - name: Upload the SBOM and licence report
+      if: always() && steps.changes.outputs.run == 'true'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          .l9/runtime/supply-chain/sbom.cdx.json
+          .l9/runtime/supply-chain/licences.json
+        if-no-files-found: warn
+        retention-days: 90
