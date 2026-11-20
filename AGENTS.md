@@ -1277,3 +1277,24 @@ Out of scope here, a follow-up: Core pull requests are still evaluated by
 pinned older actions — `analyze-semgrep.yml` pins `resolve-governance`,
 `detect-language` and `invoke-sdk` to `a0c7178` rather than the revision
 under review.
+
+## 30. Proposed CI control-plane decisions live in `docs/adr/` (2026-11-20)
+
+Decision record for where two proposed decisions are kept. It decides nothing
+else and repeats none of their text.
+
+- `docs/adr/0001-top-down-ci-control-and-runtime-inheritance.md` and
+  `docs/adr/0002-governed-promotion-native-provider-boundaries-and-cost.md`
+  are **Proposed**. `docs/adr/README.md` is their index and carries the status.
+  Neither is in force until its owner admits it; until then §1 to §29 are
+  unchanged.
+- Their scoped statements are `.l9/governance-contract.yaml`
+  `ci_runtime_invariants`, `L9-CI-CORE-001` to `006`. A statement there is a
+  proposal, not enforcement.
+- Witnesses: `tests/governance/test_ci_runtime_invariants.py`, one known-good
+  and one known-bad per ID, over `tools/ci_runtime_invariants.py`. The `002`
+  and `003` witnesses fail closed on a named missing capability. The `004` and
+  `006` witnesses prove gate logic only; no live canary, ruleset read or hosted
+  run is claimed.
+- This file stays the one decision trail. A later decision that realizes or
+  admits either record is a new dated section here that points at it.

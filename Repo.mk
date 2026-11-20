@@ -52,6 +52,7 @@ repo-check: ## Toolchain conformance, ruff check, ruff format --check, mypy
 # fails if any listed path is missing or if collection is zero. The full suite
 # is the Core-local test-deep target.
 REPO_TEST_MODULES := \
+	tests/governance/test_ci_runtime_invariants.py \
 	tests/repo_execution/test_boundary.py \
 	tests/repo_execution/test_contract.py \
 	tests/repo_execution/test_contract_admission.py \
