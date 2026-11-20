@@ -1402,3 +1402,32 @@ rejected as malformed, so no repository should carry one before that.
 
 Tests: `tests/repo_execution/test_inherited_config.py`,
 `tests/governance/test_ci_runtime_invariants.py` (`L9-CI-CORE-002`).
+
+## 33. Nightly deep runs are change-gated; apply is closed by default (2026-11-20)
+
+Operator requirement: expensive checks run once a night, only for
+repositories that changed since their last successful nightly, never on
+every pull request and never on every repository every night.
+
+- **Plan.** `org-nightly-dispatch.yml` plans from two committed inputs and no
+  network: the registry projection
+  (`.github/actions/run-repository-verification/required-repositories.receipt.json`,
+  digest checked) and the admitted deep entry points
+  (`.github/nightly/deep-entrypoints.json`). While apply is closed, a dispatch
+  entry point is `SKIPPED_APPLY_CLOSED`, not unknown. Only an unreadable input
+  alerts.
+- **Core's own suite.** `nightly-deep.yml` skips a scheduled run, recording
+  the reason, when main's HEAD already has a successful scheduled run.
+  Unreadable history runs the suite.
+- **Apply.** `tools/nightly_apply.py` dispatches ELIGIBLE entry points through
+  `workflow_dispatch`, and only when `L9_NIGHTLY_APPLY=open`. No workflow sets
+  that switch or holds its credential. Opening it is an operator decision.
+  Apply dispatches; it never merges.
+- **Consumers.** The contract each consumer exposes, and the schedules it
+  replaces, are in `docs/nightly-deep-consumer-contract.md`. No consumer
+  schedule is retired before CURSOR_CANARY_PASS.
+- **PR expense.** No Core pull-request check is heavy enough to move
+  (`docs/reports/L9-CORE-PR-CHECK-EXPENSE-2026-11-20.md`).
+
+Tests: `tests/workflows/test_org_nightly_dispatch.py`,
+`tests/workflows/test_nightly_apply.py`.
