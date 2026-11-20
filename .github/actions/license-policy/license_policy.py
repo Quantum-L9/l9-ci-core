@@ -30,10 +30,11 @@ every mode (AGENTS.md §9).
 
     python3 license_policy.py render --repository OWNER/REPO
     python3 license_policy.py audit --repository OWNER/REPO --sbom FILE
-        [--output RECORD.json] [--workspace DIR] [--unknown report|fail]
+        [--workspace DIR] [--unknown report|fail]
 
-``--sbom`` and ``--output`` must resolve inside ``--workspace`` (default: the
-current directory). ``render`` appends to ``$GITHUB_OUTPUT`` and ``audit`` to
+``--sbom`` must resolve inside ``--workspace`` (default: the current
+directory). ``audit`` writes its record to ``.l9/runtime/license-audit.json``
+under the current directory. ``render`` appends to ``$GITHUB_OUTPUT`` and ``audit`` to
 ``$GITHUB_STEP_SUMMARY`` when the runner sets them; no argument names a file
 outside the workspace.
 """
@@ -55,6 +56,8 @@ REPOSITORIES = ACTION_DIR / "repositories"
 POLICY_SCHEMA = "l9.license-policy/v1"
 REPOSITORY_SCHEMA = "l9.license-policy-repository/v1"
 RECORD_SCHEMA = "l9.license-audit/v1"
+# Fixed, relative to the working directory (the workspace): no argument names it.
+RECORD_PATH = Path(".l9") / "runtime" / "license-audit.json"
 REPOSITORY = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 SPDX_ID = re.compile(r"^[A-Za-z0-9.+-]+$")
 VIOLATIONS = ("copyleft", "not_allowed")
@@ -354,7 +357,6 @@ def main(argv: list[str] | None = None) -> int:
     aud = sub.add_parser("audit")
     aud.add_argument("--repository", required=True)
     aud.add_argument("--sbom", type=Path, required=True)
-    aud.add_argument("--output", type=Path)
     aud.add_argument("--workspace", type=Path, default=Path.cwd())
     aud.add_argument("--unknown", choices=("report", "fail"), default="report")
     args = parser.parse_args(argv)
@@ -368,16 +370,14 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(rendered, indent=2, sort_keys=True))
             return 0
         sbom = confined(args.sbom, args.workspace)
-        output = confined(args.output, args.workspace) if args.output else None
         record = audit(sbom, args.repository, args.unknown == "fail")
     except PolicyError as exc:
         print(f"::error title=Licence policy::{exc}", file=sys.stderr)
         return exc.code
-    if output is not None:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(
-            json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+    RECORD_PATH.parent.mkdir(parents=True, exist_ok=True)
+    RECORD_PATH.write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     _append("GITHUB_STEP_SUMMARY", summary(record))
     for entry in record["violations"]:
         print(

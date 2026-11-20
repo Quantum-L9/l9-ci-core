@@ -83,6 +83,7 @@ class AuditTests(unittest.TestCase):
         extra = ["--workspace", str(self.tmp)] if args and args[0] == "audit" else []
         with (
             mock.patch.dict(os.environ, {}, clear=True),
+            contextlib.chdir(self.tmp),
             contextlib.redirect_stdout(stdout),
             contextlib.redirect_stderr(stderr),
         ):
@@ -169,13 +170,11 @@ class AuditTests(unittest.TestCase):
 
     def test_cli_exit_codes(self) -> None:
         ok = self._sbom(component("ok", "pkg:pypi/ok", spdx("MIT")))
-        output = self.tmp / "out" / "record.json"
-        result = self._cli(
-            "audit", "--repository", REPO, "--sbom", str(ok), "--output", str(output)
-        )
+        result = self._cli("audit", "--repository", REPO, "--sbom", str(ok))
         self.assertEqual(0, result.returncode, result.stderr)
+        record = self.tmp / ".l9" / "runtime" / "license-audit.json"
         self.assertEqual(
-            "l9.license-audit/v1", json.loads(output.read_text())["schema"]
+            "l9.license-audit/v1", json.loads(record.read_text())["schema"]
         )
         bad = self._sbom(component("gpl", "pkg:pypi/gpl", spdx("GPL-3.0-only")))
         result = self._cli("audit", "--repository", REPO, "--sbom", str(bad))
@@ -205,15 +204,15 @@ class AuditTests(unittest.TestCase):
         ok = self._sbom(component("ok", "pkg:pypi/ok", spdx("MIT")))
         outside = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
-        escape = outside / "record.json"
+        shutil.copy(ok, outside / "sbom.json")
         result = self._cli(
-            "audit", "--repository", REPO, "--sbom", str(ok), "--output", str(escape)
+            "audit", "--repository", REPO, "--sbom", str(outside / "sbom.json")
         )
         self.assertEqual(2, result.returncode)
         self.assertIn("resolves outside the workspace", result.stderr)
-        self.assertFalse(escape.exists())
         result = self._cli("audit", "--repository", REPO, "--sbom", "../sbom.json")
         self.assertEqual(2, result.returncode)
+        self.assertFalse((self.tmp / ".l9").exists())
 
     def test_the_script_runs_isolated_as_the_action_calls_it(self) -> None:
         self._sbom(component("ok", "pkg:pypi/ok", spdx("MIT")))
@@ -276,6 +275,7 @@ class ExpressionTests(unittest.TestCase):
                 mock.patch.dict(
                     os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}, clear=True
                 ),
+                contextlib.chdir(tmp),
                 contextlib.redirect_stdout(io.StringIO()),
                 contextlib.redirect_stderr(io.StringIO()),
             ):
