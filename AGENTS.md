@@ -1298,3 +1298,35 @@ else and repeats none of their text.
   run is claimed.
 - This file stays the one decision trail. A later decision that realizes or
   admits either record is a new dated section here that points at it.
+
+## 31. Required instances are aggregated by one action; activation is a pin advance (2026-11-20)
+
+Decision record for the first realization step of the proposed
+`docs/adr/0001-top-down-ci-control-and-runtime-inheritance.md` decision 4
+(`L9-CI-CORE-003`). The ADR stays Proposed; this section records what exists.
+
+- `.github/actions/aggregate-required-instances/` takes Core's plan of the
+  provider/language instances for one evaluated revision
+  (`l9.core-required-instances/v1`) and one Core record per executed instance
+  (`l9.core-instance-result/v1`), and emits one aggregate
+  (`l9.core-instance-aggregate/v1`): `fail` if a required instance failed,
+  else `incomplete` if any required instance is missing, skipped, timed out,
+  cancelled, duplicated, unreadable or bound to another repository, revision
+  or SDK revision, else `pass`. An empty plan passes only with a stated reason
+  for non-applicability. Exit codes follow the SDK gate (0, 1, 6).
+- It reads only those Core records. It opens no SDK bundle, finding or gate
+  result and derives no verdict: an instance's `pass` or `fail` is the status
+  the SDK technical gate returned (§3, `.l9/governance-contract.yaml`
+  `prohibited`).
+- Proof: `tests/actions/test_aggregate_required_instances.py` over
+  `tests/fixtures/required-instances/mixed/` (Python plus TypeScript), and
+  three steps in `sdk-contract-check.yml` that run both languages through the
+  provisioned SDK, aggregate them with the action at the event revision, then
+  aggregate the same records with one instance removed and require
+  `incomplete`.
+- **Not active.** `org-ci.yml` still resolves one language
+  (`detect-language`) and does not call this action. Calling it is a pin
+  advance after this change is on `main` (§16), together with a planner that
+  consumes the SDK's full instance inventory. Until then
+  `tests/governance/test_ci_runtime_invariants.py` keeps the
+  `required-instance-scheduling` witness failing closed.

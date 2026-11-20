@@ -28,6 +28,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / ".l9" / "governance-contract.yaml"
 CONTRACT_FIELD = "ci_runtime_invariants"
+ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
+AGGREGATE_ACTION = ROOT / ".github" / "actions" / "aggregate-required-instances"
+CORE_ACTIONS = "Quantum-L9/l9-ci-core/.github/actions/"
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -67,6 +70,13 @@ class MissingCapability(RuntimeError):
         self.detail = detail
 
 
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
 def _has_attribute(module: str, attribute: str) -> bool:
     try:
         loaded = importlib.import_module(module)
@@ -88,11 +98,25 @@ CAPABILITIES: dict[str, Capability] = {
         Capability(
             name="required-instance-aggregate",
             detail=(
-                "Core does not yet schedule every SDK-selected language and "
-                "provider instance and aggregate their terminal statuses "
-                "(tools.required_instances.aggregate)"
+                "Core cannot yet aggregate the terminal statuses of every "
+                "required language and provider instance "
+                "(.github/actions/aggregate-required-instances/aggregate.py)"
             ),
-            present=lambda: _has_attribute("tools.required_instances", "aggregate"),
+            present=lambda: (
+                "def aggregate(" in _read(AGGREGATE_ACTION / "aggregate.py")
+            ),
+        ),
+        Capability(
+            name="required-instance-scheduling",
+            detail=(
+                "org-ci.yml does not yet schedule every SDK-selected language "
+                "and provider instance and call aggregate-required-instances "
+                "at a pinned Core revision; the required job still evaluates "
+                "one language"
+            ),
+            present=lambda: (
+                f"{CORE_ACTIONS}aggregate-required-instances@" in _read(ORG_CI)
+            ),
         ),
         Capability(
             name="inherited-configuration-digest",

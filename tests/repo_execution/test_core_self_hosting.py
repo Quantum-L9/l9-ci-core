@@ -38,6 +38,7 @@ REPO_MK = ROOT / "Repo.mk"
 
 # Frozen PR subset. ``make test`` must invoke these modules explicitly.
 REPO_TEST_MODULES = (
+    "tests/actions/test_aggregate_required_instances.py",
     "tests/governance/test_ci_runtime_invariants.py",
     "tests/repo_execution/test_boundary.py",
     "tests/repo_execution/test_contract.py",

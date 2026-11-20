@@ -1,0 +1,46 @@
+name: Aggregate required instances
+description: >
+  Accounts for every required provider/language instance Core planned for one
+  evaluated revision and emits one aggregate status. A required instance that
+  is missing, skipped, timed out, cancelled, untrusted or otherwise without a
+  completed terminal status makes the aggregate incomplete, never pass. Reads
+  only Core's own plan and instance records; it reads no SDK bundle, finding
+  or gate result.
+inputs:
+  plan:
+    description: Workspace-relative path to the l9.core-required-instances/v1 plan.
+    required: true
+  results-directory:
+    description: >
+      Workspace-relative directory holding one l9.core-instance-result/v1 JSON
+      record per executed instance.
+    required: true
+  output:
+    description: New workspace-relative destination for the aggregate JSON.
+    required: true
+outputs:
+  status:
+    description: Aggregate status (pass, fail or incomplete).
+    value: ${{ steps.aggregate.outputs.status }}
+  exit-code:
+    description: SDK gate exit-code convention for the status (0, 1 or 6).
+    value: ${{ steps.aggregate.outputs['exit-code'] }}
+  accounted:
+    description: >
+      true only when every required instance has one trusted record with a
+      completed terminal status.
+    value: ${{ steps.aggregate.outputs.accounted }}
+  aggregate-path:
+    description: Safe workspace-relative path to the aggregate JSON.
+    value: ${{ steps.aggregate.outputs['aggregate-path'] }}
+runs:
+  using: composite
+  steps:
+    - id: aggregate
+      name: Aggregate required instances
+      shell: bash
+      env:
+        L9_INSTANCE_PLAN: ${{ inputs.plan }}
+        L9_INSTANCE_RESULTS: ${{ inputs.results-directory }}
+        L9_INSTANCE_AGGREGATE: ${{ inputs.output }}
+      run: python3 "${{ github.action_path }}/aggregate.py"

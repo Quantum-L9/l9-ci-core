@@ -4,9 +4,9 @@ One known-good and one known-bad witness per invariant, named by ID. The
 statements are Proposed (``docs/adr/``); a passing witness proves the gate
 logic it names and nothing about admission, rollout or a hosted run.
 
-``L9-CI-CORE-002`` and ``L9-CI-CORE-003`` need capabilities this revision does
-not carry. Their witnesses fail closed: they assert the exact missing
-capability instead of reporting a pass. ``L9-CI-CORE-004`` and
+``L9-CI-CORE-002`` needs a capability this revision does not carry, and so
+does the required-workflow half of ``L9-CI-CORE-003``. Those witnesses fail
+closed: they assert the exact missing capability instead of reporting a pass. ``L9-CI-CORE-004`` and
 ``L9-CI-CORE-006`` prove gate logic only; no live canary, ruleset read or
 hosted run observation has been made by these tests.
 """
@@ -16,6 +16,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,6 +34,18 @@ assert spec and spec.loader
 metadata = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(metadata)
 
+INSTANCE_FIXTURE = ROOT / "tests" / "fixtures" / "required-instances" / "mixed"
+AGGREGATE = (
+    ROOT / ".github" / "actions" / "aggregate-required-instances" / "aggregate.py"
+)
+aggregate_spec = importlib.util.spec_from_file_location(
+    "aggregate_required_instances", AGGREGATE
+)
+assert aggregate_spec and aggregate_spec.loader
+aggregator = importlib.util.module_from_spec(aggregate_spec)
+sys.modules[aggregate_spec.name] = aggregator
+aggregate_spec.loader.exec_module(aggregator)
+
 CORE = "1" * 40
 SDK = "2" * 40
 ROLLBACK = "3" * 40
@@ -49,6 +62,23 @@ def load_consumer_metadata(payload: dict[str, Any]) -> dict[str, Any] | None:
         path.parent.mkdir(parents=True)
         path.write_text(json.dumps(payload), encoding="utf-8")
         return metadata.load_metadata(path)
+
+
+def aggregate_fixture(typescript: str = "pass") -> dict[str, Any]:
+    """Aggregate the Python plus TypeScript fixture, optionally breaking one."""
+    plan = json.loads((INSTANCE_FIXTURE / "plan.json").read_text(encoding="utf-8"))
+    records = {
+        path.name: json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted((INSTANCE_FIXTURE / "results").glob("*.json"))
+    }
+    name = "semgrep-typescript.json"
+    if typescript == "removed":
+        del records[name]
+    elif typescript == "untrusted":
+        records[name]["revision"] = OTHER_HEAD
+    else:
+        records[name]["status"] = typescript
+    return aggregator.aggregate(aggregator.parse_plan(plan), list(records.items()))
 
 
 def proven_retirement() -> dict[str, Any]:
@@ -197,22 +227,39 @@ class RuntimeInvariantWitnessTests(unittest.TestCase):
         self.assertIn("content digest", raised.exception.detail)
 
     # -- L9-CI-CORE-003: all required applicable checks conclude truthfully -
-    CAPABILITY_003 = "required-instance-aggregate"
+    # The aggregate decision is witnessed on the mixed-language fixture. The
+    # required workflow does not call it yet: that is a pin advance after this
+    # change merges (AGENTS.md §16), and its witness below still fails closed.
+    def test_L9_CI_CORE_003_known_good_mixed_language_aggregate_passes(self) -> None:
+        invariants.require_capability("required-instance-aggregate")
+        result = aggregate_fixture()
+        self.assertEqual("pass", result["status"])
+        self.assertEqual(2, result["completed"])
+        self.assertEqual(
+            ["semgrep:python", "semgrep:typescript"],
+            [row["id"] for row in result["instances"]],
+        )
 
-    def test_L9_CI_CORE_003_known_good_mixed_language_aggregate_fails_closed(
+    def test_L9_CI_CORE_003_known_bad_unaccounted_instance_is_never_a_pass(
         self,
     ) -> None:
-        """Needs PR 2b. Until then the witness refuses instead of passing."""
-        with self.assertRaises(invariants.MissingCapability) as raised:
-            invariants.require_capability(self.CAPABILITY_003)
-        self.assertEqual(self.CAPABILITY_003, raised.exception.capability)
-        self.assertIn("tools.required_instances.aggregate", str(raised.exception))
+        invariants.require_capability("required-instance-aggregate")
+        for case in ("removed", "skipped", "timed_out", "untrusted"):
+            with self.subTest(case=case):
+                result = aggregate_fixture(typescript=case)
+                self.assertEqual("incomplete", result["status"])
+                self.assertFalse(result["accounted"])
+                self.assertEqual(6, result["exit_code"])
 
-    def test_L9_CI_CORE_003_known_bad_skipped_instance_fails_closed(self) -> None:
-        """Needs PR 2b. The required job still evaluates one language only."""
+    def test_L9_CI_CORE_003_known_bad_required_job_scheduling_fails_closed(
+        self,
+    ) -> None:
+        """The required workflow still evaluates one language only."""
+        capability = "required-instance-scheduling"
         with self.assertRaises(invariants.MissingCapability) as raised:
-            invariants.require_capability(self.CAPABILITY_003)
-        self.assertIn("every SDK-selected language", raised.exception.detail)
+            invariants.require_capability(capability)
+        self.assertEqual(capability, raised.exception.capability)
+        self.assertIn("pinned Core revision", raised.exception.detail)
         text = ORG_CI.read_text(encoding="utf-8")
         self.assertIn("steps.language.outputs.language", text)
 
