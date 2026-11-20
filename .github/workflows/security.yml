@@ -6,6 +6,16 @@
 # Gates that do not apply emit a notice and pass. Contract: superset of the
 # v0.1.0 inputs plus every input passed by the Quantum-L9/.github org-starter
 # callers (run-npm-audit).
+#
+# Requiredness. This workflow is not the organization required
+# check and runs only where a caller references it:
+#   gitleaks   required: a finding or a scanner failure fails the job.
+#   pip-audit  required when a Python project is detected, else not applicable.
+#   bandit     advisory when a Python project is detected: it never fails the
+#              job, so its outcome is reported, never implied by a green step.
+#   npm audit  not run unless the caller sets run-npm-audit: true; then required.
+# The final step writes one row per scan with its requiredness and its actual
+# outcome. An advisory, skipped or not-executed scan is labelled as such there.
 name: L9 Security
 on:
   workflow_call:
@@ -65,6 +75,7 @@ jobs:
           echo "node=${node_project}" >> "$GITHUB_OUTPUT"
           echo "Detected: python=${python_project} node=${node_project}"
       - name: Secret scan (gitleaks)
+        id: gitleaks
         run: |
           set -euo pipefail
           GITLEAKS_VERSION="8.24.3"
@@ -88,6 +99,7 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
       - name: Python dependency audit (pip-audit)
+        id: pip_audit
         if: steps.detect.outputs.python == 'true'
         env:
           L9_CI_INSTALL_COMMAND: ${{ inputs.l9-ci-install-command }}
@@ -99,17 +111,40 @@ jobs:
             bash -c "$L9_CI_INSTALL_COMMAND" || echo "::notice::l9-ci install command failed; continuing"
           fi
           pip-audit --desc || pip-audit --desc -r requirements.txt
+      # Advisory by existing policy: no Bandit result fails this job. The exit
+      # code is still read, because "no findings", "findings" and "the scanner
+      # did not complete" are three different facts. Bandit exits 0 with no
+      # issue at the selected level, 1 with issues, and anything else when it
+      # could not scan.
       - name: Python static security scan (bandit)
+        id: bandit
         if: steps.detect.outputs.python == 'true'
         env:
           SOURCE_DIR: ${{ inputs.source-dir }}
         run: |
           set -euo pipefail
           pip install --only-binary :all: "bandit==1.8.6"
+          status=0
           bandit -r "$SOURCE_DIR" -ll -f screen \
             --exclude ./venv,./.venv,./tests,./build,./dist \
-            || echo "::notice::Bandit warnings are non-blocking"
+            || status=$?
+          case "${status}" in
+            0)
+              outcome="executed_no_findings"
+              echo "::notice::Bandit (advisory) completed with no findings at medium severity or above"
+              ;;
+            1)
+              outcome="executed_findings"
+              echo "::warning::Bandit (advisory) reported findings; an advisory scan does not fail this job"
+              ;;
+            *)
+              outcome="not_executed"
+              echo "::warning::Bandit (advisory) did not complete (exit ${status}); no Bandit result exists for this revision"
+              ;;
+          esac
+          echo "outcome=${outcome}" >> "$GITHUB_OUTPUT"
       - name: Node dependency audit (npm audit)
+        id: npm_audit
         if: steps.detect.outputs.node == 'true' && inputs.run-npm-audit
         run: |
           set -euo pipefail
@@ -121,3 +156,64 @@ jobs:
       - name: Non-applicable gates
         if: steps.detect.outputs.python != 'true' && steps.detect.outputs.node != 'true'
         run: echo "::notice::No Python or Node project detected; only the secret scan ran"
+      # One row per scan: what policy says about it and what actually happened.
+      # A step that did not run has outcome `skipped`, which is never reported
+      # as a pass here.
+      - name: Report scan requiredness and outcomes
+        if: always()
+        env:
+          DETECT_OUTCOME: ${{ steps.detect.outcome }}
+          PYTHON_PROJECT: ${{ steps.detect.outputs.python }}
+          NODE_PROJECT: ${{ steps.detect.outputs.node }}
+          NPM_AUDIT_REQUESTED: ${{ inputs.run-npm-audit }}
+          GITLEAKS_STEP: ${{ steps.gitleaks.outcome }}
+          PIP_AUDIT_STEP: ${{ steps.pip_audit.outcome }}
+          BANDIT_STEP: ${{ steps.bandit.outcome }}
+          BANDIT_OUTCOME: ${{ steps.bandit.outputs.outcome }}
+          NPM_AUDIT_STEP: ${{ steps.npm_audit.outcome }}
+        run: |
+          set -euo pipefail
+          required_outcome() {
+            case "$1" in
+              success) echo "executed_pass" ;;
+              failure) echo "executed_fail" ;;
+              *) echo "not_executed" ;;
+            esac
+          }
+          gitleaks="$(required_outcome "${GITLEAKS_STEP}")"
+          if [ "${DETECT_OUTCOME}" != "success" ]; then
+            pip_audit="not_executed (language detection did not complete)"
+            bandit="not_executed (language detection did not complete)"
+            npm_audit="not_executed (language detection did not complete)"
+          else
+            if [ "${PYTHON_PROJECT}" = "true" ]; then
+              pip_audit="$(required_outcome "${PIP_AUDIT_STEP}")"
+              bandit="${BANDIT_OUTCOME:-not_executed}"
+            else
+              pip_audit="not_applicable (no Python project detected)"
+              bandit="not_applicable (no Python project detected)"
+            fi
+            if [ "${NPM_AUDIT_REQUESTED}" != "true" ]; then
+              npm_audit="not_run (run-npm-audit is false)"
+            elif [ "${NODE_PROJECT}" != "true" ]; then
+              npm_audit="not_applicable (no Node project detected)"
+            else
+              npm_audit="$(required_outcome "${NPM_AUDIT_STEP}")"
+            fi
+          fi
+          npm_requiredness="not run"
+          if [ "${NPM_AUDIT_REQUESTED}" = "true" ]; then
+            npm_requiredness="required"
+          fi
+          {
+            echo "### L9 Security scan outcomes"
+            echo
+            echo "| Scan | Requiredness | Outcome |"
+            echo "| --- | --- | --- |"
+            echo "| gitleaks | required | ${gitleaks} |"
+            echo "| pip-audit | required when Python is detected | ${pip_audit} |"
+            echo "| bandit | advisory | ${bandit} |"
+            echo "| npm audit | ${npm_requiredness} | ${npm_audit} |"
+            echo
+            echo "Advisory, not_run, not_applicable and not_executed are not passes."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
