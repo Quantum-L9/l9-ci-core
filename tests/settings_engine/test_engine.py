@@ -471,6 +471,55 @@ class EngineTests(unittest.TestCase):
             self.github.writes(),
         )
 
+    def test_immutable_releases_enable_from_not_found(self) -> None:
+        # GitHub answers 404 when immutable releases are not enabled.
+        plan = self.plan(declared(releases={"immutable": True}))
+        self.assertEqual([], plan.unreadable)
+        [change] = plan.changes
+        self.assertEqual("releases.immutable", change.setting)
+        self.assertEqual((False, True), (change.live, change.desired))
+        self.assertEqual(
+            ("PUT", "/repos/Quantum-L9/svc/immutable-releases"),
+            (change.method, change.path),
+        )
+        self.assertEqual([], apply_plan(self.api, plan))
+        self.assertEqual(
+            [("PUT", "/repos/Quantum-L9/svc/immutable-releases", None)],
+            self.github.writes(),
+        )
+
+    def test_immutable_releases_in_sync_and_disable(self) -> None:
+        path = "/repos/Quantum-L9/svc/immutable-releases"
+        self.github.state[("GET", path)] = (
+            200,
+            {"enabled": True, "enforced_by_owner": False},
+        )
+        self.assertEqual([], self.plan(declared(releases={"immutable": True})).changes)
+        [change] = self.plan(declared(releases={"immutable": False})).changes
+        self.assertEqual(
+            ("DELETE", True, False), (change.method, change.live, change.desired)
+        )
+
+    def test_immutable_releases_unreadable_fails_closed(self) -> None:
+        path = "/repos/Quantum-L9/svc/immutable-releases"
+        self.github.denied.add(path)
+        plan = self.plan(declared(releases={"immutable": True}))
+        self.assertEqual([], plan.changes)
+        self.assertEqual(1, len(plan.unreadable))
+        self.assertIn("releases.immutable", plan.unreadable[0])
+        self.github.denied.discard(path)
+        self.github.state[("GET", path)] = (200, {"unexpected": "shape"})
+        self.assertEqual(
+            1, len(self.plan(declared(releases={"immutable": True})).unreadable)
+        )
+
+    def test_immutable_releases_unknown_or_absent_is_never_read(self) -> None:
+        for document in (declared(), declared(releases={"immutable": "UNKNOWN"})):
+            self.plan(document)
+        self.assertNotIn(
+            "/repos/Quantum-L9/svc/immutable-releases", self.github.reads()
+        )
+
 
 class DeclarationAndCliTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -504,6 +553,16 @@ class DeclarationAndCliTests(unittest.TestCase):
                 ["--settings", str(self.settings), "--owner", OWNER, *argv], api=api
             )
         return code, out.getvalue()
+
+    def test_out_outside_the_work_and_temp_directories_is_refused(self) -> None:
+        from l9_settings.__main__ import confined_output
+        from l9_settings.errors import SettingsRefused
+
+        with self.assertRaises(SettingsRefused):
+            confined_output(pathlib.Path("/proc/self/plan.json"))
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp) / "plan.json"
+            self.assertEqual(target.resolve(), confined_output(target))
 
     def test_dotfile_declaration_is_loaded(self) -> None:
         self.write(".github", declared(repository=".github"))

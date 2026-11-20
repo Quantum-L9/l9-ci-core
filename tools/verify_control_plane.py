@@ -57,6 +57,8 @@ CONTRACT = Path(".l9") / "release-plane.yaml"
 ORG_RUNTIME_CONTRACT = Path(".l9") / "org-runtime-contract.yaml"
 API_ROOT = "https://api.github.com"
 TOKEN_VARIABLES = ("L9_CONTROL_PLANE_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
+# The only variable that may carry repository Administration:read.
+ADMIN_TOKEN_VARIABLE = TOKEN_VARIABLES[0]
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -88,6 +90,9 @@ class Expected:
     required_rule_types: tuple[str, ...]
     require_code_owner_review: bool
     minimum_bound_contexts: int
+    # The exact approval count the pull_request rule must carry; None when the
+    # contract does not declare one.
+    required_approving_review_count: int | None
     immutable_releases: bool
     strict_status_checks: bool
     merge_queue_satisfies: bool
@@ -180,6 +185,25 @@ class GitHubReader:
             return ApiResult(0, error=f"unreadable response body: {error}")
 
 
+def _pull_request_expectation(pull_request: dict[str, Any]) -> tuple[bool, int | None]:
+    """(require_code_owner_review, required_approving_review_count or None)."""
+    code_owner = pull_request.get("require_code_owner_review", False)
+    if not isinstance(code_owner, bool):
+        raise ContractError(
+            "core_main_protection.pull_request.require_code_owner_review must be "
+            "a boolean"
+        )
+    approvals = pull_request.get("required_approving_review_count")
+    if approvals is not None and (
+        not isinstance(approvals, int) or isinstance(approvals, bool) or approvals < 0
+    ):
+        raise ContractError(
+            "core_main_protection.pull_request.required_approving_review_count "
+            "must be a non-negative integer"
+        )
+    return code_owner, approvals
+
+
 def load_expected(root: Path) -> Expected:
     path = root / CONTRACT
     try:
@@ -208,6 +232,7 @@ def load_expected(root: Path) -> Expected:
         raise ContractError(
             "core_main_protection needs pull_request and required_status_checks"
         )
+    code_owner, approvals = _pull_request_expectation(pull_request)
     minimum = checks.get("minimum_bound_contexts")
     if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum < 1:
         raise ContractError(
@@ -237,8 +262,9 @@ def load_expected(root: Path) -> Expected:
         workflow=workflow,
         protection_branch=str(protection.get("branch", branch)),
         required_rule_types=tuple(str(entry) for entry in rule_types),
-        require_code_owner_review=bool(pull_request.get("require_code_owner_review")),
+        require_code_owner_review=code_owner,
         minimum_bound_contexts=minimum,
+        required_approving_review_count=approvals,
         immutable_releases=immutable,
         strict_status_checks=strict,
         merge_queue_satisfies=merge_queue,
@@ -475,6 +501,48 @@ def _enforcement(
     )
 
 
+def _pull_request_matches(parameters: object, expected: Expected) -> bool:
+    if not isinstance(parameters, dict):
+        return False
+    if (
+        parameters.get("require_code_owner_review")
+        is not expected.require_code_owner_review
+    ):
+        return False
+    wanted = expected.required_approving_review_count
+    return wanted is None or parameters.get("required_approving_review_count") == wanted
+
+
+def _pull_request_problems(rules: ApiResult, expected: Expected) -> list[str]:
+    """The declared pull_request parameters, exactly: stricter is a mismatch too.
+
+    A rule that demands more than the contract declares is not a safe surplus:
+    the operator decided (2026-11-20) that Core main requires a pull request
+    without an approval, because a sole operator cannot approve their own
+    pull request, and a stricter live rule blocks every merge.
+    """
+    # GitHub enforces every applicable pull_request rule together (a repository
+    # rule and an organization rule alike), so each one must match: a single
+    # stricter rule still blocks the merge.
+    candidates = _rules_for(rules, "pull_request")
+    if candidates and all(
+        _pull_request_matches(rule.get("parameters"), expected) for rule in candidates
+    ):
+        return []
+    observed = [
+        f"require_code_owner_review={params.get('require_code_owner_review')!r} "
+        f"required_approving_review_count="
+        f"{params.get('required_approving_review_count')!r}"
+        for params in (rule.get("parameters") for rule in candidates)
+        if isinstance(params, dict) and not _pull_request_matches(params, expected)
+    ]
+    return [
+        "pull_request parameters differ from the contract ("
+        + ("; ".join(observed) or "no parameters")
+        + ")"
+    ]
+
+
 def check_core_main_protection(reader: GitHubReader, expected: Expected) -> CheckResult:
     """Prove the production branch carries the protection the contract declares.
 
@@ -486,8 +554,15 @@ def check_core_main_protection(reader: GitHubReader, expected: Expected) -> Chec
         f"rules {', '.join(expected.required_rule_types)} on "
         f"{expected.repository}:{expected.protection_branch}"
     ]
-    if expected.require_code_owner_review:
-        requirements.append("pull_request.require_code_owner_review=true")
+    requirements.append(
+        "pull_request.require_code_owner_review="
+        f"{str(expected.require_code_owner_review).lower()}"
+    )
+    if expected.required_approving_review_count is not None:
+        requirements.append(
+            "pull_request.required_approving_review_count="
+            f"{expected.required_approving_review_count}"
+        )
     requirements.append(
         f"at least {expected.minimum_bound_contexts} bound required status check(s)"
     )
@@ -516,14 +591,8 @@ def check_core_main_protection(reader: GitHubReader, expected: Expected) -> Chec
     if missing:
         problems.append(f"missing active rule(s): {', '.join(missing)}")
 
-    if expected.require_code_owner_review and "pull_request" in present:
-        satisfied = any(
-            isinstance(rule.get("parameters"), dict)
-            and rule["parameters"].get("require_code_owner_review") is True
-            for rule in _rules_for(rules, "pull_request")
-        )
-        if not satisfied:
-            problems.append("pull_request does not require code-owner review")
+    if "pull_request" in present:
+        problems.extend(_pull_request_problems(rules, expected))
 
     if "required_status_checks" in present:
         bound = max(
@@ -554,7 +623,9 @@ def check_core_main_protection(reader: GitHubReader, expected: Expected) -> Chec
     )
 
 
-def check_immutable_releases(reader: GitHubReader, expected: Expected) -> CheckResult:
+def check_immutable_releases(
+    reader: GitHubReader, expected: Expected, *, admin_credential: bool = True
+) -> CheckResult:
     """Prove GitHub immutable-release protection is enabled for the repository.
 
     ``GET /repos/{owner}/{repo}/immutable-releases`` answers ``enabled`` and
@@ -570,6 +641,23 @@ def check_immutable_releases(reader: GitHubReader, expected: Expected) -> CheckR
             expected="core_release.immutable is false; nothing to attest",
         )
     result = reader.get(f"repos/{expected.repository}/immutable-releases")
+    if result.status == 404:
+        # GitHub answers 404 when immutable releases are not enabled.
+        return CheckResult(
+            name=IMMUTABLE_CHECK,
+            status=FAIL,
+            expected=label,
+            actual="immutable releases are disabled (HTTP 404)",
+        )
+    if result.status == 403 and not admin_credential:
+        return _unknown(
+            IMMUTABLE_CHECK,
+            label,
+            f"{ADMIN_TOKEN_VARIABLE} is not set, and the fallback token cannot "
+            "hold repository Administration:read, which this endpoint needs. "
+            f"Provide {ADMIN_TOKEN_VARIABLE} in the control-plane-attestation "
+            f"environment ({result.describe()})",
+        )
     if not result.ok:
         return _unknown(
             IMMUTABLE_CHECK,
@@ -701,11 +789,13 @@ def check_required_status_freshness(
     )
 
 
-def verify(reader: GitHubReader, expected: Expected) -> list[CheckResult]:
+def verify(
+    reader: GitHubReader, expected: Expected, *, admin_credential: bool = True
+) -> list[CheckResult]:
     return [
         check_required_workflow_binding(reader, expected),
         check_core_main_protection(reader, expected),
-        check_immutable_releases(reader, expected),
+        check_immutable_releases(reader, expected, admin_credential=admin_credential),
         check_required_status_freshness(reader, expected),
     ]
 
@@ -742,6 +832,7 @@ def as_json(results: list[CheckResult], expected: Expected) -> dict[str, Any]:
             "required_rule_types": list(expected.required_rule_types),
             "require_code_owner_review": expected.require_code_owner_review,
             "minimum_bound_contexts": expected.minimum_bound_contexts,
+            "required_approving_review_count": expected.required_approving_review_count,
             "immutable_releases": expected.immutable_releases,
             "strict_required_status_checks_policy": expected.strict_status_checks,
             "merge_queue_rule_satisfies": expected.merge_queue_satisfies,
@@ -807,7 +898,8 @@ def main(argv: list[str] | None = None) -> int:
 
     token = resolve_token()
     if token:
-        results = verify(GitHubReader(token), expected)
+        admin = bool(os.environ.get(ADMIN_TOKEN_VARIABLE, "").strip())
+        results = verify(GitHubReader(token), expected, admin_credential=admin)
     else:
         results = unverifiable(
             expected,

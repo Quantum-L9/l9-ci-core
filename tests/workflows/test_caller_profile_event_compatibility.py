@@ -215,6 +215,7 @@ class CallerProfileEventCompatibilityTests(unittest.TestCase):
         for event, expected in (
             ("pull_request", "pr_fast"),
             ("push", "merge"),
+            ("merge_group", "merge"),
             ("workflow_dispatch", "nightly"),
         ):
             with self.subTest(event=event):

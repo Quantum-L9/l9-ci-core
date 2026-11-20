@@ -66,6 +66,7 @@ REPO_TEST_MODULES := \
 	tests/repo_execution/test_legacy_v1.py \
 	tests/repo_execution/test_repo_mk.py \
 	tests/repo_execution/test_stamp.py \
+	tests/settings_engine/test_settings_requirements.py \
 	tests/test_unittest_collectability.py \
 	tests/tools/test_advance_core_action_pins.py \
 	tests/tools/test_check_core_pin_ancestry.py \
@@ -74,6 +75,7 @@ REPO_TEST_MODULES := \
 	tests/tools/test_manifest_integrity.py \
 	tests/tools/test_project_required_repositories.py \
 	tests/tools/test_tool_ownership.py \
+	tests/workflows/test_merge_queue_triggers.py \
 	tests/workflows/test_nightly_apply.py \
 	tests/workflows/test_security_scan_outcomes.py
 

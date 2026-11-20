@@ -101,3 +101,20 @@ A later change to the payload is a reviewed PR here followed by
 The ruleset bypasses nothing for repository admins by default; the single
 `OrganizationAdmin` bypass actor mirrors the SDK's own
 `SDK self-validation required on main` ruleset.
+
+### 2026-11-20 revision (operator decisions)
+
+- `pull_request`: a pull request is still required, but with
+  `required_approving_review_count: 0` and `require_code_owner_review: false`.
+  Core has a sole operator plus agents, and the author cannot approve their
+  own pull request, so a required approval blocked every merge or forced a
+  bypass. The contract (`.l9/release-plane.yaml`) declares these exact values
+  and the attestation holds the live rule to them.
+- `merge_queue` (new): squash merges through a queue with `ALLGREEN`
+  grouping, at most 5 entries built and merged together, a 60-minute check
+  timeout and no minimum-batch wait. Every required context above now also
+  runs on `merge_group`, so the queue can complete.
+- `strict_required_status_checks_policy: false`: the queue re-tests each
+  pull request on top of the current base, so a strict "up to date" policy
+  would only add a second run per pull request. Freshness is attested
+  through the active `merge_queue` rule (`production.admission_freshness`).

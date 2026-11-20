@@ -22,6 +22,7 @@ import json
 import os
 import pathlib
 import sys
+import tempfile
 from collections.abc import Sequence
 
 from .declaration import load_declaration, select
@@ -67,6 +68,20 @@ def render(plan: Plan, stage: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def confined_output(path: pathlib.Path) -> pathlib.Path:
+    """``--out`` resolved, refused unless it lies under the working or temp directory."""
+    resolved = pathlib.Path(os.path.realpath(path))
+    roots = [pathlib.Path.cwd(), pathlib.Path(tempfile.gettempdir())]
+    runner_temp = os.environ.get("RUNNER_TEMP", "")
+    if runner_temp:
+        roots.append(pathlib.Path(runner_temp))
+    for root in roots:
+        base = pathlib.Path(os.path.realpath(root))
+        if resolved == base or resolved.is_relative_to(base):
+            return resolved
+    raise SettingsRefused(f"--out {path} is outside the working and temp directories")
+
+
 def run(argv: Sequence[str] | None = None, api: Api | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     declaration = load_declaration(arguments.settings.resolve(), arguments.owner)
@@ -82,7 +97,7 @@ def run(argv: Sequence[str] | None = None, api: Api | None = None) -> int:
     print(report)
     _append("GITHUB_STEP_SUMMARY", report)
     if arguments.out:
-        arguments.out.write_text(
+        confined_output(arguments.out).write_text(
             json.dumps(plan.as_dict(), indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )

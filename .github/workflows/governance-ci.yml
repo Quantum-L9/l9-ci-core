@@ -5,6 +5,9 @@ on:
   # inputs — the resolved governance contract — can be affected indirectly, so
   # validate it on all changes rather than only when a governance file is edited.
   pull_request:
+  # Core main uses a merge queue (docs/release/rulesets/README.md, 2026-11-20
+  # revision): every required check must also report on the merge group.
+  merge_group:
   push:
     branches:
       - main
