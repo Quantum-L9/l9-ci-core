@@ -347,6 +347,15 @@ jobs:
           fi
           git remote set-url origin "https://github.com/${REPOSITORY}.git"
 
+      # Advisory: reports consumer tool pins that drift from Core's
+      # toolchain-lock.json with file:line annotations. A consumer finding never
+      # fails the job; only an unreadable Core lock (a Core contract failure)
+      # does. The lock ships inside this pinned Core revision.
+      - id: toolchain
+        name: Report toolchain alignment (advisory)
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@ed10cb2ddc25ab2cdfa92d1bcae9e39ece8c565a
+
       # Trusted Core judge. The only source is this workflow revision's
       # tools/pr_expense_guard.py, checked out beside the consumer. The step
       # does not call a consumer-relative copy and does not paste the module.
@@ -368,12 +377,9 @@ jobs:
           set -euo pipefail
           sha_ok=false
           case "${CORE_SHA}" in
-            ????????????????????????????????????????)
-              case "${CORE_SHA}" in
-                *[!0-9a-f]*) ;;
-                *) sha_ok=true ;;
-              esac
-              ;;
+            *[!0-9a-f]* | "") sha_ok=false ;;
+            ????????????????????????????????????????) sha_ok=true ;;
+            *) sha_ok=false ;;
           esac
           if [ "${sha_ok}" != "true" ]; then
             echo "::error::workflow SHA is not a full lowercase revision" >&2
@@ -389,15 +395,6 @@ jobs:
           CORE_GUARD="${core}/tools/pr_expense_guard.py"
           export CORE_GUARD
           python3 -c 'import os, runpy; runpy.run_path(os.environ["CORE_GUARD"], run_name="__main__")'
-
-      # Advisory: reports consumer tool pins that drift from Core's
-      # toolchain-lock.json with file:line annotations. A consumer finding never
-      # fails the job; only an unreadable Core lock (a Core contract failure)
-      # does. The lock ships inside this pinned Core revision.
-      - id: toolchain
-        name: Report toolchain alignment (advisory)
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@ed10cb2ddc25ab2cdfa92d1bcae9e39ece8c565a
 
       - name: Validate native push event context
         if: github.event_name == 'push'

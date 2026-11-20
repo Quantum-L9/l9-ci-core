@@ -278,7 +278,20 @@ class ScopeResolutionTests(unittest.TestCase):
             _git(root, ["add", "tests/unit/test_a.py"])
             _commit(root, "add a test")
             _git(root, ["checkout", "main"])
-            _git(root, ["merge", "--no-ff", "pr", "-m", "merge"])
+            _git(
+                root,
+                [
+                    "-c",
+                    "user.email=expense-guard@example.com",
+                    "-c",
+                    "user.name=expense-guard",
+                    "merge",
+                    "--no-ff",
+                    "pr",
+                    "-m",
+                    "merge",
+                ],
+            )
             resolved, files = guard.resolve_scope(root, "pull_request", "")
             self.assertTrue(resolved)
             self.assertEqual(("tests/unit/test_a.py",), files)
