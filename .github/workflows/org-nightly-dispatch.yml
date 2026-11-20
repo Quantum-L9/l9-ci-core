@@ -1,32 +1,41 @@
-# Plan-only fleet timer for Quantum-L9.
+# Fleet nightly timer for Quantum-L9: plan, then apply.
 #
 # Cron 07:17 UTC matches nightly-deep.yml. This workflow does not run that
-# suite and does not replace that cron. Apply is closed: the schedule event
-# is plan, and plan dispatches zero jobs. The job checks out this repository
-# only, reads the committed registry projection and the admitted deep
-# entrypoints (.github/nightly/deep-entrypoints.json), and writes a plan. It
-# reads no network. It does not check out a consumer, install a consumer
-# dependency, or run a test. It has no App token and no PAT. github.token is
-# used only by the scheduler-source checkout and is cleared before the
-# planner runs. The credentialed apply path (tools/nightly_apply.py) is not
-# wired here; opening it is an operator decision
-# (docs/nightly-deep-consumer-contract.md).
+# suite and does not replace that cron.
+#
+# plan (every run): checks out this repository only, reads the committed
+# registry projection and the admitted deep entrypoints
+# (.github/nightly/deep-entrypoints.json), and writes a plan. It reads no
+# network and holds no credential: github.token is used only by the
+# scheduler-source checkout and is cleared before the planner runs.
+#
+# apply (the schedule, or a dispatch with mode=apply): opened by operator
+# decision on 2026-11-20 (docs/nightly-deep-consumer-contract.md, "Opening
+# apply"). It mints an installation token for
+# the l9-nightly-dispatch GitHub App (repository variable L9_NIGHTLY_APP_ID,
+# secret L9_NIGHTLY_APP_PRIVATE_KEY), scoped to the admitted `dispatch`
+# repositories alone with actions:write and contents:read, and runs
+# tools/nightly_apply.py apply. Apply only dispatches each changed
+# repository's admitted deep entrypoint; it never checks out a consumer, runs a
+# suite or merges. No PAT is used anywhere; the token is revoked when the job
+# ends.
 #
 # The plan sets live_schedule_receipt false. A green or red plan is not
 # evidence that the cron fired in production or that a deep suite ran.
-name: Organization nightly plan
+name: Organization nightly plan and apply
 on:
   schedule:
     - cron: "17 7 * * *"
   workflow_dispatch:
     inputs:
       mode:
-        description: Plan only. Apply is closed.
+        description: plan writes the plan; apply also dispatches changed repositories.
         type: choice
         required: true
         default: plan
         options:
           - plan
+          - apply
 permissions:
   contents: read
 concurrency:
@@ -62,21 +71,14 @@ jobs:
               fetch --depth=1 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "${REVISION}"
+      # The plan job always plans; dispatching is the apply job's alone.
       - name: Write the plan
         env:
           EVENT_NAME: ${{ github.event_name }}
-          MODE: ${{ github.event_name == 'schedule' && 'plan' || inputs.mode }}
           GITHUB_TOKEN: ""
           GH_TOKEN: ""
         run: |
           set -euo pipefail
-          if [[ "${EVENT_NAME}" == "schedule" ]]; then
-            MODE=plan
-          fi
-          if [[ "${MODE}" != "plan" ]]; then
-            echo "APPLY_CLOSED" >&2
-            exit 1
-          fi
           evaluated="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           python3 tools/nightly_dispatch.py plan \
             --mode plan \
@@ -101,5 +103,97 @@ jobs:
           {
             echo '```json'
             cat "${PLAN}"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  apply:
+    name: Nightly apply
+    needs: plan
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'apply')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Require this Core repository
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "${REPOSITORY}" != "Quantum-L9/l9-ci-core" ]]; then
+            echo "REFUSED repository=${REPOSITORY}" >&2
+            exit 1
+          fi
+      - name: Checkout scheduler sources
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          git -c protocol.version=2 \
+              -c "http.https://github.com/.extraheader=${auth_header}" \
+              fetch --depth=1 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${REVISION}"
+      # The token reaches only the repositories admitted with scheduling
+      # `dispatch`; Core (`self`) schedules its own deep run.
+      - id: scope
+        name: Name the admitted dispatch repositories
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY' >> "${GITHUB_OUTPUT}"
+          import json
+          from pathlib import Path
+
+          entries = json.loads(
+              Path(".github/nightly/deep-entrypoints.json").read_text(encoding="utf-8")
+          )["entrypoints"]
+          names = sorted(
+              e["repository"].split("/", 1)[1]
+              for e in entries
+              if e["scheduling"] == "dispatch"
+              and e["repository"].startswith("Quantum-L9/")
+          )
+          if not names:
+              raise SystemExit("no admitted dispatch repository")
+          print("repositories=" + ",".join(names))
+          PY
+      - id: token
+        name: Mint the nightly dispatch token (GitHub App)
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.L9_NIGHTLY_APP_ID }}
+          private-key: ${{ secrets.L9_NIGHTLY_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.scope.outputs.repositories }}
+          permission-actions: write
+          permission-contents: read
+      - name: Dispatch changed repositories
+        env:
+          L9_NIGHTLY_APPLY: open
+          L9_NIGHTLY_DISPATCH_TOKEN: ${{ steps.token.outputs.token }}
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
+        run: |
+          set -euo pipefail
+          python3 tools/nightly_apply.py apply \
+            --evaluated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      - name: Publish the apply result
+        if: always()
+        env:
+          RESULT: ${{ runner.temp }}/nightly-apply.json
+        run: |
+          set -euo pipefail
+          if [[ ! -f "${RESULT}" ]]; then
+            echo "nightly apply result was not written" >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+          {
+            echo '```json'
+            cat "${RESULT}"
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
