@@ -214,6 +214,13 @@ class FetchAuthenticationTests(unittest.TestCase):
             "http.https://github.com/.extraheader", env["GIT_CONFIG_KEY_1"]
         )
 
+    def test_a_malformed_inherited_config_count_is_unreadable_not_drift(self) -> None:
+        for count in ("invalid", "-1"):
+            seen, error = self._capture({"GH_TOKEN": "t", "GIT_CONFIG_COUNT": count})
+            with self.subTest(count=count):
+                self.assertEqual([], seen)
+                self.assertIn("GIT_CONFIG_COUNT must be a non-negative integer", error)
+
     def test_without_a_credential_a_failure_names_the_private_source(self) -> None:
         seen, error = self._capture({}, returncode=128)
         _, env = self._fetch_call(seen)

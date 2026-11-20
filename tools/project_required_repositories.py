@@ -202,7 +202,12 @@ def git_env(token: str) -> dict[str, str]:
     if not token:
         return env
     basic = base64.b64encode(f"x-access-token:{token}".encode()).decode("ascii")
-    index = int(env.get("GIT_CONFIG_COUNT", "0") or "0")
+    inherited = env.get("GIT_CONFIG_COUNT", "0") or "0"
+    if not inherited.isdigit():
+        raise ProjectionError(
+            f"GIT_CONFIG_COUNT must be a non-negative integer, got {inherited!r}"
+        )
+    index = int(inherited)
     env[f"GIT_CONFIG_KEY_{index}"] = "http.https://github.com/.extraheader"
     env[f"GIT_CONFIG_VALUE_{index}"] = f"AUTHORIZATION: basic {basic}"
     env["GIT_CONFIG_COUNT"] = str(index + 1)
