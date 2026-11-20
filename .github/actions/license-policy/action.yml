@@ -47,8 +47,12 @@ runs:
             python3 -I "${script}" render --repository "${L9_POLICY_REPOSITORY}"
             ;;
           audit)
+            mkdir -p .l9/runtime
+            rc=0
             python3 -I "${script}" audit --repository "${L9_POLICY_REPOSITORY}" \
-              --sbom "${L9_POLICY_SBOM}" --unknown "${L9_POLICY_UNKNOWN}"
+              --sbom "${L9_POLICY_SBOM}" --unknown "${L9_POLICY_UNKNOWN}" \
+              > .l9/runtime/license-audit.json || rc=$?
+            exit "${rc}"
             ;;
           *)
             echo "::error title=Licence policy::operation must be render or audit" >&2

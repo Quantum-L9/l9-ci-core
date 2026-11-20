@@ -172,10 +172,8 @@ class AuditTests(unittest.TestCase):
         ok = self._sbom(component("ok", "pkg:pypi/ok", spdx("MIT")))
         result = self._cli("audit", "--repository", REPO, "--sbom", str(ok))
         self.assertEqual(0, result.returncode, result.stderr)
-        record = self.tmp / ".l9" / "runtime" / "license-audit.json"
-        self.assertEqual(
-            "l9.license-audit/v1", json.loads(record.read_text())["schema"]
-        )
+        self.assertEqual("l9.license-audit/v1", json.loads(result.stdout)["schema"])
+        self.assertEqual(["sbom.json"], sorted(p.name for p in self.tmp.iterdir()))
         bad = self._sbom(component("gpl", "pkg:pypi/gpl", spdx("GPL-3.0-only")))
         result = self._cli("audit", "--repository", REPO, "--sbom", str(bad))
         self.assertEqual(1, result.returncode)

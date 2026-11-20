@@ -33,10 +33,11 @@ every mode (AGENTS.md §9).
         [--workspace DIR] [--unknown report|fail]
 
 ``--sbom`` must resolve inside ``--workspace`` (default: the current
-directory). ``audit`` writes its record to ``.l9/runtime/license-audit.json``
-under the current directory. ``render`` appends to ``$GITHUB_OUTPUT`` and ``audit`` to
+directory). ``audit`` prints its record (``l9.license-audit/v1``) on stdout and
+writes no file; the action redirects it to ``.l9/runtime/license-audit.json``.
+``render`` appends to ``$GITHUB_OUTPUT`` and ``audit`` to
 ``$GITHUB_STEP_SUMMARY`` when the runner sets them; no argument names a file
-outside the workspace.
+that is written.
 """
 
 from __future__ import annotations
@@ -56,8 +57,6 @@ REPOSITORIES = ACTION_DIR / "repositories"
 POLICY_SCHEMA = "l9.license-policy/v1"
 REPOSITORY_SCHEMA = "l9.license-policy-repository/v1"
 RECORD_SCHEMA = "l9.license-audit/v1"
-# Fixed, relative to the working directory (the workspace): no argument names it.
-RECORD_PATH = Path(".l9") / "runtime" / "license-audit.json"
 REPOSITORY = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 SPDX_ID = re.compile(r"^[A-Za-z0-9.+-]+$")
 VIOLATIONS = ("copyleft", "not_allowed")
@@ -374,10 +373,6 @@ def main(argv: list[str] | None = None) -> int:
     except PolicyError as exc:
         print(f"::error title=Licence policy::{exc}", file=sys.stderr)
         return exc.code
-    RECORD_PATH.parent.mkdir(parents=True, exist_ok=True)
-    RECORD_PATH.write_text(
-        json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
     _append("GITHUB_STEP_SUMMARY", summary(record))
     for entry in record["violations"]:
         print(
@@ -385,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{entry['purl'] or entry['name']} ({', '.join(entry['licenses']) or 'no licence'})",
             file=sys.stderr,
         )
-    print(json.dumps(record["counts"], sort_keys=True))
+    print(json.dumps(record, indent=2, sort_keys=True))
     return 1 if record["status"] == "fail" else 0
 
 
