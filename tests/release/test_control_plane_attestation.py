@@ -491,12 +491,31 @@ class AttestationTests(unittest.TestCase):
         self.assertEqual(MODULE.FAIL, self.status(MODULE.PROTECTION_CHECK))
         self.assertIn("no parameters", self.by_name[MODULE.PROTECTION_CHECK].reason)
 
-    def test_one_matching_pull_request_rule_among_several_passes(self) -> None:
+    def test_every_applicable_pull_request_rule_must_match(self) -> None:
+        # GitHub enforces all applicable rules together: a stricter
+        # organization rule beside a matching repository rule still blocks.
+        stricter = pull_request_rule(approvals=2)
+        stricter["ruleset_source_type"] = "Organization"
+        stricter["ruleset_source"] = "Quantum-L9"
         self.run_checks(
             rules=[
                 workflows_rule(),
                 status_checks_rule(),
-                pull_request_rule(approvals=2),
+                stricter,
+                pull_request_rule(),
+            ]
+        )
+        self.assertEqual(MODULE.FAIL, self.status(MODULE.PROTECTION_CHECK))
+        reason = self.by_name[MODULE.PROTECTION_CHECK].reason
+        self.assertIn("required_approving_review_count=2", reason)
+        self.assertNotIn("required_approving_review_count=0", reason)
+
+    def test_several_matching_pull_request_rules_pass(self) -> None:
+        self.run_checks(
+            rules=[
+                workflows_rule(),
+                status_checks_rule(),
+                pull_request_rule(),
                 pull_request_rule(),
             ]
         )

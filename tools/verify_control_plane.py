@@ -521,8 +521,11 @@ def _pull_request_problems(rules: ApiResult, expected: Expected) -> list[str]:
     without an approval, because a sole operator cannot approve their own
     pull request, and a stricter live rule blocks every merge.
     """
+    # GitHub enforces every applicable pull_request rule together (a repository
+    # rule and an organization rule alike), so each one must match: a single
+    # stricter rule still blocks the merge.
     candidates = _rules_for(rules, "pull_request")
-    if any(
+    if candidates and all(
         _pull_request_matches(rule.get("parameters"), expected) for rule in candidates
     ):
         return []
@@ -531,7 +534,7 @@ def _pull_request_problems(rules: ApiResult, expected: Expected) -> list[str]:
         f"required_approving_review_count="
         f"{params.get('required_approving_review_count')!r}"
         for params in (rule.get("parameters") for rule in candidates)
-        if isinstance(params, dict)
+        if isinstance(params, dict) and not _pull_request_matches(params, expected)
     ]
     return [
         "pull_request parameters differ from the contract ("
