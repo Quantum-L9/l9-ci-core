@@ -1535,4 +1535,3 @@ artifact, and `audit` over it), pinning this action at this change's merge
 commit (§8, §16, §34); how organization CI calls it is a CTO decision.
 
 Tests: `tests/actions/test_license_policy.py`.
-
