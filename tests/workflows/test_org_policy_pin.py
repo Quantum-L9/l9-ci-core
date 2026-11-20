@@ -1,6 +1,6 @@
 """The candidate required workflow does not verify an unadmitted policy.
 
-``Analyze (central Core)`` on a pull request runs ``org-ci.yml`` from
+The required check on a pull request runs ``org-ci.yml`` from
 ``main``, so a green required check does not execute this branch's
 workflow. This module reads the candidate file. ``.github`` pull request
 269 is still unmerged. ``verify_release.py`` needs both a verified
@@ -17,6 +17,8 @@ import re
 import unittest
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "org-ci.yml"
 SELF_CI = ROOT / ".github" / "workflows" / "self-ci.yml"
@@ -29,7 +31,16 @@ MODULE = "tests/workflows/test_org_policy_pin.py"
 class OrgPolicyPinTests(unittest.TestCase):
     def test_candidate_workflow_does_not_call_the_unadmitted_verifier(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        job = text[text.index("name: Analyze (central Core)") :]
+        job = text[
+            text.index(
+                "name: "
+                + yaml.safe_load(
+                    (ROOT / ".l9" / "org-runtime-contract.yaml").read_text(
+                        encoding="utf-8"
+                    )
+                )["entrypoint"]["required_check"]["name"]
+            ) :
+        ]
         self.assertNotIn("id: org-policy", job)
         self.assertNotIn("verify_release.py", job)
         self.assertNotIn("--require-release", job)

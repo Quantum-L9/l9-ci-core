@@ -21,6 +21,8 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 # Core's tools/ is not a package, and under `unittest discover --start-directory
 # tests` the name `tools` resolves to tests/tools. Import the module the way the
@@ -61,7 +63,9 @@ HEAD = "4" * 40
 OTHER_HEAD = "5" * 40
 CONFIG = "sha256:" + "6" * 64
 OLD_CONFIG = "sha256:" + "7" * 64
-REQUIRED_CHECK = "Analyze (central Core)"
+REQUIRED_CHECK = yaml.safe_load(
+    (ROOT / ".l9" / "org-runtime-contract.yaml").read_text(encoding="utf-8")
+)["entrypoint"]["required_check"]["name"]
 
 
 def load_consumer_metadata(payload: dict[str, Any]) -> dict[str, Any] | None:

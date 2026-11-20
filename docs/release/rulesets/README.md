@@ -77,14 +77,15 @@ succeeded on `34f715627d9521cef997f7a31f0f2562b8ece01f`, and the schedule event
 [44347968938](https://github.com/Quantum-L9/l9-ci-core/actions/runs/44347968938)
 succeeded on `027e86543701740c4a238e593bd33c03f59eda00`. That schedule run was
 created at 16:30 UTC, so the 07:17 UTC timing is not proven. Consumer
-repositories stay on `Analyze (central Core)`.
+repositories stay on the required check named in `.l9/org-runtime-contract.yaml` (`entrypoint.required_check.name`).
 
 **Applying this payload is an organization-admin action. The pull request that
 changes it does not apply it**, and nothing in this repository writes a
 ruleset; until an admin applies it, the live ruleset keeps its previous
 contexts.
 
-`integration_id` 15368 is GitHub Actions. `Analyze (central Core)` is not
+`integration_id` 15368 is GitHub Actions. The organization's required check
+(`.l9/org-runtime-contract.yaml`, `entrypoint.required_check.name`) is not
 repeated here: the organization ruleset already requires it on every default
 branch, this repository included.
 
