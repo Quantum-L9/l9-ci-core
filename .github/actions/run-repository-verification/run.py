@@ -40,6 +40,13 @@ the record is the repository's own claim that those files are Core's, so the
 claim is held to. A repository without a record is not stamp-checked at all,
 so an unstamped fleet repository is unaffected (``AGENTS.md`` §25).
 
+Before any contract decision, every tracked text file is checked for an
+unresolved merge conflict: git's complete marker block (``<<<<<<<``, an
+optional diff3 ``|||||||`` base, ``=======``, ``>>>>>>>``, each at column 0).
+One fails the run as a ``contract`` failure in both modes, whether or not the
+repository declares a contract. A lone ``=======`` or an indented sample is
+not a conflict. The SDK runtime (``.l9/runtime``) is never scanned.
+
 Every run records typed outputs: ``present``, ``status`` (``pass``,
 ``not_applicable``, or ``fail``), ``contract-mode``, ``contract-version``
 (``absent``, ``v1``, ``v2``, or ``invalid``), and ``failure-kind`` (``none``,
@@ -650,6 +657,104 @@ def snapshot_registry(destination: Path) -> int:
     return 0
 
 
+# Unresolved merge conflicts: git writes `<<<<<<< <label>`, optionally a
+# diff3 base section opened by `||||||| <label>`, then `=======` alone, then
+# `>>>>>>> <label>`, each at column 0. Only a complete block is reported, so
+# a lone `=======` (a text rule) or a quoted marker never is.
+_MARKER_OPEN = re.compile(r"^<{7}(?: |$)")
+_MARKER_BASE = re.compile(r"^\|{7}(?: |$)")
+_MARKER_SPLIT = re.compile(r"^={7}$")
+_MARKER_CLOSE = re.compile(r"^>{7}(?: |$)")
+
+
+def conflict_marker_blocks(text: str) -> list[int]:
+    """1-based line numbers of each complete conflict block's opening marker."""
+    found: list[int] = []
+    opened: int | None = None
+    split = False
+    for number, line in enumerate(text.splitlines(), start=1):
+        if _MARKER_OPEN.match(line):
+            opened, split = number, False
+        elif opened is not None and _MARKER_BASE.match(line):
+            continue
+        elif opened is not None and _MARKER_SPLIT.match(line):
+            split = True
+        elif opened is not None and split and _MARKER_CLOSE.match(line):
+            found.append(opened)
+            opened, split = None, False
+    return found
+
+
+# The marker scan reads the tree through its own handle on subprocess.run, so
+# it stays distinct from phase execution (the `make` calls that tests observe
+# by replacing `subprocess.run`). It runs git read-only and never consumer code.
+_run_git = subprocess.run
+
+# Never part of the repository under analysis: git metadata and the SDK
+# runtime Core provisions into the workspace (`.l9/runtime`).
+_UNSCANNED = (".git", ".l9/runtime")
+
+
+def _candidate_files(workspace: Path) -> list[str]:
+    """Tracked files of a git work tree; every file of a plain directory.
+
+    A git work tree is read with ``git ls-files`` so untracked and ignored
+    files are left out. A directory that is not a work tree has no tracked
+    set, so every file in it is a candidate.
+    """
+    inside = _run_git(
+        ["git", "-C", str(workspace), "rev-parse", "--is-inside-work-tree"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        return sorted(
+            path.relative_to(workspace).as_posix()
+            for path in workspace.rglob("*")
+            if path.is_file()
+            and not any(
+                path.relative_to(workspace).as_posix() == prefix
+                or path.relative_to(workspace).as_posix().startswith(prefix + "/")
+                for prefix in _UNSCANNED
+            )
+        )
+    listing = _run_git(
+        ["git", "-C", str(workspace), "ls-files", "-z", "--cached"],
+        capture_output=True,
+        check=False,
+    )
+    if listing.returncode != 0:
+        raise RuntimeError(
+            "cannot list tracked files: "
+            + listing.stderr.decode("utf-8", "replace").strip()
+        )
+    return [
+        raw.decode("utf-8", "surrogateescape")
+        for raw in listing.stdout.split(b"\0")
+        if raw
+    ]
+
+
+def conflict_markers(workspace: Path) -> list[tuple[str, int]]:
+    """(path, line) of every unresolved conflict block in a text file.
+
+    Raises ``RuntimeError`` when a work tree's file list cannot be read: an
+    unreadable tree is never reported clean.
+    """
+    found: list[tuple[str, int]] = []
+    for relative in _candidate_files(workspace):
+        path = workspace / relative
+        if path.is_symlink() or not path.is_file():
+            continue
+        data = path.read_bytes()
+        if b"\0" in data[:8192] or b"<<<<<<<" not in data:
+            continue
+        text = data.decode("utf-8", "replace")
+        found.extend((relative, line) for line in conflict_marker_blocks(text))
+    return found
+
+
 def main() -> int:
     if len(sys.argv) == 3 and sys.argv[1] == "--snapshot-registry":
         return snapshot_registry(Path(sys.argv[2]))
@@ -672,6 +777,40 @@ def main() -> int:
             failure=FAILURE_INFRASTRUCTURE,
         )
         print(f"repository verification: FAIL (infrastructure; {exc})", file=sys.stderr)
+        return 0
+
+    # Before any contract decision: a tracked file with an unresolved merge
+    # conflict fails every governed repository, contract or not.
+    try:
+        markers = conflict_markers(workspace)
+    except (OSError, RuntimeError) as exc:
+        _record(
+            present=contract.is_file(),
+            status="fail",
+            mode=mode,
+            version="unknown",
+            failure=FAILURE_INFRASTRUCTURE,
+        )
+        print(f"repository verification: FAIL (infrastructure; {exc})", file=sys.stderr)
+        return 0
+    if markers:
+        for relative, line in markers:
+            print(
+                f"::error file={relative},line={line}::unresolved merge conflict "
+                "(<<<<<<< / ======= / >>>>>>>)"
+            )
+        _record(
+            present=contract.is_file(),
+            status="fail",
+            mode=mode,
+            version="unknown",
+            failure=FAILURE_CONTRACT,
+        )
+        print(
+            "repository verification: FAIL (contract; "
+            f"{len(markers)} unresolved merge conflict block(s) in tracked files)",
+            file=sys.stderr,
+        )
         return 0
 
     if not contract.is_file():
