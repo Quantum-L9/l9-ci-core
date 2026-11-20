@@ -1,0 +1,181 @@
+"""Core's reusable Sonar step (``.github/actions/run-sonar``).
+
+A consumer calls this one step instead of carrying a sonarcloud.yml
+(CI_CONFIG_FINDINGS row 6). It reuses the coverage.xml the consumer's own test
+run wrote (the Core #289 pattern) and fails closed when that report or the
+token is absent, so a scan never reads as 0% covered because coverage never
+arrived. The scanner pins are bound to Core's own ``self-sonar.yml``.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+ACTION_DIR = ROOT / ".github" / "actions" / "run-sonar"
+ACTION = ACTION_DIR / "action.yml"
+CHECK = ACTION_DIR / "check_coverage.py"
+SELF_SONAR = ROOT / ".github" / "workflows" / "self-sonar.yml"
+SCAN_ACTION = (
+    "SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4"
+)
+SCANNER_VERSION = "8.4.0.16527"
+COBERTURA = '<?xml version="1.0" ?>\n<coverage version="7.6" line-rate="0.5"><packages/></coverage>\n'
+
+
+class CoverageAdmissionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.workspace = self.tmp / "workspace"
+        self.workspace.mkdir()
+
+    def _run(
+        self, reports: str, *, token: str = "token", base_dir: str = "."
+    ) -> subprocess.CompletedProcess[str]:
+        env = {"PATH": os.environ.get("PATH", "")}
+        if token is not None:
+            env["SONAR_TOKEN"] = token
+        return subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                str(CHECK),
+                "--reports",
+                reports,
+                "--base-dir",
+                base_dir,
+            ],
+            cwd=self.workspace,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def _write(self, relative: str, text: str = COBERTURA) -> None:
+        path = self.workspace / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def test_admits_the_reports_the_test_run_wrote(self) -> None:
+        self._write("coverage.xml")
+        self._write("reports/unit.xml")
+        result = self._run("coverage.xml,\nreports/unit.xml")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("coverage.xml,reports/unit.xml", result.stdout.strip())
+
+    def test_reports_are_relative_to_the_project_base_dir(self) -> None:
+        self._write("service/coverage.xml")
+        result = self._run("coverage.xml", base_dir="service")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("coverage.xml", result.stdout.strip())
+
+    def test_missing_report_fails_closed(self) -> None:
+        result = self._run("coverage.xml")
+        self.assertEqual(1, result.returncode)
+        self.assertIn("coverage report coverage.xml is missing", result.stderr)
+        self.assertEqual("", result.stdout)
+
+    def test_one_missing_report_of_two_fails_closed(self) -> None:
+        self._write("coverage.xml")
+        result = self._run("coverage.xml,other.xml")
+        self.assertEqual(1, result.returncode)
+        self.assertIn("other.xml is missing", result.stderr)
+
+    def test_empty_report_fails_closed(self) -> None:
+        self._write("coverage.xml", "")
+        result = self._run("coverage.xml")
+        self.assertEqual(1, result.returncode)
+        self.assertIn("is empty", result.stderr)
+
+    def test_malformed_or_foreign_xml_fails_closed(self) -> None:
+        self._write("coverage.xml", "<coverage>")
+        self.assertIn("not well-formed XML", self._run("coverage.xml").stderr)
+        self._write("coverage.xml", "<report><counter/></report>")
+        result = self._run("coverage.xml")
+        self.assertEqual(1, result.returncode)
+        self.assertIn("not Cobertura XML (root element <report>)", result.stderr)
+
+    def test_blank_token_fails_closed_without_printing_it(self) -> None:
+        self._write("coverage.xml")
+        for token in ("", "   "):
+            result = self._run("coverage.xml", token=token)
+            self.assertEqual(1, result.returncode)
+            self.assertIn("SONAR_TOKEN is blank", result.stderr)
+
+    def test_paths_outside_the_workspace_are_refused(self) -> None:
+        (self.tmp / "outside.xml").write_text(COBERTURA, encoding="utf-8")
+        for reports in ("../outside.xml", "/etc/passwd", "a b.xml", "x.xml;rm"):
+            with self.subTest(reports=reports):
+                self.assertEqual(2, self._run(reports).returncode)
+        (self.workspace / "link.xml").symlink_to(self.tmp / "outside.xml")
+        result = self._run("link.xml")
+        self.assertEqual(2, result.returncode)
+        self.assertIn("resolves outside the workspace", result.stderr)
+        self.assertEqual(2, self._run("coverage.xml", base_dir="..").returncode)
+
+    def test_no_or_duplicate_report_is_an_invocation_error(self) -> None:
+        self._write("coverage.xml")
+        self.assertEqual(2, self._run(" , ").returncode)
+        self.assertEqual(2, self._run("coverage.xml,coverage.xml").returncode)
+
+
+class RunSonarActionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.text = ACTION.read_text(encoding="utf-8")
+        self.action = yaml.safe_load(self.text)
+
+    def test_scanner_pins_match_cores_own_sonar(self) -> None:
+        self_sonar = SELF_SONAR.read_text(encoding="utf-8")
+        for pinned in (
+            f"uses: {SCAN_ACTION} # v8.5.0",
+            f"scannerVersion: {SCANNER_VERSION}",
+        ):
+            self.assertIn(pinned, self.text)
+            self.assertIn(pinned, self_sonar)
+        for reference in re.findall(r"uses:\s*(\S+)", self.text):
+            self.assertRegex(reference, r"^[^@]+@[0-9a-f]{40}$")
+
+    def test_coverage_is_admitted_before_the_scan(self) -> None:
+        steps = self.action["runs"]["steps"]
+        self.assertEqual("composite", self.action["runs"]["using"])
+        self.assertEqual(["coverage", None], [step.get("id") for step in steps])
+        self.assertIn("check_coverage.py", steps[0]["run"])
+        self.assertEqual(SCAN_ACTION, steps[1]["uses"])
+        self.assertIn(
+            "-Dsonar.python.coverage.reportPaths=${{ steps.coverage.outputs.reports }}",
+            steps[1]["with"]["args"],
+        )
+
+    def test_token_is_an_input_reaching_only_the_check_and_the_scanner(self) -> None:
+        self.assertTrue(self.action["inputs"]["sonar-token"]["required"])
+        self.assertEqual(2, self.text.count("${{ inputs.sonar-token }}"))
+        for step in self.action["runs"]["steps"]:
+            self.assertEqual("${{ inputs.sonar-token }}", step["env"]["SONAR_TOKEN"])
+            self.assertNotIn("inputs.sonar-token", str(step.get("run", "")))
+            self.assertNotIn("inputs.sonar-token", str(step.get("with", "")))
+
+    def test_inputs_reach_shell_through_env_only(self) -> None:
+        run = self.action["runs"]["steps"][0]["run"]
+        self.assertNotIn("${{", run)
+
+    def test_quality_gate_is_advisory_unless_the_caller_blocks(self) -> None:
+        self.assertEqual("advisory", self.action["inputs"]["quality-gate"]["default"])
+        run = self.action["runs"]["steps"][0]["run"]
+        self.assertIn("advisory) wait=false", run)
+        self.assertIn("blocking) wait=true", run)
+        self.assertIn("exit 2", run)
+
+
+if __name__ == "__main__":
+    unittest.main()
