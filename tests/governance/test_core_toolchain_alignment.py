@@ -27,7 +27,8 @@ ALIGNED = {"exact_match", "range_admits_lock"}
 
 def load_align():
     spec = importlib.util.spec_from_file_location("core_align_self", SCRIPT)
-    assert spec is not None and spec.loader is not None
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)

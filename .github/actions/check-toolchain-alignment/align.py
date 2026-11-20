@@ -514,14 +514,13 @@ def scan_biome(
         )
 
 
-PYTHON_LITERAL = re.compile(r"""['"]?(\d+\.\d+(?:\.\d+)?)['"]?""")
-WORKFLOW_PYTHON = re.compile(
-    r"^\s*-?\s*(?:python-version|PYTHON_VERSION)\s*:\s*(?P<value>.+?)\s*$"
-)
+# Linear patterns only: a workflow line is split into key and value by
+# `_key_value`, so no pattern needs to skip optional leading whitespace or
+# dashes (Sonar S8786, super-linear backtracking).
+PYTHON_LITERAL = re.compile(r"\b\d+\.\d+(?:\.\d+)?\b")
 PIP_PIN = re.compile(r"(?<![\w.-])([A-Za-z0-9][A-Za-z0-9._-]*)==(v?\d+(?:\.\d+)*)\b")
-UV_VERSION = re.compile(r"^\s*-?\s*(?:UV_VERSION|version)\s*:\s*['\"]?([^'\"\s]+)")
-GITLEAKS_VERSION = re.compile(r"^\s*-?\s*GITLEAKS_VERSION\s*:\s*['\"]?([^'\"\s]+)")
-STEP_START = re.compile(r"^\s*-\s+(?:uses|name|run|id|with|if)\s*:")
+STEP_KEYS = frozenset({"uses", "name", "run", "id", "with", "if"})
+PYTHON_KEYS = frozenset({"python-version", "PYTHON_VERSION"})
 GITLEAKS_URL = re.compile(r"gitleaks/releases/download/v(\d+\.\d+\.\d+)/")
 
 
@@ -627,73 +626,104 @@ def scan_workflows(
         yield from _scan_workflow_text(relative, text.splitlines(), lock, pip)
 
 
-def _scan_workflow_text(
-    relative: str, lines: list[str], lock: dict[str, str], pip: dict[str, str]
+def _key_value(code: str) -> tuple[bool, str, str]:
+    """``(starts a list item, key, value)`` of one YAML-ish workflow line."""
+    text = code.strip()
+    item = text.startswith("-")
+    if item:
+        text = text[1:].lstrip()
+    key, separator, value = text.partition(":")
+    if not separator:
+        return item, "", ""
+    return item, key.strip(), value.strip()
+
+
+def _first_token(value: str) -> str:
+    return value.split(None, 1)[0].strip("'\"") if value.strip() else ""
+
+
+def _workflow_python_findings(
+    relative: str, number: int, key: str, value: str, lock: dict[str, str]
 ) -> Iterator[Finding]:
-    in_setup_uv = 0
-    for number, line in enumerate(lines, 1):
-        code = line.split(" #", 1)[0]
-        python = WORKFLOW_PYTHON.match(code)
-        if python and "python" in lock:
-            for declared in _workflow_python(python.group("value")):
-                yield _finding(
-                    "python",
-                    relative,
-                    number,
-                    "workflow",
-                    declared,
-                    lock["python"],
-                    classify_python(declared, lock["python"]),
-                )
-        if "pip install" in code or "pip3 install" in code:
-            for name, version in PIP_PIN.findall(code):
-                tool = pip.get(_normalise(name, "pip"))
-                if tool is not None:
-                    yield _finding(
-                        tool,
-                        relative,
-                        number,
-                        "workflow",
-                        version,
-                        lock[tool],
-                        classify_exact(version, lock[tool]),
-                    )
-        if "astral-sh/setup-uv@" in code:
-            in_setup_uv = 8
-        elif STEP_START.match(code):
-            in_setup_uv = 0  # a new step ends the setup-uv `with:` block
-        elif in_setup_uv:
-            in_setup_uv -= 1
-        uv = UV_VERSION.match(code)
-        if uv and "uv" in lock and (in_setup_uv or "UV_VERSION" in code):
+    if key not in PYTHON_KEYS or "python" not in lock or not value:
+        return
+    for declared in _workflow_python(value):
+        yield _finding(
+            "python",
+            relative,
+            number,
+            "workflow",
+            declared,
+            lock["python"],
+            classify_python(declared, lock["python"]),
+        )
+
+
+def _workflow_pip_findings(
+    relative: str, number: int, code: str, lock: dict[str, str], pip: dict[str, str]
+) -> Iterator[Finding]:
+    if "pip install" not in code and "pip3 install" not in code:
+        return
+    for name, version in PIP_PIN.findall(code):
+        tool = pip.get(_normalise(name, "pip"))
+        if tool is not None:
             yield _finding(
-                "uv",
+                tool,
                 relative,
                 number,
                 "workflow",
-                uv.group(1),
-                lock["uv"],
-                classify_exact(uv.group(1), lock["uv"]),
+                version,
+                lock[tool],
+                classify_exact(version, lock[tool]),
             )
-        if "gitleaks" in lock:
-            gitleaks: str | None = None
-            match = GITLEAKS_VERSION.match(code)
-            if match:
-                gitleaks = match.group(1)
-            else:
-                url = GITLEAKS_URL.search(code)
-                if url and "${" not in url.group(0):
-                    gitleaks = url.group(1)
-            if gitleaks is not None:
-                yield _finding(
-                    "gitleaks",
-                    relative,
-                    number,
-                    "workflow",
-                    gitleaks,
-                    lock["gitleaks"],
-                    classify_exact(gitleaks, lock["gitleaks"]),
-                )
+
+
+def _exact_workflow_finding(
+    tool: str, relative: str, number: int, declared: str, lock: dict[str, str]
+) -> Finding:
+    return _finding(
+        tool,
+        relative,
+        number,
+        "workflow",
+        declared,
+        lock[tool],
+        classify_exact(declared, lock[tool]),
+    )
+
+
+def _gitleaks_declared(code: str, key: str, value: str) -> str | None:
+    if key == "GITLEAKS_VERSION":
+        return _first_token(value) or None
+    url = GITLEAKS_URL.search(code)
+    if url and "${" not in url.group(0):
+        return url.group(1)
+    return None
+
+
+def _scan_workflow_text(
+    relative: str, lines: list[str], lock: dict[str, str], pip: dict[str, str]
+) -> Iterator[Finding]:
+    in_setup_uv = 0  # lines left in the `with:` block of a setup-uv step
+    for number, line in enumerate(lines, 1):
+        code = line.split(" #", 1)[0]
+        item, key, value = _key_value(code)
+        yield from _workflow_python_findings(relative, number, key, value, lock)
+        yield from _workflow_pip_findings(relative, number, code, lock, pip)
+        if "astral-sh/setup-uv@" in code:
+            in_setup_uv = 8
+        elif item and key in STEP_KEYS:
+            in_setup_uv = 0  # a new step ends the setup-uv `with:` block
+        elif in_setup_uv:
+            in_setup_uv -= 1
+        uv_key = key == "UV_VERSION" or (key == "version" and in_setup_uv > 0)
+        if uv_key and "uv" in lock and _first_token(value):
+            yield _exact_workflow_finding(
+                "uv", relative, number, _first_token(value), lock
+            )
+        gitleaks = _gitleaks_declared(code, key, value) if "gitleaks" in lock else None
+        if gitleaks is not None:
+            yield _exact_workflow_finding("gitleaks", relative, number, gitleaks, lock)
 
 
 def scan(
