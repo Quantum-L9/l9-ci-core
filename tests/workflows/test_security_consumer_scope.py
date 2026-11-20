@@ -140,12 +140,24 @@ def _run_with_recording_stubs(
 
 
 def _two_commit_repository(workdir: Path) -> tuple[str, str]:
+    """Two empty commits with fixed dates: the same SHAs in every repository.
+
+    Tests compare ranges taken from separately built repositories; without
+    fixed dates a commit made in a later clock second gets another SHA.
+    """
+    dated = {
+        **os.environ,
+        "GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z",
+    }
+
     def git(*args: str) -> str:
         return subprocess.run(
             ["git", "-C", str(workdir), *args],
             capture_output=True,
             text=True,
             check=True,
+            env=dated,
         ).stdout.strip()
 
     git("init", "--quiet")
