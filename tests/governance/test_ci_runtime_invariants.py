@@ -16,14 +16,20 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
 
-from tools import ci_runtime_invariants as invariants
-
 ROOT = Path(__file__).resolve().parents[2]
+# Core's tools/ is not a package, and under `unittest discover --start-directory
+# tests` the name `tools` resolves to tests/tools. Import the module the way the
+# other suites import from tools/ (AGENTS.md §29, test-deep).
+sys.path.insert(0, str(ROOT / "tools"))
+
+import ci_runtime_invariants as invariants  # noqa: E402
+
 ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
 METADATA = ROOT / ".github" / "actions" / "resolve-consumer-metadata" / "metadata.py"
 ADR_DIR = ROOT / "docs" / "adr"
@@ -136,6 +142,22 @@ class ContractClosureTests(unittest.TestCase):
             )
         self.assertEqual(set(self.EXPECTED), bound)
         self.assertNotIn("| Accepted |", index)
+
+    def test_no_test_imports_core_tools_as_a_dotted_package(self) -> None:
+        """Under test-deep discover, `tools` is tests/tools, not Core's tools/."""
+        pattern = re.compile(r"^\s*(from tools[ .]|import tools\b)", re.MULTILINE)
+        offenders = [
+            path.relative_to(ROOT).as_posix()
+            for path in sorted((ROOT / "tests").rglob("*.py"))
+            if pattern.search(path.read_text(encoding="utf-8"))
+        ]
+        self.assertEqual([], offenders)
+        self.assertFalse((ROOT / "tools" / "__init__.py").exists())
+
+    def test_capability_probes_read_core_paths_not_dotted_imports(self) -> None:
+        text = (ROOT / "tools" / "ci_runtime_invariants.py").read_text("utf-8")
+        self.assertNotIn("import_module", text)
+        self.assertNotIn('"tools.', text)
 
     def test_unknown_capability_is_never_treated_as_present(self) -> None:
         with self.assertRaises(invariants.MissingCapability):

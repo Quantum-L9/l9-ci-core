@@ -16,7 +16,6 @@ is a live canary, a ruleset read or a hosted run observation.
 
 from __future__ import annotations
 
-import importlib
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -67,12 +66,18 @@ class MissingCapability(RuntimeError):
         self.detail = detail
 
 
-def _has_attribute(module: str, attribute: str) -> bool:
+def _defines(relative: str, definition: str) -> bool:
+    """Whether Core's file at ``relative`` carries ``definition``.
+
+    Read from this checkout's own path, never imported by dotted name: Core's
+    ``tools/`` is not a package, and under ``unittest discover --start-directory
+    tests`` the name ``tools`` resolves to ``tests/tools``, which would report a
+    present capability as missing.
+    """
     try:
-        loaded = importlib.import_module(module)
-    except ImportError:
+        return definition in (ROOT / relative).read_text(encoding="utf-8")
+    except OSError:
         return False
-    return hasattr(loaded, attribute)
 
 
 @dataclass(frozen=True)
@@ -92,7 +97,7 @@ CAPABILITIES: dict[str, Capability] = {
                 "provider instance and aggregate their terminal statuses "
                 "(tools.required_instances.aggregate)"
             ),
-            present=lambda: _has_attribute("tools.required_instances", "aggregate"),
+            present=lambda: _defines("tools/required_instances.py", "def aggregate("),
         ),
         Capability(
             name="inherited-configuration-digest",
@@ -101,7 +106,9 @@ CAPABILITIES: dict[str, Capability] = {
                 "centrally resolved configuration bound to a content digest "
                 "(tools.l9_repo.inherited_config.resolve)"
             ),
-            present=lambda: _has_attribute("tools.l9_repo.inherited_config", "resolve"),
+            present=lambda: _defines(
+                "tools/l9_repo/inherited_config.py", "def resolve("
+            ),
         ),
     )
 }
