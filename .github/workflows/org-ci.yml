@@ -704,7 +704,10 @@ jobs:
           # One record per planned semgrep instance (l9.core-instance-result/v1). The
           # primary language already ran through the full pipeline above, so its gate
           # status is reused; every other planned language runs the SDK now. An instance
-          # that cannot conclude gets no record, so the aggregate reports it incomplete.
+          # that cannot conclude gets no record, so the aggregate reports it incomplete,
+          # and an SDK execution error (run, bundle validation, or a gate exit outside
+          # 0/1/6) fails this step in every mode, exactly as it does for the primary
+          # language's own steps: infrastructure failure is never advisory.
           env = os.environ
           directory = Path(env["L9_INSTANCE_DIR"])
           plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
@@ -714,6 +717,7 @@ jobs:
           provider_dir = str(Path(env["L9_PROVIDER_EXECUTABLE"]).parent)
           run_env = dict(env, PATH=provider_dir + os.pathsep + env.get("PATH", ""))
           gate_status = {0: "pass", 1: "fail", 6: "incomplete"}
+          errors = []
 
 
           def record(language, status):
@@ -766,7 +770,7 @@ jobs:
               if code == 0:
                   code = sdk("bundle", "validate", bundle)
               if code != 0:
-                  print("instance semgrep:language:" + language + ": SDK run failed (exit " + str(code) + ")", file=sys.stderr)
+                  errors.append("instance semgrep:language:" + language + ": SDK run failed (exit " + str(code) + ")")
                   continue
               gate = ["gate", "evaluate", "--bundle", bundle, "--output", str(work / "gate-result.json")]
               gate.append("--strict-unresolved" if env.get("L9_STRICT") == "true" else "--no-strict-unresolved")
@@ -774,7 +778,11 @@ jobs:
               if code in gate_status:
                   record(language, gate_status[code])
               else:
-                  print("instance semgrep:language:" + language + ": gate exited " + str(code), file=sys.stderr)
+                  errors.append("instance semgrep:language:" + language + ": gate exited " + str(code))
+
+          for error in errors:
+              print("::error::" + error, file=sys.stderr)
+          sys.exit(1 if errors else 0)
           PY
 
       - id: aggregate

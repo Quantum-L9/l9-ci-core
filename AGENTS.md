@@ -1487,6 +1487,10 @@ Tests: `tests/tools/test_check_core_pin_ancestry.py`,
   status. The blocking-mode enforcement reads that aggregate: a required
   instance that is missing, skipped or unfinished is `incomplete` (exit 6),
   never pass, and no aggregate at all is `incomplete`.
+- An SDK execution error in a second language (`semgrep run` or `bundle
+  validate` failing, or `gate evaluate` exiting outside 0/1/6) fails the job in
+  every mode, as the detected language's own steps do; it is never folded into
+  an advisory aggregate.
 - Only the detected language's bundle is published (artifact set, SARIF,
   agent payload); a second language contributes its verdict, not artifacts.
 

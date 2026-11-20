@@ -115,7 +115,7 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertEqual(0, completed.returncode, completed.stderr)
 
-    def run_instances(self, primary: str = "pass", **fake: str) -> str:
+    def run_instances(self, primary: str = "pass", expect: int = 0, **fake: str) -> str:
         env = {
             "PATH": os.environ["PATH"],
             "FAKE_LOG": str(self.log),
@@ -138,7 +138,7 @@ class RunnerTests(unittest.TestCase):
             text=True,
             check=False,
         )
-        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertEqual(expect, completed.returncode, completed.stderr)
         return completed.stdout + completed.stderr
 
     def aggregate(self) -> dict[str, str]:
@@ -186,8 +186,12 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(("fail", "1"), (result["status"], result["exit-code"]))
 
     def test_an_instance_that_cannot_run_is_incomplete_never_pass(self) -> None:
-        printed = self.run_instances(FAKE_RUN_TYPESCRIPT="2")
-        self.assertIn("SDK run failed", printed)
+        printed = self.run_instances(expect=1, FAKE_RUN_TYPESCRIPT="2")
+        self.assertIn(
+            "::error::instance semgrep:language:typescript: SDK run failed", printed
+        )
+        # The primary's record is still written before the step fails.
+        self.assertTrue((self.directory / "results" / "semgrep-python.json").exists())
         result = self.aggregate()
         self.assertEqual(
             ("incomplete", "6", "false"),
@@ -200,11 +204,20 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(("incomplete", "6"), (result["status"], result["exit-code"]))
 
     def test_an_unexpected_gate_exit_records_nothing(self) -> None:
-        self.run_instances(FAKE_GATE_TYPESCRIPT="3")
+        printed = self.run_instances(expect=1, FAKE_GATE_TYPESCRIPT="3")
+        self.assertIn("gate exited 3", printed)
         self.assertFalse(
             (self.directory / "results" / "semgrep-typescript.json").exists()
         )
         self.assertEqual("incomplete", self.aggregate()["status"])
+
+    def test_execution_errors_fail_advisory_profiles_too(self) -> None:
+        # Advisory profiles do not mark Semgrep required, so a missing optional
+        # record would aggregate to pass; the step itself must fail instead.
+        self.run_instances(expect=1, L9_REQUIRED="false", FAKE_RUN_TYPESCRIPT="2")
+
+    def test_a_concluded_fail_is_a_verdict_not_an_execution_error(self) -> None:
+        self.run_instances(expect=0, L9_REQUIRED="false", FAKE_GATE_TYPESCRIPT="1")
 
     def test_strict_profiles_pass_strict_flags(self) -> None:
         self.run_instances(L9_STRICT="true")
@@ -251,6 +264,7 @@ class WiringTests(unittest.TestCase):
             step("plan")["with"]["required-providers"],
         )
         self.assertIn("always()", str(step("aggregate")["if"]))
+        self.assertNotIn("continue-on-error", step("instances"))
 
     def test_enforcement_reads_the_aggregate_and_defaults_to_incomplete(self) -> None:
         enforce = next(
