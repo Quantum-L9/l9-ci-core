@@ -56,14 +56,15 @@ No Core surface calls the SDK reusable workflow `l9-biome-scan.yml`: the
 copy-first preset and starter callers were retired on 2026-10-22
 (`AGENTS.md` §15). The organization workflow runs Core's own Biome check.
 
-## Toolchain alignment (advisory)
+## Toolchain alignment (blocking)
 
 `check-toolchain-alignment` reads the consumer checkout and classifies each
 declaration of a lock-owned tool as `exact_match`, `exact_drift`,
 `range_admits_lock`, `range_excludes_lock`, `range_admits_older`, `unpinned`, or
 `unparseable`. Drift (`exact_drift`, `range_excludes_lock`,
-`range_admits_older`) is annotated at `file:line`; the job never fails on a
-consumer finding. The report is `l9.toolchain-alignment/v1` JSON at
+`range_admits_older`) is annotated at `file:line`, and org-ci.yml's
+"Enforce toolchain alignment" step fails `Analyze (central Core)` on drift, on
+every profile; a missing or unreadable report fails closed. The report is `l9.toolchain-alignment/v1` JSON at
 `.l9/runtime/toolchain-alignment.json`. Surfaces read:
 
 | Surface | Tools |
@@ -84,12 +85,12 @@ Core applies the same scanner to itself and fails on anything but
 (`tests/governance/test_core_toolchain_alignment.py`): every Core-internal pin
 of a lock-owned tool equals the lock.
 
-Both advisory steps run in the organization workflow (`org-ci.yml`, job
+Both steps run in the organization workflow (`org-ci.yml`, job
 `Analyze (central Core)`) for every governed repository: the alignment report
 right after the consumer checkout, and the Biome check (install skipped when
 the root has no `biome.json`/`biome.jsonc`) after language detection. Their
-results appear in the job summary; neither can fail the job on a consumer
-finding.
+results appear in the job summary. Alignment drift fails the job (blocking
+since the 2026-11-20 operator decision; there was no advisory phase).
 
 ## Bumping a tool version
 
@@ -106,7 +107,7 @@ references, not a JSON version map or digest locks.
 
 The lock-bump path, end to end:
 
-4. The advisory alignment report in `Analyze (central Core)` then shows every
+4. The blocking alignment check in `Analyze (central Core)` then fails every
    consumer declaration that still names the old version (`exact_drift`,
    `range_excludes_lock`) at `file:line`; owners bring those declarations to
    the lock. Changing `align.py` itself reaches consumers only through the next

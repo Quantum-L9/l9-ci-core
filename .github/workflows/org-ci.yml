@@ -340,14 +340,16 @@ jobs:
           git checkout --detach FETCH_HEAD
           git remote set-url origin "https://github.com/${REPOSITORY}.git"
 
-      # Advisory: reports consumer tool pins that drift from Core's
-      # toolchain-lock.json with file:line annotations. A consumer finding never
-      # fails the job; only an unreadable Core lock (a Core contract failure)
-      # does. The lock ships inside this pinned Core revision.
+      # Reports consumer declarations of Core-owned tools that drift from
+      # Core's toolchain-lock.json, with file:line annotations, into
+      # .l9/runtime/toolchain-alignment.json. The report step itself never
+      # fails on a consumer finding; "Enforce toolchain alignment" below fails
+      # the job on drift, on every profile. The lock ships inside this pinned
+      # Core revision.
       - id: toolchain
-        name: Report toolchain alignment (advisory)
+        name: Report toolchain alignment
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@8667d5378a6eca54de134a918859360d183cf632
 
       - name: Validate native push event context
         if: github.event_name == 'push'
@@ -383,12 +385,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@8667d5378a6eca54de134a918859360d183cf632
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@8667d5378a6eca54de134a918859360d183cf632
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -424,7 +426,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@8667d5378a6eca54de134a918859360d183cf632
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -437,7 +439,7 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@8667d5378a6eca54de134a918859360d183cf632
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
@@ -466,7 +468,7 @@ jobs:
         name: Plan required instances (Core)
         if: steps.inventory.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@8667d5378a6eca54de134a918859360d183cf632
         with:
           inventory: ${{ steps.inventory.outputs.path }}
           repository: ${{ github.repository }}
@@ -485,12 +487,12 @@ jobs:
         name: Install Biome (digest-locked central pin)
         if: hashFiles('biome.json', 'biome.jsonc') != ''
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@8667d5378a6eca54de134a918859360d183cf632
 
       - id: biome_check
         name: Run Biome check (blocking)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@8667d5378a6eca54de134a918859360d183cf632
         with:
           executable: ${{ steps.biome.outputs.executable }}
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
@@ -546,7 +548,7 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@8667d5378a6eca54de134a918859360d183cf632
         with:
           workspace: .
           # AGENTS.md §27: held only by the registry snapshot and the composer
@@ -612,14 +614,14 @@ jobs:
         name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@8667d5378a6eca54de134a918859360d183cf632
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@8667d5378a6eca54de134a918859360d183cf632
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -641,7 +643,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@8667d5378a6eca54de134a918859360d183cf632
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -789,7 +791,7 @@ jobs:
         name: Aggregate required instances (Core)
         if: always() && steps.plan.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@8667d5378a6eca54de134a918859360d183cf632
         with:
           plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
           results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
@@ -798,7 +800,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@8667d5378a6eca54de134a918859360d183cf632
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -809,7 +811,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@8667d5378a6eca54de134a918859360d183cf632
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -821,7 +823,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@8667d5378a6eca54de134a918859360d183cf632
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -843,7 +845,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@8667d5378a6eca54de134a918859360d183cf632
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -875,7 +877,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@8667d5378a6eca54de134a918859360d183cf632
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}
@@ -915,7 +917,7 @@ jobs:
             echo "- Technical gate: \`${GATE_STATUS:-unavailable}\`"
             echo "- Required instances: \`${INSTANCES_STATUS:-unavailable}\`"
             echo "- Artifact set: \`${ARTIFACT_NAME:-unavailable}\`"
-            echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
+            echo "- Toolchain alignment (blocking): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
             echo "- Biome (blocking): \`${BIOME_STATUS:-unavailable}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -944,6 +946,43 @@ jobs:
       # language's gate among them. A required instance that is missing,
       # skipped or unfinished makes the aggregate incomplete (exit 6), never
       # pass; no aggregate at all is incomplete too.
+      # Core-owned tool versions are Core's contract (toolchain-lock.json):
+      # a consumer declaration that drifts from the lock fails the job on every
+      # profile, like a repository-verification contract failure. The verdict
+      # is the report's own `status` (align.py decides what drift is); a report
+      # that is missing or unreadable fails closed.
+      - name: Enforce toolchain alignment
+        if: always()
+        env:
+          REPORT: .l9/runtime/toolchain-alignment.json
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          try:
+              report = json.loads(Path(os.environ["REPORT"]).read_text(encoding="utf-8"))
+              status = report["status"]
+              findings = report["findings"]
+          except (OSError, ValueError, KeyError, TypeError) as error:
+              sys.exit(f"::error::toolchain alignment report unreadable ({error}); failing closed")
+          if status in ("aligned", "not_applicable"):
+              print(f"Toolchain alignment: {status}")
+              sys.exit(0)
+          for item in findings:
+              if item.get("class") in ("exact_match", "range_admits_lock"):
+                  continue
+              print(
+                  f"::error file={item.get('path')},line={item.get('line')}::"
+                  f"{item.get('tool')} {item.get('declared') or '(no version)'} "
+                  f"is not Core's locked {item.get('lock')} ({item.get('class')})"
+              )
+          sys.exit(f"Toolchain alignment: {status}; align every Core-owned tool to toolchain-lock.json")
+          PY
+
       - name: Enforce central mode on SDK technical gate
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         env:

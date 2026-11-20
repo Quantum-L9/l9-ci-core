@@ -12,7 +12,7 @@ What the organization workflow does to a repository, in order:
 
 | Step | Owner | What it checks | Blocks? |
 |---|---|---|---|
-| toolchain alignment | Core | consumer tool pins vs `toolchain-lock.json`, annotated `file:line` | advisory |
+| toolchain alignment | Core | consumer tool pins vs `toolchain-lock.json`, annotated `file:line` | blocking |
 | consumer metadata | Core | optional `.l9/ci.json` (`owner`, `repo_class`, `waiver_refs` only) | fatal if invalid |
 | Biome | Core | `biome ci` against the root `biome.json` / `biome.jsonc` | yes once `org-ci.yml` sets `mode: blocking` (`AGENTS.md` §16) |
 | repository verification | Core | `.l9/repo-workflow.json` → `make setup → validate → check → test` | yes (every profile; a contract or infrastructure failure is fatal) |
