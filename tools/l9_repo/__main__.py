@@ -1220,10 +1220,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 arguments.inherit,
             )
             for relative in changed:
-                print(f"stamped {relative}")
+                written = (core.root / relative).is_file()
+                print(
+                    f"{'stamped' if written else 'removed (now inherited)'} {relative}"
+                )
             print(
                 f"stamp: {arguments.profile}; "
-                + (f"{len(changed)} file(s) written" if changed else "already current")
+                + (f"{len(changed)} file(s) changed" if changed else "already current")
             )
         elif arguments.command == "materialize":
             materialize_inherited(core.root)

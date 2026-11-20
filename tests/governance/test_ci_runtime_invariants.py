@@ -242,7 +242,7 @@ class RuntimeInvariantWitnessTests(unittest.TestCase):
         overrides = {
             "version": ("requirements-ci.txt", b"ruff==0.0.1\n"),
             "mode": ("mypy.ini", b"[mypy]\nstrict = False\n"),
-            "ignore scope": (".biomeignore", b"**\n"),
+            "ignore scope": (".gitleaks.toml", b'[allowlist]\npaths = [".*"]\n'),
         }
         for name, (relative, data) in overrides.items():
             with self.subTest(override=name), tempfile.TemporaryDirectory() as temp:

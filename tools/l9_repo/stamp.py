@@ -58,7 +58,9 @@ carry those bytes, Core resolves them at runtime from the evaluating revision
 with a content digest (``tools/l9_repo/inherited_config.py``), and a change to
 a Core preset is therefore not drift in that repository. A local copy of an
 inherited file that differs from Core's bytes is a consumer override and is a
-finding. The contract and the facade are never inheritable.
+finding. The contract, the facade and the files the central Biome check reads
+are never inheritable. Converting a carried file to inherited removes the
+Core-owned copy; nothing else is ever deleted.
 
 Everything here is standard library only, because the admission bridge
 imports it from a pinned Core checkout with no third-party packages.
@@ -145,11 +147,20 @@ _PRESET_SOURCES: Mapping[str, pathlib.Path] = {
     ".editorconfig": PRESETS_DIR / "typescript" / ".editorconfig",
 }
 # The repository-execution contract and its facade are what make a repository
-# verifiable at all, so the repository always carries them. Every other
-# Core-owned file is tool configuration and may be inherited.
-NEVER_INHERITED: frozenset[str] = frozenset(
+# verifiable at all, so the repository always carries them.
+ADMISSION_FILES: frozenset[str] = frozenset(
     {CONTRACT_PATH.as_posix(), MAKEFILE_PATH.as_posix()}
 )
+# org-ci.yml's blocking Biome check reads these from the checkout before the
+# admission bridge runs, and treats a repository without ``biome.json`` as not
+# applicable (``biome.json`` sets ``useEditorconfig``). Inheriting them would
+# silently switch off the only JS/TS gate, so they stay carried until that
+# check resolves its configuration from Core itself.
+CENTRALLY_READ_FILES: frozenset[str] = frozenset(
+    {"biome.json", ".biomeignore", ".editorconfig"}
+)
+# Every other Core-owned file is tool configuration and may be inherited.
+NEVER_INHERITED: frozenset[str] = ADMISSION_FILES | CENTRALLY_READ_FILES
 
 _RECORD_KEYS = frozenset({"schema", "core", "profile", "files"})
 _RECORD_KEYS_V2 = _RECORD_KEYS | {"inherited"}
@@ -372,8 +383,11 @@ def stamp(
 
     Paths named in ``inherit`` are recorded as inherited and are not written:
     the record is then ``l9.core-stamp/v2`` and names digests only for the
-    files the repository carries. An existing copy of an inherited file is left
-    alone; ``verify_stamp`` decides whether it is an override.
+    files the repository carries. A copy already at an inherited path is
+    removed when it is Core-owned (this revision's bytes, or the bytes the
+    previous record stamped), because a tracked copy left behind would become
+    an override at the next Core change. Any other content there is refused:
+    it is not Core's to delete.
     """
 
     root = root.resolve()
@@ -384,11 +398,34 @@ def stamp(
             f"Core revision must be a full 40-character commit SHA: {core_revision!r}"
         )
     inherited = normalize_inherit(profile, inherit)
+    everything = render_profile(profile)
     rendered = {
         relative: data
-        for relative, data in render_profile(profile).items()
+        for relative, data in everything.items()
         if relative not in inherited
     }
+    try:
+        previous = load_stamp_record(root) or {}
+    except ContractError:
+        previous = {}
+    stamped_before = previous.get("files", {})
+    superseded: list[pathlib.Path] = []
+    for relative in inherited:
+        path = _destination(root, relative)
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            _fail(f"refusing to convert a non-file to inherited: {relative}")
+        if not path.is_file():
+            continue
+        local = path.read_bytes()
+        if local != everything[relative] and _digest(local) != stamped_before.get(
+            relative
+        ):
+            _fail(
+                f"{relative}: cannot be converted to inherited, its content is "
+                f"not Core-owned bytes (local {_digest(local)}); remove or "
+                "reconcile it first"
+            )
+        superseded.append(path)
     record: dict[str, Any] = {
         "schema": STAMP_SCHEMA_V2 if inherited else STAMP_SCHEMA,
         "core": {"repository": CORE_REPOSITORY, "revision": core_revision},
@@ -413,6 +450,9 @@ def stamp(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         changed.append(relative)
+    for path in superseded:
+        path.unlink()
+        changed.append(path.relative_to(root).as_posix())
     return changed
 
 
@@ -512,7 +552,8 @@ def verify_stamp(root: pathlib.Path) -> tuple[dict[str, Any] | None, list[str]]:
                 findings.append(
                     f"{relative}: local copy overrides configuration inherited "
                     f"from Core (central {_digest(expected)}, local "
-                    f"{_digest(path.read_bytes())}); remove it"
+                    f"{_digest(path.read_bytes())}); remove it, then "
+                    "`materialize` if a local copy is needed"
                 )
             continue
         if path.is_symlink() or not path.is_file():

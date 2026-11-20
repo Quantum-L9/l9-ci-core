@@ -1345,8 +1345,14 @@ repository-specific setting.
   for the carried paths only. The key set is exact per schema. A v1 record is
   read exactly as before, and `stamp` without `--inherit` still writes v1.
 - **What may be inherited.** Every Core-owned file of the profile except
-  `.l9/repo-workflow.json` and `Makefile`. Those two are what make a
-  repository verifiable, so it always carries them.
+  `.l9/repo-workflow.json` and `Makefile`, which are what make a repository
+  verifiable, and `biome.json`, `.biomeignore` and `.editorconfig`.
+  `org-ci.yml`'s blocking Biome check reads those three from the checkout
+  before the bridge runs and treats a repository without `biome.json` as not
+  applicable, so inheriting them would switch off the only JS/TS gate. They
+  become inheritable when that check resolves its configuration from Core,
+  which is an `org-ci.yml` change. Today that leaves the Python tool
+  configuration and `.gitleaks.toml`.
 - **Resolution.** `tools/l9_repo/inherited_config.py` `resolve` returns the
   bytes this Core revision renders for the inherited paths, one sha256 per
   file and one configuration digest over the set. Nothing in the consumer
@@ -1363,9 +1369,14 @@ repository-specific setting.
   digest after admission and writes the absent inherited files into the
   workspace before the first phase. `tools.l9_repo` gains `materialize` for
   the same step on a developer machine.
+- **Adoption.** A repository adopts inheritance by re-stamping with
+  `--inherit`. `stamp` then removes the Core-owned copy at each inherited path
+  (this revision's bytes, or the bytes the previous record stamped), because a
+  tracked copy left behind would become an override at the next Core change.
+  It refuses to convert a path whose content is anything else. It deletes
+  nothing outside the inherited paths.
 - **Not decided.** No repository is migrated to v2 here and no stamped file
-  is retired. That needs the canary the ADR names. A repository adopts
-  inheritance by re-stamping with `--inherit`.
+  is retired. That needs the canary the ADR names.
 
 Activation: inert until the §16 pin advance moves `run-repository-verification`
 to this change's merge revision; a v2 record evaluated by an older pin is

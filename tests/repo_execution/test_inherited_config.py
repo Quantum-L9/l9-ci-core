@@ -25,6 +25,8 @@ from l9_repo import inherited_config, stamp as stamp_module  # noqa: E402
 from l9_repo.__main__ import WorkflowError, main  # noqa: E402
 from l9_repo.contract import ContractError, RepositoryExecution  # noqa: E402
 from l9_repo.stamp import (  # noqa: E402
+    ADMISSION_FILES,
+    CENTRALLY_READ_FILES,
     NEVER_INHERITED,
     PROFILE_FILES,
     STAMP_RECORD_PATH,
@@ -75,8 +77,23 @@ class InheritedConfigCase(unittest.TestCase):
 
 
 class StampInheritanceTests(InheritedConfigCase):
-    def test_contract_and_facade_are_never_inheritable(self) -> None:
-        self.assertEqual({".l9/repo-workflow.json", "Makefile"}, set(NEVER_INHERITED))
+    def test_admission_and_centrally_read_files_are_never_inheritable(self) -> None:
+        self.assertEqual({".l9/repo-workflow.json", "Makefile"}, set(ADMISSION_FILES))
+        # The central Biome check reads these before the bridge runs; a
+        # repository without biome.json is "not applicable" to it.
+        self.assertEqual(
+            {"biome.json", ".biomeignore", ".editorconfig"}, set(CENTRALLY_READ_FILES)
+        )
+        self.assertEqual(ADMISSION_FILES | CENTRALLY_READ_FILES, NEVER_INHERITED)
+        check = (ROOT / ".github/actions/run-biome-check/check_biome.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('CONFIG_FILES = ("biome.json", "biome.jsonc")', check)
+        preset = json.loads(
+            (ROOT / "presets/typescript/biome.json").read_text(encoding="utf-8")
+        )
+        self.assertIs(True, preset["formatter"]["useEditorconfig"])
+        self.assertEqual([".gitleaks.toml"], list(inheritable_files("typescript")))
         for profile, files in PROFILE_FILES.items():
             with self.subTest(profile=profile):
                 self.assertEqual(
@@ -93,14 +110,13 @@ class StampInheritanceTests(InheritedConfigCase):
         inherited = set(inheritable_files(PROFILE))
         for relative in inherited:
             self.assertFalse((self.root / relative).exists(), relative)
-        self.assertEqual(
-            {".l9/repo-workflow.json", "Makefile", STAMP_RECORD_PATH.as_posix()},
-            set(changed),
-        )
+        carried = set(NEVER_INHERITED)
+        self.assertEqual(carried | {STAMP_RECORD_PATH.as_posix()}, set(changed))
+        self.assertTrue((self.root / "biome.json").is_file())
         record = self.record()
         self.assertEqual(STAMP_SCHEMA_V2, record["schema"])
         self.assertEqual(sorted(inherited), record["inherited"])
-        self.assertEqual(sorted(NEVER_INHERITED), sorted(record["files"]))
+        self.assertEqual(sorted(carried), sorted(record["files"]))
         RepositoryExecution(self.root).validate()
         self.assertEqual([], verify_stamp(self.root)[1])
         self.assertEqual([], stamp(self.root, PROFILE, REVISION, ["all"]))
@@ -160,7 +176,6 @@ class StampInheritanceTests(InheritedConfigCase):
             "version (.python-version)": (".python-version", b"3.9.0\n"),
             "mode (mypy.ini)": ("mypy.ini", b"[mypy]\nstrict = False\n"),
             "mode (ruff.toml)": ("ruff.toml", b"[lint]\nselect = []\n"),
-            "ignore scope (.biomeignore)": (".biomeignore", b"**\n"),
             "ignore scope (.gitleaks.toml)": (
                 ".gitleaks.toml",
                 b'[allowlist]\npaths = [".*"]\n',
@@ -187,6 +202,61 @@ class StampInheritanceTests(InheritedConfigCase):
                 with self.assertRaises(ContractError):
                     inherited_config.materialize(root, resolution)
                 self.assertEqual(data, (root / relative).read_bytes())
+
+    def test_known_bad_override_of_a_carried_biome_file_is_still_drift(self) -> None:
+        stamp(self.root, PROFILE, REVISION, ["all"])
+        for relative, data in {
+            ".biomeignore": b"**\n",
+            "biome.json": b'{"linter": {"enabled": false}}\n',
+        }.items():
+            with self.subTest(file=relative):
+                original = (self.root / relative).read_bytes()
+                (self.root / relative).write_bytes(data)
+                findings = verify_stamp(self.root)[1]
+                self.assertEqual(1, len(findings))
+                self.assertIn(f"{relative}: differs from Core-owned bytes", findings[0])
+                (self.root / relative).write_bytes(original)
+
+    def test_adopting_inheritance_removes_the_core_owned_copies(self) -> None:
+        """A tracked copy left behind would be an override at the next change."""
+        stamp(self.root, "python", REVISION)
+        self.assertTrue((self.root / "ruff.toml").is_file())
+        changed = stamp(self.root, "python", REVISION, ["all"])
+        inherited = set(inheritable_files("python"))
+        self.assertTrue(inherited <= set(changed))
+        for relative in inherited:
+            self.assertFalse((self.root / relative).exists(), relative)
+        for product in PRODUCT_FILES:
+            self.assertEqual(PRODUCT_FILES[product], (self.root / product).read_bytes())
+        self.assertEqual([], verify_stamp(self.root)[1])
+        self.assertEqual([], stamp(self.root, "python", REVISION, ["all"]))
+
+    def test_adoption_removes_a_copy_stamped_by_an_earlier_core(self) -> None:
+        stamp(self.root, "python", REVISION)
+        original = stamp_module.render_file
+
+        def moved(relative: str) -> bytes:
+            data = original(relative)
+            return data + b"# changed centrally\n" if relative == "ruff.toml" else data
+
+        with unittest.mock.patch.object(stamp_module, "render_file", moved):
+            stamp(self.root, "python", REVISION, ["ruff.toml"])
+            self.assertFalse((self.root / "ruff.toml").exists())
+            self.assertEqual([], verify_stamp(self.root)[1])
+
+    def test_known_bad_adoption_refuses_to_delete_edited_content(self) -> None:
+        stamp(self.root, "python", REVISION)
+        edited = b"[lint]\nselect = []\n"
+        (self.root / "ruff.toml").write_bytes(edited)
+        before = self.record()
+        with self.assertRaises(ContractError) as raised:
+            stamp(self.root, "python", REVISION, ["all"])
+        self.assertIn(
+            "ruff.toml: cannot be converted to inherited", str(raised.exception)
+        )
+        self.assertEqual(edited, (self.root / "ruff.toml").read_bytes())
+        self.assertEqual(before, self.record())
+        self.assertTrue((self.root / "mypy.ini").is_file(), "nothing was removed")
 
     def test_identical_local_copy_is_accepted_and_symlink_is_not(self) -> None:
         stamp(self.root, "python", REVISION, ["all"])
@@ -216,6 +286,9 @@ class StampInheritanceTests(InheritedConfigCase):
             "inherits the contract": changed(inherited=[".l9/repo-workflow.json"]),
             "inherits the facade": changed(inherited=["Makefile"]),
             "inherits another profile's file": changed(inherited=["biome.json"]),
+            "inherits a centrally read file": changed(
+                profile="python+typescript", inherited=[".biomeignore"]
+            ),
             "inherits a product file": changed(inherited=["pyproject.toml"]),
             "carries and inherits one file": changed(
                 files={**files, "ruff.toml": "sha256:" + "0" * 64}

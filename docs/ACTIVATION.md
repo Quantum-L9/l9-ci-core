@@ -59,9 +59,12 @@ A repository may inherit tool configuration instead of carrying it
 `inherited` list names those paths and writes no copy of them. Core resolves
 their bytes at runtime from the revision that evaluates the repository and
 prints one configuration digest; a Core preset change is then not drift in
-that repository. `.l9/repo-workflow.json` and `Makefile` are never
-inheritable. A local file at an inherited path that differs from Core's bytes
-is refused with both digests. To run the tools locally, write the inherited
+that repository. `.l9/repo-workflow.json`, `Makefile`, `biome.json`,
+`.biomeignore` and `.editorconfig` are never inheritable: the last three are
+read by the central Biome check before the bridge runs. Re-stamping with
+`--inherit` removes the Core-owned copy at each inherited path and refuses a
+path whose content has been edited. A local file at an inherited path that
+differs from Core's bytes is refused with both digests. To run the tools locally, write the inherited
 files with `python3 -m tools.l9_repo --workspace <consumer> materialize` and
 keep them out of version control.
 
