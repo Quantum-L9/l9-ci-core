@@ -4,10 +4,9 @@ One known-good and one known-bad witness per invariant, named by ID. The
 statements are Proposed (``docs/adr/``); a passing witness proves the gate
 logic it names and nothing about admission, rollout or a hosted run.
 
-The required-workflow half of ``L9-CI-CORE-003`` needs a capability this
-revision does not carry. That witness fails closed: it asserts the exact
-missing capability instead of reporting a pass. ``L9-CI-CORE-004`` and
-``L9-CI-CORE-006`` prove gate logic only; no live canary, ruleset read or
+The required-workflow half of ``L9-CI-CORE-003`` is witnessed against
+org-ci.yml itself (AGENTS.md §35), with a known-bad single-language variant.
+``L9-CI-CORE-004`` and ``L9-CI-CORE-006`` prove gate logic only; no live canary, ruleset read or
 hosted run observation has been made by these tests.
 """
 
@@ -277,9 +276,9 @@ class RuntimeInvariantWitnessTests(unittest.TestCase):
                 self.assertIn("local sha256:", findings[0])
 
     # -- L9-CI-CORE-003: all required applicable checks conclude truthfully -
-    # The aggregate decision is witnessed on the mixed-language fixture. The
-    # required workflow does not call it yet: that is a pin advance after this
-    # change merges (AGENTS.md §16), and its witness below still fails closed.
+    # The aggregate decision is witnessed on the mixed-language fixture, and
+    # the required workflow plans, runs and aggregates every instance
+    # (AGENTS.md §35).
     def test_L9_CI_CORE_003_known_good_mixed_language_aggregate_passes(self) -> None:
         invariants.require_capability("required-instance-aggregate")
         result = aggregate_fixture()
@@ -301,17 +300,30 @@ class RuntimeInvariantWitnessTests(unittest.TestCase):
                 self.assertFalse(result["accounted"])
                 self.assertEqual(6, result["exit_code"])
 
-    def test_L9_CI_CORE_003_known_bad_required_job_scheduling_fails_closed(
+    def test_L9_CI_CORE_003_known_good_required_job_schedules_every_instance(
         self,
     ) -> None:
-        """The required workflow still evaluates one language only."""
-        capability = "required-instance-scheduling"
-        with self.assertRaises(invariants.MissingCapability) as raised:
-            invariants.require_capability(capability)
-        self.assertEqual(capability, raised.exception.capability)
-        self.assertIn("pinned Core revision", raised.exception.detail)
+        """The required job plans, runs, aggregates and enforces every instance."""
+        invariants.require_capability("required-instance-scheduling")
         text = ORG_CI.read_text(encoding="utf-8")
-        self.assertIn("steps.language.outputs.language", text)
+        self.assertIn("plan-required-instances@", text)
+        self.assertIn("aggregate-required-instances@", text)
+
+    def test_L9_CI_CORE_003_known_bad_single_language_job_fails_closed(
+        self,
+    ) -> None:
+        """The pre-§35 required job (one detected language) lacks the capability."""
+        text = ORG_CI.read_text(encoding="utf-8")
+        for marker in (
+            "aggregate-required-instances@",
+            "plan-required-instances@",
+            "providers inventory",
+            "AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}",
+        ):
+            with self.subTest(removed=marker):
+                self.assertFalse(
+                    invariants._schedules_every_instance(text.replace(marker, "x"))
+                )
 
     # -- L9-CI-CORE-004: central promotion precedes consumer retirement -----
     def test_L9_CI_CORE_004_known_good_proven_successor_allows_retirement(

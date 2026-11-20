@@ -347,7 +347,7 @@ jobs:
       - id: toolchain
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@8554ce964a3bbae2c21957208213d3c8ea63eb20
 
       - name: Validate native push event context
         if: github.event_name == 'push'
@@ -383,12 +383,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@8554ce964a3bbae2c21957208213d3c8ea63eb20
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -424,11 +424,11 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: ${{ steps.runtime.outputs['sdk-revision'] || 'd09d3963cf8835446b9d1cfd5a03cc79ce16e2e2' }}
+          sdk-revision: ${{ steps.runtime.outputs['sdk-revision'] || 'dc783c648d42c5a6d9e197a533adc7d8f2841b06' }}
           # AGENTS.md §27: l9-ci-sdk is private. Read-only org secret; the
           # action passes it to git only as a per-command header.
           github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
@@ -437,11 +437,43 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
           root: .
+
+      # L9-CI-CORE-003: every applicable provider/language instance is planned,
+      # run and accounted for, so a second language is never silently dropped
+      # in favour of the detected one. The SDK states the facts (capability
+      # inventory of this exact snapshot, taken before repository verification
+      # can touch the tree); requiredness is Core's (plan-required-instances).
+      - id: inventory
+        name: Inventory repository capabilities (SDK)
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        env:
+          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
+        run: |
+          set -euo pipefail
+          directory=".l9/runtime/${L9_MATRIX_ID}/required-instances"
+          mkdir -p "${directory}"
+          "${L9_EXECUTABLE}" providers inventory --root . --format json \
+            --output "${directory}/inventory.json"
+          echo "path=${directory}/inventory.json" >> "$GITHUB_OUTPUT"
+
+      - id: plan
+        name: Plan required instances (Core)
+        if: steps.inventory.outcome == 'success'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        with:
+          inventory: ${{ steps.inventory.outputs.path }}
+          repository: ${{ github.repository }}
+          revision: ${{ github.sha }}
+          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+          required-providers: ${{ steps.gov.outputs['required-provider'] == 'true' && 'semgrep' || '' }}
+          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
 
       # Core owns the consumer-facing Biome check end to end: the version is
       # the `biome` key of Core's toolchain lock, the binary is digest-locked,
@@ -453,12 +485,12 @@ jobs:
         name: Install Biome (digest-locked central pin)
         if: hashFiles('biome.json', 'biome.jsonc') != ''
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@8554ce964a3bbae2c21957208213d3c8ea63eb20
 
       - id: biome_check
         name: Run Biome check (blocking)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           executable: ${{ steps.biome.outputs.executable }}
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
@@ -514,7 +546,7 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           workspace: .
           # AGENTS.md §27: held only by the registry snapshot and the composer
@@ -580,14 +612,14 @@ jobs:
         name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -609,7 +641,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -647,10 +679,118 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "SDK technical gate: ${status} (exit ${exit_code})"
 
+      - id: instances
+        name: Run every planned instance (SDK)
+        if: steps.plan.outcome == 'success'
+        env:
+          L9_INSTANCE_DIR: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances
+          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          L9_PROVIDER_EXECUTABLE: ${{ steps.semgrep.outputs.executable }}
+          L9_PRIMARY_LANGUAGE: ${{ steps.language.outputs.language }}
+          L9_PRIMARY_STATUS: ${{ steps.gate.outputs['gate-status'] }}
+          L9_STRICT: ${{ steps.gov.outputs.strict }}
+          L9_REQUIRED: ${{ steps.gov.outputs['required-provider'] }}
+          L9_POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
+          L9_IDENTITY_DIR: ${{ steps.gov.outputs['identity-map-directory'] }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          # One record per planned semgrep instance (l9.core-instance-result/v1). The
+          # primary language already ran through the full pipeline above, so its gate
+          # status is reused; every other planned language runs the SDK now. An instance
+          # that cannot conclude gets no record, so the aggregate reports it incomplete.
+          env = os.environ
+          directory = Path(env["L9_INSTANCE_DIR"])
+          plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
+          results = directory / "results"
+          results.mkdir(parents=True, exist_ok=True)
+          executable = env["L9_EXECUTABLE"]
+          provider_dir = str(Path(env["L9_PROVIDER_EXECUTABLE"]).parent)
+          run_env = dict(env, PATH=provider_dir + os.pathsep + env.get("PATH", ""))
+          gate_status = {0: "pass", 1: "fail", 6: "incomplete"}
+
+
+          def record(language, status):
+              body = {
+                  "schema": "l9.core-instance-result/v1",
+                  "repository": plan["repository"],
+                  "provider": "semgrep",
+                  "target": "language:" + language,
+                  "revision": plan["revision"],
+                  "sdk_revision": plan["sdk_revision"],
+                  "status": status,
+              }
+              path = results / ("semgrep-" + language + ".json")
+              path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
+              print("instance semgrep:language:" + language + ": " + status)
+
+
+          def sdk(*args):
+              return subprocess.run([executable, *args], env=run_env, check=False).returncode
+
+
+          for instance in plan["instances"]:
+              if instance["provider"] != "semgrep" or instance["prerequisite"] != "applicable":
+                  continue
+              kind, _, language = instance["target"].partition(":")
+              if kind != "language" or language not in ("python", "typescript"):
+                  continue
+              if language == env.get("L9_PRIMARY_LANGUAGE"):
+                  primary = env.get("L9_PRIMARY_STATUS", "")
+                  if primary in ("pass", "fail", "incomplete"):
+                      record(language, primary)
+                  else:
+                      print("instance semgrep:language:" + language + ": no primary gate status", file=sys.stderr)
+                  continue
+              work = directory / language
+              bundle = str(work / "finding-bundle.json")
+              run = [
+                  "semgrep", "run", "--language", language, "--output", bundle,
+                  "--root", ".", "--snapshot-id", plan["revision"],
+                  "--revision", plan["revision"],
+                  "--identity-map", str(Path(env["L9_IDENTITY_DIR"]) / (language + ".yaml")),
+                  "--policy", env["L9_POLICY"],
+              ]
+              if env.get("L9_STRICT") == "true":
+                  run.append("--strict")
+              if env.get("L9_REQUIRED") == "true":
+                  run.append("--required")
+              work.mkdir(parents=True, exist_ok=True)
+              code = sdk(*run)
+              if code == 0:
+                  code = sdk("bundle", "validate", bundle)
+              if code != 0:
+                  print("instance semgrep:language:" + language + ": SDK run failed (exit " + str(code) + ")", file=sys.stderr)
+                  continue
+              gate = ["gate", "evaluate", "--bundle", bundle, "--output", str(work / "gate-result.json")]
+              gate.append("--strict-unresolved" if env.get("L9_STRICT") == "true" else "--no-strict-unresolved")
+              code = sdk(*gate)
+              if code in gate_status:
+                  record(language, gate_status[code])
+              else:
+                  print("instance semgrep:language:" + language + ": gate exited " + str(code), file=sys.stderr)
+          PY
+
+      - id: aggregate
+        name: Aggregate required instances (Core)
+        if: always() && steps.plan.outcome == 'success'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@8554ce964a3bbae2c21957208213d3c8ea63eb20
+        with:
+          plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
+          results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
+          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/aggregate.json
+
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -661,7 +801,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -673,7 +813,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -695,7 +835,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -727,7 +867,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@10464765252b0c4a564b4db05bc537827be24c8f
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@8554ce964a3bbae2c21957208213d3c8ea63eb20
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}
@@ -750,6 +890,7 @@ jobs:
           LANGUAGE: ${{ steps.language.outputs.language }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status || steps.repository_verify.outcome }}
           GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
+          INSTANCES_STATUS: ${{ steps.aggregate.outputs.status }}
           ARTIFACT_NAME: ${{ steps.names.outputs['artifact-name'] }}
           TOOLCHAIN_ALIGNMENT: ${{ steps.toolchain.outcome }}
           BIOME_STATUS: ${{ steps.biome_check.outputs.status || steps.biome_check.outcome }}
@@ -764,6 +905,7 @@ jobs:
             echo "- Detected language: \`${LANGUAGE:-unknown}\`"
             echo "- Repository verification: \`${REPOSITORY_VERIFY:-unavailable}\`"
             echo "- Technical gate: \`${GATE_STATUS:-unavailable}\`"
+            echo "- Required instances: \`${INSTANCES_STATUS:-unavailable}\`"
             echo "- Artifact set: \`${ARTIFACT_NAME:-unavailable}\`"
             echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
             echo "- Biome (blocking): \`${BIOME_STATUS:-unavailable}\`"
@@ -790,16 +932,25 @@ jobs:
               ;;
           esac
 
+      # The verdict is the aggregate over every planned instance, the primary
+      # language's gate among them. A required instance that is missing,
+      # skipped or unfinished makes the aggregate incomplete (exit 6), never
+      # pass; no aggregate at all is incomplete too.
       - name: Enforce central mode on SDK technical gate
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         env:
           GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
-          GATE_EXIT: ${{ steps.gate.outputs['gate-exit-code'] }}
+          AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
+          AGGREGATE_EXIT: ${{ steps.aggregate.outputs['exit-code'] }}
+          ACCOUNTED: ${{ steps.aggregate.outputs.accounted }}
           MODE: ${{ steps.gov.outputs.mode }}
         run: |
           set -euo pipefail
-          echo "SDK technical gate: ${GATE_STATUS} (exit ${GATE_EXIT}); central mode: ${MODE}"
-          if [ "${GATE_STATUS}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
-            echo "Blocking mode: failing job on SDK technical gate '${GATE_STATUS}'" >&2
-            exit "${GATE_EXIT}"
+          status="${AGGREGATE_STATUS:-incomplete}"
+          exit_code="${AGGREGATE_EXIT:-6}"
+          echo "SDK technical gate (primary language): ${GATE_STATUS:-unavailable}"
+          echo "Required instances: ${status} (exit ${exit_code}; accounted ${ACCOUNTED:-false}); central mode: ${MODE}"
+          if [ "${status}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
+            echo "Blocking mode: failing job on required instances '${status}'" >&2
+            exit "${exit_code}"
           fi

@@ -75,6 +75,7 @@ REPO_TEST_MODULES := \
 	tests/tools/test_project_required_repositories.py \
 	tests/tools/test_tool_ownership.py \
 	tests/workflows/test_nightly_apply.py \
+	tests/workflows/test_org_ci_required_instances.py \
 	tests/workflows/test_security_scan_outcomes.py
 
 # The interpreter command that runs the subset. self-ci.yml's Repository

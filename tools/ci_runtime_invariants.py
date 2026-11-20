@@ -69,6 +69,19 @@ class MissingCapability(RuntimeError):
         self.detail = detail
 
 
+def _schedules_every_instance(text: str) -> bool:
+    """The required job plans, runs, aggregates and enforces every instance."""
+    return all(
+        marker in text
+        for marker in (
+            f"{CORE_ACTIONS}plan-required-instances@",
+            f"{CORE_ACTIONS}aggregate-required-instances@",
+            "providers inventory",
+            "AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}",
+        )
+    )
+
+
 def _read(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
@@ -114,14 +127,12 @@ CAPABILITIES: dict[str, Capability] = {
         Capability(
             name="required-instance-scheduling",
             detail=(
-                "org-ci.yml does not yet plan every SDK-selected language and "
-                "provider instance (plan-required-instances) and call "
-                "aggregate-required-instances at a pinned Core revision; the "
-                "required job still evaluates one language"
+                "org-ci.yml must inventory the snapshot, plan every SDK-selected "
+                "language and provider instance (plan-required-instances), run "
+                "each, and enforce aggregate-required-instances at a pinned Core "
+                "revision"
             ),
-            present=lambda: (
-                f"{CORE_ACTIONS}aggregate-required-instances@" in _read(ORG_CI)
-            ),
+            present=lambda: _schedules_every_instance(_read(ORG_CI)),
         ),
         Capability(
             name="inherited-configuration-digest",
