@@ -587,6 +587,25 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("--fixture", text)
         self.assertIn('REPOSITORY}" != "Quantum-L9/l9-ci-core"', text)
         self.assertEqual({"contents": "read"}, scheduler["permissions"])
+        publish = next(
+            step
+            for step in scheduler["jobs"]["plan"]["steps"]
+            if step.get("name") == "Publish the plan"
+        )
+        self.assertEqual("always()", str(publish["if"]))
+        self.assertIn("nightly-plan.json", str(publish["env"]["PLAN"]))
+        self.assertIn("GITHUB_STEP_SUMMARY", str(publish["run"]))
+        self.assertNotIn("upload-artifact", text)
+        guard = next(
+            step
+            for job in load(ORG_CI)["jobs"].values()
+            for step in job["steps"]
+            if step.get("name") == "Refuse a pull-request full-suite fallback"
+        )
+        self.assertEqual(
+            "${{ steps.runtime.outputs.event-class }}",
+            guard["env"]["GH_EVENT"],
+        )
         deep = NIGHTLY.read_text(encoding="utf-8")
         self.assertIn("make test-deep", deep)
         self.assertNotIn("pull_request:", deep)

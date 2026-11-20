@@ -289,7 +289,9 @@ jobs:
           || steps.runtime.outputs.event-class == 'pull_request'
           || steps.runtime.outputs.event-class == 'merge'
         env:
-          GH_EVENT: ${{ github.event_name == 'workflow_call' && steps.runtime.outputs.event-class || github.event_name }}
+          # A reusable call keeps the caller's event_name. The class resolved
+          # above is the pull-request or merge path this step is judging.
+          GH_EVENT: ${{ steps.runtime.outputs.event-class }}
           FULL_SUITE_OVERRIDE: ${{ vars.L9_CI_FULL_SUITE || '' }}
           PR_SCOPE_STATUS: ${{ vars.L9_PR_SCOPE_STATUS || '' }}
         run: |
