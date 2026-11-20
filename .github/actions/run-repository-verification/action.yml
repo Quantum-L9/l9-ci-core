@@ -59,7 +59,7 @@ runs:
       env:
         L9_GITHUB_READ_TOKEN: ${{ inputs.github-read-token }}
         L9_REPOSITORY_WORKSPACE: ${{ inputs.workspace }}
-      run: python3 "${{ github.action_path }}/../checkout-external/checkout.py"
+      run: python3 "${GITHUB_ACTION_PATH}/../checkout-external/checkout.py"
     - id: verify
       shell: bash
       env:

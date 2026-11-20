@@ -24,4 +24,4 @@ runs:
         L9_GITHUB_READ_TOKEN: ${{ inputs.token }}
         L9_REPOSITORY_WORKSPACE: ${{ inputs.workspace }}
         L9_EXTERNAL_CHECKOUT_REQUIRED: ${{ inputs.required }}
-      run: python3 "${{ github.action_path }}/checkout.py"
+      run: python3 "${GITHUB_ACTION_PATH}/checkout.py"

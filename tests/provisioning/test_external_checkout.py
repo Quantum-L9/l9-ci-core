@@ -18,7 +18,8 @@ TOKEN = "ghs_test_token_not_a_real_secret"
 
 def _load():
     spec = importlib.util.spec_from_file_location("checkout_external", SCRIPT)
-    assert spec is not None and spec.loader is not None
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

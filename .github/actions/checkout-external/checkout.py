@@ -116,15 +116,15 @@ def fetch_revision(
         completed = subprocess.run(command, cwd=destination, env=env, check=False)
         if completed.returncode != 0:
             raise CheckoutError(f"git failed ({completed.returncode})")
-    completed = subprocess.run(
+    probed = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=destination,
         capture_output=True,
         text=True,
         check=False,
     )
-    actual = completed.stdout.strip()
-    if completed.returncode != 0 or actual != revision:
+    actual = probed.stdout.strip()
+    if probed.returncode != 0 or actual != revision:
         raise CheckoutError("checked out revision does not match the declaration")
 
 
