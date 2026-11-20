@@ -4,7 +4,8 @@ Nothing is copied into a repository to put it under organization CI. The
 GitHub organization ruleset **L9 canonical CI required** already binds the
 default branch of every non-archived repository in `Quantum-L9` to
 `Quantum-L9/l9-ci-core` / `main` / `.github/workflows/org-ci.yml` and requires
-the check `Analyze (central Core)`. A new repository is governed the moment it
+the check named in `.l9/org-runtime-contract.yaml`
+(`entrypoint.required_check.name`). A new repository is governed the moment it
 exists; a merge to Core `main` is production for its next evaluation
 (`.l9/release-plane.yaml`).
 
@@ -179,7 +180,7 @@ a PAT. A plan is not a live schedule receipt. `nightly-deep.yml` keeps its cron 
 
 The portable phases stay `setup`, `validate`, `check`, and `test`. Consumer
 activation is unchanged. Organization CI still requires
-`Analyze (central Core)` and the consumer's own `make setup` → `validate` →
+the required check named in `.l9/org-runtime-contract.yaml` (`entrypoint.required_check.name`) and the consumer's own `make setup` → `validate` →
 `check` → `test`.
 
 On the pre-split push `44071155232a3d5232258a1f1a44f5a45c126f1c`, self-ci run
@@ -200,6 +201,6 @@ gh api repos/Quantum-L9/<repo>/rules/branches/<default-branch> \
 
 The `workflows` rule must name `.github/workflows/org-ci.yml` at
 `refs/heads/main` of repository id `1285564308` (`Quantum-L9/l9-ci-core`), and
-the `required_status_checks` rule must list `Analyze (central Core)`. Core's
+the `required_status_checks` rule must list the required check named in `.l9/org-runtime-contract.yaml` (`entrypoint.required_check.name`). Core's
 `make attest-control-plane` reads the same state against
 `.l9/release-plane.yaml` and reports `PASS`, `FAIL`, or `UNKNOWN`.

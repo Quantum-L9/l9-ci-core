@@ -1,6 +1,6 @@
 """The required job plans, runs and aggregates every instance (L9-CI-CORE-003).
 
-``Analyze (central Core)`` used to run Semgrep for the one detected language.
+The required check (``.l9/org-runtime-contract.yaml``) used to run Semgrep for the one detected language.
 It now inventories the snapshot with the SDK, plans every applicable
 provider/language instance with ``plan-required-instances``, runs each one, and
 enforces the ``aggregate-required-instances`` verdict. These tests execute the
@@ -282,7 +282,9 @@ class WiringTests(unittest.TestCase):
 
     def test_the_check_name_is_unchanged(self) -> None:
         self.assertEqual(
-            "Analyze (central Core)",
+            yaml.safe_load(
+                (ROOT / ".l9" / "org-runtime-contract.yaml").read_text(encoding="utf-8")
+            )["entrypoint"]["required_check"]["name"],
             workflow()["jobs"]["analyze"]["name"],  # type: ignore[index]
         )
 

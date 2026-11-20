@@ -56,7 +56,7 @@ name: Organization CI (Core)
 # A title or body `edited` event is deliberately NOT skipped. A job skipped by
 # `if:` reports Success, and GitHub states that it "will not prevent a pull
 # request from merging, even if it is a required check". A skip on a title
-# edit would therefore post a passing `Analyze (central Core)` on the same
+# edit would therefore post a passing required check on the same
 # head SHA as an earlier failing run, so anyone able to edit a title could
 # clear a required failure. Every `edited` event re-evaluates the same
 # immutable head SHA. The cost is one analysis per edit, and the verdict is
@@ -165,7 +165,10 @@ permissions:
 
 jobs:
   analyze:
-    name: Analyze (central Core)
+    # The required check name. Its one source is .l9/org-runtime-contract.yaml
+    # (entrypoint.required_check.name); tests/workflows/test_required_check_name.py
+    # holds this value equal to it, and the organization ruleset must list it.
+    name: Analyze (Central Core)
     # Non-push triggers are unaffected. A reusable invocation always carries the
     # required `event` input, so a caller that is itself on a push keeps its own
     # governed evaluation instead of inheriting this ref gate. Only a native push

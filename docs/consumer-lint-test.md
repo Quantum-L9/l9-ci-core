@@ -85,7 +85,8 @@ Core applies the same scanner to itself and fails on anything but
 of a lock-owned tool equals the lock.
 
 Both advisory steps run in the organization workflow (`org-ci.yml`, job
-`Analyze (central Core)`) for every governed repository: the alignment report
+`analyze`, whose check name is `entrypoint.required_check.name` in
+`.l9/org-runtime-contract.yaml`) for every governed repository: the alignment report
 right after the consumer checkout, and the Biome check (install skipped when
 the root has no `biome.json`/`biome.jsonc`) after language detection. Their
 results appear in the job summary; neither can fail the job on a consumer
@@ -106,7 +107,7 @@ references, not a JSON version map or digest locks.
 
 The lock-bump path, end to end:
 
-4. The advisory alignment report in `Analyze (central Core)` then shows every
+4. The advisory alignment report in the required check then shows every
    consumer declaration that still names the old version (`exact_drift`,
    `range_excludes_lock`) at `file:line`; owners bring those declarations to
    the lock. Changing `align.py` itself reaches consumers only through the next

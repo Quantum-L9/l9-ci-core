@@ -103,7 +103,8 @@ not an asset).
 
 **make-v1 phases are a precondition.** `build --phases verified-upstream`
 reuses a result that a preceding job already produced at the same SHA: org
-CI's `Analyze (central Core)` runs repository verification
+CI's required check (`.l9/org-runtime-contract.yaml`,
+`entrypoint.required_check.name`) runs repository verification
 (`setup validate check test`). `build --phases run` executes the phases in a
 clean clone first. There is no default.
 
