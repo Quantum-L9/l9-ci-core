@@ -9,14 +9,20 @@ arrived. The scanner pins are bound to Core's own ``self-sonar.yml``.
 
 from __future__ import annotations
 
+import contextlib
+import importlib.util
+import io
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -32,6 +38,19 @@ SCANNER_VERSION = "8.4.0.16527"
 COBERTURA = '<?xml version="1.0" ?>\n<coverage version="7.6" line-rate="0.5"><packages/></coverage>\n'
 
 
+_spec = importlib.util.spec_from_file_location("run_sonar_check_coverage", CHECK)
+assert _spec and _spec.loader
+check = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(check)
+
+
+@dataclass(frozen=True)
+class Result:
+    returncode: int
+    stdout: str
+    stderr: str
+
+
 class CoverageAdmissionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
@@ -41,26 +60,25 @@ class CoverageAdmissionTests(unittest.TestCase):
 
     def _run(
         self, reports: str, *, token: str = "token", base_dir: str = "."
-    ) -> subprocess.CompletedProcess[str]:
-        env = {"PATH": os.environ.get("PATH", "")}
-        if token is not None:
-            env["SONAR_TOKEN"] = token
-        return subprocess.run(
-            [
-                sys.executable,
-                "-I",
-                str(CHECK),
-                "--reports",
-                reports,
-                "--base-dir",
-                base_dir,
-            ],
-            cwd=self.workspace,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+    ) -> Result:
+        """Run the admission in-process, so Core's coverage measures it."""
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (
+            mock.patch.dict(os.environ, {"SONAR_TOKEN": token}, clear=True),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            code = check.main(
+                [
+                    "--reports",
+                    reports,
+                    "--base-dir",
+                    base_dir,
+                    "--workspace",
+                    str(self.workspace),
+                ]
+            )
+        return Result(code, stdout.getvalue(), stderr.getvalue())
 
     def _write(self, relative: str, text: str = COBERTURA) -> None:
         path = self.workspace / relative
@@ -143,6 +161,29 @@ class CoverageAdmissionTests(unittest.TestCase):
         self.assertEqual(2, result.returncode)
         self.assertIn("resolves outside the workspace", result.stderr)
         self.assertEqual(2, self._run("coverage.xml", base_dir="..").returncode)
+
+    def test_root_scan_is_linear_on_hostile_comments(self) -> None:
+        hostile = "<!--" + "--><!--" * 20000
+        started = time.monotonic()
+        self.assertIsNone(check.root_element(hostile))
+        self.assertIsNone(check.root_element("<!--" + "-" * 60000))
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertEqual("coverage", check.root_element("<!--a--><!--b--> <coverage/>"))
+        self.assertIsNone(check.root_element("<?xml version='1.0'"))
+        self.assertIsNone(check.root_element("plain text"))
+
+    def test_the_script_runs_isolated_as_the_action_calls_it(self) -> None:
+        self._write("coverage.xml")
+        result = subprocess.run(
+            [sys.executable, "-I", str(CHECK), "--reports", "coverage.xml"],
+            cwd=self.workspace,
+            env={"PATH": os.environ.get("PATH", ""), "SONAR_TOKEN": "token"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("coverage.xml", result.stdout.strip())
 
     def test_no_or_duplicate_report_is_an_invocation_error(self) -> None:
         self._write("coverage.xml")

@@ -42,11 +42,7 @@ from pathlib import Path
 
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._/-]+$")
 HEAD_BYTES = 65536
-# Optional BOM, XML declaration, comments and whitespace, then the root tag.
-PROLOGUE = re.compile(
-    r"\A\ufeff?\s*(?:<\?xml[^>]*\?>\s*)?(?:<!--.*?-->\s*)*<([A-Za-z_][\w.:-]*)",
-    re.DOTALL,
-)
+TAG = re.compile(r"[A-Za-z_][\w.:-]*")
 DTD = re.compile(r"<!(?:DOCTYPE|ENTITY)", re.IGNORECASE)
 TOKEN_ENV = "SONAR_TOKEN"
 
@@ -64,6 +60,32 @@ def split_reports(raw: str) -> list[str]:
     if len(set(reports)) != len(reports):
         raise Refused(2, f"a coverage report is named twice: {reports}")
     return reports
+
+
+def root_element(head: str) -> str | None:
+    """The first element name after an optional BOM, XML declaration and comments.
+
+    A linear scan with ``str.find``: no backtracking regex runs over the report,
+    which is untrusted repository output.
+    """
+    position = 1 if head.startswith("\ufeff") else 0
+    while True:
+        while position < len(head) and head[position].isspace():
+            position += 1
+        if head.startswith("<?", position):
+            opener, closer = "<?", "?>"
+        elif head.startswith("<!--", position):
+            opener, closer = "<!--", "-->"
+        else:
+            break
+        end = head.find(closer, position + len(opener))
+        if end < 0:
+            return None
+        position = end + len(closer)
+    if not head.startswith("<", position):
+        return None
+    match = TAG.match(head, position + 1)
+    return match.group(0) if match else None
 
 
 def contained(relative: str, root: Path, workspace: Path, what: str) -> Path:
@@ -93,14 +115,13 @@ def admit(report: str, base: Path, workspace: Path) -> str:
         raise Refused(
             1, f"coverage report {report} declares a DTD; Cobertura reports carry none"
         )
-    match = PROLOGUE.match(head)
-    if match is None:
+    root = root_element(head)
+    if root is None:
         raise Refused(1, f"coverage report {report} is not XML: no root element")
-    if match.group(1) != "coverage":
+    if root != "coverage":
         raise Refused(
             1,
-            f"coverage report {report} is not Cobertura XML "
-            f"(root element <{match.group(1)}>)",
+            f"coverage report {report} is not Cobertura XML (root element <{root}>)",
         )
     return report
 
