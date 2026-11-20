@@ -19,6 +19,12 @@
       "workflow": ".github/workflows/ci.yml",
       "contract": "eie-deep/v1",
       "scheduling": "dispatch"
+    },
+    {
+      "repository": "Quantum-L9/Cursor-Governance",
+      "workflow": ".github/workflows/sonarcloud.yml",
+      "contract": "cursor-governance-deep/v1",
+      "scheduling": "dispatch"
     }
   ]
 }

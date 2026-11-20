@@ -1,0 +1,72 @@
+name: Run SonarQube Cloud scan (Core)
+description: >
+  One reusable Sonar step for a consumer workflow, so a repository calls this
+  instead of carrying its own sonarcloud.yml (CI_CONFIG_FINDINGS row 6). It
+  reuses the Cobertura coverage.xml the consumer's existing test run wrote
+  (the Core #289 pattern) and runs no second test. It fails closed when the
+  token is blank or a named report is missing, empty or not Cobertura XML, so
+  a scan can never read as 0% covered because coverage never arrived. The
+  scanner action and the scanner CLI are pinned by Core, at the same revision
+  as Core's own self-sonar.yml. Run it after checkout with fetch-depth 0 and
+  after the coverage report is in the workspace. Skip it on fork pull
+  requests, which have no token.
+inputs:
+  sonar-token:
+    description: The organization SONAR_TOKEN secret, passed by the caller.
+    required: true
+  coverage-reports:
+    description: >
+      Workspace-relative Cobertura report paths, comma- or newline-separated.
+      Every one must exist and be non-empty.
+    required: false
+    default: coverage.xml
+  project-base-dir:
+    description: Directory holding sonar-project.properties, relative to the workspace.
+    required: false
+    default: .
+  quality-gate:
+    description: >
+      `advisory` (default) uploads the analysis without waiting on the
+      quality gate; `blocking` waits up to 300 s and fails the step when the
+      gate fails.
+    required: false
+    default: advisory
+outputs:
+  coverage-reports:
+    description: The admitted report paths, comma-joined, as passed to the scanner.
+    value: ${{ steps.coverage.outputs.reports }}
+runs:
+  using: composite
+  steps:
+    - id: coverage
+      name: Require the coverage the test run wrote
+      shell: bash
+      env:
+        SONAR_TOKEN: ${{ inputs.sonar-token }}
+        L9_SONAR_REPORTS: ${{ inputs.coverage-reports }}
+        L9_SONAR_BASE_DIR: ${{ inputs.project-base-dir }}
+        L9_SONAR_QUALITY_GATE: ${{ inputs.quality-gate }}
+      run: |
+        set -euo pipefail
+        case "${L9_SONAR_QUALITY_GATE}" in
+          advisory) wait=false ;;
+          blocking) wait=true ;;
+          *) echo "::error title=Core Sonar step::quality-gate must be advisory or blocking, not '${L9_SONAR_QUALITY_GATE}'" >&2; exit 2 ;;
+        esac
+        reports="$(python3 -I "${GITHUB_ACTION_PATH}/check_coverage.py" \
+          --reports "${L9_SONAR_REPORTS}" --base-dir "${L9_SONAR_BASE_DIR}")"
+        echo "reports=${reports}" >> "$GITHUB_OUTPUT"
+        echo "wait=${wait}" >> "$GITHUB_OUTPUT"
+    - name: SonarQube Cloud scan
+      uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8.5.0
+      with:
+        projectBaseDir: ${{ inputs.project-base-dir }}
+        # The action default at this pin. Stated so a later action bump cannot
+        # float the scanner.
+        scannerVersion: 8.4.0.16527
+        args: >-
+          -Dsonar.python.coverage.reportPaths=${{ steps.coverage.outputs.reports }}
+          -Dsonar.qualitygate.wait=${{ steps.coverage.outputs.wait }}
+          -Dsonar.qualitygate.timeout=300
+      env:
+        SONAR_TOKEN: ${{ inputs.sonar-token }}
