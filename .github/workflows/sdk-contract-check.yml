@@ -33,7 +33,7 @@ jobs:
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: 9fd4efe7a3f2d671e063b0e7c15fd52b95d0ccd1
+          sdk-revision: dc783c648d42c5a6d9e197a533adc7d8f2841b06
           github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
       - name: Verify emitted contract
         env:
@@ -43,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           test -x "${SDK_EXECUTABLE}"
-          test "${SDK_REVISION}" =             "9fd4efe7a3f2d671e063b0e7c15fd52b95d0ccd1"
+          test "${SDK_REVISION}" =             "dc783c648d42c5a6d9e197a533adc7d8f2841b06"
           test "${SDK_CONTRACT}" = "l9.integration-contract/v1"
           "${SDK_EXECUTABLE%/bin/l9-ci}/venv/bin/python" -I -c '
           import platform, sys
@@ -173,24 +173,35 @@ jobs:
           PYC
             rm -rf "${work}"
           done
-      # L9-CI-CORE-003, hosted. The plan action at this revision turns a
-      # recorded SDK capability inventory (l9.capability-inventory/v1, mixed
-      # Python and TypeScript) into the instance plan. Two real SDK executions
-      # each write one Core instance record, and the aggregate action turns
-      # them into one status. The same records with one instance removed must
-      # not aggregate to pass. The inventory is a recorded contract fixture:
-      # the SDK pinned here predates `providers inventory`, and no Core job
-      # runs an unmerged SDK. org-ci.yml does not call either action until its
-      # pins advance (AGENTS.md §16).
+      # L9-CI-CORE-003, hosted, across owners. The SDK pinned here emits the
+      # capability inventory (l9.capability-inventory/v1) for a real mixed
+      # Python and TypeScript snapshot; the plan action at this revision turns
+      # it into the instance plan. Two real SDK executions each write one Core
+      # instance record, and the aggregate action turns them into one status.
+      # The same records with one instance removed must not aggregate to pass.
       - id: inventory
-        name: Read the recorded mixed-language inventory
+        name: Inventory a mixed-language snapshot with the SDK
         env:
-          INVENTORY: tests/fixtures/capability-inventory/mixed.json
+          SDK_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          WORKSPACE: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          revision="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["result"]["snapshot"]["revision"])' "${INVENTORY}")"
+          tree="${RUNNER_TEMP}/mixed-snapshot"
+          mkdir -p "${tree}/src"
+          printf 'def answer():\n    return 42\n' > "${tree}/src/service.py"
+          printf 'export const answer = (): number => 42;\n' > "${tree}/src/client.ts"
+          git -C "${tree}" init --quiet
+          git -C "${tree}" add src/service.py src/client.ts
+          git -C "${tree}" -c user.name=core -c user.email=core@invalid \
+            commit --quiet -m "mixed snapshot"
+          inventory=".l9/runtime/required-instances-fixture/inventory.json"
+          mkdir -p "${WORKSPACE}/.l9/runtime/required-instances-fixture"
+          "${SDK_EXECUTABLE}" providers inventory --root "${tree}" --format json \
+            > "${WORKSPACE}/${inventory}"
+          revision="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["result"]["snapshot"]["revision"])' "${WORKSPACE}/${inventory}")"
+          test "${revision}" = "$(git -C "${tree}" rev-parse HEAD)"
           echo "revision=${revision}" >> "$GITHUB_OUTPUT"
-          echo "path=${INVENTORY}" >> "$GITHUB_OUTPUT"
+          echo "path=${inventory}" >> "$GITHUB_OUTPUT"
       - id: plan
         name: Plan the instances from the inventory
         uses: ./.github/actions/plan-required-instances

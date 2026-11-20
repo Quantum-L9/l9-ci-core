@@ -1431,3 +1431,39 @@ every pull request and never on every repository every night.
 
 Tests: `tests/workflows/test_org_nightly_dispatch.py`,
 `tests/workflows/test_nightly_apply.py`.
+
+## 34. Core self-pins name commits `main` contains; SDK `dc783c64` promoted (2026-11-20) — amends §16
+
+Operator decision, 2026-11-20 (recorded by the CTO for lane L2f): Core may
+re-pin `org-ci.yml`, wire the required job through the instance planner and
+aggregator, and advance the SDK pin.
+
+- **Orphaned pins.** A squash merge orphans the commits of the branch it
+  merged. `org-ci.yml` pinned `run-repository-verification@043f50a`, a #280
+  branch commit that `main` never contained, and `publish-analysis.yml` and
+  `publish-sarif.yml` pinned `59cb364`. Every `org-ci.yml` Core pin now names
+  `10464765` (`main`, after #286, #287, #290 and #291); the publish workflows
+  name `75c74f16`, whose action bytes are identical to `59cb364`.
+- **Guard.** `tools/check_core_pin_ancestry.py` fails when a Core self-pin in a
+  required-path workflow (`org-ci.yml`, `analyze-semgrep.yml`,
+  `publish-analysis.yml`, `publish-sarif.yml`, `normalize-semgrep-report.yml`)
+  is not an ancestor of `main`, or names a commit the clone does not have.
+  self-ci.yml's Repository contract job fetches `main`'s commit graph
+  (`--filter=tree:0`) and runs it. §16's rule "never advance to a revision
+  that is not an ancestor of `main`" is now checked, not only stated.
+- **SDK step one.** `l9-ci-sdk` `dc783c64` (SDK #122–#127) is the default
+  compatible revision, with `providers inventory` in its required CLI paths;
+  `9fd4efe7` is the tested rollback. The runtime lock changes only its header.
+  `sdk-contract-check.yml` now inventories a real mixed Python and TypeScript
+  snapshot with that SDK and plans it (L9-CI-CORE-003 across owners).
+- **Not yet live.** `org-ci.yml`'s `sdk-revision` fallback stays `d09d3963`:
+  `provision-sdk` reads the compatibility manifest from its own pinned
+  revision, and `10464765` does not list `dc783c64`. Step two, after this
+  merges, pins `org-ci.yml` to this change's merge revision, moves the
+  fallback to `dc783c64`, and wires `Analyze (central Core)` through
+  `plan-required-instances` → per-instance execution →
+  `aggregate-required-instances`, which needs `providers inventory`.
+
+Tests: `tests/tools/test_check_core_pin_ancestry.py`,
+`tests/provisioning/test_compatibility_manifest.py`,
+`tests/workflows/test_org_repository_verification.py`.

@@ -337,7 +337,14 @@ class RepositoryContractJobTests(unittest.TestCase):
             "required_phases"
         ]
         self.assertEqual(["setup", "validate", "check", "test"], phases)
-        runs = [str(step["run"]).strip() for step in self.steps if "run" in step][1:]
+        # The Core self-pin ancestry guard (AGENTS.md §34) runs before setup;
+        # it is a gate on the workflows, not a repository phase.
+        runs = [
+            str(step["run"]).strip()
+            for step in self.steps
+            if "run" in step
+            and step.get("name") != "Core self-pins are ancestors of main"
+        ][1:]
         makes = [run for run in runs if run.startswith("make ")]
         self.assertEqual([f"make {phase}" for phase in phases], makes)
         # The only other steps measure `make test` for Core's Sonar analysis:

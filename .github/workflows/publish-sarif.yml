@@ -83,7 +83,7 @@ jobs:
           github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
       - name: Revalidate downloaded canonical bundle
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@75c74f1693535897ecc7cba20815921256f6fac6
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: ${{ steps.artifacts.outputs.bundle }}
@@ -98,7 +98,7 @@ jobs:
           fi
       - name: Preflight SARIF envelope
         # CORE_ACTIONS_PIN; parses transport structure only and has no write token.
-        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@59cb364615ccd44d824bec6b71d49d2f93e465c9
+        uses: Quantum-L9/l9-ci-core/.github/actions/publish-check@75c74f1693535897ecc7cba20815921256f6fac6
         with:
           repository: ${{ github.repository }}
           publication: "sarif-only"

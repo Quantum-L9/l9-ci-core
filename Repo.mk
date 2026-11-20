@@ -68,6 +68,7 @@ REPO_TEST_MODULES := \
 	tests/repo_execution/test_stamp.py \
 	tests/test_unittest_collectability.py \
 	tests/tools/test_advance_core_action_pins.py \
+	tests/tools/test_check_core_pin_ancestry.py \
 	tests/tools/test_check_toolchain_versions.py \
 	tests/tools/test_check_workflow_integrity.py \
 	tests/tools/test_manifest_integrity.py \
