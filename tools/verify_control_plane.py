@@ -185,6 +185,25 @@ class GitHubReader:
             return ApiResult(0, error=f"unreadable response body: {error}")
 
 
+def _pull_request_expectation(pull_request: dict[str, Any]) -> tuple[bool, int | None]:
+    """(require_code_owner_review, required_approving_review_count or None)."""
+    code_owner = pull_request.get("require_code_owner_review", False)
+    if not isinstance(code_owner, bool):
+        raise ContractError(
+            "core_main_protection.pull_request.require_code_owner_review must be "
+            "a boolean"
+        )
+    approvals = pull_request.get("required_approving_review_count")
+    if approvals is not None and (
+        not isinstance(approvals, int) or isinstance(approvals, bool) or approvals < 0
+    ):
+        raise ContractError(
+            "core_main_protection.pull_request.required_approving_review_count "
+            "must be a non-negative integer"
+        )
+    return code_owner, approvals
+
+
 def load_expected(root: Path) -> Expected:
     path = root / CONTRACT
     try:
@@ -213,20 +232,7 @@ def load_expected(root: Path) -> Expected:
         raise ContractError(
             "core_main_protection needs pull_request and required_status_checks"
         )
-    code_owner = pull_request.get("require_code_owner_review", False)
-    if not isinstance(code_owner, bool):
-        raise ContractError(
-            "core_main_protection.pull_request.require_code_owner_review must be "
-            "a boolean"
-        )
-    approvals = pull_request.get("required_approving_review_count")
-    if approvals is not None and (
-        not isinstance(approvals, int) or isinstance(approvals, bool) or approvals < 0
-    ):
-        raise ContractError(
-            "core_main_protection.pull_request.required_approving_review_count "
-            "must be a non-negative integer"
-        )
+    code_owner, approvals = _pull_request_expectation(pull_request)
     minimum = checks.get("minimum_bound_contexts")
     if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum < 1:
         raise ContractError(
