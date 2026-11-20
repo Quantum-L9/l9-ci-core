@@ -687,7 +687,7 @@ class WorkflowContractTests(unittest.TestCase):
         nightly_on = triggers_of(nightly_workflow)
         self.assertEqual([{"cron": nightly.NIGHTLY_CRON}], scheduler_on["schedule"])
         self.assertEqual([{"cron": nightly.NIGHTLY_CRON}], nightly_on["schedule"])
-        # Operator decision 2026-11-20 (AGENTS.md §37): apply is open. The plan
+        # Operator decision 2026-11-20 (docs/nightly-deep-consumer-contract.md "Opening apply"): apply is open. The plan
         # job still only plans; the apply job alone holds the App private key.
         self.assertEqual(
             ["plan", "apply"],

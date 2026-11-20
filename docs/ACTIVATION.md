@@ -173,7 +173,7 @@ python -m unittest discover --start-directory tests --pattern 'test_*.py' --verb
 `main`. It is not a required pull-request check. The retired stem `nightly`
 stays retired. `.github/workflows/org-nightly-dispatch.yml` uses the same
 cron for a fleet pass: its plan job checks out no consumer and holds no
-credential, and its apply job (opened 2026-11-20, AGENTS.md §37) dispatches
+credential, and its apply job (opened 2026-11-20, docs/nightly-deep-consumer-contract.md "Opening apply") dispatches
 each changed consumer's admitted deep entrypoint with an App-minted token, never
 a PAT. A plan is not a live schedule receipt. `nightly-deep.yml` keeps its cron until an apply path is observed.
 

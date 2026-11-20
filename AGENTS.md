@@ -1496,29 +1496,3 @@ Tests: `tests/tools/test_check_core_pin_ancestry.py`,
 
 Tests: `tests/workflows/test_org_ci_required_instances.py` (the embedded
 runner against a fake SDK, with Core's real planner and aggregator).
-
-## 37. Nightly apply is open, with an App token; Cursor-Governance admitted (2026-11-20) — amends §33
-
-Operator decision 2026-11-20, relayed by the CTO with the App confirmed: the
-`l9-nightly-dispatch` GitHub App (variable `L9_NIGHTLY_APP_ID`, secret
-`L9_NIGHTLY_APP_PRIVATE_KEY` in this repository; actions read/write,
-contents read, metadata read) is the nightly apply credential.
-
-- `org-nightly-dispatch.yml` keeps its plan job unchanged in what it reads
-  (no credential, no consumer). A new `apply` job runs after it on the
-  schedule, or when dispatched with `mode: apply`. It mints an installation
-  token with `actions/create-github-app-token` (pinned by SHA, the same pin as
-  the settings and release runners), scoped to the repositories admitted with
-  `scheduling: dispatch` and to `actions: write` + `contents: read`, and runs
-  `tools/nightly_apply.py apply` with `L9_NIGHTLY_APPLY=open`. The token is
-  revoked when the job ends.
-- `tests/workflows/test_nightly_apply.py` changed from "no workflow opens
-  apply" to "exactly `org-nightly-dispatch.yml` opens apply, with an
-  App-minted token, and its only secret is the App key". It changed only that
-  far. `tests/workflows/test_org_nightly_dispatch.py` now expects the `apply`
-  mode and keeps the plan job credential-free.
-- Cursor-Governance is admitted (`.github/workflows/sonarcloud.yml`,
-  `cursor-governance-deep/v1`). Its `run-name` does not yet follow the
-  contract, so Core sees none of its history and dispatches it every night
-  until Cursor-Governance sets it
-  (docs/nightly-deep-consumer-contract.md).

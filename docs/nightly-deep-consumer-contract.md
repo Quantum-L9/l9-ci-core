@@ -156,7 +156,7 @@ The planner skips it as `outside_organization`. Its own
 
 ## Opening apply (operator decision, taken 2026-11-20)
 
-The operator opened apply on 2026-11-20 (AGENTS.md §37):
+The operator opened apply on 2026-11-20 (relayed by the CTO, App confirmed):
 
 1. The credential is the `l9-nightly-dispatch` GitHub App (installed on the
    organization; actions read/write, contents read, metadata read). Its ID is
@@ -172,6 +172,12 @@ The operator opened apply on 2026-11-20 (AGENTS.md §37):
 3. Keep Core's registry projection current
    (`tools/project_required_repositories.py --ref main --check`), so every
    admitted consumer is a member.
+
+The test changes this decision required, and no more:
+`tests/workflows/test_nightly_apply.py` moved from "no workflow opens apply"
+to "exactly `org-nightly-dispatch.yml` opens apply, with an App-minted token,
+and its only secret is the App key"; `tests/workflows/test_org_nightly_dispatch.py`
+expects the `apply` mode and keeps the plan job credential-free.
 
 Apply only dispatches. It never merges, never checks out a consumer and
 never runs a suite itself.

@@ -10,8 +10,8 @@
 # scheduler-source checkout and is cleared before the planner runs.
 #
 # apply (the schedule, or a dispatch with mode=apply): opened by operator
-# decision on 2026-11-20 (AGENTS.md §37,
-# docs/nightly-deep-consumer-contract.md). It mints an installation token for
+# decision on 2026-11-20 (docs/nightly-deep-consumer-contract.md, "Opening
+# apply"). It mints an installation token for
 # the l9-nightly-dispatch GitHub App (repository variable L9_NIGHTLY_APP_ID,
 # secret L9_NIGHTLY_APP_PRIVATE_KEY), scoped to the admitted `dispatch`
 # repositories alone with actions:write and contents:read, and runs

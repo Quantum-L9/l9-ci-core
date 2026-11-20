@@ -77,7 +77,7 @@ EXPECTED_WORKFLOWS = {
     "nightly-deep.yml",
     # Fleet timer at the same 07:17 UTC cron: plans, then applies (dispatches
     # changed repositories' admitted deep entrypoints with an App token,
-    # AGENTS.md §37). It never runs a suite itself. The retired stem nightly
+    # docs/nightly-deep-consumer-contract.md "Opening apply"). It never runs a suite itself. The retired stem nightly
     # stays rejected.
     "org-nightly-dispatch.yml",
 }

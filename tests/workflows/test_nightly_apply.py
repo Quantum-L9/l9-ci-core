@@ -178,7 +178,7 @@ class SwitchTests(unittest.TestCase):
         self.assertEqual(1, apply.apply_exit_code(result))
 
     def test_only_the_dispatch_workflow_opens_apply_with_an_app_token(self) -> None:
-        # Operator decision 2026-11-20 (AGENTS.md §37): apply is open in
+        # Operator decision 2026-11-20 (docs/nightly-deep-consumer-contract.md "Opening apply"): apply is open in
         # org-nightly-dispatch.yml alone, with an installation token minted for
         # the l9-nightly-dispatch GitHub App, never a PAT.
         opener = "org-nightly-dispatch.yml"
