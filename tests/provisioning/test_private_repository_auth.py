@@ -124,8 +124,9 @@ class RepositoryVerificationAuthTests(unittest.TestCase):
         steps = {step["id"]: step for step in action["runs"]["steps"]}
         ids = [step["id"] for step in action["runs"]["steps"]]
         self.assertLess(ids.index("registry"), ids.index("composer"))
-        self.assertLess(ids.index("composer"), ids.index("verify"))
-        for step_id in ("registry", "composer"):
+        self.assertLess(ids.index("composer"), ids.index("external"))
+        self.assertLess(ids.index("external"), ids.index("verify"))
+        for step_id in ("registry", "composer", "external"):
             self.assertIn(
                 "github-read-token", steps[step_id]["env"]["L9_GITHUB_READ_TOKEN"]
             )

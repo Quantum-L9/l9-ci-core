@@ -1,0 +1,27 @@
+name: Checkout external repository
+description: >
+  Check out the repository declared in .l9/external-checkout.json. The read
+  token reaches git only as an https://github.com extraheader. Later steps
+  receive the declared environment variable and not the token.
+inputs:
+  token:
+    description: Read-only GitHub token. Empty fetches anonymously.
+    required: false
+    default: ""
+  workspace:
+    description: Directory that contains .l9/external-checkout.json.
+    required: false
+    default: ${{ github.workspace }}
+  required:
+    description: Fail when the consumer did not declare a checkout.
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        L9_GITHUB_READ_TOKEN: ${{ inputs.token }}
+        L9_REPOSITORY_WORKSPACE: ${{ inputs.workspace }}
+        L9_EXTERNAL_CHECKOUT_REQUIRED: ${{ inputs.required }}
+      run: python3 "${GITHUB_ACTION_PATH}/checkout.py"

@@ -127,6 +127,7 @@ jobs:
             tests/invocation/test_invoke_sdk.py
             tests/invocation/test_validate_bundle.py
             tests/provisioning/test_compatibility_manifest.py
+            tests/provisioning/test_external_checkout.py
             tests/provisioning/test_private_repository_auth.py
             tests/provisioning/test_required_cli_probing.py
             tests/provisioning/test_runtime_directory_safety.py

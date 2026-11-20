@@ -39,8 +39,9 @@ outputs:
 runs:
   using: composite
   steps:
-    # These two steps run before any consumer code and are the only steps
-    # that hold the token. The verify step does not.
+    # These steps run before any consumer code and are the only steps that
+    # hold the token. external checks out .l9/external-checkout.json when a
+    # consumer declared one. The verify step does not receive the token.
     - id: registry
       shell: bash
       env:
@@ -52,6 +53,13 @@ runs:
         L9_GITHUB_READ_TOKEN: ${{ inputs.github-read-token }}
         L9_REPOSITORY_WORKSPACE: ${{ inputs.workspace }}
       run: python3 "${{ github.action_path }}/run.py" --prefetch-composer "${RUNNER_TEMP}/l9-composer-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
+    - id: external
+      name: Check out a declared external repository
+      shell: bash
+      env:
+        L9_GITHUB_READ_TOKEN: ${{ inputs.github-read-token }}
+        L9_REPOSITORY_WORKSPACE: ${{ inputs.workspace }}
+      run: python3 "${GITHUB_ACTION_PATH}/../checkout-external/checkout.py"
     - id: verify
       shell: bash
       env:

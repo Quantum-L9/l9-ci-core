@@ -17,7 +17,7 @@ REGISTRY_FIXTURE = (
 WORKFLOW = ROOT / ".github" / "workflows" / "org-ci.yml"
 ACTION = ROOT / ".github" / "actions" / "run-repository-verification" / "action.yml"
 RUNNER = ROOT / ".github" / "actions" / "run-repository-verification" / "run.py"
-PIN = "ed10cb2ddc25ab2cdfa92d1bcae9e39ece8c565a"
+PIN = "043f50ac41af17bf814f811076c5b48a640d9a2e"
 # The mocked V1 tests below only need the classifier to route to the V1
 # runtime; the bounded V1 executor is covered end to end by
 # tests/repo_execution/test_legacy_v1.py.
