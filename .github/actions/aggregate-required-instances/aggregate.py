@@ -37,6 +37,10 @@ AGGREGATE_SCHEMA = "l9.core-instance-aggregate/v1"
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SAFE_COMPONENT = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+# The SDK capability inventory's target grammar: what a provider analyses.
+SAFE_TARGET = re.compile(r"^(language|framework):[a-z0-9][a-z0-9._+-]{0,63}$")
+APPLICABLE = "applicable"
+MAX_REASONS = 32
 MAX_RECORD_BYTES = 65536
 MAX_INSTANCES = 64
 
@@ -58,12 +62,15 @@ class PlanError(RuntimeError):
 @dataclass(frozen=True)
 class Instance:
     provider: str
-    language: str
+    target: str
     required: bool
+    # The SDK's prerequisite state for this target. Anything but ``applicable``
+    # means the instance cannot conclude, whatever record turns up for it.
+    prerequisite: str = APPLICABLE
 
     @property
     def identifier(self) -> str:
-        return f"{self.provider}:{self.language}"
+        return f"{self.provider}:{self.target}"
 
 
 @dataclass(frozen=True)
@@ -73,6 +80,9 @@ class Plan:
     sdk_revision: str
     instances: tuple[Instance, ...]
     not_applicable_reason: str
+    # Reasons the plan itself is not a complete account (for example an SDK
+    # inventory that failed). Any entry makes the aggregate incomplete.
+    unresolved: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -110,14 +120,21 @@ def parse_plan(payload: object) -> Plan:
     for entry in entries:
         record = _mapping(entry, "plan instance")
         provider = record.get("provider")
-        language = record.get("language")
-        for name, value in (("provider", provider), ("language", language)):
-            if not isinstance(value, str) or not SAFE_COMPONENT.fullmatch(value):
-                raise PlanError(f"plan instance {name} is not a safe identifier")
+        target = record.get("target")
+        if not isinstance(provider, str) or not SAFE_COMPONENT.fullmatch(provider):
+            raise PlanError("plan instance provider is not a safe identifier")
+        if not isinstance(target, str) or not SAFE_TARGET.fullmatch(target):
+            raise PlanError(
+                "plan instance target is not language:<name> or framework:<name>"
+            )
         if not isinstance(record.get("required"), bool):
             raise PlanError("plan instance required must be true or false")
-        assert isinstance(provider, str) and isinstance(language, str)
-        instances.append(Instance(provider, language, record["required"]))
+        prerequisite = record.get("prerequisite", APPLICABLE)
+        if not isinstance(prerequisite, str) or not SAFE_COMPONENT.fullmatch(
+            prerequisite
+        ):
+            raise PlanError("plan instance prerequisite is not a safe identifier")
+        instances.append(Instance(provider, target, record["required"], prerequisite))
     identifiers = [instance.identifier for instance in instances]
     if len(identifiers) != len(set(identifiers)):
         raise PlanError("plan lists an instance more than once")
@@ -130,12 +147,20 @@ def parse_plan(payload: object) -> Plan:
             raise PlanError("plan not_applicable needs a reason")
         if instances:
             raise PlanError("plan cannot be not_applicable and list instances")
+    unresolved = plan.get("unresolved", [])
+    if (
+        not isinstance(unresolved, list)
+        or len(unresolved) > MAX_REASONS
+        or not all(isinstance(item, str) and item.strip() for item in unresolved)
+    ):
+        raise PlanError("plan unresolved must be a short list of non-empty reasons")
     return Plan(
         repository=repository,
         revision=_sha(plan.get("revision"), "plan revision"),
         sdk_revision=_sha(plan.get("sdk_revision"), "plan sdk_revision"),
         instances=tuple(instances),
         not_applicable_reason=reason,
+        unresolved=tuple(unresolved),
     )
 
 
@@ -145,7 +170,7 @@ def _untrusted(record: object, plan: Plan, planned: set[str]) -> str:
         return "record is not an object"
     if record.get("schema") != RESULT_SCHEMA:
         return f"record schema is not {RESULT_SCHEMA}"
-    identifier = f"{record.get('provider')}:{record.get('language')}"
+    identifier = f"{record.get('provider')}:{record.get('target')}"
     if identifier not in planned:
         return f"record is for {identifier}, which the plan does not list"
     if record.get("repository") != plan.repository:
@@ -174,19 +199,29 @@ def aggregate(plan: Plan, records: list[tuple[str, object]]) -> dict[str, Any]:
             # result, so it stays gating.
             claimed = ""
             if isinstance(record, dict):
-                claimed = f"{record.get('provider')}:{record.get('language')}"
+                claimed = f"{record.get('provider')}:{record.get('target')}"
             untrusted.append(
                 {"source": source, "reason": reason, "gating": claimed not in optional}
             )
             continue
         assert isinstance(record, dict)
-        identifier = f"{record['provider']}:{record['language']}"
+        identifier = f"{record['provider']}:{record['target']}"
         trusted.setdefault(identifier, []).append(record["status"])
 
     rows: list[Row] = []
     for instance in plan.instances:
         statuses = trusted.get(instance.identifier, [])
-        if not statuses:
+        if instance.prerequisite != APPLICABLE:
+            rows.append(
+                Row(
+                    instance.identifier,
+                    instance.required,
+                    f"prerequisite_{instance.prerequisite}",
+                    False,
+                    "the SDK reports its prerequisite cannot be met",
+                )
+            )
+        elif not statuses:
             rows.append(
                 Row(instance.identifier, instance.required, "missing", False, "")
             )
@@ -223,6 +258,7 @@ def aggregate(plan: Plan, records: list[tuple[str, object]]) -> dict[str, Any]:
     for entry in untrusted:
         if entry["gating"]:
             reasons.append(f"untrusted record {entry['source']}: {entry['reason']}")
+    reasons.extend(f"plan is unresolved: {item}" for item in plan.unresolved)
     if not plan.instances and not plan.not_applicable_reason:
         reasons.append(
             "plan lists no instance and gives no evidence of non-applicability"

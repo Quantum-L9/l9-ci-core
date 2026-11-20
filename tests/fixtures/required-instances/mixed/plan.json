@@ -4,7 +4,7 @@
   "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "sdk_revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "instances": [
-    { "provider": "semgrep", "language": "python", "required": true },
-    { "provider": "semgrep", "language": "typescript", "required": true }
+    { "provider": "semgrep", "target": "language:python", "required": true },
+    { "provider": "semgrep", "target": "language:typescript", "required": true }
   ]
 }

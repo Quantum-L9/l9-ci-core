@@ -1314,11 +1314,29 @@ Decision record for the first realization step of the proposed
   cancelled, duplicated, unreadable or bound to another repository, revision
   or SDK revision, else `pass`. An empty plan passes only with a stated reason
   for non-applicability. Exit codes follow the SDK gate (0, 1, 6).
-- It reads only those Core records. It opens no SDK bundle, finding or gate
-  result and derives no verdict: an instance's `pass` or `fail` is the status
-  the SDK technical gate returned (§3, `.l9/governance-contract.yaml`
-  `prohibited`).
-- Proof: `tests/actions/test_aggregate_required_instances.py` over
+- An instance is `provider:target`, with the target in the SDK inventory's
+  grammar (`language:<name>` or `framework:<name>`). An instance whose SDK
+  prerequisite is not `applicable`, and a plan marked `unresolved`, can never
+  aggregate to `pass`. An instance the plan marks optional never gates.
+- `.github/actions/plan-required-instances/` builds that plan from the SDK's
+  `l9.capability-inventory/v1` record. The record carries no requiredness;
+  Core adds it. Every `applicable` prerequisite becomes an instance, so no
+  language is chosen over another. An instance is required when central
+  governance resolved its provider as required and Core executes the target
+  (`executable-targets.json`: today `language:python` and
+  `language:typescript`, the identity maps Core ships). An applicable target
+  Core cannot execute is planned and visible, and not required. An inventory
+  that is `failed`, `incomplete` or bound to another revision makes the plan
+  `unresolved`. Unsupported languages are listed, not planned.
+- Both actions read only the inventory and Core's own records. They open no
+  SDK bundle, finding or gate result and derive no verdict: an instance's
+  `pass` or `fail` is the status the SDK technical gate returned (§3,
+  `.l9/governance-contract.yaml` `prohibited`).
+- Proof: `tests/actions/test_plan_required_instances.py` over
+  `tests/fixtures/capability-inventory/` (four records the SDK inventory
+  command printed, held as contract fixtures; Core's SDK pin is unchanged and
+  no Core job runs an unmerged SDK),
+  `tests/actions/test_aggregate_required_instances.py` over
   `tests/fixtures/required-instances/mixed/` (Python plus TypeScript), and
   three steps in `sdk-contract-check.yml` that run both languages through the
   provisioned SDK, aggregate them with the action at the event revision, then
@@ -1326,8 +1344,8 @@ Decision record for the first realization step of the proposed
   `incomplete`.
 - **Not active.** `org-ci.yml` still resolves one language
   (`detect-language`) and does not call this action. Calling it is a pin
-  advance after this change is on `main` (§16), together with a planner that
-  consumes the SDK's full instance inventory. Until then
+  advance after this change is on `main` (§16), and it needs an SDK pin that
+  carries `l9-ci providers inventory`. Until then
   `tests/governance/test_ci_runtime_invariants.py` keeps the
   `required-instance-scheduling` witness failing closed.
 

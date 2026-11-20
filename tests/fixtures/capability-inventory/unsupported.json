@@ -1,0 +1,68 @@
+{
+  "ok": true,
+  "result": {
+    "examined_file_count": 1,
+    "frameworks": [
+      {
+        "evidence_count": 0,
+        "evidence_paths": [],
+        "framework": "odoo",
+        "language_file_counts": {},
+        "languages": [
+          "python",
+          "xml"
+        ],
+        "reason": "no Odoo addon manifest among 1 examined file(s)",
+        "state": "not_applicable"
+      }
+    ],
+    "languages": [
+      {
+        "file_count": 1,
+        "language": "go",
+        "reason": "no declared analysis target consumes this language",
+        "sample_paths": [
+          "main.go"
+        ],
+        "state": "unsupported"
+      }
+    ],
+    "manifests": [],
+    "package_managers": [],
+    "provider_prerequisites": [
+      {
+        "executable": "not_probed",
+        "executable_version": null,
+        "file_count": 0,
+        "provider_id": "semgrep",
+        "reason": "no python file among 1 examined file(s)",
+        "rulepack": "l9_ci/rulesets/semgrep/python",
+        "state": "not_applicable",
+        "target": "language:python"
+      },
+      {
+        "executable": "not_probed",
+        "executable_version": null,
+        "file_count": 0,
+        "provider_id": "semgrep",
+        "reason": "no typescript file among 1 examined file(s)",
+        "rulepack": "l9_ci/rulesets/semgrep/typescript",
+        "state": "not_applicable",
+        "target": "language:typescript"
+      }
+    ],
+    "reasons": [
+      "language go: no declared analysis target consumes this language"
+    ],
+    "schema": "l9.capability-inventory/v1",
+    "schema_version": "1.0.0",
+    "snapshot": {
+      "dirty": false,
+      "revision": "ca3a757809699f54741634fa0055e61a0199d7bf",
+      "snapshot_id": "snapshot_ef9cd8f327e77708434ad2df8a5172437fca9ce4ce6e9ef71e7f1b86287329e8",
+      "source": "git"
+    },
+    "status": "unsupported",
+    "unclassified_file_count": 0
+  }
+}
