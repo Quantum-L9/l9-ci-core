@@ -120,6 +120,11 @@ class ScopeTests(unittest.TestCase):
             ".github/actions/install-consumer-ci/core-owned-tools.json",
             ".github/actions/install-consumer-ci/requirements-consumer-ci.txt",
             ".github/actions/install-semgrep/locks/semgrep-1.172.0.txt",
+            ".github/actions/install-consumer-ci/install.sh",
+            ".github/actions/install-consumer-ci/action.yml",
+            ".github/actions/install-semgrep/install.sh",
+            ".github/actions/install-semgrep/action.yml",
+            ".github/workflows/security.yml",
             "tools/audit_core_toolchain.py",
             ".github/workflows/self-toolchain-audit.yml",
         ):
@@ -130,7 +135,8 @@ class ScopeTests(unittest.TestCase):
 
     def test_any_other_change_is_not_applicable(self) -> None:
         self.change("tools/other.py")
-        self.change(".github/actions/install-consumer-ci/install.sh")
+        self.change(".github/actions/install-consumer-ci/README.md")
+        self.change(".github/workflows/self-ci.yml")
         for event in ("pull_request", "merge_group"):
             self.assertEqual("applies=false", self.applies(event))
 

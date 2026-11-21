@@ -171,6 +171,28 @@ class PlanTests(unittest.TestCase):
             self.plan()
 
 
+class PythonVersionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.fixture = Fixture(Path(self._tmp.name))
+
+    def test_the_exact_locked_patch_version_is_used(self) -> None:
+        self.assertEqual("3.12.14", audit.python_version(self.fixture.root))
+        lock = json.loads((ROOT / audit.LOCK).read_text(encoding="utf-8"))
+        self.assertEqual(lock["python"], audit.python_version(ROOT))
+
+    def test_a_lock_without_an_exact_python_is_refused(self) -> None:
+        for python in (None, "3.12", "latest"):
+            with self.subTest(python=python):
+                lock = {k: v for k, v in LOCK.items() if k != "python"}
+                if python is not None:
+                    lock["python"] = python
+                self.fixture.write(lock=lock)
+                with self.assertRaisesRegex(audit.AuditError, "no exact Python"):
+                    audit.python_version(self.fixture.root)
+
+
 class ResolveTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -239,6 +261,7 @@ class MainTests(unittest.TestCase):
             "#!/usr/bin/env bash\n"
             f"[ {code} -eq 0 ] || {{ echo 'no solution' >&2; exit {code}; }}\n"
             'input="$3"\n'
+            f'echo "$@" > "{self.tmp}/uv-args"\n'
             'while [ "$#" -gt 0 ]; do\n'
             '  if [ "$1" = "--output-file" ]; then\n'
             '    { cat "${input}"; echo "urllib3==2.8.0"; } > "$2"\n'
@@ -274,6 +297,8 @@ class MainTests(unittest.TestCase):
             "Core-pinned Python tool(s): bandit, ruff, semgrep",
             out,
         )
+        args = (self.tmp / "uv-args").read_text(encoding="utf-8").split()
+        self.assertEqual("3.12.14", args[args.index("--python-version") + 1])
         layers = sorted(os.listdir(self.tmp / "out"))
         self.assertEqual(["layer-1.txt", "layer-2.txt"], layers)
         self.assertEqual(

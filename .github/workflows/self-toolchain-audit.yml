@@ -9,7 +9,8 @@
 # as written (--disable-pip --no-deps). The log names the package count.
 #
 # On a pull request or merge group it audits when the change touches the
-# toolchain lock, an install it audits, or this audit, and a known
+# toolchain lock, an install it audits (its requirements or its installer), or
+# this audit, and a known
 # vulnerability blocks; any other change reports not applicable and passes, so
 # the check always reports. It runs nightly and by dispatch regardless, where
 # a known vulnerability fails the run: the failed run, its summary and the
@@ -46,7 +47,10 @@ jobs:
           MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
-          watched='^(\.github/actions/install-consumer-ci/(toolchain-lock\.json|core-owned-tools\.json|requirements-consumer-ci\.txt)|\.github/actions/install-semgrep/locks/.*|tools/audit_core_toolchain\.py|\.github/workflows/self-toolchain-audit\.yml)$'
+          # The lock, every install it audits (its requirements and its installer:
+          # install-consumer-ci, install-semgrep, and security.yml for bandit and
+          # pip-audit), and this audit.
+          watched='^(\.github/actions/install-consumer-ci/(toolchain-lock\.json|core-owned-tools\.json|requirements-consumer-ci\.txt|install\.sh)|\.github/actions/install-semgrep/(locks/.*|install\.sh|action\.ya?ml)|\.github/actions/install-consumer-ci/action\.ya?ml|\.github/workflows/(security|self-toolchain-audit)\.yml|tools/audit_core_toolchain\.py)$'
           case "${EVENT_NAME}" in
             pull_request) base="${PR_BASE}" ;;
             merge_group) base="${MERGE_GROUP_BASE}" ;;

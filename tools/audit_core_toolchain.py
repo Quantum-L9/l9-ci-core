@@ -20,8 +20,9 @@ tool the audit cannot see is not a clean result (L9-UNKNOWN-001). biome (npm),
 gitleaks (a binary) and the interpreter are not Python packages, so pip-audit
 cannot judge them; they are out of this audit's scope.
 
-Resolution uses Core's pinned uv for CPython 3.12 on manylinux x86_64, the
-runner every install above targets. Separate installs may pin one package at
+Resolution uses Core's pinned uv for the exact CPython the lock pins
+(``python``, e.g. 3.12.14; a bare 3.12 would mean 3.12.0 to uv) on manylinux
+x86_64, the runner every install above targets. Separate installs may pin one package at
 different versions, and pip-audit refuses a requirements file that names a
 package twice, so the deduplicated set is written as layers
 (``layer-1.txt``, ``layer-2.txt``, ...), each naming every package at most
@@ -46,7 +47,6 @@ LOCK = CONSUMER_CI / "toolchain-lock.json"
 OWNERSHIP = CONSUMER_CI / "core-owned-tools.json"
 CONSUMER_REQUIREMENTS = CONSUMER_CI / "requirements-consumer-ci.txt"
 SEMGREP_LOCKS = Path(".github/actions/install-semgrep/locks")
-PYTHON_VERSION = "3.12"
 PLATFORM = "x86_64-manylinux_2_28"
 PIN = re.compile(
     r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?\s*==\s*(?P<version>[^\s;\\]+)"
@@ -151,7 +151,17 @@ def check_coverage(tools: dict[str, str], planned: Sequence[Source]) -> None:
 Resolver = Callable[[str], str]
 
 
-def uv_resolver(uv: str) -> Resolver:
+def python_version(root: Path) -> str:
+    """The exact CPython the lock pins, which every audited install runs on."""
+    lock = json.loads((root / LOCK).read_text(encoding="utf-8"))
+    version = lock.get("python")
+    if not isinstance(version, str) or not re.fullmatch(r"3\.\d+\.\d+", version):
+        msg = f"{LOCK} pins no exact Python version (got {version!r})"
+        raise AuditError(msg)
+    return version
+
+
+def uv_resolver(uv: str, python: str) -> Resolver:
     """Resolve requirements with uv for the runner Core installs on."""
 
     def resolve(requirements: str) -> str:
@@ -166,7 +176,7 @@ def uv_resolver(uv: str) -> Resolver:
                     "compile",
                     str(source),
                     "--python-version",
-                    PYTHON_VERSION,
+                    python,
                     "--python-platform",
                     PLATFORM,
                     "--no-header",
@@ -261,7 +271,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         tools = python_tools(args.root)
         planned = sources(args.root, tools)
         check_coverage(tools, planned)
-        union, counts = resolve_all(planned, uv_resolver(args.uv))
+        resolver = uv_resolver(args.uv, python_version(args.root))
+        union, counts = resolve_all(planned, resolver)
     except (AuditError, OSError, ValueError, KeyError) as error:
         print(f"::error::toolchain audit: {error}", file=sys.stderr)
         return 2
