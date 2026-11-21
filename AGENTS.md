@@ -1721,3 +1721,55 @@ edges and a floating `@main`), a `workflow_dispatch` of main's copy (it needs
   forbids. Both are fixed here.
 
 Tests: `tests/workflows/test_promotion_canary.py`.
+
+## 43. SDK `2796d7a4` activation, and the canary runs the revision a pull request admits (2026-11-21) — amends §40, §41
+
+**Activation (PIN-ADVANCE-1, #315 and #316).** Step one (#315, merged as
+`df3b2eaf`) admitted l9-ci-sdk `2796d7a4`: #141 applies framework-scoped
+Semgrep rules only where the framework is detected, so the Django
+`subprocess-injection` rule no longer fires on code that is not Django. #137
+adds a test witness only. Step two (#316, merged as `fb9fa789`) moved
+`org-ci.yml`'s 18 Core action pins and `analyze-semgrep.yml`'s
+`install-semgrep` pin from `eba72ac3` to `df3b2eaf`, and the `sdk-revision`
+fallback from `fbe14fec` to `2796d7a4`.
+
+- Between those Core pins, the actions `org-ci.yml` uses also gained #300 (an
+  unresolved merge conflict fails repository verification) and #310
+  (housekeeping never blocks). `run-supply-chain` and `install-consumer-ci`
+  changed too, but `org-ci.yml` does not call them.
+- #316's canary showed the effect. The l9-ci-sdk leg went from `findings` (1
+  blocking) to `pass` (0). Cursor-Governance went from 29 blocking findings to
+  28: exactly one finding is gone, the one at
+  `repository_event_bridge.py:279`, which the SDK now withholds as "django is
+  not detected", and no finding is new.
+
+**Row 25: an admission-only pull request was never canaried at the revision
+it admits.** #315's verdict passed while both of its legs still ran
+`fbe14fec`. Every Core action pin in `org-ci.yml`, `provision-sdk`'s
+included, names a commit already on main, and `provision-sdk` reads its
+allowlist from its own commit. So a pull request that changes only the
+default revision does not move what `org-ci.yml` runs.
+
+- **Admitted leg.** The plan compares the tree's `.l9/sdk-compatibility.yaml`
+  default revision with `org-ci.yml`'s `sdk-revision` fallback. When they
+  differ, it emits that revision as `admitted` and uploads the pull request's
+  `.github/actions/provision-sdk/` and `.l9/sdk-compatibility.yaml` as the
+  `canary-admitted-core` artifact.
+- **What the leg runs.** The `admitted` job is the head leg with one
+  difference: its `id: sdk` step downloads that artifact into `RUNNER_TEMP`,
+  never the workspace, and runs the action's own composite steps inline. Its
+  inputs are org-ci's `with:` values, with `sdk-revision` set to the admitted
+  revision, and the step id stays `sdk`, so every later step reads the same
+  outputs. Any action shape the tool cannot map is refused, never left out:
+  outputs that are not one-to-one with the `provision` step, an unmapped
+  input, or no single `id: sdk` step.
+- **Judgement.** The admitted leg is judged against the pull request's own
+  pins with §40's rules, and the verdict prints it as its own table. A missing,
+  `incomplete`, `cancelled` or `error` admitted leg fails; a regression or a
+  new blocking finding fails; `improved` and `kept` pass.
+- Replaying the rule on history: on #315's merge it names `2796d7a4` as
+  admitted; on #316's merge it names nothing, because org-ci already runs the
+  default.
+
+Tests: `tests/workflows/test_promotion_canary.py` (`AdmittedLegTests`,
+`AdmittedVerdictTests`).

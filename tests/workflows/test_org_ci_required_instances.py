@@ -291,7 +291,7 @@ class WiringTests(unittest.TestCase):
     def test_the_sdk_fallback_is_the_promoted_revision(self) -> None:
         provision = next(s for s in steps() if s.get("id") == "sdk")
         self.assertIn(
-            "fbe14fec1f5dc8edeae8facc76e598e9c5283170",
+            "47ae3ac5bc8c1a14cc33e4985ce392996cd27ccc",
             str(provision["with"]["sdk-revision"]),
         )
 
