@@ -1896,3 +1896,11 @@ Core PR's event.
 
 The CENTRAL-DIFF baseline per event class, a dated amendment of l9-ci-sdk ADR
 0023 (operator row 23), is recorded in `docs/central-diff-baseline.md`.
+
+Row 27 step two (2026-11-21): org-ci's Core pins name the change that ships
+`event-name`, and org-ci passes `event-name: ''` / `event-ref: ''`. The canary
+retargets them to `push` / `refs/heads/${{ matrix.branch }}` for every leg,
+through `OPTIONAL_REPLACEMENTS`, since a base leg may render an org-ci.yml
+older than them. The current org-ci.yml must carry them
+(`ConsumerEventTests`). The same change makes the merge-group baseline
+`merge_group.base_sha` (`docs/central-diff-baseline.md`).
