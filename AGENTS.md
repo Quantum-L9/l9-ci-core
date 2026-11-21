@@ -1605,3 +1605,47 @@ reason; a Core-denied licence can never be allowed; a name that is not
   `docs/supply-chain.md`, all first-party and Proprietary.
 
 Tests: `tests/actions/test_run_supply_chain.py`.
+
+## 40. The promotion canary judges a Core change against the fleet before merge (2026-11-21)
+
+A Core pull request that changes what `Analyze (central Core)` runs is checked
+against the current main heads of the repositories declared in
+`.l9/promotion-canary.json` (Cursor-Governance, Cognitive.Engine.Graphs,
+Enrichment.Inference.Engine, l9-ci-sdk, l9-ci-core). This is the #308 hand
+canary made a blocking check, `Promotion canary (Core)`, so a pin advance can
+no longer turn a green repository red unannounced.
+
+- **What counts as such a change:** `org-ci.yml`,
+  `.l9/sdk-compatibility.yaml`, any `.github/actions/<name>/` that `org-ci.yml`
+  calls (read from its `uses:` lines), and the canary itself. Any other pull
+  request passes the verdict without running a leg. The workflow has no
+  `paths:` filter, so the check always reports.
+- **How it runs the pull request's revision:** `org-ci.yml` targets
+  `github.repository` at `github.sha` and no caller can redirect it, so the
+  canary does not call it. `tools/promotion_canary.py render` generates
+  `.github/workflows/promotion-canary.yml` from the `analyze` job's steps,
+  verbatim, replacing only the target identity (repository, revision, ref, and
+  the checkout token) with a matrix entry. A pull request runs its own workflow
+  files, so the canary runs the pull request's steps and pins. A change to
+  `org-ci.yml` must regenerate the canary in the same pull request:
+  `tests/workflows/test_promotion_canary.py` (self-ci) fails on drift, and
+  `render` refuses an `org-ci.yml` that gains a target reference it cannot
+  retarget.
+- **Two-step pins (§16):** a step-one pull request that changes only action
+  code leaves `org-ci.yml`'s pins unchanged, so its canary re-runs today's
+  behaviour; the change is judged on the step-two pin advance, the #308 case.
+- **Verdict:** a missing or incomplete leg fails. A red leg fails unless the
+  declaration names that repository `known_red` with a reason; then it is
+  announced in the run summary. Central Core runs on pull requests only, so a
+  consumer's main head carries no verdict to compare with: "red today" is a
+  reviewed declaration, and a `known_red` repository that comes out green is
+  reported so the declaration is removed. Today: Cursor-Governance (29 Semgrep
+  findings, CG-CUTOVER).
+- **Access:** public repositories are read with `github.token`; l9-ci-sdk with
+  the existing read-only `L9_GITHUB_READ_TOKEN`. No App token and no write
+  access. A fork pull request has no secrets, so its l9-ci-sdk leg cannot
+  check out and the canary fails closed.
+
+Tests: `tests/workflows/test_promotion_canary.py`,
+`tests/workflows/test_artifact_handoff_producers.py`,
+`tests/workflows/test_phase_scope.py`.
