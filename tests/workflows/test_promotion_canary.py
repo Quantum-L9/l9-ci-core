@@ -1394,6 +1394,51 @@ class ScanLegTests(unittest.TestCase):
                 self.assertEqual(expected, self.classify(job_status, aggregate))
 
 
+class ResolveBaseTests(unittest.TestCase):
+    """``render --base`` takes a branch name only and uses its commit SHA."""
+
+    def test_a_branch_resolves_to_its_commit_and_revision_syntax_is_refused(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = {
+                "PATH": os.environ["PATH"],
+                "HOME": tmp,
+                "GIT_AUTHOR_NAME": "t",
+                "GIT_AUTHOR_EMAIL": "t@example.invalid",
+                "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@example.invalid",
+            }
+            for args in (
+                ["init", "-q", "-b", "main"],
+                ["commit", "-q", "--allow-empty", "-m", "c"],
+            ):
+                subprocess.run(["git", *args], cwd=root, env=env, check=True)
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=root,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(head, pc.resolve_base(root, "main"))
+            for bad in (
+                "--output=/tmp/x",
+                "-p",
+                "main^",
+                "main~1",
+                "main:org-ci.yml",
+                "main@{1}",
+                "a..b",
+                "",
+                "no-such-branch",
+            ):
+                with self.subTest(ref=bad), self.assertRaises(pc.CanaryError):
+                    pc.resolve_base(root, bad)
+
+
 class StepJobTests(ScanLegTests):
     """org-ci.yml's own checks beside analyze (Biome) run as sibling jobs of
     each leg, and their result is part of the leg's record."""

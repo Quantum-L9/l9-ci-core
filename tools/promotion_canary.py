@@ -1178,8 +1178,9 @@ def _cmd_render(args: argparse.Namespace) -> int:
     # branch of a stacked pull request (``--base origin/<parent>``), which is
     # what the verdict compares it with (HEAD^1 of the merge commit).
     ref = args.base
-    main_org_ci = _git(args.root, "show", f"{ref}:.github/workflows/org-ci.yml")
-    main_scan = scan_source(lambda path: _git(args.root, "show", f"{ref}:{path}"))
+    commit = resolve_base(args.root, ref)
+    main_org_ci = _git(args.root, "show", f"{commit}:.github/workflows/org-ci.yml")
+    main_scan = scan_source(lambda path: _git(args.root, "show", f"{commit}:{path}"))
     provider = git_provider(args.root)
     base = base_block(main_org_ci, provider, main_scan)
     target.write_text(render(org_ci, base, provider, admission, scan), encoding="utf-8")
@@ -1248,6 +1249,33 @@ def load_declaration(root: Path) -> list[dict[str, Any]]:
         seen.add(key)
         out.append(dict(entry))
     return out
+
+
+BASE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
+COMMIT = re.compile(r"[0-9a-f]{40}")
+
+
+def resolve_base(root: Path, ref: str) -> str:
+    """The commit a ``--base`` ref names; only a plain branch-like name.
+
+    The ref comes from the command line, so it is never handed to git as it
+    is: it must look like a ref (no leading ``-``, no revision syntax such as
+    ``^``, ``~``, ``:`` or ``@{``), it is resolved with ``rev-parse --verify``
+    after ``--end-of-options``, and only the resulting commit SHA is used.
+    """
+    if not BASE_REF.fullmatch(ref) or ".." in ref:
+        raise CanaryError(f"--base {ref!r} is not a branch name such as origin/main")
+    commit = _git(
+        root,
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "--end-of-options",
+        f"{ref}^{{commit}}",
+    ).strip()
+    if not COMMIT.fullmatch(commit):
+        raise CanaryError(f"--base {ref!r} does not name a commit")
+    return commit
 
 
 def _git(root: Path, *args: str) -> str:
