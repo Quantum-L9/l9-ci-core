@@ -1904,3 +1904,29 @@ through `OPTIONAL_REPLACEMENTS`, since a base leg may render an org-ci.yml
 older than them. The current org-ci.yml must carry them
 (`ConsumerEventTests`). The same change makes the merge-group baseline
 `merge_group.base_sha` (`docs/central-diff-baseline.md`).
+
+## 46. Core's pinned toolchain is audited (2026-11-21) — TOOLCHAIN-AUDIT
+
+Nothing audited the tools Core pins for every governed repository
+(`.github/actions/install-consumer-ci/toolchain-lock.json`): a consumer's lock
+export excludes them by design, and Core's own lock holds two packages.
+`tools/audit_core_toolchain.py` resolves every Python tool that
+`core-owned-tools.json` lists under `pip` (pip, pre-commit, ruff, mypy, pytest,
+semgrep, bandit, pip-audit, uv) into pinned requirements, from the installs
+Core actually performs: the consumer CI toolchain resolved together (as
+`install.sh` installs it), Semgrep's hash-locked closure as written, and every
+other tool resolved alone (as `security.yml` installs each). Each must be
+covered at the lock's version, or the audit refuses. Separate installs can pin
+one package at different versions, so the set is written as layers that each
+name a package once, and `pip-audit --disable-pip --no-deps` audits every
+layer. The log names the count. biome (npm), gitleaks (a binary) and the
+interpreter are not Python packages and are out of this audit's scope.
+
+`.github/workflows/self-toolchain-audit.yml` (`Core toolchain audit`) reports
+on every pull request and merge group. It audits when the change touches the
+lock, an audited install or the audit itself, where a known vulnerability
+blocks; otherwise it reports not applicable. It audits nightly and by dispatch
+regardless; there a finding fails the run, and the run, its summary and the
+`toolchain-audit` artifact are the report. Org-ci does not consume it, so no
+two-step activation applies. Making it a required check is a ruleset change
+(the ruleset binds contexts from real runs, `.l9/release-plane.yaml`).
