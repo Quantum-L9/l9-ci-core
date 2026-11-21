@@ -33,7 +33,24 @@ per-repository policy data.
 - **Core** (`.github/actions/run-supply-chain/default-policy.json`): the allowed
   licences, the denied licences (GPL, AGPL, SSPL, EUPL), and aliases for the
   licence names Python metadata uses (`MIT License` -> `MIT`, ...).
-- **Repository** (`.l9/supply-chain-policy.json`, optional):
+- **Core, per repository** (`.github/actions/run-supply-chain/repositories/<owner>__<name>.json`,
+  lower case, chosen by `$GITHUB_REPOSITORY`): exemptions Core grants one
+  repository. Every entry carries a reason:
+
+  ```json
+  {
+    "schema": "l9.supply-chain-core-repo-policy/v1",
+    "repository": "Quantum-L9/<name>",
+    "exemptions": [
+      {"purl": "pkg:pypi/<package>", "license": "Proprietary", "reason": "first-party"}
+    ],
+    "additional_allowed_licenses": [{"license": "<SPDX id>", "reason": "..."}]
+  }
+  ```
+
+  A Core-denied licence can never be allowed, and the file must name its own
+  repository.
+- **Repository** (`.l9/supply-chain-policy.json`, optional, merged additively):
 
   ```json
   {
@@ -50,7 +67,7 @@ per-repository policy data.
 
 Run locally with the same steps (uv 0.13.8, Syft 1.54.0):
 
-| Repository | Result | Needed in `.l9/supply-chain-policy.json` |
+| Repository | Result | Exemption (now in Core's `repositories/` data) |
 |---|---|---|
 | l9-ci-core | pass (2 packages) | nothing |
 | Cursor-Governance (`8c1f043`) | fails on `l9-graphite-memory` (Proprietary) | `pkg:pypi/l9-graphite-memory` |

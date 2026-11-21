@@ -8,8 +8,10 @@ Subcommands (stdlib only; run with ``python3 -I``):
     ``run=true|false`` to ``$GITHUB_OUTPUT``. Any other event runs.
 
 ``policy``
-    Merge Core's ``default-policy.json`` with the repository's optional
-    ``.l9/supply-chain-policy.json`` and write the dependency-review inputs
+    Merge Core's ``default-policy.json`` with Core's per-repository data
+    (``repositories/<owner>__<name>.json`` beside this script, chosen by
+    ``--repository``, default ``$GITHUB_REPOSITORY``) and the repository's
+    optional ``.l9/supply-chain-policy.json``, and write the dependency-review inputs
     (``allow-licenses``, ``allow-dependencies-licenses``,
     ``fail-on-severity``) to ``$GITHUB_OUTPUT``. A repository may add allowed
     licences and exempt named packages; it can never allow a denied licence,
@@ -43,6 +45,9 @@ DEFAULT_POLICY = HERE / "default-policy.json"
 REPO_POLICY = Path(".l9") / "supply-chain-policy.json"
 POLICY_SCHEMA = "l9.supply-chain-policy/v1"
 REPO_POLICY_SCHEMA = "l9.supply-chain-repo-policy/v1"
+CORE_REPO_DIR = HERE / "repositories"
+CORE_REPO_SCHEMA = "l9.supply-chain-core-repo-policy/v1"
+REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 SEVERITIES = ("low", "moderate", "high", "critical")
 PURL = re.compile(r"^pkg:[a-z0-9.+-]+/[^\s,]+$")
 
@@ -148,9 +153,94 @@ def _load_repo(workspace: Path, denied: set[str]) -> tuple[set[str], list[str]]:
     return extra, exempt
 
 
-def load_policy(workspace: Path, default: Path = DEFAULT_POLICY) -> Policy:
+def core_repo_path(repository: str, directory: Path = CORE_REPO_DIR) -> Path:
+    """Core's data file for ``owner/name``: ``<owner>__<name>.json``, lower case."""
+    parts = repository.split("/")
+    if not REPOSITORY.match(repository) or any(p in (".", "..") for p in parts):
+        raise PolicyError(f"repository must be <owner>/<name>, got {repository!r}")
+    return directory / f"{parts[0].lower()}__{parts[1].lower()}.json"
+
+
+def _reasoned(value: object, key: str, what: str) -> list[str]:
+    """The ``key`` of every ``{key, reason}`` entry; a reason is mandatory."""
+    if not isinstance(value, list):
+        raise PolicyError(f"{what} must be a list")
+    out: list[str] = []
+    for entry in value:
+        if (
+            not isinstance(entry, dict)
+            or set(entry) - {key, "license", "reason"}
+            or not isinstance(entry.get(key), str)
+            or not isinstance(entry.get("reason"), str)
+            or not entry["reason"].strip()
+            or not isinstance(entry.get("license", ""), str)
+        ):
+            raise PolicyError(
+                f"{what} entries must be {{{key!r}, 'reason'}} objects with a reason"
+            )
+        out.append(entry[key])
+    return out
+
+
+def _load_core_repo(
+    repository: str, denied: set[str], directory: Path = CORE_REPO_DIR
+) -> tuple[set[str], list[str]]:
+    """(additional allowed licences, exempt purls) Core records for a repository.
+
+    Core owns this data (AGENTS.md §3: a consumer cannot author policy); a
+    repository with no file gets the Core default alone.
+    """
+    if not repository:
+        return set(), []
+    path = core_repo_path(repository, directory)
+    if path.is_symlink():
+        raise PolicyError(f"{path.name} must not be a symlink")
+    if not path.is_file():
+        return set(), []
+    data = _read_json(path, path.name)
+    if not isinstance(data, dict) or data.get("schema") != CORE_REPO_SCHEMA:
+        raise PolicyError(f"{path.name} must declare schema {CORE_REPO_SCHEMA}")
+    unknown = set(data) - {
+        "schema",
+        "repository",
+        "additional_allowed_licenses",
+        "exemptions",
+    }
+    if unknown:
+        raise PolicyError(f"{path.name} has unknown keys: {sorted(unknown)}")
+    named = data.get("repository")
+    if not isinstance(named, str) or named.lower() != repository.lower():
+        raise PolicyError(f"{path.name} names {named!r}, not {repository!r}")
+    extra = set(
+        _reasoned(
+            data.get("additional_allowed_licenses", []),
+            "license",
+            f"{path.name} additional_allowed_licenses",
+        )
+    )
+    conflict = extra & denied
+    if conflict:
+        raise PolicyError(
+            f"{path.name} cannot allow a Core-denied licence: {sorted(conflict)}"
+        )
+    exempt = _reasoned(data.get("exemptions", []), "purl", f"{path.name} exemptions")
+    bad = [p for p in exempt if not PURL.match(p)]
+    if bad:
+        raise PolicyError(f"{path.name} exemptions must be purls: {bad}")
+    return extra, exempt
+
+
+def load_policy(
+    workspace: Path,
+    default: Path = DEFAULT_POLICY,
+    repository: str = "",
+    core_repo_dir: Path = CORE_REPO_DIR,
+) -> Policy:
     allowed, denied, aliases, severity = _load_base(default)
+    core_extra, core_exempt = _load_core_repo(repository, denied, core_repo_dir)
     extra, exempt = _load_repo(workspace, denied)
+    extra |= core_extra
+    exempt = [*core_exempt, *exempt]
     return Policy(
         fail_on_severity=severity,
         allowed=frozenset((allowed | extra) - denied),
@@ -372,7 +462,7 @@ def decide_changes(workspace: Path, env: dict[str, str]) -> dict[str, str]:
 
 def _cmd_policy(args: argparse.Namespace) -> int:
     try:
-        policy = load_policy(args.workspace)
+        policy = load_policy(args.workspace, repository=args.repository)
     except PolicyError as error:
         print(f"::error::{error}", file=sys.stderr)
         return 2
@@ -388,7 +478,7 @@ def _cmd_policy(args: argparse.Namespace) -> int:
 
 def _cmd_evaluate(args: argparse.Namespace) -> int:
     try:
-        policy = load_policy(args.workspace)
+        policy = load_policy(args.workspace, repository=args.repository)
         sbom = _read_json(args.sbom, "SBOM")
         if not isinstance(sbom, dict):
             raise PolicyError("SBOM is not a JSON object")
@@ -416,6 +506,7 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="supply_chain")
     parser.add_argument("--workspace", type=Path, default=Path("."))
+    parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("changes")
     sub.add_parser("policy")
