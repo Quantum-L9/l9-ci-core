@@ -67,8 +67,8 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
     "biome": {
         "configs": ("biome.json", ".biomeignore", ".editorconfig"),
         "runs": (
-            ("org-ci.yml", "analyze", "Install Biome (digest-locked central pin)"),
-            ("org-ci.yml", "analyze", "Run Biome check (blocking)"),
+            ("org-ci.yml", "biome", "Install Biome (digest-locked central pin)"),
+            ("org-ci.yml", "biome", "Run Biome check (blocking)"),
         ),
         "formats": JS_TS_JSON,
         "lints": JS_TS_JSON,

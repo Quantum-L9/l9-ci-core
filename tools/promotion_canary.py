@@ -301,6 +301,8 @@ LEG = """\
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
+          # org-ci.yml's own checks beside analyze (Biome): job=result pairs.
+          INDEPENDENT: "@@INDEPENDENT@@"
           MATRIX_ID: canary-@@SIDE@@-${{ matrix.slug }}
           SLUG: ${{ matrix.slug }}
           REPOSITORY: ${{ matrix.repository }}
@@ -347,6 +349,14 @@ LEG = """\
               # The job failed before any verdict: infrastructure, not the
               # repository.
               status = "error"
+          independent = dict(
+              item.split("=", 1) for item in env.get("INDEPENDENT", "").split(",") if "=" in item
+          )
+          if any(result == "cancelled" for result in independent.values()):
+              status = "cancelled"
+          elif status == "pass" and any(r != "success" for r in independent.values()):
+              # A check of its own (Biome) failed while analyze passed.
+              status = "checks"
           record = {
               "schema": "l9.promotion-canary-leg/v2",
               "side": env["SIDE"],
@@ -357,6 +367,7 @@ LEG = """\
               "job_status": env["JOB_STATUS"],
               "aggregate": aggregate,
               "repository_verification": verify,
+              "independent_checks": independent,
               "blocking_finding_ids": sorted(blocking),
           }
           name = env["SIDE"] + "-" + env["SLUG"] + ".json"
@@ -627,7 +638,7 @@ def reusable_jobs(org_ci: str) -> list[tuple[str, str, str, dict[str, str]]]:
     """
     out = []
     for name, body in job_blocks(org_ci).items():
-        if name == "analyze":
+        if name == "analyze" or _is_step_job(body):
             continue
         uses, values = _reusable_call(name, body)
         match = REUSABLE.match(uses)
@@ -638,6 +649,26 @@ def reusable_jobs(org_ci: str) -> list[tuple[str, str, str, dict[str, str]]]:
             )
         out.append((name, match.group(1), match.group(2), values))
     return out
+
+
+def _is_step_job(body: str) -> bool:
+    """A job with its own block of steps (not a reusable-workflow call)."""
+    return bool(re.search(r"(?m)^ {4}steps:\n {6}- ", body))
+
+
+def step_jobs(org_ci: str) -> list[tuple[str, str]]:
+    """(job, body) for every non-analyze job that runs its own steps.
+
+    Such a job (`Biome`, its own required check) is a sibling of analyze in
+    org-ci.yml that analyze does not enforce: each leg runs it as a sibling job
+    and folds its result into the leg record, so a check that turns red at the
+    pull request's pins is a regression like any other.
+    """
+    return [
+        (name, body)
+        for name, body in job_blocks(org_ci).items()
+        if name != "analyze" and _is_step_job(body)
+    ]
 
 
 def _inputs(workflow: str) -> dict[str, str]:
@@ -720,6 +751,11 @@ def _substitute(text: str, inputs: dict[str, str], what: str) -> str:
     text = text.replace("${{ github.event_name }}", "push")
     text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", "''", text)
     text = text.replace("${{ github.sha }}", MATRIX_REVISION)
+    # A job that checks out by hand reads the repository with the leg's token.
+    text = text.replace(
+        "TOKEN: ${{ github.token }}",
+        "TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}",
+    )
     return text.replace("${{ github.repository }}", "${{ matrix.repository }}")
 
 
@@ -727,10 +763,11 @@ def _isolate_step(item: str, name: str, number: int, directory: str) -> tuple[st
     """(step text, step id): prefixed id, working directory, and a checkout
     retargeted to the evaluated repository. No continue-on-error: the step runs
     in the job's own sibling job, so a failure fails that job only."""
-    own = re.search(r"(?m)^ {8}id: ([A-Za-z0-9_-]+)$", item)
-    step_id = f"{name}__{own.group(1) if own else f's{number}'}"
+    # The id is either on its own line or the step's first key (`- id: x`).
+    own = re.search(r"(?m)^( {6}- | {8})id: ([A-Za-z0-9_-]+)$", item)
+    step_id = f"{name}__{own.group(2) if own else f's{number}'}"
     if own:
-        item = item.replace(own.group(0), f"        id: {step_id}")
+        item = item.replace(own.group(0), f"{own.group(1)}id: {step_id}", 1)
     first, _, rest = item.partition("\n")
     extra = "" if own else f"        id: {step_id}\n"
     runs_here = re.search(r"(?m)^ {8}run:", item) and not re.search(
@@ -993,6 +1030,27 @@ def leg_job(
         analyze = re.sub(
             pattern, f"${{{{ steps.{name}__result.outputs.result }}}}", analyze
         )
+    independent = []
+    for name, body in step_jobs(org_ci):
+        key = f"{name} org-ci.yml"
+        workflow = "on:\n  workflow_call:\njobs:\n  " + name + ":\n" + body
+        block = inline_job(name, workflow, {}, f"org-ci.yml job {name!r}")
+        job = f"{side}__{name}"
+        needs.append(job)
+        siblings += _fill(
+            SIBLING,
+            JOB=job,
+            NAME=name,
+            SIDE=side,
+            TITLE=title,
+            IF=condition,
+            TIMEOUT=str(SIBLING_TIMEOUT),
+            STEPS=(
+                INLINE_BEGIN.format(key=key) + block + INLINE_END.format(key=key)
+            ).rstrip("\n"),
+        )
+        results += _fill(SIBLING_RESULT, NAME=name, SIDE=side)
+        independent.append(f"{name}=${{{{ steps.{name}__result.outputs.result }}}}")
     if re.search(r"\bneeds\.", analyze):
         raise CanaryError(
             "org-ci.yml analyze reads a `needs.` value the canary cannot map"
@@ -1015,6 +1073,7 @@ def leg_job(
         TIMEOUT=str(LEG_TIMEOUT),
         STEPS=(results + analyze).rstrip("\n"),
         DIGEST=digest or steps_digest(org_ci),
+        INDEPENDENT=",".join(independent),
     )
 
 

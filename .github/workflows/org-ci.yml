@@ -171,6 +171,203 @@ jobs:
     with:
       gitleaks-scope: event
 
+  # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
+  # beside `security` and `analyze`, for every repository the organization
+  # ruleset governs, and always reports: no biome.json / biome.jsonc is a
+  # success that says "not applicable: no biome configuration"; a pull request
+  # that changes no file in Biome's scope is a success that says so. A pull
+  # request and a merge group are judged on the files they change, never on
+  # the code already there (incoming code only); a push of the default branch
+  # on the files the push changes; any other event (a dispatch, the nightly
+  # sink, the promotion canary) on the whole tree. Findings are annotated at
+  # their file and line by Biome's GitHub reporter, counted in the job summary
+  # with the first of them, and fail the job: the mode is blocking.
+  biome:
+    name: Biome
+    # The same ref gate as `security` and `analyze`.
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=2 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${REPOSITORY}.git"
+
+      # What Biome judges: the files the event changes, or the whole tree.
+      # `biome ci --changed --since` needs the merge base in local history,
+      # which a shallow CI checkout cannot promise; a diff of the two fetched
+      # commits names the same files exactly, and the paths go to `biome ci`,
+      # which still applies the repository's own files.includes.
+      - name: Resolve Biome's scope
+        id: biome_scope
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          paths="${RUNNER_TEMP}/biome-paths"
+          : > "${paths}"
+          echo "paths=${paths}" >> "$GITHUB_OUTPUT"
+          if [ ! -f biome.json ] && [ ! -f biome.jsonc ]; then
+            echo "applies=false" >> "$GITHUB_OUTPUT"
+            echo "Biome: not applicable: no biome configuration"
+            echo "- Biome (blocking): not applicable: no biome configuration (no biome.json or biome.jsonc at the repository root)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "applies=true" >> "$GITHUB_OUTPUT"
+          case "${EVENT_NAME}" in
+            pull_request) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          if [ "${EVENT_NAME}" = "push" ] && { [ -z "${base}" ] || [ -z "${base//0/}" ]; }; then
+            # A new branch or a first push has no previous revision.
+            base=""
+          fi
+          if [ -z "${base}" ]; then
+            echo "scope=full" >> "$GITHUB_OUTPUT"
+            echo "Biome scope: the whole tree (${EVENT_NAME})"
+            exit 0
+          fi
+          if ! printf '%s' "${base}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error title=Biome scope::the ${EVENT_NAME} base '${base}' is not a full commit id, so the changed files cannot be named"
+            exit 1
+          fi
+          auth="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            if ! git -c "http.https://github.com/.extraheader=${auth}" \
+                -c protocol.version=2 fetch -q --depth=1 origin "${base}"; then
+              echo "::error title=Biome scope::the ${EVENT_NAME} base ${base} could not be fetched from ${REPOSITORY}, so the changed files cannot be named"
+              exit 1
+            fi
+          fi
+          git diff --name-only --diff-filter=d -z "${base}" "${REVISION}" > "${paths}"
+          count="$(tr -cd '\0' < "${paths}" | wc -c | tr -d ' ')"
+          echo "scope=changed" >> "$GITHUB_OUTPUT"
+          echo "changed=${count}" >> "$GITHUB_OUTPUT"
+          echo "Biome scope: ${count} file(s) the ${EVENT_NAME} changes since ${base}"
+
+      - id: biome
+        name: Install Biome (digest-locked central pin)
+        if: >-
+          steps.biome_scope.outputs.applies == 'true'
+          && (steps.biome_scope.outputs.scope == 'full' || steps.biome_scope.outputs.changed != '0')
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ee1720b9863bec15fdfebac13b220aeb699d781
+
+      - name: Run Biome check (blocking)
+        id: biome_check
+        if: steps.biome_scope.outputs.applies == 'true'
+        env:
+          L9_BIOME_EXECUTABLE: ${{ steps.biome.outputs.executable }}
+          L9_BIOME_VERSION: ${{ steps.biome.outputs['provider-version'] }}
+          L9_BIOME_SCOPE: ${{ steps.biome_scope.outputs.scope }}
+          L9_BIOME_PATHS: ${{ steps.biome_scope.outputs.paths }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          temp = Path(env["RUNNER_TEMP"])
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          scope = env.get("L9_BIOME_SCOPE", "")
+          paths = [p for p in Path(env["L9_BIOME_PATHS"]).read_bytes().decode().split("\0") if p]
+          header = "- Biome (blocking)"
+
+          def write(lines):
+              with summary.open("a", encoding="utf-8") as stream:
+                  stream.write("\n".join(lines) + "\n")
+
+          if scope == "changed" and not paths:
+              print("Biome: no changed files in Biome's scope")
+              write([f"{header}: pass: no changed files in Biome's scope"])
+              sys.exit(0)
+          executable = env.get("L9_BIOME_EXECUTABLE", "")
+          if not executable or not Path(executable).is_file():
+              sys.exit("::error title=Biome::the verified Biome executable is missing; the check cannot run")
+          report = temp / "biome-report.json"
+          sarif = temp / "biome.sarif"
+          command = [
+              executable, "ci", "--no-errors-on-unmatched",
+              "--reporter=github",
+              "--reporter=json", f"--reporter-file={report}",
+              "--reporter=sarif", f"--reporter-file={sarif}",
+          ]
+          command += ["--", *paths] if scope == "changed" else ["."]
+          code = subprocess.run(command, check=False).returncode
+          try:
+              data = json.loads(report.read_text(encoding="utf-8"))
+              counts = data["summary"]
+              diagnostics = data.get("diagnostics", [])
+          except (OSError, ValueError, KeyError) as error:
+              sys.exit(
+                  f"::error title=Biome::biome ci exited {code} and wrote no readable "
+                  f"report ({error}): `{' '.join(command[:2])} ...` failed before judging any file"
+              )
+          checked = int(counts.get("changed", 0)) + int(counts.get("unchanged", 0))
+          errors = int(counts.get("errors", 0))
+          warnings = int(counts.get("warnings", 0))
+          where = "the files this change touches" if scope == "changed" else "the whole tree"
+          if scope == "changed" and checked == 0 and code == 0:
+              print("Biome: no changed files in Biome's scope")
+              write([f"{header}: pass: no changed files in Biome's scope ({len(paths)} changed file(s), none Biome handles)"])
+              sys.exit(0)
+          status = "pass" if code == 0 else "findings" if code == 1 else "error"
+          lines = [
+              f"{header}: {status}: {checked} file(s) of {where}, "
+              f"{errors} error(s), {warnings} warning(s) (Biome {env.get('L9_BIOME_VERSION', '?')})"
+          ]
+          shown = [d for d in diagnostics if d.get("severity") in ("error", "fatal")][:20]
+          if shown:
+              lines += ["", "| File | Line | Rule | Message |", "|---|---|---|---|"]
+              for item in shown:
+                  location = item.get("location") or {}
+                  # 0 is Biome's file-level position (a format diagnostic).
+                  start = (location.get("start") or {}).get("line") or "—"
+                  message = str(item.get("message", "")).replace("|", "\\|")[:200]
+                  lines.append(
+                      f"| `{location.get('path', '')}` | {start} | `{item.get('category', '')}` | {message} |"
+                  )
+              more = errors - len(shown)
+              if more > 0:
+                  lines.append(f"\n+{more} more error(s): see the annotations")
+          write(lines)
+          if code == 1:
+              print(
+                  f"::error title=Biome::{errors} error(s) in {where}; each is annotated at its "
+                  "file and line above, and the first are listed in the job summary"
+              )
+          elif code != 0:
+              print(f"::error title=Biome::biome ci exited {code}: an infrastructure failure, not a finding")
+          sys.exit(code)
+          PY
+
   analyze:
     # The required check name. Its one source is .l9/org-runtime-contract.yaml
     # (entrypoint.required_check.name); tests/workflows/test_required_check_name.py
@@ -424,27 +621,6 @@ jobs:
               raise SystemExit(f"consumer waiver_refs are not centrally applicable: {unknown}")
           PY
 
-      # Core owns the consumer-facing Biome check end to end: the version is
-      # the `biome` key of Core's toolchain lock, the binary is digest-locked,
-      # and the run is blocking (findings annotate, then fail the step;
-      # infrastructure failures are fatal). It is independent of Semgrep
-      # governance; a consumer without biome.json or biome.jsonc is
-      # not_applicable and nothing is downloaded.
-      - id: biome
-        name: Install Biome (digest-locked central pin)
-        if: hashFiles('biome.json', 'biome.jsonc') != ''
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ee1720b9863bec15fdfebac13b220aeb699d781
-
-      - id: biome_check
-        name: Run Biome check (blocking)
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          executable: ${{ steps.biome.outputs.executable }}
-          provider-version: ${{ steps.biome.outputs['provider-version'] }}
-          mode: blocking
-
       # Repository verification runs the consumer's `make setup`, which may
       # install OS packages with apt (e.g. Playwright's Chromium libraries and
       # fonts). Their downloaded .deb archives are cached per repository so an
@@ -557,7 +733,6 @@ jobs:
           MODE: ${{ steps.gov.outputs.mode }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status || steps.repository_verify.outcome }}
           TOOLCHAIN_ALIGNMENT: ${{ steps.toolchain.outcome }}
-          BIOME_STATUS: ${{ steps.biome_check.outputs.status || steps.biome_check.outcome }}
         run: |
           {
             echo "### L9 central CI"
@@ -567,7 +742,7 @@ jobs:
             echo "- Mode: \`${MODE:-unknown}\`"
             echo "- Repository verification: \`${REPOSITORY_VERIFY:-unavailable}\`"
             echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
-            echo "- Biome (blocking): \`${BIOME_STATUS:-unavailable}\`"
+            echo "- Biome: its own check, \`Biome\` (docs/biome-check.md)"
             echo "- Semgrep: not run on pull requests; central-semgrep.yml runs it nightly (docs/semgrep-runs-nightly.md)"
           } >> "$GITHUB_STEP_SUMMARY"
 

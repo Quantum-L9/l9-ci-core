@@ -59,7 +59,7 @@ class RunnerFamilyTests(unittest.TestCase):
     def test_entrypoint_does_not_claim_a_fixed_runner_image_build(self) -> None:
         """GitHub rolls hosted image builds within a family; Core must say so."""
         text = ORG_CI.read_text(encoding="utf-8")
-        runs_on = text.index("runs-on: ubuntu-24.04")
+        runs_on = text.index("runs-on: ubuntu-24.04", text.index("\n  analyze:\n"))
         comment = text[max(0, runs_on - 800) : runs_on]
         self.assertIn("GitHub still rolls hosted image builds", comment)
         self.assertNotRegex(text, r"(?i)immutable (runner )?image")

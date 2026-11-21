@@ -17,7 +17,7 @@
     },
     {
       "path": "tools/l9_repo/tool_ownership.py",
-      "sha256": "sha256:d27b3e716d25f7a87f05ab728dbdf3eab43eaacd0c1f0aba4a7e644b6021ece2"
+      "sha256": "sha256:c63fb34e08ab8dc0cc819913b0c53843f4e44726db5c11af56c6aef2476bf7bc"
     }
   ],
   "profiles": [
@@ -66,12 +66,12 @@
       "runs": [
         {
           "workflow": "org-ci.yml",
-          "job": "analyze",
+          "job": "biome",
           "step": "Install Biome (digest-locked central pin)"
         },
         {
           "workflow": "org-ci.yml",
-          "job": "analyze",
+          "job": "biome",
           "step": "Run Biome check (blocking)"
         }
       ]

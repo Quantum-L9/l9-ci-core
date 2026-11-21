@@ -40,8 +40,6 @@ Classes:
 | Resolve optional consumer metadata | PLUMBING | |
 | Resolve central governance | PLUMBING | |
 | Validate consumer waiver pointers | BLOCKING_CORRECTNESS | A consumer cannot waive what Core did not make waivable |
-| Install Biome (digest-locked central pin) | PLUMBING | |
-| Run Biome check (blocking) | SPLIT | Lint is BLOCKING_CORRECTNESS, formatting is HOUSEKEEPING (CTO, 2026-11-21). `run-biome-check` takes `checks: format` or `lint` from this revision on; org-ci runs them as two steps once its pin reaches this revision (§16, step two) |
 | Route apt package archives to the verification cache | PLUMBING | Cache errors only warn |
 | Restore cached apt package archives | PLUMBING | |
 | Run repository verification contract | PLUMBING | Records the result; the enforce step below decides |
@@ -62,6 +60,21 @@ Classes:
 | Core-stamp: a Core-owned file modified or removed locally | BLOCKING_CORRECTNESS | Integrity: its bytes match neither Core nor the digest the record holds (`tools/l9_repo/stamp.py` `classify_stamp`) |
 | Core-stamp: a Core-owned file merely behind Core | HOUSEKEEPING | Drift: the file still carries the bytes it was stamped with, Core added a file after the stamp, or the record is stale; reported as `::warning`, never fails |
 | Infrastructure failure (registry unreadable, tool unavailable) | BLOCKING_CORRECTNESS | INCOMPLETE never passes |
+
+## Biome (`org-ci.yml` job `biome`, the `Biome` check)
+
+Operator decision 2026-11-21 ([biome-check.md](biome-check.md)): Biome is its
+own check beside `analyze`, blocking, and meant to be required by the
+organization ruleset. It always reports: a repository without a Biome
+configuration, and a change that touches no file in Biome's scope, both
+succeed and say so.
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout immutable event revision | PLUMBING | Fixes the evaluated revision |
+| Resolve Biome's scope | PLUMBING | Names the files the event changes (pull request: against its base; merge group: against the group base; push: against the previous revision) or the whole tree; an unresolvable base fails the step, never widens or narrows the scope silently |
+| Install Biome (digest-locked central pin) | PLUMBING | Only when there is something to judge |
+| Run Biome check (blocking) | BLOCKING_CORRECTNESS | `biome ci` lint and format of the changed files; findings are annotated at file and line and fail the job; an infrastructure failure is never a pass. Splitting formatting out as housekeeping stays in the backlog below |
 
 ## Backlog (rollout campaign)
 

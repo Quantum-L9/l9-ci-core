@@ -140,8 +140,9 @@ class RenderTests(unittest.TestCase):
         self.assertIn(steps, self.canary)
         org = yaml.safe_load(self.org_ci)["jobs"]["analyze"]["steps"]
         head = leg_steps(self.canary, "head")
-        # Inlined reusable jobs run first; analyze's own steps follow them.
+        # Inlined sibling jobs' results come first; analyze's own steps follow.
         prefixes = tuple(f"{j[0]}__" for j in pc.reusable_jobs(self.org_ci))
+        prefixes += tuple(f"{j[0]}__" for j in pc.step_jobs(self.org_ci))
         if prefixes:
             last = max(
                 i
@@ -219,6 +220,7 @@ class RenderTests(unittest.TestCase):
         # Each reusable org-ci job runs as a sibling job ahead of its leg (#327):
         # head and admitted from this org-ci.yml, base from the base org-ci.yml.
         own = [name for name, *_ in pc.reusable_jobs(self.org_ci)]
+        own += [name for name, _ in pc.step_jobs(self.org_ci)]
         base_siblings = [job for job in jobs if job.startswith("base__")]
         scanbase_siblings = [job for job in jobs if job.startswith("scanbase__")]
         self.assertEqual(
@@ -370,13 +372,17 @@ class ConsumerEventTests(unittest.TestCase):
     def test_org_ci_runs_its_own_event_and_carries_every_optional_anchor(self) -> None:
         # The merge-group base belonged to the CENTRAL-DIFF baseline, which left
         # with Semgrep (docs/semgrep-runs-nightly.md): only an older base leg carries it now.
+        # The Biome job names its own merge-group base; it is inlined as a
+        # sibling, whose event fields are emptied, so analyze's steps are what
+        # the anchors are judged against.
         retired = "${{ github.event.merge_group.base_sha }}"
+        analyze = pc.analyze_steps(self.org_ci) + SCAN_TEXT
         for old, _ in pc.OPTIONAL_REPLACEMENTS:
             with self.subTest(anchor=old):
                 if old == retired:
-                    self.assertNotIn(old, self.org_ci + SCAN_TEXT)
+                    self.assertNotIn(old, analyze)
                 else:
-                    self.assertIn(old, self.org_ci + SCAN_TEXT)
+                    self.assertIn(old, analyze)
         data = yaml.safe_load(self.org_ci)
         step = next(
             s
@@ -463,12 +469,15 @@ class ReusableJobTests(unittest.TestCase):
             [
                 "plan",
                 "head__security",
+                # Biome is its own check: a sibling org-ci.yml step job.
+                "head__biome",
                 "head",
                 # The scan legs run central-semgrep.yml, which has no sibling
                 # job; the admitted leg is a scan leg.
                 "scan",
                 "admitted",
                 "base__security",
+                "base__biome",
                 "base",
                 "verdict",
             ],
@@ -493,7 +502,9 @@ class ReusableJobTests(unittest.TestCase):
                 self.assertEqual("error", upload["with"]["if-no-files-found"])
                 self.assertIn("${{ job.status }}", yaml.safe_dump(sibling["steps"][-2]))
                 leg = jobs[side]
-                self.assertEqual(["plan", f"{side}__security"], leg["needs"])
+                self.assertEqual(
+                    ["plan", f"{side}__security", f"{side}__biome"], leg["needs"]
+                )
                 self.assertEqual(f"${{{{ !cancelled() && ({condition}) }}}}", leg["if"])
                 steps = leg["steps"]
                 ids = [s.get("id") for s in steps]
@@ -1311,10 +1322,17 @@ class ScanLegTests(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertNotEqual("nightly", self.runtime_event(job))
 
-    def classify(self, job_status: str, aggregate: str, verify: str = "") -> str:
+    def classify(
+        self,
+        job_status: str,
+        aggregate: str,
+        verify: str = "",
+        independent: str = "",
+        job: str = "scan",
+    ) -> str:
         record = next(
             s
-            for s in self.jobs["scan"]["steps"]
+            for s in self.jobs[job]["steps"]
             if s.get("name") == "Record the canary leg"
         )
         script = str(record["run"])
@@ -1329,6 +1347,7 @@ class ScanLegTests(unittest.TestCase):
                 "JOB_STATUS": job_status,
                 "AGGREGATE_STATUS": aggregate,
                 "REPOSITORY_VERIFY": verify,
+                "INDEPENDENT": independent,
                 "MATRIX_ID": "canary-scan-x",
                 "SLUG": "x",
                 "REPOSITORY": "Quantum-L9/x",
@@ -1356,6 +1375,64 @@ class ScanLegTests(unittest.TestCase):
         ):
             with self.subTest(job=job_status, aggregate=aggregate):
                 self.assertEqual(expected, self.classify(job_status, aggregate))
+
+
+class StepJobTests(ScanLegTests):
+    """org-ci.yml's own checks beside analyze (Biome) run as sibling jobs of
+    each leg, and their result is part of the leg's record."""
+
+    def test_a_failing_own_check_makes_a_passing_leg_red(self) -> None:
+        for independent, expected in (
+            ("biome=success", "pass"),
+            ("biome=failure", "checks"),
+            ("biome=cancelled", "cancelled"),
+        ):
+            with self.subTest(independent=independent):
+                self.assertEqual(
+                    expected,
+                    self.classify("success", "", "pass", independent, job="head"),
+                )
+
+    def test_the_head_leg_records_the_biome_result(self) -> None:
+        record = next(
+            s
+            for s in self.jobs["head"]["steps"]
+            if s.get("name") == "Record the canary leg"
+        )
+        self.assertEqual(
+            "biome=${{ steps.biome__result.outputs.result }}",
+            record["env"]["INDEPENDENT"],
+        )
+        self.assertIn("head__biome", self.jobs["head"]["needs"])
+
+    def test_a_first_key_id_is_isolated_and_its_references_follow(self) -> None:
+        steps = self.jobs["head__biome"]["steps"]
+        ids = [s.get("id") for s in steps]
+        self.assertIn("biome__biome", ids)
+        run = next(s for s in steps if s.get("id") == "biome__biome_check")
+        self.assertEqual(
+            "${{ steps.biome__biome.outputs.executable }}",
+            run["env"]["L9_BIOME_EXECUTABLE"],
+        )
+
+    def test_a_step_job_reads_a_private_repository_with_the_leg_token(self) -> None:
+        checkout = self.jobs["head__biome"]["steps"][0]
+        self.assertEqual(
+            "${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}",
+            checkout["env"]["TOKEN"],
+        )
+
+    def test_an_empty_steps_job_is_still_refused(self) -> None:
+        org_ci = (
+            (ROOT / pc.ORG_CI)
+            .read_text(encoding="utf-8")
+            .replace(
+                "\n  analyze:\n",
+                "\n  other:\n    runs-on: x\n    steps: []\n  analyze:\n",
+            )
+        )
+        with self.assertRaises(pc.CanaryError):
+            pc.reusable_jobs(org_ci)
 
 
 class AdmittedVerdictTests(VerdictTests):
