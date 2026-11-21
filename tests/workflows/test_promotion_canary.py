@@ -35,34 +35,62 @@ def _load():
 pc = _load()
 
 
+def leg_steps(workflow: str, job: str) -> list[dict[str, object]]:
+    return yaml.safe_load(workflow)["jobs"][job]["steps"]
+
+
 class RenderTests(unittest.TestCase):
     def setUp(self) -> None:
         self.org_ci = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
         self.canary = (ROOT / pc.CANARY).read_text(encoding="utf-8")
 
     def test_the_committed_canary_is_the_render_of_org_ci(self) -> None:
-        self.assertEqual(pc.render(self.org_ci), self.canary)
+        base = pc.embedded_base(self.canary)
+        self.assertEqual(pc.render(self.org_ci, base), self.canary)
         with redirect_stdout(io.StringIO()):
             self.assertEqual(0, pc.main(["--root", str(ROOT), "render", "--check"]))
 
-    def test_the_canary_runs_org_ci_steps_verbatim_apart_from_the_target(self) -> None:
+    def test_the_head_leg_runs_org_ci_steps_verbatim_apart_from_the_target(
+        self,
+    ) -> None:
         steps = pc.analyze_steps(self.org_ci)
         for old, new in pc.REPLACEMENTS:
-            steps = steps.replace(old, new)
+            steps = steps.replace(old, new.replace("@@SIDE@@", "head"))
         self.assertIn(steps, self.canary)
         org = yaml.safe_load(self.org_ci)["jobs"]["analyze"]["steps"]
-        canary = yaml.safe_load(self.canary)["jobs"]["head"]["steps"]
+        head = leg_steps(self.canary, "head")
         self.assertEqual(
             [s.get("uses") or s.get("name") for s in org],
-            [s.get("uses") or s.get("name") for s in canary[: len(org)]],
+            [s.get("uses") or s.get("name") for s in head[: len(org)]],
+        )
+
+    def test_the_base_leg_is_the_same_render_for_the_base_org_ci(self) -> None:
+        block = pc.base_block(self.org_ci)
+        self.assertTrue(block.startswith(pc.BASE_BEGIN))
+        self.assertTrue(block.endswith(pc.BASE_END))
+        rendered = pc.render(self.org_ci, block)
+        head = leg_steps(rendered, "head")
+        base = leg_steps(rendered, "base")
+        self.assertEqual(len(head), len(base))
+        dumped = yaml.safe_dump(base)
+        self.assertIn("canary-base-${{ matrix.slug }}", dumped)
+        self.assertNotIn("canary-head-", dumped)
+        record = next(s for s in base if s.get("name") == "Record the canary leg")
+        upload = next(
+            s for s in base if s.get("name") == "Upload the canary leg record"
+        )
+        self.assertEqual("base", record["env"]["SIDE"])
+        self.assertEqual(pc.steps_digest(self.org_ci), record["env"]["DIGEST"])
+        self.assertEqual(
+            "promotion-canary-base-${{ matrix.slug }}", upload["with"]["name"]
         )
 
     def test_no_target_reference_survives(self) -> None:
-        canary = yaml.safe_load(self.canary)["jobs"]["head"]
-        text = yaml.safe_dump(canary["steps"])
-        self.assertNotRegex(text, r"github\.(repository|sha|ref)\b")
-        self.assertIn("matrix.repository", text)
-        self.assertIn("matrix.revision", text)
+        for job in ("head", "base"):
+            text = yaml.safe_dump(leg_steps(self.canary, job))
+            self.assertNotRegex(text, r"github\.(repository|sha|ref)\b")
+            self.assertIn("matrix.repository", text)
+            self.assertIn("matrix.revision", text)
 
     def test_a_new_target_reference_is_refused_not_carried(self) -> None:
         changed = self.org_ci.replace(
@@ -71,14 +99,14 @@ class RenderTests(unittest.TestCase):
             1,
         )
         with self.assertRaisesRegex(pc.CanaryError, "cannot retarget"):
-            pc.render(changed)
+            pc.leg_job("head", changed)
 
     def test_a_vanished_target_reference_is_refused(self) -> None:
         changed = self.org_ci.replace("${{ github.ref }}", "refs/heads/main")
         with self.assertRaisesRegex(pc.CanaryError, "no longer contains"):
-            pc.render(changed)
+            pc.leg_job("head", changed)
 
-    def test_a_stale_canary_fails_the_check(self) -> None:
+    def test_a_stale_or_baseless_canary_fails_the_check(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / pc.ORG_CI).parent.mkdir(parents=True)
@@ -86,18 +114,54 @@ class RenderTests(unittest.TestCase):
             (root / pc.CANARY).write_text(self.canary + "# drift\n", encoding="utf-8")
             with redirect_stderr(io.StringIO()):
                 self.assertEqual(1, pc.main(["--root", tmp, "render", "--check"]))
-            with redirect_stdout(io.StringIO()):
-                self.assertEqual(0, pc.main(["--root", tmp, "render"]))
-            self.assertEqual(self.canary, (root / pc.CANARY).read_text("utf-8"))
+            without_base = self.canary.replace(pc.embedded_base(self.canary), "")
+            (root / pc.CANARY).write_text(without_base, encoding="utf-8")
+            with redirect_stderr(io.StringIO()):
+                self.assertEqual(2, pc.main(["--root", tmp, "render", "--check"]))
 
-    def test_the_verdict_always_runs_and_the_legs_never_stop_each_other(self) -> None:
+    def test_every_job_is_read_only_and_the_verdict_decides_itself(self) -> None:
         jobs = yaml.safe_load(self.canary)["jobs"]
+        self.assertEqual(["plan", "head", "base", "verdict"], list(jobs))
+        for name, job in jobs.items():
+            with self.subTest(job=name):
+                self.assertEqual({"contents": "read"}, job["permissions"])
         self.assertEqual("${{ !cancelled() }}", jobs["verdict"]["if"])
         self.assertEqual("Promotion canary (Core)", jobs["verdict"]["name"])
-        self.assertEqual(["plan", "head"], jobs["verdict"]["needs"])
-        self.assertIs(False, jobs["head"]["strategy"]["fail-fast"])
-        for job in jobs.values():
-            self.assertEqual({"contents": "read"}, job["permissions"])
+        self.assertEqual(["plan", "head", "base"], jobs["verdict"]["needs"])
+        for leg in ("head", "base"):
+            self.assertIs(False, jobs[leg]["strategy"]["fail-fast"])
+        self.assertEqual(pc.HEAD_IF, jobs["head"]["if"])
+        self.assertEqual(pc.BASE_IF, jobs["base"]["if"])
+
+    def test_the_verdict_downloads_both_legs_of_one_run(self) -> None:
+        """The #312 failure: a differential plan must reach base-<slug> records.
+
+        Both legs run in the pull request's own run and upload
+        promotion-canary-<side>-<slug>; the verdict downloads that pattern from
+        the same run, and judge() reads <side>-<slug>.json.
+        """
+        jobs = yaml.safe_load(self.canary)["jobs"]
+        download = next(
+            s
+            for s in jobs["verdict"]["steps"]
+            if s.get("name") == "Download the canary leg records"
+        )
+        self.assertEqual("promotion-canary-*", download["with"]["pattern"])
+        self.assertTrue(download["with"]["merge-multiple"])
+        self.assertNotIn("run-id", download["with"])
+        for side in ("head", "base"):
+            upload = next(
+                s
+                for s in jobs[side]["steps"]
+                if s.get("name") == "Upload the canary leg record"
+            )
+            self.assertEqual(
+                f"promotion-canary-{side}-${{{{ matrix.slug }}}}",
+                upload["with"]["name"],
+            )
+            self.assertTrue(
+                upload["with"]["path"].endswith(f"/{side}-${{{{ matrix.slug }}}}.json")
+            )
 
     def test_no_paths_filter_so_the_check_always_reports(self) -> None:
         on = yaml.safe_load(self.canary)[True]
@@ -148,13 +212,59 @@ class DeclarationTests(unittest.TestCase):
                     pc.load_declaration(Path(tmp))
 
 
+def _git(tmp: str, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", tmp, *args], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
 class PlanTests(unittest.TestCase):
+    """The plan, against a real two-commit history (HEAD^1 is the base tip)."""
+
+    def setUp(self) -> None:
+        self.org_ci = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
+        self.changed = self.org_ci + "      # a changed analyze step\n"
+
+    def repo(self, tmp: str, head_org_ci: str, embedded_from: str) -> None:
+        root = Path(tmp)
+        _git(tmp, "init", "-q")
+        _git(tmp, "config", "user.email", "t@example.invalid")
+        _git(tmp, "config", "user.name", "t")
+        for path in (pc.ORG_CI, pc.DECLARATION):
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / pc.DECLARATION).write_text(
+            (ROOT / pc.DECLARATION).read_text("utf-8"), encoding="utf-8"
+        )
+        (root / pc.ORG_CI).write_text(self.org_ci, encoding="utf-8")
+        (root / pc.CANARY).write_text(
+            pc.render(self.org_ci, pc.base_block(self.org_ci)), encoding="utf-8"
+        )
+        (root / "README.md").write_text("x\n", encoding="utf-8")
+        _git(tmp, "add", ".")
+        _git(tmp, "commit", "-qm", "base")
+        (root / pc.ORG_CI).write_text(head_org_ci, encoding="utf-8")
+        (root / pc.CANARY).write_text(
+            pc.render(head_org_ci, pc.base_block(embedded_from)), encoding="utf-8"
+        )
+        (root / "README.md").write_text("y\n", encoding="utf-8")
+        _git(tmp, "commit", "-qam", "change")
+
+    def plan(self, tmp: str) -> dict[str, str]:
+        out = io.StringIO()
+        with (
+            redirect_stdout(out),
+            mock.patch.dict("os.environ", {"GITHUB_OUTPUT": ""}),
+            mock.patch.object(pc, "_get", lambda url, token: {"sha": "a" * 40}),
+        ):
+            self.assertEqual(0, pc.main(["--root", tmp, "plan"]))
+        return dict(
+            line.split("=", 1) for line in out.getvalue().splitlines() if "=" in line
+        )
+
     def test_watched_paths_cover_org_ci_and_every_action_it_calls(self) -> None:
-        org_ci = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
-        actions = pc.core_action_paths(org_ci)
+        actions = pc.core_action_paths(self.org_ci)
         self.assertIn(".github/actions/run-repository-verification/", actions)
         self.assertIn(".github/actions/provision-sdk/", actions)
-        watched = [*pc.STATIC_PATHS, *actions]
         self.assertEqual(
             [
                 ".github/actions/provision-sdk/action.yml",
@@ -169,126 +279,78 @@ class PlanTests(unittest.TestCase):
                     ".github/actions/provision-sdkx/action.yml",
                     "docs/supply-chain.md",
                 ],
-                watched,
+                [*pc.STATIC_PATHS, *actions],
             ),
         )
 
-    def _repo(self, tmp: str) -> tuple[str, str]:
-        def git(*args: str) -> str:
-            return subprocess.run(
-                ["git", "-C", tmp, *args], check=True, capture_output=True, text=True
-            ).stdout.strip()
-
-        git("init", "-q")
-        git("config", "user.email", "t@example.invalid")
-        git("config", "user.name", "t")
-        root = Path(tmp)
-        (root / pc.ORG_CI).parent.mkdir(parents=True)
-        (root / pc.ORG_CI).write_text(
-            (ROOT / pc.ORG_CI).read_text("utf-8"), encoding="utf-8"
-        )
-        (root / pc.DECLARATION).parent.mkdir(parents=True)
-        (root / pc.DECLARATION).write_text(
-            (ROOT / pc.DECLARATION).read_text("utf-8"), encoding="utf-8"
-        )
-        (root / "README.md").write_text("x\n", encoding="utf-8")
-        git("add", ".")
-        git("commit", "-qm", "base")
-        base = git("rev-parse", "HEAD")
-        (root / "README.md").write_text("y\n", encoding="utf-8")
-        git("commit", "-qam", "docs")
-        return base, git("rev-parse", "HEAD")
-
     def test_a_change_outside_the_canary_paths_does_not_apply(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            self._repo(tmp)
-            out = io.StringIO()
-            with (
-                redirect_stdout(out),
-                mock.patch.dict("os.environ", {"GITHUB_OUTPUT": ""}),
-            ):
-                code = pc.main(["--root", tmp, "plan"])
-            self.assertEqual(0, code)
-            self.assertIn("applies=false", out.getvalue())
-
-    def test_a_change_to_org_ci_plans_every_declared_repository(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            self._repo(tmp)
-            org = Path(tmp) / pc.ORG_CI
-            org.write_text(org.read_text("utf-8") + "# change\n", encoding="utf-8")
-            subprocess.run(["git", "-C", tmp, "commit", "-qam", "org"], check=True)
-            resolved = []
-
-            def fake_get(url: str, token: str) -> dict[str, str]:
-                resolved.append((url, token))
-                return {"sha": "a" * 40}
-
-            out = io.StringIO()
-            env = {
-                "GITHUB_OUTPUT": "",
-                "L9_CANARY_TOKEN": "public",
-                "L9_CANARY_PRIVATE_TOKEN": "private",
-            }
-            with (
-                redirect_stdout(out),
-                mock.patch.dict("os.environ", env),
-                mock.patch.object(pc, "_get", fake_get),
-            ):
-                code = pc.main(["--root", tmp, "plan"])
-            self.assertEqual(0, code)
-            values = dict(
-                line.split("=", 1)
-                for line in out.getvalue().splitlines()
-                if "=" in line
+            # The second commit changes README.md only; the canary renders
+            # byte-identically, so no canary path is touched.
+            self.repo(tmp, self.org_ci, self.org_ci)
+            self.assertEqual(
+                "README.md", _git(tmp, "diff", "--name-only", "HEAD^1", "HEAD")
             )
-            self.assertEqual("true", values["applies"])
-            legs = json.loads(values["matrix"])["include"]
-            self.assertEqual(5, len(legs))
-            self.assertTrue(all(leg["revision"] == "a" * 40 for leg in legs))
-            tokens = {
-                url.split("/repos/")[1].split("/commits")[0]: t for url, t in resolved
-            }
-            self.assertEqual("private", tokens["Quantum-L9/l9-ci-sdk"])
-            self.assertEqual("public", tokens["Quantum-L9/l9-ci-core"])
-            self.assertEqual("true", values["differential"])
-            self.assertNotEqual(values["head-digest"], values["base-digest"])
+            values = self.plan(tmp)
+        self.assertEqual("false", values["applies"])
+
+    def test_an_analyze_change_with_a_current_base_runs_both_legs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.repo(tmp, self.changed, self.org_ci)
+            values = self.plan(tmp)
+        self.assertEqual("true", values["applies"])
+        self.assertEqual("true", values["differential"])
+        self.assertEqual("true", values["base-current"])
+        self.assertEqual(pc.steps_digest(self.org_ci), values["base-digest"])
+        self.assertEqual(pc.steps_digest(self.changed), values["head-digest"])
+        legs = json.loads(values["matrix"])["include"]
+        self.assertEqual(5, len(legs))
+
+    def test_a_stale_embedded_base_is_reported_not_run(self) -> None:
+        stale = self.org_ci + "      # main moved since the render\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            self.repo(tmp, self.changed, stale)
+            values = self.plan(tmp)
+        self.assertEqual("true", values["differential"])
+        self.assertEqual("false", values["base-current"])
 
     def test_a_change_outside_the_analyze_steps_is_not_differential(self) -> None:
+        header_only = "# header comment\n" + self.org_ci
         with tempfile.TemporaryDirectory() as tmp:
-            self._repo(tmp)
-            org = Path(tmp) / pc.ORG_CI
-            org.write_text("# header comment\n" + org.read_text("utf-8"), "utf-8")
-            subprocess.run(["git", "-C", tmp, "commit", "-qam", "org"], check=True)
-            out = io.StringIO()
-            with (
-                redirect_stdout(out),
-                mock.patch.dict("os.environ", {"GITHUB_OUTPUT": ""}),
-                mock.patch.object(pc, "_get", lambda url, token: {"sha": "a" * 40}),
-            ):
-                self.assertEqual(0, pc.main(["--root", tmp, "plan"]))
-            values = dict(
-                line.split("=", 1)
-                for line in out.getvalue().splitlines()
-                if "=" in line
-            )
-            self.assertEqual("true", values["applies"])
-            self.assertEqual("false", values["differential"])
-            self.assertEqual(values["head-digest"], values["base-digest"])
+            self.repo(tmp, header_only, self.org_ci)
+            values = self.plan(tmp)
+        self.assertEqual("true", values["applies"])
+        self.assertEqual("false", values["differential"])
+        self.assertEqual("false", values["base-current"])
+        self.assertEqual(values["head-digest"], values["base-digest"])
+
+    def test_the_private_repository_is_resolved_with_the_private_token(self) -> None:
+        seen = []
+
+        def fake(url: str, token: str) -> dict[str, str]:
+            seen.append((url.split("/repos/")[1].split("/commits")[0], token))
+            return {"sha": "a" * 40}
+
+        env = {"L9_CANARY_TOKEN": "public", "L9_CANARY_PRIVATE_TOKEN": "private"}
+        with mock.patch.object(pc, "_get", fake):
+            for entry in pc.load_declaration(ROOT):
+                pc.resolve(entry, env)
+        tokens = dict(seen)
+        self.assertEqual("private", tokens["Quantum-L9/l9-ci-sdk"])
+        self.assertEqual("public", tokens["Quantum-L9/l9-ci-core"])
 
     def test_an_unreadable_change_set_is_invalid_not_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            subprocess.run(["git", "-C", tmp, "init", "-q"], check=True)
-            (Path(tmp) / pc.DECLARATION).parent.mkdir(parents=True)
-            (Path(tmp) / pc.DECLARATION).write_text(
+            root = Path(tmp)
+            _git(tmp, "init", "-q")
+            for path in (pc.ORG_CI, pc.DECLARATION):
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / pc.DECLARATION).write_text(
                 (ROOT / pc.DECLARATION).read_text("utf-8"), encoding="utf-8"
             )
-            (Path(tmp) / pc.ORG_CI).parent.mkdir(parents=True)
-            (Path(tmp) / pc.ORG_CI).write_text(
-                (ROOT / pc.ORG_CI).read_text("utf-8"), encoding="utf-8"
-            )
+            (root / pc.ORG_CI).write_text(self.org_ci, encoding="utf-8")
             with redirect_stderr(io.StringIO()):
-                code = pc.main(["--root", tmp, "plan"])
-            self.assertEqual(2, code)
+                self.assertEqual(2, pc.main(["--root", tmp, "plan"]))
 
 
 DIGEST_A = "a" * 64
@@ -335,6 +397,7 @@ class VerdictTests(unittest.TestCase):
             "L9_CANARY_PLAN_RESULT": "success",
             "L9_CANARY_APPLIES": "true",
             "L9_CANARY_DIFFERENTIAL": "true" if differential else "false",
+            "L9_CANARY_BASE_CURRENT": "true" if differential else "false",
             "L9_CANARY_HEAD_DIGEST": DIGEST_B if differential else DIGEST_A,
             "L9_CANARY_BASE_DIGEST": DIGEST_A,
             "L9_CANARY_MATRIX": json.dumps({"include": self.legs}),
@@ -391,6 +454,16 @@ class VerdictTests(unittest.TestCase):
         self.both("findings", "verification", base_blocking=("f1",))
         self.assertFalse(pc.judge(self.env())[0])
 
+    def test_an_enforcement_failure_is_a_real_failure(self) -> None:
+        self.both("pass", "enforcement")
+        passed, report = pc.judge(self.env())
+        self.assertFalse(passed)
+        self.assertTrue(any("regression: pass -> enforcement" in r for r in report))
+        self.both("findings", "enforcement", base_blocking=("f1",))
+        self.assertFalse(pc.judge(self.env())[0])
+        self.both("enforcement", "enforcement")
+        self.assertTrue(pc.judge(self.env())[0])
+
     def test_no_verdict_at_the_pull_request_pins_always_fails(self) -> None:
         for status in ("incomplete", "cancelled", "error"):
             with self.subTest(status=status):
@@ -402,6 +475,12 @@ class VerdictTests(unittest.TestCase):
                 )
                 self.both(status, status)
                 self.assertFalse(pc.judge(self.env(differential=False))[0])
+
+    def test_a_stale_embedded_base_fails_with_the_fix(self) -> None:
+        self.both("pass", "pass")
+        passed, report = pc.judge(self.env(L9_CANARY_BASE_CURRENT="false"))
+        self.assertFalse(passed)
+        self.assertIn("promotion_canary.py render", report[0])
 
     def test_no_baseline_fails_closed(self) -> None:
         for leg in self.legs:
@@ -442,6 +521,7 @@ class VerdictTests(unittest.TestCase):
         record = canary[canary.index("name: Record the canary leg") :]
         for status in (
             "pass",
+            "enforcement",
             "cancelled",
             "incomplete",
             "verification",

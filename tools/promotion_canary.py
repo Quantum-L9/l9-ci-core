@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Core's promotion canary: judge a Core pull request by what it changes in
-``Analyze (central Core)`` for declared repositories, before it merges.
+the organization's required check (``.l9/org-runtime-contract.yaml``
+``entrypoint.required_check``) for declared repositories, before it merges.
 
 A Core pull request that changes what the required job runs (``org-ci.yml``,
 the SDK pin or compatibility manifest, an action ``org-ci.yml`` calls) runs the
@@ -11,36 +12,43 @@ repository already red for its own reasons does not block the Core change, so
 the pin advance that fixes it is never deadlocked.
 
 ``org-ci.yml`` targets ``github.repository`` at ``github.sha`` and no caller can
-redirect it, so the canary never calls it. ``render`` derives the canary's
-per-repository leg from the ``analyze`` job's steps, verbatim apart from the
-target identity, into ``.github/workflows/promotion-canary.yml``. A pull
-request runs its own workflow files, so that leg always runs the pull
-request's ``org-ci.yml``; it carries the digest of the steps it was rendered
-from.
+redirect it, so the canary never calls it. ``render`` writes
+``.github/workflows/promotion-canary.yml`` with two legs, each the ``analyze``
+job's steps verbatim apart from the target identity:
 
-When the pull request leaves the ``analyze`` steps byte-identical to its base,
-the base pins would run the same steps against the same heads, so the base
-result *is* the pull request's (one run per repository). When it changes them,
-the verdict needs a base-pins leg record per repository whose digest is the
-base's; without one it fails closed.
+* the **head** leg, rendered from this tree's ``org-ci.yml``: a pull request
+  runs its own workflow files, so this is always the pull request's steps;
+* the **base** leg, rendered from ``origin/main``'s ``org-ci.yml`` when
+  ``render`` ran.
+
+Both run inline in the pull request's own run: no write permission, no
+``pull_request_target``, no floating reference and no composite action
+(AGENTS.md §8, ``tests/workflows/test_workflow_permissions.py``).
+
+The plan compares the ``analyze`` steps at the base tip (``HEAD^1`` of the
+merge commit) and at the pull request. Equal: the base pins would run the same
+steps against the same heads, so the base result *is* the pull request's and
+the base leg does not run. Different: the plan re-renders the base tip's steps
+and requires them to be byte-identical to the embedded base leg; only then does
+the base leg run. A stale embedded base (main's ``org-ci.yml`` moved since the
+pull request rendered) fails the verdict with the instruction to re-render. A
+pull request that leaves the steps alone never runs the base leg, so a stale
+embedded base never blocks it.
 
 Subcommands (stdlib only; run with ``python3 -I``):
 
 ``render [--check]``
-    Write (or verify) the workflow.
+    Write the workflow, taking the base leg from ``origin/main``; or verify the
+    committed workflow against this tree's ``org-ci.yml`` and its own embedded
+    base leg.
 
 ``plan [--force]``
-    Decide whether the checked-out change (``HEAD`` against its first parent:
-    a pull request's merge commit against its base) touches a canary path and
-    whether it changes the ``analyze`` steps; resolve each declared
-    repository's main head. Writes ``applies``, ``differential``,
-    ``head-digest``, ``base-digest`` and ``matrix`` to ``$GITHUB_OUTPUT``.
+    Decide whether the checked-out change touches a canary path, whether it
+    changes the ``analyze`` steps, and whether the embedded base leg is the
+    base tip's; resolve each declared repository's main head.
 
 ``verdict``
-    Judge every repository before and after, and print the table. A
-    pull-request leg that is incomplete, cancelled or errored always fails; so
-    do pass -> fail, a new blocking finding, a new verification failure, and a
-    missing or mismatched leg. Keeping or improving a result passes.
+    Judge every repository before and after, and print the table.
 
 Exit codes: 0 pass, 1 fail, 2 invalid input.
 """
@@ -73,9 +81,13 @@ CORE_ACTION = re.compile(
     r"uses:\s*Quantum-L9/l9-ci-core/\.github/actions/([A-Za-z0-9._-]+)@"
 )
 NO_VERDICT = ("incomplete", "cancelled", "error")
+BASE_BEGIN = (
+    "  # --- base pins leg: begin (rendered from origin/main's org-ci.yml) ---\n"
+)
+BASE_END = "  # --- base pins leg: end ---\n"
 
-# Paths whose change alters what `Analyze (central Core)` runs, or the canary
-# itself. Core actions are added from org-ci.yml's own `uses:` lines.
+# Paths whose change alters what the required check (org-ci.yml) runs, or the
+# canary itself. Core actions are added from org-ci.yml's own `uses:` lines.
 STATIC_PATHS = (
     str(ORG_CI),
     ".l9/sdk-compatibility.yaml",
@@ -84,7 +96,7 @@ STATIC_PATHS = (
     "tools/promotion_canary.py",
 )
 
-# Target identity in the analyze job, and what the leg uses instead. Each must
+# Target identity in the analyze job, and what a leg uses instead. Each must
 # occur at least once; anything target-shaped that is left is refused. The
 # matrix id names the leg's artifact set, so every leg has its own.
 REPLACEMENTS = (
@@ -97,7 +109,7 @@ REPLACEMENTS = (
     ("${{ github.ref }}", "refs/heads/${{ matrix.branch }}"),
     (
         "INPUT_MATRIX_ID: ${{ inputs.matrix-id || 'org-semgrep' }}",
-        "INPUT_MATRIX_ID: canary-head-${{ matrix.slug }}",
+        "INPUT_MATRIX_ID: canary-@@SIDE@@-${{ matrix.slug }}",
     ),
     (
         "TOKEN: ${{ github.token }}",
@@ -111,16 +123,18 @@ TARGET_SHAPED = re.compile(
 HEADER = """\
 # GENERATED by tools/promotion_canary.py render from org-ci.yml. Do not edit:
 # change org-ci.yml (or the tool) and run `python3 tools/promotion_canary.py
-# render`. Core's unit tests (tests/workflows/test_promotion_canary.py, in
-# self-ci) fail while this file and org-ci.yml disagree.
+# render` with origin/main fetched. Core's unit tests
+# (tests/workflows/test_promotion_canary.py, in self-ci) fail while this file
+# and org-ci.yml disagree.
 #
 # Core's promotion canary (AGENTS.md §40). On a Core pull request that changes
-# what `Analyze (central Core)` runs, every repository declared in
-# .l9/promotion-canary.json is checked out at its current main head and the
-# pull request's own `analyze` steps (org-ci.yml's, verbatim apart from the
-# target identity) run against it. `Promotion canary (Core)` judges the result
-# against the base pins and fails only when the pull request makes a
-# repository worse. Steps digest of this render: {digest}
+# what the required check (org-ci.yml's `analyze` job) runs, every repository
+# declared in .l9/promotion-canary.json is checked out at its current main
+# head and judged at the pull request's pins (the `head` job) and, when the
+# pull request changes the analyze steps, at the base's pins (the `base` job).
+# Both are org-ci.yml's steps verbatim apart from the target identity.
+# `Promotion canary (Core)` fails only when the pull request makes a repository
+# worse. Head steps digest: @@HEAD_DIGEST@@
 name: Promotion canary (Core)
 on:
   pull_request:
@@ -129,7 +143,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: core-promotion-canary-${{{{ github.event.pull_request.number || github.ref }}}}
+  group: core-promotion-canary-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   plan:
@@ -139,11 +153,12 @@ jobs:
     permissions:
       contents: read
     outputs:
-      applies: ${{{{ steps.plan.outputs.applies }}}}
-      differential: ${{{{ steps.plan.outputs.differential }}}}
-      head-digest: ${{{{ steps.plan.outputs['head-digest'] }}}}
-      base-digest: ${{{{ steps.plan.outputs['base-digest'] }}}}
-      matrix: ${{{{ steps.plan.outputs.matrix }}}}
+      applies: ${{ steps.plan.outputs.applies }}
+      differential: ${{ steps.plan.outputs.differential }}
+      base-current: ${{ steps.plan.outputs['base-current'] }}
+      head-digest: ${{ steps.plan.outputs['head-digest'] }}
+      base-digest: ${{ steps.plan.outputs['base-digest'] }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         with:
@@ -152,45 +167,46 @@ jobs:
       - id: plan
         name: Plan the canary legs
         env:
-          FORCE: ${{{{ github.event_name == 'workflow_dispatch' && '--force' || '' }}}}
-          L9_CANARY_TOKEN: ${{{{ github.token }}}}
-          L9_CANARY_PRIVATE_TOKEN: ${{{{ secrets.L9_GITHUB_READ_TOKEN }}}}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
+          L9_CANARY_TOKEN: ${{ github.token }}
+          L9_CANARY_PRIVATE_TOKEN: ${{ secrets.L9_GITHUB_READ_TOKEN }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC2086
-          python3 -I tools/promotion_canary.py plan ${{FORCE}}
+          python3 -I tools/promotion_canary.py plan ${FORCE}
 
-  head:
-    name: Canary ${{{{ matrix.repository }}}}
+"""
+
+LEG = """\
+  @@SIDE@@:
+    name: Canary ${{ matrix.repository }}@@TITLE@@
     needs: plan
-    if: needs.plan.outputs.applies == 'true'
+    if: @@IF@@
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
     strategy:
       fail-fast: false
-      matrix: ${{{{ fromJSON(needs.plan.outputs.matrix) }}}}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-"""
-
-RECORD = """\
+@@STEPS@@
       # --- canary record (not part of org-ci.yml) ---
       - name: Record the canary leg
         if: always()
         env:
-          SIDE: head
-          DIGEST: {digest}
-          JOB_STATUS: ${{{{ job.status }}}}
-          AGGREGATE_STATUS: ${{{{ steps.aggregate.outputs.status }}}}
-          REPOSITORY_VERIFY: ${{{{ steps.repository_verify.outputs.status }}}}
-          MATRIX_ID: canary-head-${{{{ matrix.slug }}}}
-          SLUG: ${{{{ matrix.slug }}}}
-          REPOSITORY: ${{{{ matrix.repository }}}}
-          REVISION: ${{{{ matrix.revision }}}}
+          SIDE: @@SIDE@@
+          DIGEST: @@DIGEST@@
+          JOB_STATUS: ${{ job.status }}
+          AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
+          REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
+          MATRIX_ID: canary-@@SIDE@@-${{ matrix.slug }}
+          SLUG: ${{ matrix.slug }}
+          REPOSITORY: ${{ matrix.repository }}
+          REVISION: ${{ matrix.revision }}
         run: |
           set -euo pipefail
-          mkdir -p "${{RUNNER_TEMP}}/promotion-canary"
+          mkdir -p "${RUNNER_TEMP}/promotion-canary"
           python3 -I - <<'PY'
           import json
           import os
@@ -206,22 +222,26 @@ RECORD = """\
               except (OSError, ValueError, KeyError, TypeError):
                   pass
           verify = env.get("REPOSITORY_VERIFY", "")
+          aggregate = env.get("AGGREGATE_STATUS", "")
           if env["JOB_STATUS"] == "success":
               status = "pass"
           elif env["JOB_STATUS"] == "cancelled":
               # Superseded by a newer run, or over the leg's time limit.
               status = "cancelled"
-          elif env.get("AGGREGATE_STATUS", "") == "incomplete":
+          elif aggregate == "incomplete":
               status = "incomplete"
           elif verify not in ("", "pass", "not_applicable"):
               status = "verification"
-          elif env.get("AGGREGATE_STATUS", "") == "fail":
+          elif aggregate == "fail":
               status = "findings"
+          elif aggregate == "pass" and verify in ("pass", "not_applicable"):
+              # Verified and analysed, then a later gate step failed.
+              status = "enforcement"
           else:
               # The job failed before any verdict: infrastructure, not the
               # repository.
               status = "error"
-          record = {{
+          record = {
               "schema": "l9.promotion-canary-leg/v2",
               "side": env["SIDE"],
               "digest": env["DIGEST"],
@@ -229,10 +249,10 @@ RECORD = """\
               "revision": env["REVISION"],
               "status": status,
               "job_status": env["JOB_STATUS"],
-              "aggregate": env.get("AGGREGATE_STATUS", ""),
+              "aggregate": aggregate,
               "repository_verification": verify,
               "blocking_finding_ids": sorted(blocking),
-          }}
+          }
           name = env["SIDE"] + "-" + env["SLUG"] + ".json"
           path = Path(env["RUNNER_TEMP"], "promotion-canary", name)
           path.write_text(json.dumps(record, indent=2) + "\\n", encoding="utf-8")
@@ -243,20 +263,29 @@ RECORD = """\
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: promotion-canary-head-${{{{ matrix.slug }}}}
-          path: ${{{{ runner.temp }}}}/promotion-canary/head-${{{{ matrix.slug }}}}.json
+          name: promotion-canary-@@SIDE@@-${{ matrix.slug }}
+          path: ${{ runner.temp }}/promotion-canary/@@SIDE@@-${{ matrix.slug }}.json
           if-no-files-found: ignore
           retention-days: 14
 
+"""
+
+HEAD_IF = "needs.plan.outputs.applies == 'true'"
+BASE_IF = (
+    "needs.plan.outputs.applies == 'true' && needs.plan.outputs.differential == "
+    "'true' && needs.plan.outputs['base-current'] == 'true'"
+)
+
+VERDICT = """\
   verdict:
     name: Promotion canary (Core)
-    needs: [plan, head]
+    needs: [plan, head, base]
     # Runs whatever the plan and legs concluded (a job skipped by `if:` reports
     # success on a required check, so the verdict decides itself, including
     # when no leg was needed). Only a run superseded by a newer one on the same
     # pull request is cancelled; its verdict is skipped and the newer run's
     # verdict, which always follows, is the check that counts.
-    if: ${{{{ !cancelled() }}}}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -270,17 +299,18 @@ RECORD = """\
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: promotion-canary-*
-          path: ${{{{ runner.temp }}}}/promotion-canary
+          path: ${{ runner.temp }}/promotion-canary
           merge-multiple: true
       - name: Judge the canary
         env:
-          L9_CANARY_PLAN_RESULT: ${{{{ needs.plan.result }}}}
-          L9_CANARY_APPLIES: ${{{{ needs.plan.outputs.applies }}}}
-          L9_CANARY_DIFFERENTIAL: ${{{{ needs.plan.outputs.differential }}}}
-          L9_CANARY_HEAD_DIGEST: ${{{{ needs.plan.outputs['head-digest'] }}}}
-          L9_CANARY_BASE_DIGEST: ${{{{ needs.plan.outputs['base-digest'] }}}}
-          L9_CANARY_MATRIX: ${{{{ needs.plan.outputs.matrix }}}}
-          L9_CANARY_RECORDS: ${{{{ runner.temp }}}}/promotion-canary
+          L9_CANARY_PLAN_RESULT: ${{ needs.plan.result }}
+          L9_CANARY_APPLIES: ${{ needs.plan.outputs.applies }}
+          L9_CANARY_DIFFERENTIAL: ${{ needs.plan.outputs.differential }}
+          L9_CANARY_BASE_CURRENT: ${{ needs.plan.outputs['base-current'] }}
+          L9_CANARY_HEAD_DIGEST: ${{ needs.plan.outputs['head-digest'] }}
+          L9_CANARY_BASE_DIGEST: ${{ needs.plan.outputs['base-digest'] }}
+          L9_CANARY_MATRIX: ${{ needs.plan.outputs.matrix }}
+          L9_CANARY_RECORDS: ${{ runner.temp }}/promotion-canary
         run: |
           set -euo pipefail
           python3 -I tools/promotion_canary.py verdict
@@ -289,6 +319,14 @@ RECORD = """\
 
 class CanaryError(Exception):
     """Invalid input, declaration or org-ci.yml shape (exit 2)."""
+
+
+def _fill(template: str, **values: str) -> str:
+    for key, value in values.items():
+        template = template.replace(f"@@{key}@@", value)
+    if "@@" in template:
+        raise CanaryError("internal: an unfilled template placeholder remains")
+    return template
 
 
 # --- render ---------------------------------------------------------------
@@ -320,12 +358,12 @@ def steps_digest(org_ci: str) -> str:
     return hashlib.sha256(analyze_steps(org_ci).encode("utf-8")).hexdigest()
 
 
-def retarget(steps: str) -> str:
+def retarget(steps: str, side: str = "head") -> str:
     """Replace the target identity; refuse anything target-shaped that is left."""
     for old, new in REPLACEMENTS:
         if old not in steps:
             raise CanaryError(f"org-ci.yml no longer contains {old!r}; update the tool")
-        steps = steps.replace(old, new)
+        steps = steps.replace(old, new.replace("@@SIDE@@", side))
     left = [
         f"{number}: {line.strip()}"
         for number, line in enumerate(steps.splitlines(), 1)
@@ -338,13 +376,40 @@ def retarget(steps: str) -> str:
     return steps
 
 
-def render(org_ci: str) -> str:
-    digest = steps_digest(org_ci)
+def leg_job(side: str, org_ci: str) -> str:
+    """One leg: ``org-ci.yml``'s analyze steps for ``side``, plus the record."""
+    return _fill(
+        LEG,
+        SIDE=side,
+        TITLE=" (base pins)" if side == "base" else "",
+        IF=BASE_IF if side == "base" else HEAD_IF,
+        STEPS=retarget(analyze_steps(org_ci), side).rstrip("\n"),
+        DIGEST=steps_digest(org_ci),
+    )
+
+
+def base_block(base_org_ci: str) -> str:
+    """The embedded base leg, between its markers."""
+    return BASE_BEGIN + leg_job("base", base_org_ci) + BASE_END
+
+
+def embedded_base(workflow: str) -> str:
+    """The base leg block a committed workflow carries."""
+    start = workflow.find(BASE_BEGIN)
+    end = workflow.find(BASE_END)
+    if start < 0 or end < start:
+        raise CanaryError(f"{CANARY} carries no embedded base leg")
+    return workflow[start : end + len(BASE_END)]
+
+
+def render(org_ci: str, base: str) -> str:
+    """The workflow for this ``org-ci.yml`` and an embedded base leg block."""
     return (
-        HEADER.format(digest=digest)
-        + retarget(analyze_steps(org_ci))
+        _fill(HEADER, HEAD_DIGEST=steps_digest(org_ci))
+        + leg_job("head", org_ci)
+        + base
         + "\n"
-        + RECORD.format(digest=digest)
+        + VERDICT
     )
 
 
@@ -355,11 +420,10 @@ def core_action_paths(org_ci: str) -> list[str]:
 
 def _cmd_render(args: argparse.Namespace) -> int:
     org_ci = (args.root / ORG_CI).read_text(encoding="utf-8")
-    expected = render(org_ci)
     target = args.root / CANARY
     if args.check:
         current = target.read_text(encoding="utf-8") if target.is_file() else ""
-        if current != expected:
+        if current != render(org_ci, embedded_base(current)):
             print(
                 f"::error::{CANARY} is stale against {ORG_CI}; run "
                 "python3 tools/promotion_canary.py render",
@@ -368,8 +432,9 @@ def _cmd_render(args: argparse.Namespace) -> int:
             return 1
         print(f"{CANARY} matches {ORG_CI}")
         return 0
-    target.write_text(expected, encoding="utf-8")
-    print(f"wrote {CANARY}")
+    main_org_ci = _git(args.root, "show", "origin/main:.github/workflows/org-ci.yml")
+    target.write_text(render(org_ci, base_block(main_org_ci)), encoding="utf-8")
+    print(f"wrote {CANARY} (base leg from origin/main)")
     return 0
 
 
@@ -492,14 +557,18 @@ def _write_output(values: dict[str, str]) -> None:
 def _cmd_plan(args: argparse.Namespace) -> None:
     entries = load_declaration(args.root)
     org_ci = (args.root / ORG_CI).read_text(encoding="utf-8")
+    base = base_org_ci(args.root)
     head_digest = steps_digest(org_ci)
-    base_digest = steps_digest(base_org_ci(args.root))
+    base_digest = steps_digest(base)
     differential = head_digest != base_digest
+    workflow = (args.root / CANARY).read_text(encoding="utf-8")
+    base_current = differential and embedded_base(workflow) == base_block(base)
     watched = [*STATIC_PATHS, *core_action_paths(org_ci)]
     reasons = ["dispatch"] if args.force else touched(changed_paths(args.root), watched)
     outputs = {
         "applies": "false",
         "differential": "true" if differential else "false",
+        "base-current": "true" if base_current else "false",
         "head-digest": head_digest,
         "base-digest": base_digest,
         "matrix": json.dumps({"include": []}),
@@ -509,11 +578,16 @@ def _cmd_plan(args: argparse.Namespace) -> None:
         _write_output(outputs)
         return
     print("Canary paths changed: " + ", ".join(reasons[:20]))
-    print(
-        "The analyze steps change: the base pins must be judged too."
-        if differential
-        else "The analyze steps are unchanged: the base result is the pull request's."
-    )
+    if not differential:
+        print("The analyze steps are unchanged: the base result is the pull request's.")
+    elif base_current:
+        print("The analyze steps change: the embedded base leg is the base tip's.")
+    else:
+        print(
+            "::error::The analyze steps change, but the embedded base leg is not "
+            "the base tip's: fetch origin/main and run "
+            "python3 tools/promotion_canary.py render"
+        )
     include = [resolve(entry, dict(os.environ)) for entry in entries]
     for leg in include:
         print(f"{leg['repository']}@{leg['revision']}")
@@ -561,8 +635,8 @@ def compare(
         return True, "improved" if before != "pass" else "kept green"
     if before == "pass":
         return False, f"regression: pass -> {after}"
-    if after == "verification" and before != "verification":
-        return False, "regression: repository verification now fails"
+    if after in ("verification", "enforcement") and before != after:
+        return False, f"regression: {after} now fails ({before} at the base pins)"
     new = sorted(set(head["blocking_finding_ids"]) - set(base["blocking_finding_ids"]))
     if new:
         return False, f"{len(new)} new blocking finding(s): {', '.join(new[:5])}"
@@ -587,6 +661,12 @@ def judge(env: dict[str, str]) -> tuple[bool, list[str]]:
     differential = env.get("L9_CANARY_DIFFERENTIAL") == "true"
     if differential == (head_digest == base_digest):
         return False, ["FAIL the plan's differential flag contradicts its digests"]
+    if differential and env.get("L9_CANARY_BASE_CURRENT") != "true":
+        return False, [
+            "FAIL the pull request changes the analyze steps, but its embedded base "
+            "leg is not the base tip's: fetch origin/main, run "
+            "`python3 tools/promotion_canary.py render`, and push"
+        ]
     records = Path(env.get("L9_CANARY_RECORDS", ""))
     passed = True
     rows = [
@@ -606,7 +686,7 @@ def judge(env: dict[str, str]) -> tuple[bool, list[str]]:
             f"| {head['status']} | {'pass' if ok else 'FAIL'}: {reason} |"
         )
     mode = (
-        "The pull request changes the analyze steps: judged against base-pins legs."
+        "The pull request changes the analyze steps: judged against the base pins."
         if differential
         else "The analyze steps are unchanged: the base result is the pull request's."
     )

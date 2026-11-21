@@ -1671,3 +1671,40 @@ deadlocked.
 Tests: `tests/workflows/test_promotion_canary.py`,
 `tests/workflows/test_artifact_handoff_producers.py`,
 `tests/workflows/test_phase_scope.py`.
+
+## 41. The promotion canary's base pins run inline (2026-11-21) — amends §40
+
+§40 left the base-pins leg undecided ("How that leg runs is an open
+decision"), so the verdict failed closed on every pull request that changes
+the `analyze` steps. The first one after #311 merged, #312, failed exactly
+that way ("no base-pins leg record" for every repository). The leg could not
+be a composite action at `@main` (§8 forbids a composite nesting Core action
+edges and a floating `@main`), a `workflow_dispatch` of main's copy (it needs
+`actions: write` in a pull-request workflow;
+`tests/workflows/test_workflow_permissions.py`), or `pull_request_target`
+(absent from Core by design).
+
+- **Two inline legs.** `promotion-canary.yml` now carries a `head` job,
+  rendered from the tree's `org-ci.yml`, and a `base` job, rendered from
+  `origin/main`'s `org-ci.yml` when `tools/promotion_canary.py render` ran
+  (between `base pins leg: begin/end` markers). Both run in the pull request's
+  own run, read-only, and upload `promotion-canary-<side>-<slug>`; the verdict
+  downloads both from that run.
+- **The base leg is proven, not trusted.** The plan re-renders the base tip's
+  (`HEAD^1`) `analyze` steps and runs the `base` job only when that render is
+  byte-identical to the embedded one (`base-current`). Otherwise the verdict
+  fails with the fix: fetch `origin/main`, run `render`, push. A pull request
+  that leaves the `analyze` steps unchanged never runs the base leg, so an
+  embedded base that main has since moved past never blocks it.
+- **`render --check`** (self-ci drift test) verifies the head leg against the
+  tree's `org-ci.yml` and the rest of the file against its own embedded base.
+- **`enforcement`** joins the leg statuses: verified and analysed, then a later
+  gate step failed (for example a security enforcement step). It is a real
+  failure of the repository, not `error`.
+- **Main was red, and this repairs it.** #302 changed `org-ci.yml` after #311's
+  last run, and #311 merged with its earlier render, so main's canary was stale
+  and its drift test failed; #311's tool also wrote the required check's
+  literal name, which #302's `tests/workflows/test_required_check_name.py`
+  forbids. Both are fixed here.
+
+Tests: `tests/workflows/test_promotion_canary.py`.
