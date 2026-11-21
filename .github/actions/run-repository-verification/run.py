@@ -58,6 +58,7 @@ consumer-vendored code.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -842,6 +843,66 @@ def _candidate_files(workspace: Path) -> list[str]:
     ]
 
 
+def tracked_state(workspace: Path) -> dict[str, str] | None:
+    """Content digest of every tracked file that differs from HEAD.
+
+    ``None`` for a directory that is not a git work tree (it has no tracked
+    set). Raises ``RuntimeError`` when git cannot report the state: an
+    unreadable tree is never reported unchanged.
+    """
+    inside = _run_git(
+        ["git", "-C", str(workspace), "rev-parse", "--is-inside-work-tree"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        return None
+    status = _run_git(
+        [
+            "git",
+            "-C",
+            str(workspace),
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=no",
+            "--no-renames",
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if status.returncode != 0:
+        raise RuntimeError(
+            "cannot read the work tree status: "
+            + status.stderr.decode("utf-8", "replace").strip()
+        )
+    state: dict[str, str] = {}
+    for raw in status.stdout.split(b"\0"):
+        if len(raw) < 4:
+            continue
+        relative = raw[3:].decode("utf-8", "surrogateescape")
+        path = workspace / relative
+        try:
+            state[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        except FileNotFoundError:
+            state[relative] = "deleted"
+        except OSError as exc:
+            raise RuntimeError(f"cannot read {relative}: {exc}") from exc
+    return state
+
+
+def tracked_changes(
+    before: dict[str, str] | None, after: dict[str, str] | None
+) -> list[str]:
+    """Tracked files whose content the verification commands changed."""
+    if before is None or after is None:
+        return []
+    return sorted(
+        path for path in set(before) | set(after) if before.get(path) != after.get(path)
+    )
+
+
 def conflict_markers(workspace: Path) -> list[tuple[str, int]]:
     """(path, line) of every unresolved conflict block in a text file.
 
@@ -960,29 +1021,32 @@ def main() -> int:
         print(f"repository verification: FAIL (infrastructure; {exc})", file=sys.stderr)
         return 0
 
-    version = CONTRACT_INVALID
+    # The analysis after this step scans the work tree against its baseline
+    # (CENTRAL-DIFF), so verification must leave tracked files as it found
+    # them. The state is taken now and compared once the commands finish.
     try:
-        version = classify_contract(load_contract(contract))
-        if version == CONTRACT_V2:
-            verify_v2(workspace, mode)
-            run_v2(workspace)
-        elif mode == REQUIRED_MODE:
-            raise ContractError(
-                "a V1 contract is not admitted in required mode; declare the "
-                "l9.repo-execution/v2 contract"
-            )
-        else:
-            run_v1(workspace)
-    except subprocess.CalledProcessError as exc:
-        failure = FAILURE_COMMAND
-        detail: object = exc
-    except (ContractError, WorkflowError) as exc:
-        failure = FAILURE_CONTRACT
-        detail = exc
-    except Exception as exc:
-        failure = FAILURE_INFRASTRUCTURE
-        detail = exc
-    else:
+        before = tracked_state(workspace)
+    except RuntimeError as exc:
+        _record(
+            present=True,
+            status="fail",
+            mode=mode,
+            version="unknown",
+            failure=FAILURE_INFRASTRUCTURE,
+        )
+        print(f"repository verification: FAIL (infrastructure; {exc})", file=sys.stderr)
+        return 0
+
+    version, failure, detail = run_contract(workspace, contract, mode)
+    try:
+        changed = tracked_changes(before, tracked_state(workspace))
+    except RuntimeError as exc:
+        changed = []
+        if failure == FAILURE_NONE:
+            failure, detail = FAILURE_INFRASTRUCTURE, exc
+    if changed:
+        return fail_modified_tree(changed, mode, version)
+    if failure == FAILURE_NONE:
         _record(
             present=True,
             status="pass",
@@ -1005,6 +1069,58 @@ def main() -> int:
         file=sys.stderr,
     )
     return 0
+
+
+def fail_modified_tree(changed: list[str], mode: str, version: str) -> int:
+    """A verification that changed tracked files fails here, by name.
+
+    The step itself fails (exit 1), so the analysis never scans a tree the
+    consumer's commands rewrote: that scan could only end as an unattributed
+    ``incomplete`` (the baseline needs a clean tree). Fails in every mode.
+    """
+    for relative in changed:
+        print(
+            f"::error file={relative}::repository verification modified this "
+            "tracked file; make setup/validate/check/test must leave tracked "
+            "files unchanged"
+        )
+    _record(
+        present=True,
+        status="fail",
+        mode=mode,
+        version=version,
+        failure=FAILURE_CONTRACT,
+    )
+    print(
+        "repository verification: FAIL (contract; verification modified "
+        f"{len(changed)} tracked file(s): {', '.join(changed)})",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def run_contract(workspace: Path, contract: Path, mode: str) -> tuple[str, str, object]:
+    """Run the repository contract: (version, failure kind, detail)."""
+    version = CONTRACT_INVALID
+    try:
+        version = classify_contract(load_contract(contract))
+        if version == CONTRACT_V2:
+            verify_v2(workspace, mode)
+            run_v2(workspace)
+        elif mode == REQUIRED_MODE:
+            raise ContractError(
+                "a V1 contract is not admitted in required mode; declare the "
+                "l9.repo-execution/v2 contract"
+            )
+        else:
+            run_v1(workspace)
+    except subprocess.CalledProcessError as exc:
+        return version, FAILURE_COMMAND, exc
+    except (ContractError, WorkflowError) as exc:
+        return version, FAILURE_CONTRACT, exc
+    except Exception as exc:  # noqa: BLE001 — typed as infrastructure, never passed
+        return version, FAILURE_INFRASTRUCTURE, exc
+    return version, FAILURE_NONE, ""
 
 
 if __name__ == "__main__":

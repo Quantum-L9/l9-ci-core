@@ -56,6 +56,7 @@ REPO_TEST_MODULES := \
 	tests/actions/test_run_supply_chain.py \
 	tests/actions/test_plan_required_instances.py \
 	tests/actions/test_repository_verification_conflict_markers.py \
+	tests/actions/test_repository_verification_clean_tree.py \
 	tests/governance/test_ci_runtime_invariants.py \
 	tests/governance/test_core_toolchain_alignment.py \
 	tests/governance/test_dependabot_core_owned_tools.py \
