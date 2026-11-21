@@ -544,17 +544,10 @@ def render(
         + (" (first night sets the baseline)" if previous is None else ""),
         "",
     ]
-    dependencies = verdict.get("dependencies")
-    if dependencies and dependencies["status"] != "not_applicable":
-        lines[7:7] = [
-            f"- pip-audit, known vulnerabilities: **{len(dependencies['open'])}**"
-            f" in {dependencies['packages']} audited packages"
-            + (
-                ""
-                if dependencies["previous_open"] is None
-                else f" (previous night {dependencies['previous_open']})"
-            )
-        ]
+    dependencies: Mapping[str, Any] = verdict.get("dependencies") or {}
+    audited = dependencies.get("status", "not_applicable") != "not_applicable"
+    if audited:
+        lines[7:7] = [_dependency_count(dependencies)]
     if verdict["new"]:
         lines += ["### New", ""]
         lines += [_alert_line(n, alerts[n]) for n in verdict["new"]]
@@ -573,18 +566,33 @@ def render(
             for n, waiver in verdict["waived"].items()
         ]
         lines.append("")
-    if dependencies and dependencies["status"] != "not_applicable":
+    if audited:
         lines += _dependency_section(dependencies, audit)
+    lines.append(_snapshot_line(night, commit, verdict))
+    return "\n".join(lines) + "\n"
+
+
+def _dependency_count(dependencies: Mapping[str, Any]) -> str:
+    previous = dependencies["previous_open"]
+    return (
+        f"- pip-audit, known vulnerabilities: **{len(dependencies['open'])}**"
+        f" in {dependencies['packages']} audited packages"
+        + ("" if previous is None else f" (previous night {previous})")
+    )
+
+
+def _snapshot_line(night: str, commit: str, verdict: Mapping[str, Any]) -> str:
+    """The issue's own record of the last accepted night, per tool."""
     snapshot = {
         "schema": SNAPSHOT_SCHEMA,
         "night": night,
         "commit": commit,
         "alerts": verdict["accepted"],
     }
+    dependencies = verdict.get("dependencies")
     if dependencies and dependencies["accepted"] is not None:
         snapshot["dependencies"] = dependencies["accepted"]
-    lines.append(f"<!-- l9-nightly-snapshot {json.dumps(snapshot, sort_keys=True)} -->")
-    return "\n".join(lines) + "\n"
+    return f"<!-- l9-nightly-snapshot {json.dumps(snapshot, sort_keys=True)} -->"
 
 
 def _dependency_section(
@@ -697,35 +705,8 @@ def report(
     if dependencies["ratchet"] == "fail":
         verdict["ratchet"] = "fail"
     body = render(repository, commit, owners, alerts, verdict, night, run_url, audit)
-    if issue is None:
-        status, response = transport(
-            "POST", f"/repos/{repository}/issues", {"title": ISSUE_TITLE, "body": body}
-        )
-        if status != 201 or not isinstance(response, dict):
-            raise SinkError(f"cannot open the rolling issue (HTTP {status})")
-        number = int(response["number"])
-    else:
-        number = int(issue["number"])
-        status, _ = transport(
-            "PATCH",
-            f"/repos/{repository}/issues/{number}",
-            {"title": ISSUE_TITLE, "body": body, "state": "open"},
-        )
-        if status != 200:
-            raise SinkError(f"cannot update issue #{number} (HTTP {status})")
-    notes = []
-    if verdict["rose"]:
-        notes.append(
-            f"open Semgrep alerts rose from {verdict['previous_open']} to "
-            f"{len(verdict['open'])}"
-        )
-    if dependencies["rose"]:
-        notes.append(
-            f"known vulnerabilities (pip-audit) rose from "
-            f"{dependencies['previous_open']} to {len(dependencies['open'])}"
-        )
-    if dependencies["status"] == "incomplete":
-        notes.append(f"the dependency audit is incomplete ({dependencies['reason']})")
+    number = _upsert_issue(transport, repository, issue, body)
+    notes = _ratchet_notes(verdict, dependencies)
     if notes:
         note = (
             f"Ratchet failed on {night}: "
@@ -741,6 +722,50 @@ def report(
                 f"cannot record the ratchet on issue #{number} (HTTP {status})"
             )
     return {"issue": number, **verdict}
+
+
+def _upsert_issue(
+    transport: Transport,
+    repository: str,
+    issue: Mapping[str, Any] | None,
+    body: str,
+) -> int:
+    """Open the rolling issue once; afterwards edit it in place."""
+    if issue is None:
+        status, response = transport(
+            "POST", f"/repos/{repository}/issues", {"title": ISSUE_TITLE, "body": body}
+        )
+        if status != 201 or not isinstance(response, dict):
+            raise SinkError(f"cannot open the rolling issue (HTTP {status})")
+        return int(response["number"])
+    number = int(issue["number"])
+    status, _ = transport(
+        "PATCH",
+        f"/repos/{repository}/issues/{number}",
+        {"title": ISSUE_TITLE, "body": body, "state": "open"},
+    )
+    if status != 200:
+        raise SinkError(f"cannot update issue #{number} (HTTP {status})")
+    return number
+
+
+def _ratchet_notes(
+    verdict: Mapping[str, Any], dependencies: Mapping[str, Any]
+) -> list[str]:
+    notes = []
+    if verdict["rose"]:
+        notes.append(
+            f"open Semgrep alerts rose from {verdict['previous_open']} to "
+            f"{len(verdict['open'])}"
+        )
+    if dependencies["rose"]:
+        notes.append(
+            f"known vulnerabilities (pip-audit) rose from "
+            f"{dependencies['previous_open']} to {len(dependencies['open'])}"
+        )
+    if dependencies["status"] == "incomplete":
+        notes.append(f"the dependency audit is incomplete ({dependencies['reason']})")
+    return notes
 
 
 # --- the workflow ---------------------------------------------------------------
