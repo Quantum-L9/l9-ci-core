@@ -47,7 +47,7 @@ ERROR = "::error"
 # as its base leg. That copy is judged where it comes from (org-ci.yml at
 # main) and changes with every render, so it is not scanned here.
 BASE_LEG = re.compile(
-    r"^  # --- base pins leg: begin .*?^  # --- base pins leg: end ---\n",
+    r"^ {2}# --- base pins leg: begin .*?^ {2}# --- base pins leg: end ---\n",
     re.MULTILINE | re.DOTALL,
 )
 
