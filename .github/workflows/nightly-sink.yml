@@ -19,7 +19,7 @@
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: de88cc5f2720c09ede186383e1cd4077d4cf66e1117a60113eb3a07fff1d3241
+# and issues: write. Analyze steps digest: 64e56c5490d22db236698ab767ea284bcaf5c34b9d86340844d210c030a0270f
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -107,36 +107,36 @@ jobs:
               # required event input—not `workflow_call`—identifies this path.
               event_class = requested_event
               if event_class not in allowed:
-                  raise SystemExit(f"unsupported event class: {event_class}")
+                  raise SystemExit(f"::error::unsupported event class: {event_class}")
               expected_profile = fixed.get(event_class, event_class)
               profile = requested_profile or expected_profile
               if profile != expected_profile:
                   raise SystemExit(
-                      "reusable profile claim "
+                      "::error::reusable profile claim "
                       f"{profile!r} does not match event {event_class!r}; "
                       f"expected {expected_profile!r}"
                   )
           elif gh_event in native:
               event_class, profile = native[gh_event]
           elif gh_event == "workflow_call":
-              raise SystemExit("workflow_call requires event")
+              raise SystemExit("::error::workflow_call requires event")
           else:
-              raise SystemExit(f"unsupported trigger: {gh_event}")
+              raise SystemExit(f"::error::unsupported trigger: {gh_event}")
 
           if event_class not in allowed:
-              raise SystemExit(f"unsupported event class: {event_class}")
+              raise SystemExit(f"::error::unsupported event class: {event_class}")
           matrix_id = os.environ.get("INPUT_MATRIX_ID", "org-semgrep")
           if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", matrix_id):
-              raise SystemExit("invalid matrix-id")
+              raise SystemExit("::error::invalid matrix-id")
           sdk_revision = os.environ.get("INPUT_SDK_REVISION", "").strip()
           if sdk_revision and not re.fullmatch(r"[0-9a-f]{40}", sdk_revision):
-              raise SystemExit("sdk-revision must be a full 40-character lowercase SHA")
+              raise SystemExit("::error::sdk-revision must be a full 40-character lowercase SHA")
           semgrep_version = os.environ.get("INPUT_SEMGREP_VERSION", "1.186.0").strip()
           if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", semgrep_version):
-              raise SystemExit("semgrep-version must be an exact x.y.z version")
+              raise SystemExit("::error::semgrep-version must be an exact x.y.z version")
           retention = int(os.environ.get("INPUT_RETENTION", "14"))
           if not 1 <= retention <= 90:
-              raise SystemExit("artifact-retention-days must be between 1 and 90")
+              raise SystemExit("::error::artifact-retention-days must be between 1 and 90")
 
           outputs = {
               "event-class": event_class,
@@ -179,6 +179,10 @@ jobs:
               print("heavy=false")
               print("suite_pass=false")
               print("selected_suite=none")
+              if code:
+                  # Signal law: name the refusal, not only an exit code. Last, so
+                  # the first stdout line stays the status the caller reads.
+                  print(f"::error title=Pull-request scope::{status}")
               raise SystemExit(code)
 
 
@@ -283,7 +287,7 @@ jobs:
           applicable = {item for item in os.environ.get("APPLICABLE", "").split(",") if item}
           unknown = sorted(requested - applicable)
           if unknown:
-              raise SystemExit(f"consumer waiver_refs are not centrally applicable: {unknown}")
+              raise SystemExit(f"::error::consumer waiver_refs are not centrally applicable: {unknown}")
           PY
 
       - id: names
@@ -754,7 +758,7 @@ jobs:
             0) status="pass" ;;
             1) status="fail" ;;
             6) status="incomplete" ;;
-            *) echo "gate evaluate failed with unexpected exit ${exit_code}" >&2; exit "${exit_code}" ;;
+            *) echo "::error title=SDK technical gate::gate evaluate failed with unexpected exit ${exit_code}"; exit "${exit_code}" ;;
           esac
           {
             echo "gate-status=${status}"
@@ -1324,6 +1328,11 @@ jobs:
           if [ -n "${PIP_AUDIT_REPORT:-}" ] && [ "${status}" -eq 1 ]; then
             echo "pip-audit: known vulnerabilities written to ${PIP_AUDIT_REPORT}; the caller judges them"
             exit 0
+          fi
+          if [ "${status}" -eq 1 ]; then
+            echo "::error title=Python dependency audit (pip-audit)::known vulnerabilities in ${total} audited package(s); each package, version, advisory id and fixed version is listed above"
+          elif [ "${status}" -ne 0 ]; then
+            echo "::error title=Python dependency audit (pip-audit)::pip-audit exited ${status}: the audit did not complete; its error is above"
           fi
           exit "${status}"
       # Advisory by existing policy: no Bandit result fails this job. The exit

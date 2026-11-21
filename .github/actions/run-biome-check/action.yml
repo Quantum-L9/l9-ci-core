@@ -69,4 +69,7 @@ runs:
           status="error"
         fi
         echo "status=${status}" >> "$GITHUB_OUTPUT"
+        if [ "${rc}" -ne 0 ]; then
+          echo "::error title=Biome check::biome exited ${rc} (status ${status}); each finding is annotated at file:line above and recorded in ${report}"
+        fi
         exit "${rc}"

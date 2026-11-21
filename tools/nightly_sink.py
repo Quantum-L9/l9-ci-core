@@ -1169,10 +1169,17 @@ def plan_matrix(root: Path, only: str, env: Mapping[str, str]) -> dict[str, Any]
         entries = pc.load_declaration(root)
     except pc.CanaryError as error:
         raise SinkError(str(error)) from error
+    # A canary-only entry ("nightly": false) is judged on Core pull requests
+    # but not scanned nightly: the sink writes code scanning and an issue there.
     if only:
         entries = [e for e in entries if e["repository"].lower() == only.lower()]
         if not entries:
             raise SinkError(f"{only} is not declared in {pc.DECLARATION}")
+        if not entries[0]["nightly"]:
+            raise SinkError(
+                f"{only} is canary-only (nightly: false) in {pc.DECLARATION}"
+            )
+    entries = [e for e in entries if e["nightly"]]
     include = []
     for entry in entries:
         try:

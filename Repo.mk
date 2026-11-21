@@ -88,6 +88,9 @@ REPO_TEST_MODULES := \
 	tests/workflows/test_org_ci_toolchain_drift_report.py \
 	tests/workflows/test_org_ci_required_instances.py \
 	tests/workflows/test_org_ci_scan_tree.py \
+	tests/workflows/test_signal_law_conformance.py \
+	tests/workflows/test_signal_law_failures.py \
+	tests/workflows/test_instance_runner_scan_root_paths.py \
 	tests/workflows/test_security_consumer_scope.py \
 	tests/workflows/test_security_pip_audit_lockset.py \
 	tests/workflows/test_blocking_check_classification.py \

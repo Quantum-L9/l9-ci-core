@@ -25,6 +25,12 @@
       "repository": "Quantum-L9/l9-ci-core",
       "branch": "main",
       "private": false
+    },
+    {
+      "repository": "Quantum-L9/.github",
+      "branch": "main",
+      "private": false,
+      "nightly": false
     }
   ]
 }
