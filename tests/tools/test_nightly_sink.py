@@ -287,6 +287,7 @@ class RatchetTests(unittest.TestCase):
 
     def test_an_advisory_category_is_listed_and_never_counted(self) -> None:
         """Biome is advisory nightly: its first night, or a rise, never fails."""
+
         def alert(category: str) -> dict[str, str]:
             return {
                 "category": category,
