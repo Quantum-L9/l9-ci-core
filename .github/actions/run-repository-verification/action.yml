@@ -8,7 +8,9 @@ description: >
   registry (lifecycle current is required; unreadable fails closed). No input
   selects it. Core-owned files of a stamped consumer (.l9/core-stamp.json) are
   verified byte-for-byte; drift blocks in every mode, and a repository
-  without a stamp record is not stamp-checked.
+  without a stamp record is not stamp-checked. A tracked file holding an
+  unresolved merge conflict (a complete <<<<<<< / ======= / >>>>>>> block)
+  fails every repository, with or without a contract.
 inputs:
   workspace:
     required: false
