@@ -204,11 +204,31 @@ class PipAuditTargetTests(unittest.TestCase):
             self.audit({"requirements.txt": "x==1\n", "pyproject.toml": ""}),
         )
 
-    def test_a_pyproject_project_is_audited_by_path(self) -> None:
-        self.assertEqual("pip-audit --desc on .", self.audit({"pyproject.toml": ""}))
-
-    def test_the_environment_is_audited_only_without_project_files(self) -> None:
-        self.assertEqual("pip-audit --desc on", self.audit({}))
+    def test_a_project_without_a_lock_is_incomplete_not_audited_by_path(
+        self,
+    ) -> None:
+        # SEC-LOCKSET: neither the bare project (`pip-audit .`) nor the
+        # runner's environment is the consumer's locked set; with no lock the
+        # audit is incomplete and fails (tests/workflows/
+        # test_security_pip_audit_lockset.py covers the locked paths).
+        for files in ({"pyproject.toml": ""}, {}):
+            with (
+                self.subTest(files=sorted(files)),
+                tempfile.TemporaryDirectory() as temp,
+            ):
+                workdir = Path(temp) / "repo"
+                workdir.mkdir()
+                for name, text in files.items():
+                    (workdir / name).write_text(text, encoding="utf-8")
+                code, calls, output = _run_with_recording_stubs(
+                    str(_step("pip_audit")["run"]),
+                    workdir,
+                    {"L9_CI_INSTALL_COMMAND": ""},
+                    self.STUBS,
+                )
+                self.assertEqual(1, code, output)
+                self.assertNotIn("pip-audit ", calls)
+                self.assertIn("outcome=not_executed (no lock file)", output)
 
 
 class GitleaksInvocationTests(unittest.TestCase):

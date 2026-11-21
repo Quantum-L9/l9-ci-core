@@ -86,6 +86,7 @@ REPO_TEST_MODULES := \
 	tests/workflows/test_org_ci_toolchain_drift_report.py \
 	tests/workflows/test_org_ci_required_instances.py \
 	tests/workflows/test_security_consumer_scope.py \
+	tests/workflows/test_security_pip_audit_lockset.py \
 	tests/workflows/test_blocking_check_classification.py \
 	tests/workflows/test_security_scan_outcomes.py
 

@@ -104,17 +104,13 @@ class RenderTests(unittest.TestCase):
         self.canary = (ROOT / pc.CANARY).read_text(encoding="utf-8")
 
     def test_the_committed_canary_is_the_render_of_org_ci(self) -> None:
-        """A reusable job is inlined at the revision org-ci.yml pins, not from
-        the working tree: security.yml can move past its pin (#329 did) with
-        org-ci.yml and the canary unchanged. As in `render --check`, the
-        inlined blocks come from the canary itself; the plan job checks them
-        against the pinned sources with full history (`head-current`)."""
         base = pc.embedded_base(self.canary)
+        # The inlined security.yml is the one at org-ci.yml's pin, which the
+        # committed canary carries; the working tree's may already be newer.
+        # This is how `render --check` reads it, without git history.
         head_part = self.canary.split(pc.BASE_BEGIN, 1)[0]
-        self.assertEqual(
-            pc.render(self.org_ci, base, pc.embedded_provider(head_part), ADMISSION),
-            self.canary,
-        )
+        provider = pc.embedded_provider(head_part)
+        self.assertEqual(pc.render(self.org_ci, base, provider, ADMISSION), self.canary)
         with redirect_stdout(io.StringIO()):
             self.assertEqual(0, pc.main(["--root", str(ROOT), "render", "--check"]))
 

@@ -11,7 +11,7 @@
 # pull request changes the analyze steps, at the base's pins (the `base` job).
 # Both are org-ci.yml's steps verbatim apart from the target identity.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: ee483dd69de562afa4b7ef0e002b2cd7b9a15a89859439d4faaa80bc1a83612d
+# worse. Head steps digest: b6b40b71a8b3abb88fc7539a897f6f281f74368ee1eaf79756050ff89a1ce4c0
 name: Promotion canary (Core)
 on:
   pull_request:
@@ -77,7 +77,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      # --- inlined org-ci job security .github/workflows/security.yml@2801f661e0b2136ef8a90ab54cec2b9f67eb950f: begin ---
+      # --- inlined org-ci job security .github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d: begin ---
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         id: security__s0
         with:
@@ -230,30 +230,117 @@ jobs:
         if: steps.security__detect.outputs.python == 'true'
         env:
           L9_CI_INSTALL_COMMAND: ''
+          EVENT_NAME: push
+          PR_BASE: ''
+          PR_HEAD: ''
+          MERGE_GROUP_BASE: ''
+          MERGE_GROUP_HEAD: ''
+          PUSH_BEFORE: ''
+          EVENT_SHA: ${{ matrix.revision }}
         run: |
           set -euo pipefail
+          # Scope (operator decision 2026-11-21, row 23): a pull request,
+          # merge group or push audits only when it changes a dependency
+          # manifest or lock. Every other event audits. A range that cannot be
+          # read audits too: not running needs a positive proof.
+          is_sha() {
+            local candidate="$1"
+            [[ "${candidate}" =~ ^[0-9a-f]{40}$ ]]
+          }
+          base=""
+          head=""
+          case "${EVENT_NAME:-}" in
+            pull_request|pull_request_target) base="${PR_BASE:-}"; head="${PR_HEAD:-}" ;;
+            merge_group) base="${MERGE_GROUP_BASE:-}"; head="${MERGE_GROUP_HEAD:-}" ;;
+            push) base="${PUSH_BEFORE:-}"; head="${EVENT_SHA:-}" ;;
+            *) ;;
+          esac
+          if is_sha "${base}" && is_sha "${head}" \
+            && [ "${base}" != "0000000000000000000000000000000000000000" ]; then
+            # --no-renames: a renamed or deleted lock shows its old path too.
+            if changed="$(git diff --no-renames --name-only "${base}" "${head}" --)"; then
+              manifests='(^|/)(pyproject\.toml|uv\.lock|setup\.py|setup\.cfg|requirements[^/]*\.txt|constraints[^/]*\.txt|Pipfile(\.lock)?|poetry\.lock|pdm\.lock)$'
+              if ! grep -Eq "${manifests}" <<< "${changed}"; then
+                echo "pip-audit: no dependency manifest or lock changed in ${base}..${head}; nothing new to audit"
+                echo "outcome=not_applicable (no dependency manifest or lock changed)" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            else
+              echo "::warning::pip-audit: the change range ${base}..${head} cannot be read; auditing"
+            fi
+          fi
           python -m pip install --upgrade --only-binary :all: "pip==26.2.1"
           pip install --only-binary :all: "pip-audit==2.9.0"
           if [ -n "$L9_CI_INSTALL_COMMAND" ]; then
             bash -c "$L9_CI_INSTALL_COMMAND" || echo "::notice::l9-ci install command failed; continuing"
           fi
-          # Installation above is acquisition; a failure there leaves no
-          # outcome. From here pip-audit itself runs.
-          # Audit the project, not the runner: plain `pip-audit` audits the
-          # current environment, which on a fresh runner is the toolchain
-          # itself. requirements.txt is audited when present, else the
-          # pyproject.toml project; a setup.py-only project is installed by the
-          # caller's install command and audited in the environment.
+          # The full resolved lock, not the runner's environment: uv.lock
+          # exported with every dependency group, extra and workspace package
+          # (the project's own workspace members are local code, not
+          # packages, and are left out), else requirements.txt. uv is Core's
+          # locked version (install-consumer-ci/toolchain-lock.json).
+          locked=()
+          if [ -f "uv.lock" ]; then
+            pip install --only-binary :all: "uv==0.13.8"
+            out="${RUNNER_TEMP:-/tmp}/l9-locked"
+            mkdir -p "${out}"
+            export_lock() {
+              local name="$1"
+              shift
+              uv export --frozen --all-packages --no-emit-workspace --no-hashes \
+                --format requirements.txt --output-file "${out}/${name}.txt" "$@" > /dev/null
+            }
+            if export_lock all --all-groups --all-extras; then
+              locked+=("${out}/all.txt")
+            elif python3 -I -c 'import sys, tomllib; sys.exit(0 if tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("uv", {}).get("conflicts") else 1)' 2> /dev/null; then
+              # Declared conflicts ([tool.uv].conflicts) make the union of
+              # every extra and group unresolvable by design. Each selection
+              # is exported and audited on its own: the base set, then every
+              # extra and every group. Any selection that cannot be exported
+              # leaves the locked set unknown.
+              echo "pip-audit: uv.lock declares conflicting extras or groups; auditing each selection"
+              selections="$(python3 -I -c 'import tomllib; d = tomllib.load(open("pyproject.toml", "rb")); [print("extra", n) for n in d.get("project", {}).get("optional-dependencies", {})]; [print("group", n) for n in d.get("dependency-groups", {})]')"
+              if ! export_lock base --no-default-groups; then
+                echo "::error::pip-audit: the base set of uv.lock cannot be exported; the audit is incomplete"
+                echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+              locked+=("${out}/base.txt")
+              while read -r kind name; do
+                [ -n "${kind}" ] || continue
+                if ! export_lock "${kind}-${name}" --no-default-groups "--${kind}" "${name}"; then
+                  echo "::error::pip-audit: the ${kind} ${name} of uv.lock cannot be exported; the audit is incomplete"
+                  echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+                  exit 1
+                fi
+                locked+=("${out}/${kind}-${name}.txt")
+              done <<< "${selections}"
+            else
+              echo "::error::pip-audit: uv.lock cannot be exported; the locked set is unknown, so the audit is incomplete"
+              echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          elif [ -f "requirements.txt" ]; then
+            locked=("requirements.txt")
+          else
+            echo "::error::pip-audit: a Python project with no uv.lock or requirements.txt has no locked set to audit; the audit is incomplete"
+            echo "outcome=not_executed (no lock file)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          # Acquisition and the lock are settled; from here pip-audit runs.
           status=0
           # `--desc` takes an optional value; it is given explicitly so the
           # next argument is never read as that value (`--desc .` is a usage
-          # error, exit 2, and audits nothing).
-          if [ -f "requirements.txt" ]; then
+          # error, exit 2, and audits nothing). An exported lock is fully
+          # pinned, so it is audited as written (--no-deps).
+          if [ "${locked[0]}" = "requirements.txt" ]; then
             pip-audit --desc on -r requirements.txt || status=$?
-          elif [ -f "pyproject.toml" ]; then
-            pip-audit --desc on . || status=$?
           else
-            pip-audit --desc on || status=$?
+            requirements=()
+            for file in "${locked[@]}"; do
+              requirements+=(-r "${file}")
+            done
+            pip-audit --desc on --no-deps "${requirements[@]}" || status=$?
           fi
           if [ "${status}" -eq 0 ]; then
             echo "outcome=executed_pass" >> "$GITHUB_OUTPUT"
@@ -389,7 +476,7 @@ jobs:
             echo
             echo "Advisory, not_run, not_applicable and not_executed are not passes."
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      # --- inlined org-ci job security .github/workflows/security.yml@2801f661e0b2136ef8a90ab54cec2b9f67eb950f: end ---
+      # --- inlined org-ci job security .github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d: end ---
       - name: Record the security job result
         if: always()
         env:
@@ -593,7 +680,7 @@ jobs:
       - id: toolchain
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@da01ee359ee18c59ff98b119e5aa5ee609754b5d
 
       - name: Validate native push event context
         if: github.event_name == 'push'
@@ -629,12 +716,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@da01ee359ee18c59ff98b119e5aa5ee609754b5d
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -670,7 +757,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -683,7 +770,7 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
@@ -712,7 +799,7 @@ jobs:
         name: Plan required instances (Core)
         if: steps.inventory.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           inventory: ${{ steps.inventory.outputs.path }}
           repository: ${{ matrix.repository }}
@@ -731,12 +818,12 @@ jobs:
         name: Install Biome (digest-locked central pin)
         if: hashFiles('biome.json', 'biome.jsonc') != ''
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@da01ee359ee18c59ff98b119e5aa5ee609754b5d
 
       - id: biome_check
         name: Run Biome check (blocking)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.biome.outputs.executable }}
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
@@ -890,7 +977,7 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           workspace: .
           # AGENTS.md §27: held only by the registry snapshot and the composer
@@ -993,14 +1080,14 @@ jobs:
         name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -1025,7 +1112,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -1200,7 +1287,7 @@ jobs:
         name: Aggregate required instances (Core)
         if: always() && steps.plan.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
           results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
@@ -1244,7 +1331,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -1255,7 +1342,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -1267,7 +1354,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -1289,7 +1376,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -1338,7 +1425,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}
@@ -1487,7 +1574,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: ee483dd69de562afa4b7ef0e002b2cd7b9a15a89859439d4faaa80bc1a83612d
+          DIGEST: b6b40b71a8b3abb88fc7539a897f6f281f74368ee1eaf79756050ff89a1ce4c0
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -1573,7 +1660,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      # --- inlined org-ci job security .github/workflows/security.yml@2801f661e0b2136ef8a90ab54cec2b9f67eb950f: begin ---
+      # --- inlined org-ci job security .github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d: begin ---
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         id: security__s0
         with:
@@ -1726,30 +1813,117 @@ jobs:
         if: steps.security__detect.outputs.python == 'true'
         env:
           L9_CI_INSTALL_COMMAND: ''
+          EVENT_NAME: push
+          PR_BASE: ''
+          PR_HEAD: ''
+          MERGE_GROUP_BASE: ''
+          MERGE_GROUP_HEAD: ''
+          PUSH_BEFORE: ''
+          EVENT_SHA: ${{ matrix.revision }}
         run: |
           set -euo pipefail
+          # Scope (operator decision 2026-11-21, row 23): a pull request,
+          # merge group or push audits only when it changes a dependency
+          # manifest or lock. Every other event audits. A range that cannot be
+          # read audits too: not running needs a positive proof.
+          is_sha() {
+            local candidate="$1"
+            [[ "${candidate}" =~ ^[0-9a-f]{40}$ ]]
+          }
+          base=""
+          head=""
+          case "${EVENT_NAME:-}" in
+            pull_request|pull_request_target) base="${PR_BASE:-}"; head="${PR_HEAD:-}" ;;
+            merge_group) base="${MERGE_GROUP_BASE:-}"; head="${MERGE_GROUP_HEAD:-}" ;;
+            push) base="${PUSH_BEFORE:-}"; head="${EVENT_SHA:-}" ;;
+            *) ;;
+          esac
+          if is_sha "${base}" && is_sha "${head}" \
+            && [ "${base}" != "0000000000000000000000000000000000000000" ]; then
+            # --no-renames: a renamed or deleted lock shows its old path too.
+            if changed="$(git diff --no-renames --name-only "${base}" "${head}" --)"; then
+              manifests='(^|/)(pyproject\.toml|uv\.lock|setup\.py|setup\.cfg|requirements[^/]*\.txt|constraints[^/]*\.txt|Pipfile(\.lock)?|poetry\.lock|pdm\.lock)$'
+              if ! grep -Eq "${manifests}" <<< "${changed}"; then
+                echo "pip-audit: no dependency manifest or lock changed in ${base}..${head}; nothing new to audit"
+                echo "outcome=not_applicable (no dependency manifest or lock changed)" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            else
+              echo "::warning::pip-audit: the change range ${base}..${head} cannot be read; auditing"
+            fi
+          fi
           python -m pip install --upgrade --only-binary :all: "pip==26.2.1"
           pip install --only-binary :all: "pip-audit==2.9.0"
           if [ -n "$L9_CI_INSTALL_COMMAND" ]; then
             bash -c "$L9_CI_INSTALL_COMMAND" || echo "::notice::l9-ci install command failed; continuing"
           fi
-          # Installation above is acquisition; a failure there leaves no
-          # outcome. From here pip-audit itself runs.
-          # Audit the project, not the runner: plain `pip-audit` audits the
-          # current environment, which on a fresh runner is the toolchain
-          # itself. requirements.txt is audited when present, else the
-          # pyproject.toml project; a setup.py-only project is installed by the
-          # caller's install command and audited in the environment.
+          # The full resolved lock, not the runner's environment: uv.lock
+          # exported with every dependency group, extra and workspace package
+          # (the project's own workspace members are local code, not
+          # packages, and are left out), else requirements.txt. uv is Core's
+          # locked version (install-consumer-ci/toolchain-lock.json).
+          locked=()
+          if [ -f "uv.lock" ]; then
+            pip install --only-binary :all: "uv==0.13.8"
+            out="${RUNNER_TEMP:-/tmp}/l9-locked"
+            mkdir -p "${out}"
+            export_lock() {
+              local name="$1"
+              shift
+              uv export --frozen --all-packages --no-emit-workspace --no-hashes \
+                --format requirements.txt --output-file "${out}/${name}.txt" "$@" > /dev/null
+            }
+            if export_lock all --all-groups --all-extras; then
+              locked+=("${out}/all.txt")
+            elif python3 -I -c 'import sys, tomllib; sys.exit(0 if tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("uv", {}).get("conflicts") else 1)' 2> /dev/null; then
+              # Declared conflicts ([tool.uv].conflicts) make the union of
+              # every extra and group unresolvable by design. Each selection
+              # is exported and audited on its own: the base set, then every
+              # extra and every group. Any selection that cannot be exported
+              # leaves the locked set unknown.
+              echo "pip-audit: uv.lock declares conflicting extras or groups; auditing each selection"
+              selections="$(python3 -I -c 'import tomllib; d = tomllib.load(open("pyproject.toml", "rb")); [print("extra", n) for n in d.get("project", {}).get("optional-dependencies", {})]; [print("group", n) for n in d.get("dependency-groups", {})]')"
+              if ! export_lock base --no-default-groups; then
+                echo "::error::pip-audit: the base set of uv.lock cannot be exported; the audit is incomplete"
+                echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+              locked+=("${out}/base.txt")
+              while read -r kind name; do
+                [ -n "${kind}" ] || continue
+                if ! export_lock "${kind}-${name}" --no-default-groups "--${kind}" "${name}"; then
+                  echo "::error::pip-audit: the ${kind} ${name} of uv.lock cannot be exported; the audit is incomplete"
+                  echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+                  exit 1
+                fi
+                locked+=("${out}/${kind}-${name}.txt")
+              done <<< "${selections}"
+            else
+              echo "::error::pip-audit: uv.lock cannot be exported; the locked set is unknown, so the audit is incomplete"
+              echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          elif [ -f "requirements.txt" ]; then
+            locked=("requirements.txt")
+          else
+            echo "::error::pip-audit: a Python project with no uv.lock or requirements.txt has no locked set to audit; the audit is incomplete"
+            echo "outcome=not_executed (no lock file)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          # Acquisition and the lock are settled; from here pip-audit runs.
           status=0
           # `--desc` takes an optional value; it is given explicitly so the
           # next argument is never read as that value (`--desc .` is a usage
-          # error, exit 2, and audits nothing).
-          if [ -f "requirements.txt" ]; then
+          # error, exit 2, and audits nothing). An exported lock is fully
+          # pinned, so it is audited as written (--no-deps).
+          if [ "${locked[0]}" = "requirements.txt" ]; then
             pip-audit --desc on -r requirements.txt || status=$?
-          elif [ -f "pyproject.toml" ]; then
-            pip-audit --desc on . || status=$?
           else
-            pip-audit --desc on || status=$?
+            requirements=()
+            for file in "${locked[@]}"; do
+              requirements+=(-r "${file}")
+            done
+            pip-audit --desc on --no-deps "${requirements[@]}" || status=$?
           fi
           if [ "${status}" -eq 0 ]; then
             echo "outcome=executed_pass" >> "$GITHUB_OUTPUT"
@@ -1885,7 +2059,7 @@ jobs:
             echo
             echo "Advisory, not_run, not_applicable and not_executed are not passes."
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      # --- inlined org-ci job security .github/workflows/security.yml@2801f661e0b2136ef8a90ab54cec2b9f67eb950f: end ---
+      # --- inlined org-ci job security .github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d: end ---
       - name: Record the security job result
         if: always()
         env:
@@ -2089,7 +2263,7 @@ jobs:
       - id: toolchain
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@da01ee359ee18c59ff98b119e5aa5ee609754b5d
 
       - name: Validate native push event context
         if: github.event_name == 'push'
@@ -2125,12 +2299,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@da01ee359ee18c59ff98b119e5aa5ee609754b5d
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -2189,7 +2363,7 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
@@ -2218,7 +2392,7 @@ jobs:
         name: Plan required instances (Core)
         if: steps.inventory.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           inventory: ${{ steps.inventory.outputs.path }}
           repository: ${{ matrix.repository }}
@@ -2237,12 +2411,12 @@ jobs:
         name: Install Biome (digest-locked central pin)
         if: hashFiles('biome.json', 'biome.jsonc') != ''
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@da01ee359ee18c59ff98b119e5aa5ee609754b5d
 
       - id: biome_check
         name: Run Biome check (blocking)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.biome.outputs.executable }}
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
@@ -2396,7 +2570,7 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           workspace: .
           # AGENTS.md §27: held only by the registry snapshot and the composer
@@ -2499,14 +2673,14 @@ jobs:
         name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -2531,7 +2705,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -2706,7 +2880,7 @@ jobs:
         name: Aggregate required instances (Core)
         if: always() && steps.plan.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
           results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
@@ -2750,7 +2924,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -2761,7 +2935,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -2773,7 +2947,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -2795,7 +2969,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -2844,7 +3018,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}
@@ -2993,7 +3167,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: ee483dd69de562afa4b7ef0e002b2cd7b9a15a89859439d4faaa80bc1a83612d
+          DIGEST: b6b40b71a8b3abb88fc7539a897f6f281f74368ee1eaf79756050ff89a1ce4c0
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
