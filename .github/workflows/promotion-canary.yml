@@ -1087,7 +1087,9 @@ jobs:
         with:
           name: promotion-canary-head-${{ matrix.slug }}
           path: ${{ runner.temp }}/promotion-canary/head-${{ matrix.slug }}.json
-          if-no-files-found: ignore
+          # A leg that cannot write its record fails its job, and the verdict
+          # then finds no record and blocks.
+          if-no-files-found: error
           retention-days: 14
 
   admitted:
@@ -2122,7 +2124,9 @@ jobs:
         with:
           name: promotion-canary-admitted-${{ matrix.slug }}
           path: ${{ runner.temp }}/promotion-canary/admitted-${{ matrix.slug }}.json
-          if-no-files-found: ignore
+          # A leg that cannot write its record fails its job, and the verdict
+          # then finds no record and blocks.
+          if-no-files-found: error
           retention-days: 14
 
   # --- base pins leg: begin (rendered from origin/main's org-ci.yml) ---
@@ -2924,6 +2928,23 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
 
+      # Every planned instance's own bundle beside the central artifact set
+      # (SDK ADR 0021, Core change 2): secondary languages and the declared
+      # consumer rulepack, whose bundle names the consumer rule files and the
+      # rules evaluated. A separate artifact, so the central set, its manifest
+      # and its handoff are unchanged. .l9/runtime is untracked workspace
+      # state written by this job only.
+      - name: Upload instance bundles
+        if: always() && steps.plan.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: l9-instance-bundles-${{ steps.runtime.outputs['matrix-id'] }}-${{ github.run_attempt }}
+          path: |
+            .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
+
       - id: handoff
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
@@ -3062,7 +3083,7 @@ jobs:
         if: always()
         env:
           SIDE: base
-          DIGEST: 27643a0a1b1a0f001759a8226430f5c1603cd2ec222ed17e37073bbad8d764d7
+          DIGEST: 776711f54431b3ae1a327ed2838010dd8b3a94248a16c27afc22ea11a23639d2
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -3131,7 +3152,9 @@ jobs:
         with:
           name: promotion-canary-base-${{ matrix.slug }}
           path: ${{ runner.temp }}/promotion-canary/base-${{ matrix.slug }}.json
-          if-no-files-found: ignore
+          # A leg that cannot write its record fails its job, and the verdict
+          # then finds no record and blocks.
+          if-no-files-found: error
           retention-days: 14
 
   # --- base pins leg: end ---
@@ -3139,12 +3162,14 @@ jobs:
   verdict:
     name: Promotion canary (Core)
     needs: [plan, head, admitted, base]
-    # Runs whatever the plan and legs concluded (a job skipped by `if:` reports
-    # success on a required check, so the verdict decides itself, including
-    # when no leg was needed). Only a run superseded by a newer one on the same
-    # pull request is cancelled; its verdict is skipped and the newer run's
-    # verdict, which always follows, is the check that counts.
-    if: ${{ !cancelled() }}
+    # Runs whatever the plan and legs concluded, a cancelled run included (a
+    # job skipped by `if:` reports success on a required check, so the verdict
+    # decides itself). It is the only gate: a leg is red exactly when its own
+    # org-ci run is red, and the verdict judges that against the base pins. A
+    # leg job that was cancelled or did not run when planned is incomplete
+    # and blocks. A superseded run's verdict fails; the newer run's verdict,
+    # which always follows, is the check that counts.
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -3172,6 +3197,9 @@ jobs:
           L9_CANARY_MATRIX: ${{ needs.plan.outputs.matrix }}
           L9_CANARY_ADMITTED: ${{ needs.plan.outputs.admitted }}
           L9_CANARY_RECORDS: ${{ runner.temp }}/promotion-canary
+          L9_CANARY_HEAD_RESULT: ${{ needs.head.result }}
+          L9_CANARY_BASE_RESULT: ${{ needs.base.result }}
+          L9_CANARY_ADMITTED_RESULT: ${{ needs.admitted.result }}
         run: |
           set -euo pipefail
           python3 -I tools/promotion_canary.py verdict
