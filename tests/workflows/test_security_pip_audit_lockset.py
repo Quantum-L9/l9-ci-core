@@ -109,6 +109,28 @@ class Project:
         return completed.returncode, text, calls
 
 
+EXPORTED = "anyio==4.6.2\nhttpx[http2]==0.28.1\n# a comment\nsniffio==1.3.1\n"
+
+
+def exporting_uv(project: Project, code: int = 0) -> None:
+    """A uv stub that records its call and, like `uv export`, writes the
+    requirements file named by --output-file (three pinned packages)."""
+    path = project.bin / "uv"
+    path.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf "%s\\n" "uv $*" >> "{project.log}"\n'
+        f"[ {code} -eq 0 ] || exit {code}\n"
+        'while [ "$#" -gt 0 ]; do\n'
+        '  if [ "$1" = "--output-file" ]; then\n'
+        f"    printf '%s' '{EXPORTED}' > \"$2\"\n"
+        "  fi\n"
+        "  shift\n"
+        "done\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
 def _audits(calls: list[str]) -> list[str]:
     return [call for call in calls if call.startswith("pip-audit ")]
 
@@ -120,8 +142,9 @@ class LocksetTests(unittest.TestCase):
 
     def project(self, files: dict[str, str]) -> Project:
         project = Project(Path(self.tmp.name), files)
-        for tool in ("python", "pip", "uv", "pip-audit"):
+        for tool in ("python", "pip", "pip-audit"):
             project.stub(tool)
+        exporting_uv(project)
         return project
 
     def test_a_uv_project_audits_the_whole_exported_lock(self) -> None:
@@ -142,6 +165,26 @@ class LocksetTests(unittest.TestCase):
         [audit] = _audits(calls)
         self.assertIn(f"--no-deps -r {exported}", audit)
         self.assertIn("outcome=executed_pass", text)
+
+    def test_the_log_names_the_export_and_the_audited_count(self) -> None:
+        project = self.project({"pyproject.toml": "[project]\n", "uv.lock": "x\n"})
+        code, text, _ = project.run({"EVENT_NAME": "workflow_dispatch"})
+        self.assertEqual(0, code, text)
+        self.assertIn(
+            "pip-audit: uv export --frozen --all-packages --no-emit-workspace"
+            " --no-hashes --format requirements.txt --all-groups --all-extras (all)",
+            text,
+        )
+        self.assertIn("pip-audit: auditing 3 pinned package(s) from", text)
+        self.assertIn("pip-audit: 3 pinned package(s) audited in all", text)
+
+    def test_an_export_that_writes_nothing_is_incomplete(self) -> None:
+        project = self.project({"pyproject.toml": "[project]\n", "uv.lock": "x\n"})
+        project.stub("uv")
+        code, text, calls = project.run({"EVENT_NAME": "workflow_dispatch"})
+        self.assertNotEqual(0, code)
+        self.assertIn("outcome=not_executed (the locked set was not written)", text)
+        self.assertEqual([], _audits(calls))
 
     def test_the_lock_outranks_requirements_txt(self) -> None:
         project = self.project(
@@ -190,6 +233,10 @@ class LocksetTests(unittest.TestCase):
             "#!/usr/bin/env bash\n"
             f'printf "%s\\n" "uv $*" >> "{project.log}"\n'
             'case "$*" in *--all-extras*) exit 2 ;; esac\n'
+            'while [ "$#" -gt 0 ]; do\n'
+            '  [ "$1" = "--output-file" ] && printf "a==1\\n" > "$2"\n'
+            "  shift\n"
+            "done\n"
             "exit 0\n",
             encoding="utf-8",
         )
@@ -233,8 +280,9 @@ class ScopeTests(unittest.TestCase):
         self.project = Project(
             Path(self.tmp.name), {"pyproject.toml": "[project]\n", "uv.lock": "x\n"}
         )
-        for tool in ("python", "pip", "uv", "pip-audit"):
+        for tool in ("python", "pip", "pip-audit"):
             self.project.stub(tool)
+        exporting_uv(self.project)
 
     def events(self, base: str, head: str) -> dict[str, dict[str, str]]:
         return {

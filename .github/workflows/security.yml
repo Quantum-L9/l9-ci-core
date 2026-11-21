@@ -284,6 +284,7 @@ jobs:
             export_lock() {
               local name="$1"
               shift
+              echo "pip-audit: uv export --frozen --all-packages --no-emit-workspace --no-hashes --format requirements.txt $* (${name})"
               uv export --frozen --all-packages --no-emit-workspace --no-hashes \
                 --format requirements.txt --output-file "${out}/${name}.txt" "$@" > /dev/null
             }
@@ -324,6 +325,21 @@ jobs:
             echo "outcome=not_executed (no lock file)" >> "$GITHUB_OUTPUT"
             exit 1
           fi
+          # The audited set, named in the log: each file's pinned packages
+          # and the total. A file the export did not write is not an empty
+          # set; the audit is incomplete.
+          total=0
+          for file in "${locked[@]}"; do
+            if [ ! -f "${file}" ]; then
+              echo "::error::pip-audit: ${file} was not written; the audit is incomplete"
+              echo "outcome=not_executed (the locked set was not written)" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            count="$(awk '/^[A-Za-z0-9][A-Za-z0-9._-]*(\[[^]]*\])?[[:space:]]*==/ { n++ } END { print n + 0 }' "${file}")"
+            echo "pip-audit: auditing ${count} pinned package(s) from ${file}"
+            total=$((total + count))
+          done
+          echo "pip-audit: ${total} pinned package(s) audited in all"
           # Acquisition and the lock are settled; from here pip-audit runs.
           status=0
           # `--desc` takes an optional value; it is given explicitly so the
