@@ -18,7 +18,7 @@ inputs:
       Full 40-character immutable SDK commit SHA whose checkout requirements
       digest and runtime platform lock are present in Core's compatibility entry.
     required: false
-    default: 47ae3ac5bc8c1a14cc33e4985ce392996cd27ccc
+    default: 4a887396990a59ffb4a7108790b2fa1005c7865d
   github-read-token:
     description: >
       Read-only token for the private SDK repository (organization secret
