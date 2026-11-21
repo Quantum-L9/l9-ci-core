@@ -463,7 +463,7 @@ jobs:
           directory=".l9/runtime/${L9_MATRIX_ID}/required-instances"
           mkdir -p "${directory}"
           "${L9_EXECUTABLE}" providers inventory --root . --format json \
-            --output "${directory}/inventory.json"
+            --consumer-rules --output "${directory}/inventory.json"
           echo "path=${directory}/inventory.json" >> "$GITHUB_OUTPUT"
 
       - id: plan
@@ -606,6 +606,49 @@ jobs:
       # Core revision; the hosted runner image underneath them is GitHub's,
       # not Core's (workflow audit 2026-09-13, F-005). The SDK venv provisioned
       # above is untouched; only the provider install rides this interpreter.
+      # SDK ADR 0023 (CENTRAL-DIFF): findings are classified new or
+      # pre-existing against a baseline commit; only new blocking findings and
+      # incomplete results fail, pre-existing ones are reported as advisory
+      # with counts. The baseline is the evaluated revision's first parent:
+      # on a pull request or merge group GitHub's merge commit, so its first
+      # parent is the target tip (the merge-base); on a push, the previous
+      # tip. It is fetched (depth 2 above). nightly, release and supply_chain
+      # pass none, so every finding is judged by policy alone (stricter). An
+      # unresolvable baseline, tracked changes or an incomplete baseline scan
+      # make the SDK fail closed.
+      - id: baseline
+        name: Resolve the baseline commit (CENTRAL-DIFF)
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        env:
+          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
+          POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
+        run: |
+          set -euo pipefail
+          commit=""
+          case "${EVENT_CLASS}" in
+            pull_request|merge|push)
+              if [ -z "${POLICY}" ]; then
+                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
+              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
+                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
+              else
+                commit=""
+                echo "::notice::the evaluated revision has no parent: findings are judged by policy alone"
+              fi
+              ;;
+            *)
+              echo "Event class ${EVENT_CLASS}: no baseline, findings are judged by policy alone"
+              ;;
+          esac
+          # The SDK refuses a baseline over tracked changes (ADR 0023); name
+          # them here so a fail-closed baseline is explainable.
+          changed="$(git status --porcelain --untracked-files=no)"
+          if [ -n "${commit}" ] && [ -n "${changed}" ]; then
+            echo "::warning::tracked files differ from HEAD before the Semgrep scan; the baseline will fail closed:"
+            printf '%s\n' "${changed}"
+          fi
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+
       - name: Set up locked Python for the central toolchain
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -637,6 +680,9 @@ jobs:
           strict: ${{ steps.gov.outputs.strict }}
           required: ${{ steps.gov.outputs['required-provider'] }}
           policy: ${{ steps.gov.outputs['sdk-policy'] }}
+          baseline-commit: ${{ steps.baseline.outputs.commit }}
+          waivers: ${{ steps.gov.outputs['finding-waivers'] }}
+          waiver-repository: ${{ github.repository }}
           # The Core-staged identity map for the detected language. Without it
           # a strict profile (`release`) cannot resolve third-party rule
           # identities and `semgrep run --strict` refuses the run outright.
@@ -696,6 +742,9 @@ jobs:
           L9_REQUIRED: ${{ steps.gov.outputs['required-provider'] }}
           L9_POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
           L9_IDENTITY_DIR: ${{ steps.gov.outputs['identity-map-directory'] }}
+          L9_BASELINE: ${{ steps.baseline.outputs.commit }}
+          L9_WAIVERS: ${{ steps.gov.outputs['finding-waivers'] }}
+          L9_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           python3 -I - <<'PY'
@@ -724,65 +773,89 @@ jobs:
           errors = []
 
 
-          def record(language, status):
+          def record(target, status):
               body = {
                   "schema": "l9.core-instance-result/v1",
                   "repository": plan["repository"],
                   "provider": "semgrep",
-                  "target": "language:" + language,
+                  "target": target,
                   "revision": plan["revision"],
                   "sdk_revision": plan["sdk_revision"],
                   "status": status,
               }
-              path = results / ("semgrep-" + language + ".json")
+              kind, _, name = target.partition(":")
+              stem = name if kind == "language" else kind + "-" + name
+              path = results / ("semgrep-" + stem + ".json")
               path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
-              print("instance semgrep:language:" + language + ": " + status)
+              print("instance semgrep:" + target + ": " + status)
 
 
           def sdk(*args):
               return subprocess.run([executable, *args], env=run_env, check=False).returncode
 
 
-          for instance in plan["instances"]:
-              if instance["provider"] != "semgrep" or instance["prerequisite"] != "applicable":
-                  continue
-              kind, _, language = instance["target"].partition(":")
-              if kind != "language" or language not in ("python", "typescript"):
-                  continue
-              if language == env.get("L9_PRIMARY_LANGUAGE"):
-                  primary = env.get("L9_PRIMARY_STATUS", "")
-                  if primary in ("pass", "fail", "incomplete"):
-                      record(language, primary)
-                  else:
-                      print("instance semgrep:language:" + language + ": no primary gate status", file=sys.stderr)
-                  continue
-              work = directory / language
-              bundle = str(work / "finding-bundle.json")
-              run = [
-                  "semgrep", "run", "--language", language, "--output", bundle,
-                  "--root", ".", "--snapshot-id", plan["revision"],
-                  "--revision", plan["revision"],
-                  "--identity-map", str(Path(env["L9_IDENTITY_DIR"]) / (language + ".yaml")),
-                  "--policy", env["L9_POLICY"],
-              ]
+          def shared(command):
+              """The flags every instance run shares with the primary run."""
+              command += ["--policy", env["L9_POLICY"]]
+              if env.get("L9_WAIVERS"):
+                  command += ["--waivers", env["L9_WAIVERS"], "--repository", env["L9_REPOSITORY"]]
               if env.get("L9_STRICT") == "true":
-                  run.append("--strict")
+                  command.append("--strict")
               if env.get("L9_REQUIRED") == "true":
-                  run.append("--required")
+                  command.append("--required")
+              return command
+
+
+          def conclude(target, work, run):
+              """Run, validate and gate one instance; record it or note the error."""
+              bundle = str(work / "finding-bundle.json")
               work.mkdir(parents=True, exist_ok=True)
-              code = sdk(*run)
+              code = sdk(*run, "--output", bundle)
               if code == 0:
                   code = sdk("bundle", "validate", bundle)
               if code != 0:
-                  errors.append("instance semgrep:language:" + language + ": SDK run failed (exit " + str(code) + ")")
-                  continue
+                  errors.append("instance semgrep:" + target + ": SDK run failed (exit " + str(code) + ")")
+                  return
               gate = ["gate", "evaluate", "--bundle", bundle, "--output", str(work / "gate-result.json")]
               gate.append("--strict-unresolved" if env.get("L9_STRICT") == "true" else "--no-strict-unresolved")
               code = sdk(*gate)
               if code in gate_status:
-                  record(language, gate_status[code])
+                  record(target, gate_status[code])
               else:
-                  errors.append("instance semgrep:language:" + language + ": gate exited " + str(code))
+                  errors.append("instance semgrep:" + target + ": gate exited " + str(code))
+
+
+          for instance in plan["instances"]:
+              if instance["provider"] != "semgrep" or instance["prerequisite"] != "applicable":
+                  continue
+              target = instance["target"]
+              kind, _, name = target.partition(":")
+              if kind == "consumer":
+                  # The repository's declared consumer rulepack (SDK ADR 0021):
+                  # its own execution and bundle; central evidence is untouched.
+                  run = ["semgrep", "consumer-run", "--root", ".",
+                         "--snapshot-id", plan["revision"], "--revision", plan["revision"]]
+                  conclude(target, directory / ("consumer-" + name), shared(run))
+                  continue
+              if kind != "language" or name not in ("python", "typescript"):
+                  continue
+              if name == env.get("L9_PRIMARY_LANGUAGE"):
+                  primary = env.get("L9_PRIMARY_STATUS", "")
+                  if primary in ("pass", "fail", "incomplete"):
+                      record(target, primary)
+                  else:
+                      print("instance semgrep:" + target + ": no primary gate status", file=sys.stderr)
+                  continue
+              run = [
+                  "semgrep", "run", "--language", name,
+                  "--root", ".", "--snapshot-id", plan["revision"],
+                  "--revision", plan["revision"],
+                  "--identity-map", str(Path(env["L9_IDENTITY_DIR"]) / (name + ".yaml")),
+              ]
+              shared(run)
+              if env.get("L9_BASELINE"):
+                  run += ["--baseline-commit", env["L9_BASELINE"]]
+              conclude(target, directory / name, run)
 
           for error in errors:
               print("::error::" + error, file=sys.stderr)
@@ -798,6 +871,41 @@ jobs:
           plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
           results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
           output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/aggregate.json
+
+      # CENTRAL-DIFF counts: each bundle the SDK classified against the
+      # baseline carries one `baseline <sha>: N new, M pre-existing (K
+      # blocking reported as advisory), U unknown` limitation (ADR 0023).
+      # Pre-existing findings warn here; only new ones and incomplete results
+      # fail, through the gate. Observational: it changes no verdict.
+      - name: Report CENTRAL-DIFF pre-existing findings (advisory)
+        if: always() && steps.baseline.outputs.commit != ''
+        env:
+          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(".l9/runtime", os.environ["L9_MATRIX_ID"])
+          lines = []
+          for bundle in sorted(root.rglob("finding-bundle.json")):
+              try:
+                  limitations = json.loads(bundle.read_text(encoding="utf-8")).get("limitations", [])
+              except (OSError, ValueError):
+                  continue
+              for item in limitations:
+                  if isinstance(item, str) and item.startswith("baseline "):
+                      lines.append(str(bundle.parent.relative_to(root)) + ": " + item)
+          for line in lines:
+              print("::warning::CENTRAL-DIFF " + line)
+          summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+          if summary and lines:
+              with open(summary, "a", encoding="utf-8") as stream:
+                  stream.write("### Pre-existing findings (CENTRAL-DIFF)\n\n")
+                  stream.writelines("- " + line + "\n" for line in lines)
+          PY
 
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'

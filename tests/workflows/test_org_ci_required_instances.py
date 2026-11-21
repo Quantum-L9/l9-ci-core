@@ -41,11 +41,15 @@ if args[:2] == ["semgrep", "run"]:
     out = pathlib.Path(args[args.index("--output") + 1])
     out.write_text("{}", encoding="utf-8")
     raise SystemExit(int(os.environ.get("FAKE_RUN_" + language.upper(), "0")))
+if args[:2] == ["semgrep", "consumer-run"]:
+    out = pathlib.Path(args[args.index("--output") + 1])
+    out.write_text("{}", encoding="utf-8")
+    raise SystemExit(int(os.environ.get("FAKE_RUN_CONSUMER", "0")))
 if args[:2] == ["bundle", "validate"]:
     raise SystemExit(0)
 if args[:2] == ["gate", "evaluate"]:
     bundle = args[args.index("--bundle") + 1]
-    language = pathlib.Path(bundle).parent.name
+    language = pathlib.Path(bundle).parent.name.split("-")[0]
     raise SystemExit(int(os.environ.get("FAKE_GATE_" + language.upper(), "0")))
 raise SystemExit(64)
 """
@@ -93,8 +97,22 @@ class RunnerTests(unittest.TestCase):
         ]["revision"]
         self.plan()
 
-    def plan(self) -> None:
-        shutil.copy(INVENTORY, self.directory / "inventory.json")
+    def plan(self, consumer: bool = False) -> None:
+        record = json.loads(INVENTORY.read_text(encoding="utf-8"))
+        if consumer:
+            record["result"]["provider_prerequisites"].append(
+                {
+                    "provider_id": "semgrep",
+                    "target": "consumer:quantum-l9.fixture",
+                    "state": "applicable",
+                    "reason": "consumer rulepack declared and in scope",
+                }
+            )
+        (self.directory / "inventory.json").write_text(
+            json.dumps(record), encoding="utf-8"
+        )
+        # The planner writes a plan once; a re-plan starts from no plan.
+        (self.directory / "plan.json").unlink(missing_ok=True)
         completed = subprocess.run(
             [sys.executable, str(ACTIONS / "plan-required-instances" / "plan.py")],
             cwd=self.tmp,
@@ -179,6 +197,59 @@ class RunnerTests(unittest.TestCase):
             ("pass", "0", "true"),
             (result["status"], result["exit-code"], result["accounted"]),
         )
+
+    def test_the_baseline_and_ledger_reach_every_language_run(self) -> None:
+        self.run_instances(
+            L9_BASELINE="e" * 40,
+            L9_WAIVERS="/runner/finding-waivers.yaml",
+            L9_REPOSITORY="Quantum-L9/fixture",
+        )
+        run = next(
+            line
+            for line in self.log.read_text(encoding="utf-8").splitlines()
+            if line.startswith("semgrep run")
+        )
+        self.assertIn("--baseline-commit " + "e" * 40, run)
+        self.assertIn("--waivers /runner/finding-waivers.yaml", run)
+        self.assertIn("--repository Quantum-L9/fixture", run)
+        self.assertIn("--policy policy.yaml", run)
+
+    def test_without_a_baseline_no_language_run_carries_one(self) -> None:
+        self.run_instances()
+        self.assertNotIn("--baseline-commit", self.log.read_text(encoding="utf-8"))
+        self.assertNotIn("--waivers", self.log.read_text(encoding="utf-8"))
+
+    def test_a_declared_consumer_rulepack_runs_and_is_accounted(self) -> None:
+        self.plan(consumer=True)
+        printed = self.run_instances(L9_BASELINE="e" * 40)
+        self.assertIn("instance semgrep:consumer:quantum-l9.fixture: pass", printed)
+        consumer = next(
+            line
+            for line in self.log.read_text(encoding="utf-8").splitlines()
+            if line.startswith("semgrep consumer-run")
+        )
+        self.assertIn("--policy policy.yaml", consumer)
+        self.assertIn("--required", consumer)
+        # The consumer run is its own execution; ADR 0023 is not applied to it.
+        self.assertNotIn("--baseline-commit", consumer)
+        self.assertTrue(
+            (
+                self.directory / "results" / "semgrep-consumer-quantum-l9.fixture.json"
+            ).exists()
+        )
+        result = self.aggregate()
+        self.assertEqual(("pass", "0"), (result["status"], result["exit-code"]))
+
+    def test_a_consumer_rulepack_that_cannot_run_is_never_pass(self) -> None:
+        self.plan(consumer=True)
+        printed = self.run_instances(expect=1, FAKE_RUN_CONSUMER="2")
+        self.assertIn("consumer:quantum-l9.fixture: SDK run failed", printed)
+        self.assertEqual("incomplete", self.aggregate()["status"])
+
+    def test_a_failing_consumer_rulepack_fails_the_aggregate(self) -> None:
+        self.plan(consumer=True)
+        self.run_instances(FAKE_GATE_CONSUMER="1")
+        self.assertEqual("fail", self.aggregate()["status"])
 
     def test_a_failing_second_language_fails_the_aggregate(self) -> None:
         self.run_instances(FAKE_GATE_TYPESCRIPT="1")
