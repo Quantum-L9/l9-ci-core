@@ -285,3 +285,13 @@ class RequiredScanOutcomeTests(unittest.TestCase):
         self.assertIn("outcome=executed_pass", scan)
         self.assertIn("outcome=executed_fail", scan)
         self.assertIn('exit "${status}"', scan)
+
+    def test_gitleaks_is_downloaded_over_https_only(self) -> None:
+        # Every request, redirects included, is HTTPS with TLS 1.2 or later;
+        # the checksum then pins the bytes.
+        script = str(_step("Secret scan (gitleaks)")["run"])
+        downloads = [line for line in script.splitlines() if "curl " in line]
+        self.assertEqual(1, len(downloads))
+        self.assertIn("--proto '=https'", downloads[0])
+        self.assertIn("--tlsv1.2", downloads[0])
+        self.assertIn("GITLEAKS_SHA256", script)
