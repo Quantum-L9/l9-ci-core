@@ -6,8 +6,45 @@ metadata:
 default:
   source: git
   repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-  revision: 1d63203797c692a026a9a578cf611dcf5e709cdd
+  revision: 47ae3ac5bc8c1a14cc33e4985ce392996cd27ccc
 supported:
+  # 47ae3ac5 (l9-ci-sdk#140, #142 on 2796d7a4, SDK main ancestor): the
+  # default. hardcoded-credential requires a secret-shaped value, not a name
+  # (#140); archived code (**/_archived/**) is declared out of required scope
+  # with its reason (#142). Deliberately before #134 (d655c806, tests in
+  # required scope): the PIN-ADVANCE-2 canary (#319, run 44864948490) showed
+  # 1d632037 turning pre-existing test-code findings into blockers in every
+  # declared repository (SDK 104, CEG 91, EIE 19, Core 1, Cursor-Governance
+  # +5). Pins past d655c806 wait for CENTRAL-DIFF (pre-existing findings warn,
+  # new ones block). 1d632037 below stays admitted but is not the default. No
+  # CLI path, integration-contract or artifact-protocol change; requirements
+  # are byte-identical, so the runtime lock is unchanged. 2796d7a4 is the
+  # tested rollback.
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: 47ae3ac5bc8c1a14cc33e4985ce392996cd27ccc
+    integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+      - l9.sarif-log/v1
+    required_cli_paths:
+      - providers detect
+      - providers inventory
+      - semgrep run
+      - semgrep normalize
+      - gate evaluate
+      - bundle validate
+      - bundle project-agent-payload
+      - bundle project-sarif
+      - compatibility check
+      - baseline compare-tests
+      - baseline scan-packet-envelope
+      - baseline compare-scan
+      - baseline validate-ledger
   # 1d632037 (l9-ci-sdk#140, #142, #134, #135 on 2796d7a4, SDK main):
   # hardcoded-credential requires a secret-shaped value, not a name (#140);
   # archived code (**/_archived/**) is declared out of required scope with its
