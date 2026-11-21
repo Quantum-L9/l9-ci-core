@@ -62,6 +62,7 @@ Classes:
 | Report toolchain alignment drift (advisory) | HOUSEKEEPING | One `::warning` per drifting declaration and a summary line; runs with `always()` and has no failing exit (#302) |
 | Enforce repository verification | BLOCKING_CORRECTNESS | See the repository verification table |
 | Enforce central mode on SDK technical gate | BLOCKING_SECURITY | Semgrep across every required instance in blocking mode; incomplete fails |
+| Enforce security scan (secrets, dependency audit) | BLOCKING_SECURITY | The `security` job (`security.yml`): a gitleaks finding or a pip-audit vulnerability fails; bandit is advisory; a skipped or cancelled scan fails |
 
 ## Repository verification (`run-repository-verification`)
 
