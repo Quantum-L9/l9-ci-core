@@ -588,7 +588,7 @@ class PlanTests(unittest.TestCase):
             mock.patch.object(pc, "_get", lambda url, token: {"sha": "a" * 40}),
             # The temporary history has no commit at org-ci.yml's security.yml
             # pin; the provider is an IO boundary, like _get.
-            mock.patch.object(pc, "git_provider", lambda root: security_provider),
+            mock.patch.object(pc, "git_provider", return_value=security_provider),
         ):
             self.assertEqual(0, pc.main(["--root", tmp, "plan"]))
         return dict(
