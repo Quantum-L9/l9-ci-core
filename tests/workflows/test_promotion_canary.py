@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -47,11 +48,13 @@ def write_admission(root: Path) -> None:
         (root / path).write_text(text, encoding="utf-8")
 
 
-def NO_REUSABLE(name: str, path: str, sha: str, values: dict[str, str]) -> str:
-    raise AssertionError(f"unexpected reusable job {name} {path}@{sha}")
-
-
-SECURITY_SHA = "1" * 40
+ORG_CI_TEXT = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
+# org-ci.yml calls security.yml at a pinned revision (#312). Tests read the pin
+# from org-ci.yml itself, not through the tool under test.
+SECURITY_SHA = re.search(
+    r"uses: Quantum-L9/l9-ci-core/\.github/workflows/security\.yml@([0-9a-f]{40})",
+    ORG_CI_TEXT,
+).group(1)
 SECURITY_JOB = f"""\
   # A reusable job ahead of analyze, as #312 adds.
   security:
@@ -73,7 +76,12 @@ ENFORCE = """
 
 
 def with_security(org_ci: str) -> str:
-    """org-ci.yml as #312 shapes it: a security job that analyze needs."""
+    """org-ci.yml as #312 shapes it: a security job that analyze needs.
+
+    The committed org-ci.yml already has it; a variant without it gains it.
+    """
+    if "\n  security:\n" in org_ci:
+        return org_ci
     return (
         org_ci.replace("\njobs:\n", "\njobs:\n" + SECURITY_JOB, 1).rstrip("\n")
         + "\n"
@@ -98,7 +106,7 @@ class RenderTests(unittest.TestCase):
     def test_the_committed_canary_is_the_render_of_org_ci(self) -> None:
         base = pc.embedded_base(self.canary)
         self.assertEqual(
-            pc.render(self.org_ci, base, NO_REUSABLE, ADMISSION), self.canary
+            pc.render(self.org_ci, base, security_provider, ADMISSION), self.canary
         )
         with redirect_stdout(io.StringIO()):
             self.assertEqual(0, pc.main(["--root", str(ROOT), "render", "--check"]))
@@ -109,19 +117,36 @@ class RenderTests(unittest.TestCase):
         steps = pc.analyze_steps(self.org_ci)
         for old, new in pc.REPLACEMENTS:
             steps = steps.replace(old, new.replace("@@SIDE@@", "head"))
+        # A reusable job's result is the only other rewrite: analyze reads it
+        # from the inlined job's result step instead of `needs`.
+        for name, _path, _sha, _values in pc.reusable_jobs(self.org_ci):
+            steps = steps.replace(
+                f"${{{{ needs.{name}.result }}}}",
+                f"${{{{ steps.{name}__result.outputs.result }}}}",
+            )
         self.assertIn(steps, self.canary)
         org = yaml.safe_load(self.org_ci)["jobs"]["analyze"]["steps"]
         head = leg_steps(self.canary, "head")
+        # Inlined reusable jobs run first; analyze's own steps follow them.
+        prefixes = tuple(f"{j[0]}__" for j in pc.reusable_jobs(self.org_ci))
+        if prefixes:
+            last = max(
+                i
+                for i, s in enumerate(head)
+                if str(s.get("id", "")).startswith(prefixes)
+                or str(s.get("name", "")).startswith("Clear the workspace")
+            )
+            head = head[last + 1 :]
         self.assertEqual(
             [s.get("uses") or s.get("name") for s in org],
             [s.get("uses") or s.get("name") for s in head[: len(org)]],
         )
 
     def test_the_base_leg_is_the_same_render_for_the_base_org_ci(self) -> None:
-        block = pc.base_block(self.org_ci, NO_REUSABLE)
+        block = pc.base_block(self.org_ci, security_provider)
         self.assertTrue(block.startswith(pc.BASE_BEGIN))
         self.assertTrue(block.endswith(pc.BASE_END))
-        rendered = pc.render(self.org_ci, block, NO_REUSABLE, ADMISSION)
+        rendered = pc.render(self.org_ci, block, security_provider, ADMISSION)
         head = leg_steps(rendered, "head")
         base = leg_steps(rendered, "base")
         self.assertEqual(len(head), len(base))
@@ -152,12 +177,12 @@ class RenderTests(unittest.TestCase):
             1,
         )
         with self.assertRaisesRegex(pc.CanaryError, "cannot retarget"):
-            pc.leg_job("head", changed, NO_REUSABLE)
+            pc.leg_job("head", changed, security_provider)
 
     def test_a_vanished_target_reference_is_refused(self) -> None:
         changed = self.org_ci.replace("${{ github.ref }}", "refs/heads/main")
         with self.assertRaisesRegex(pc.CanaryError, "no longer contains"):
-            pc.leg_job("head", changed, NO_REUSABLE)
+            pc.leg_job("head", changed, security_provider)
 
     def test_a_stale_or_baseless_canary_fails_the_check(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -342,7 +367,10 @@ class ReusableJobTests(unittest.TestCase):
             pc.leg_job("head", unmapped, security_provider)
 
     def test_adding_a_job_makes_the_change_differential(self) -> None:
+        # org-ci.yml without #312's enforcement step: the base before the job.
+        enforce = "\n      - name: Enforce security scan (secrets, dependency audit)\n"
         main = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
+        main = main[: main.index(enforce)].rstrip("\n") + "\n"
         self.assertNotEqual(pc.steps_digest(main), pc.steps_digest(self.org_ci))
         header_only = "# comment\n" + main
         self.assertEqual(pc.steps_digest(main), pc.steps_digest(header_only))
@@ -419,8 +447,8 @@ class PlanTests(unittest.TestCase):
         (root / pc.CANARY).write_text(
             pc.render(
                 self.org_ci,
-                pc.base_block(self.org_ci, NO_REUSABLE),
-                NO_REUSABLE,
+                pc.base_block(self.org_ci, security_provider),
+                security_provider,
                 ADMISSION,
             ),
             encoding="utf-8",
@@ -432,8 +460,8 @@ class PlanTests(unittest.TestCase):
         (root / pc.CANARY).write_text(
             pc.render(
                 head_org_ci,
-                pc.base_block(embedded_from, NO_REUSABLE),
-                NO_REUSABLE,
+                pc.base_block(embedded_from, security_provider),
+                security_provider,
                 ADMISSION,
             ),
             encoding="utf-8",
@@ -447,6 +475,9 @@ class PlanTests(unittest.TestCase):
             redirect_stdout(out),
             mock.patch.dict("os.environ", {"GITHUB_OUTPUT": ""}),
             mock.patch.object(pc, "_get", lambda url, token: {"sha": "a" * 40}),
+            # The temporary history has no commit at org-ci.yml's security.yml
+            # pin; the provider is an IO boundary, like _get.
+            mock.patch.object(pc, "git_provider", lambda root: security_provider),
         ):
             self.assertEqual(0, pc.main(["--root", tmp, "plan"]))
         return dict(
