@@ -190,7 +190,8 @@ jobs:
           fi
           GITLEAKS_VERSION="8.24.3"
           GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
-          curl -sSfL -o /tmp/gitleaks.tar.gz \
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o /tmp/gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           actual_sha="$(sha256sum /tmp/gitleaks.tar.gz | awk '{print $1}')"
           if [ "${actual_sha}" != "${GITLEAKS_SHA256}" ]; then
@@ -329,11 +330,12 @@ jobs:
           NPM_AUDIT_OUTCOME: ${{ steps.npm_audit.outputs.outcome }}
         run: |
           set -euo pipefail
-          # $1 is the step conclusion, $2 the outcome the step stated itself.
           required_outcome() {
-            if [ -n "$2" ]; then
-              echo "$2"
-            elif [ "$1" = "failure" ]; then
+            local conclusion="$1"  # the step's conclusion
+            local stated="$2"      # the outcome the step stated itself
+            if [ -n "${stated}" ]; then
+              echo "${stated}"
+            elif [ "${conclusion}" = "failure" ]; then
               echo "not_executed (the step failed before its scanner ran)"
             else
               echo "not_executed"
