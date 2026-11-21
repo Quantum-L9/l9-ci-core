@@ -16,7 +16,8 @@ ROOT = Path(__file__).resolve().parents[2]
 ACTION = ROOT / ".github/actions/resolve-governance"
 MODULE_PATH = ACTION / "resolve.py"
 spec = importlib.util.spec_from_file_location("resolve_finding_waivers", MODULE_PATH)
-assert spec and spec.loader
+assert spec is not None
+assert spec.loader is not None
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
