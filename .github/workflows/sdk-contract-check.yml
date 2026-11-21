@@ -113,7 +113,7 @@ jobs:
             echo "== ${lang}: normalize (strict; central policy + identity map) =="
             ( cd "${work}" && "${SDK_EXECUTABLE}" semgrep normalize \
                 --input report.json --output finding-bundle.json \
-                --provider-version 1.171.0 --root . \
+                --provider-version 1.186.0 --root . \
                 --snapshot-id smoke-sha --revision smoke-sha \
                 --policy "${policy}" --identity-map "${identity}" --strict )
             echo "== ${lang}: bundle validate =="
@@ -156,7 +156,7 @@ jobs:
               "${work}/clean-report.json"
             ( cd "${work}" && "${SDK_EXECUTABLE}" semgrep normalize \
                 --input clean-report.json --output clean-bundle.json \
-                --provider-version 1.171.0 --root . \
+                --provider-version 1.186.0 --root . \
                 --snapshot-id smoke-sha --revision smoke-sha \
                 --policy "${policy}" --identity-map "${identity}" --strict )
             ( cd "${work}" && "${SDK_EXECUTABLE}" bundle validate clean-bundle.json )
@@ -247,7 +247,7 @@ jobs:
             identity="${WORKSPACE}/.github/actions/resolve-governance/identity-maps/${lang}.yaml"
             ( cd "${work}" && "${SDK_EXECUTABLE}" semgrep normalize \
                 --input report.json --output finding-bundle.json \
-                --provider-version 1.171.0 --root . \
+                --provider-version 1.186.0 --root . \
                 --snapshot-id "${REVISION}" --revision "${REVISION}" \
                 --policy "${policy}" --identity-map "${identity}" --strict )
             ( cd "${work}" && "${SDK_EXECUTABLE}" bundle validate finding-bundle.json )

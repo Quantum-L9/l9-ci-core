@@ -11,7 +11,7 @@
 # pull request changes the analyze steps, at the base's pins (the `base` job).
 # Both are org-ci.yml's steps verbatim apart from the target identity.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 7468f9ffc85123ecccf00f232a5a09cbe8ec5eafdf6c0ecb8e398b4a410e2c1d
+# worse. Head steps digest: e1f19f0642ed8451efc57cafdb4e5a94706dbe2f006f59990fe61375e6244998
 name: Promotion canary (Core)
 # One verdict per pushed head (row 22). `make pr` pushes and then edits the
 # pull request's body; that `edited` run used to cancel the push run, whose
@@ -564,7 +564,7 @@ jobs:
           INPUT_PROFILE: ${{ inputs.profile || '' }}
           INPUT_MATRIX_ID: canary-head-${{ matrix.slug }}
           INPUT_SDK_REVISION: ${{ inputs.sdk-revision || '' }}
-          INPUT_SEMGREP_VERSION: ${{ inputs.semgrep-version || '1.171.0' }}
+          INPUT_SEMGREP_VERSION: ${{ inputs.semgrep-version || '1.186.0' }}
           INPUT_RETENTION: ${{ inputs.artifact-retention-days || 14 }}
         run: |
           set -euo pipefail
@@ -616,7 +616,7 @@ jobs:
           sdk_revision = os.environ.get("INPUT_SDK_REVISION", "").strip()
           if sdk_revision and not re.fullmatch(r"[0-9a-f]{40}", sdk_revision):
               raise SystemExit("sdk-revision must be a full 40-character lowercase SHA")
-          semgrep_version = os.environ.get("INPUT_SEMGREP_VERSION", "1.171.0").strip()
+          semgrep_version = os.environ.get("INPUT_SEMGREP_VERSION", "1.186.0").strip()
           if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", semgrep_version):
               raise SystemExit("semgrep-version must be an exact x.y.z version")
           retention = int(os.environ.get("INPUT_RETENTION", "14"))
@@ -706,7 +706,7 @@ jobs:
       - id: toolchain
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2ee1720b9863bec15fdfebac13b220aeb699d781
 
       - name: Validate native push event context
         if: github.event_name == 'push'
@@ -742,12 +742,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2ee1720b9863bec15fdfebac13b220aeb699d781
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -783,7 +783,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -796,7 +796,7 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
@@ -825,7 +825,7 @@ jobs:
         name: Plan required instances (Core)
         if: steps.inventory.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           inventory: ${{ steps.inventory.outputs.path }}
           repository: ${{ matrix.repository }}
@@ -844,12 +844,12 @@ jobs:
         name: Install Biome (digest-locked central pin)
         if: hashFiles('biome.json', 'biome.jsonc') != ''
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ee1720b9863bec15fdfebac13b220aeb699d781
 
       - id: biome_check
         name: Run Biome check (blocking)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           executable: ${{ steps.biome.outputs.executable }}
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
@@ -1003,7 +1003,7 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           workspace: .
           # AGENTS.md §27: held only by the registry snapshot and the composer
@@ -1106,14 +1106,14 @@ jobs:
         name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -1138,7 +1138,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -1313,7 +1313,7 @@ jobs:
         name: Aggregate required instances (Core)
         if: always() && steps.plan.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
           results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
@@ -1357,7 +1357,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -1368,7 +1368,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -1380,7 +1380,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -1402,7 +1402,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -1451,7 +1451,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}
@@ -1600,7 +1600,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 7468f9ffc85123ecccf00f232a5a09cbe8ec5eafdf6c0ecb8e398b4a410e2c1d
+          DIGEST: e1f19f0642ed8451efc57cafdb4e5a94706dbe2f006f59990fe61375e6244998
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -2163,7 +2163,7 @@ jobs:
           INPUT_PROFILE: ${{ inputs.profile || '' }}
           INPUT_MATRIX_ID: canary-admitted-${{ matrix.slug }}
           INPUT_SDK_REVISION: ${{ inputs.sdk-revision || '' }}
-          INPUT_SEMGREP_VERSION: ${{ inputs.semgrep-version || '1.171.0' }}
+          INPUT_SEMGREP_VERSION: ${{ inputs.semgrep-version || '1.186.0' }}
           INPUT_RETENTION: ${{ inputs.artifact-retention-days || 14 }}
         run: |
           set -euo pipefail
@@ -2215,7 +2215,7 @@ jobs:
           sdk_revision = os.environ.get("INPUT_SDK_REVISION", "").strip()
           if sdk_revision and not re.fullmatch(r"[0-9a-f]{40}", sdk_revision):
               raise SystemExit("sdk-revision must be a full 40-character lowercase SHA")
-          semgrep_version = os.environ.get("INPUT_SEMGREP_VERSION", "1.171.0").strip()
+          semgrep_version = os.environ.get("INPUT_SEMGREP_VERSION", "1.186.0").strip()
           if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", semgrep_version):
               raise SystemExit("semgrep-version must be an exact x.y.z version")
           retention = int(os.environ.get("INPUT_RETENTION", "14"))
@@ -2305,7 +2305,7 @@ jobs:
       - id: toolchain
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2ee1720b9863bec15fdfebac13b220aeb699d781
 
       - name: Validate native push event context
         if: github.event_name == 'push'
@@ -2341,12 +2341,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2ee1720b9863bec15fdfebac13b220aeb699d781
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -2405,7 +2405,7 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
@@ -2434,7 +2434,7 @@ jobs:
         name: Plan required instances (Core)
         if: steps.inventory.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           inventory: ${{ steps.inventory.outputs.path }}
           repository: ${{ matrix.repository }}
@@ -2453,12 +2453,12 @@ jobs:
         name: Install Biome (digest-locked central pin)
         if: hashFiles('biome.json', 'biome.jsonc') != ''
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ee1720b9863bec15fdfebac13b220aeb699d781
 
       - id: biome_check
         name: Run Biome check (blocking)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           executable: ${{ steps.biome.outputs.executable }}
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
@@ -2612,7 +2612,7 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           workspace: .
           # AGENTS.md §27: held only by the registry snapshot and the composer
@@ -2715,14 +2715,14 @@ jobs:
         name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -2747,7 +2747,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -2922,7 +2922,7 @@ jobs:
         name: Aggregate required instances (Core)
         if: always() && steps.plan.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
           results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
@@ -2966,7 +2966,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -2977,7 +2977,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -2989,7 +2989,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -3011,7 +3011,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -3060,7 +3060,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@da01ee359ee18c59ff98b119e5aa5ee609754b5d
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@2ee1720b9863bec15fdfebac13b220aeb699d781
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}
@@ -3209,7 +3209,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 7468f9ffc85123ecccf00f232a5a09cbe8ec5eafdf6c0ecb8e398b4a410e2c1d
+          DIGEST: e1f19f0642ed8451efc57cafdb4e5a94706dbe2f006f59990fe61375e6244998
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -3296,7 +3296,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      # --- inlined org-ci job security .github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d: begin ---
+      # --- inlined org-ci job security .github/workflows/security.yml@802ffda7da59892cce9107f865d9d9afb99f7739: begin ---
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         id: security__s0
         with:
@@ -3506,6 +3506,7 @@ jobs:
             export_lock() {
               local name="$1"
               shift
+              echo "pip-audit: uv export --frozen --all-packages --no-emit-workspace --no-hashes --format requirements.txt $* (${name})"
               uv export --frozen --all-packages --no-emit-workspace --no-hashes \
                 --format requirements.txt --output-file "${out}/${name}.txt" "$@" > /dev/null
             }
@@ -3546,6 +3547,21 @@ jobs:
             echo "outcome=not_executed (no lock file)" >> "$GITHUB_OUTPUT"
             exit 1
           fi
+          # The audited set, named in the log: each file's pinned packages
+          # and the total. A file the export did not write is not an empty
+          # set; the audit is incomplete.
+          total=0
+          for file in "${locked[@]}"; do
+            if [ ! -f "${file}" ]; then
+              echo "::error::pip-audit: ${file} was not written; the audit is incomplete"
+              echo "outcome=not_executed (the locked set was not written)" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            count="$(awk '/^[A-Za-z0-9][A-Za-z0-9._-]*(\[[^]]*\])?[[:space:]]*==/ { n++ } END { print n + 0 }' "${file}")"
+            echo "pip-audit: auditing ${count} pinned package(s) from ${file}"
+            total=$((total + count))
+          done
+          echo "pip-audit: ${total} pinned package(s) audited in all"
           # Acquisition and the lock are settled; from here pip-audit runs.
           status=0
           # `--desc` takes an optional value; it is given explicitly so the
@@ -3695,7 +3711,7 @@ jobs:
             echo
             echo "Advisory, not_run, not_applicable and not_executed are not passes."
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      # --- inlined org-ci job security .github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d: end ---
+      # --- inlined org-ci job security .github/workflows/security.yml@802ffda7da59892cce9107f865d9d9afb99f7739: end ---
       - name: Record the security job result
         if: always()
         env:
@@ -4793,7 +4809,7 @@ jobs:
         if: always()
         env:
           SIDE: base
-          DIGEST: b6b40b71a8b3abb88fc7539a897f6f281f74368ee1eaf79756050ff89a1ce4c0
+          DIGEST: 7468f9ffc85123ecccf00f232a5a09cbe8ec5eafdf6c0ecb8e398b4a410e2c1d
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}

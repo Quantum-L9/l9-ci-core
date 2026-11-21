@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -32,13 +33,36 @@ LOCK = ROOT / ".github" / "actions" / "install-consumer-ci" / "toolchain-lock.js
 
 LOCKED_SEMGREP_ACTION = (
     "Quantum-L9/l9-ci-core/.github/actions/install-semgrep@"
-    "da01ee359ee18c59ff98b119e5aa5ee609754b5d"
+    "2ee1720b9863bec15fdfebac13b220aeb699d781"
 )
 
 
 def workflow_sources() -> list[Path]:
     """Both spellings: GitHub loads a workflow from .yml or .yaml."""
     return sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")])
+
+
+sys.path.insert(0, str(ROOT / "tools"))
+from promotion_canary import BASE_BEGIN, BASE_END  # noqa: E402
+
+CANARY = WORKFLOWS / "promotion-canary.yml"
+
+
+def head_lines(path: Path) -> list[tuple[int, str]]:
+    """``significant_lines`` without the canary's base pins leg.
+
+    The canary's base leg is ``origin/main``'s org-ci.yml, rendered verbatim
+    so the canary can compare the PR's pins against main's; while a lock
+    version changes it must still carry main's version. Every other line of
+    every workflow, the canary's head legs included, binds to the lock.
+    """
+    lines = significant_lines(path)
+    if path != CANARY:
+        return lines
+    text = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    begin = text.index(BASE_BEGIN) + 1
+    end = text.index(BASE_END) + 1
+    return [(number, line) for number, line in lines if not begin <= number <= end]
 
 
 def significant_lines(path: Path) -> list[tuple[int, str]]:
@@ -122,7 +146,7 @@ class LockBindingTests(unittest.TestCase):
         return [
             (path.name, number, match.group(1))
             for path in workflow_sources()
-            for number, line in significant_lines(path)
+            for number, line in head_lines(path)
             for match in pattern.finditer(line)
         ]
 

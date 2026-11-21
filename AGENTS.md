@@ -1972,3 +1972,23 @@ only, the time it can take is bounded, and the bound fails closed:
   more stars.
 
 The exception is removed when Semgrep allows wcmatch 11.2 or later.
+
+**Semgrep 1.186.0 activated (2026-11-21, step B, step two).** The admit step
+(#338) added Semgrep 1.186.0. This step makes it the default:
+
+- **Pins.** The Core action pins in org-ci (and so in the inlined canary and
+  nightly-sink) and analyze-semgrep's `install-semgrep` advance to `2ee1720b`.
+  The only action change these pins pick up is `install-semgrep`.
+- **Versions.** Every 1.171.0 default moves to 1.186.0: org-ci, analyze-semgrep,
+  sdk-contract-check, `toolchain-lock.json` and the regenerated
+  `tool-ownership.json`.
+- **Exceptions.** At 1.186.0 the closure locks pyjwt 2.15.1 (no findings) and
+  mcp 1.29.0. The 15 pyjwt and 8 mcp@1.23.3 exceptions are therefore stale and
+  removed. Five mcp GHSAs, which need mcp 1.30.0, remain on mcp@1.29.0, as do
+  opentelemetry-api (2) and wcmatch (1). Each reachability claim was
+  re-checked against 1.186.0's source. The audit reads "105 pinned
+  package(s) audited, 8 finding(s) excepted, 0 open".
+- **Test.** The lock-binding test now skips the canary's base leg, which renders
+  `origin/main` and so carries main's version during a version change.
+
+`locks/semgrep-1.171.0.txt` stays for rollback.

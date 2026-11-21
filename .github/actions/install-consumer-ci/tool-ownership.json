@@ -5,7 +5,7 @@
   "sources": [
     {
       "path": ".github/actions/install-consumer-ci/toolchain-lock.json",
-      "sha256": "sha256:7588407c45783fcc0a3062b5c80ac6fc7c33758e46dc287214b8967dec11ca4e"
+      "sha256": "sha256:4f1b5398098780f4a3c9cd416d6a724615c280e15a0719e719fa0a9210b013e2"
     },
     {
       "path": ".github/actions/install-consumer-ci/core-owned-tools.json",
@@ -219,7 +219,7 @@
     },
     {
       "name": "semgrep",
-      "version": "1.171.0",
+      "version": "1.186.0",
       "configs": [],
       "profiles": [],
       "pre_commit_hook_profiles": [],
