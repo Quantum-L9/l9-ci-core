@@ -16,7 +16,7 @@ EXPECTED_SOURCE = "git"
 EXPECTED_REPOSITORY = "https://github.com/Quantum-L9/l9-ci-sdk.git"
 # Fallback default only. The authoritative allowlist is `.l9/sdk-compatibility.yaml`
 # (read by load_supported_revisions); keep this in sync with its `default.revision`.
-EXPECTED_REVISION = "2796d7a4e94ae35558b43a5b1a860386a68e0498"
+EXPECTED_REVISION = "1d63203797c692a026a9a578cf611dcf5e709cdd"
 # Fallback default only. The verified contract Core emits is the one declared by
 # the selected manifest entry (select_manifest_entry) and cross-checked against
 # the SDK's own integration-contract.yaml; this constant is used only when no
