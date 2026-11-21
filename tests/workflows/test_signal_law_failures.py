@@ -225,6 +225,11 @@ class RequiredInstancesAreNamedTests(unittest.TestCase):
         (instances / "typescript" / "finding-bundle.json").write_text(
             json.dumps({"findings": findings, "provider_failures": []})
         )
+        scan = self.dir / ".l9" / "runtime" / "m" / "scan-tree" / "src"
+        scan.mkdir(parents=True)
+        (scan / "app.ts").write_text(
+            "".join(f"const line{n} = {n};\n" for n in range(1, 60)), encoding="utf-8"
+        )
         (instances / "typescript" / "gate-result.json").write_text(
             json.dumps(
                 {
@@ -248,7 +253,56 @@ class RequiredInstancesAreNamedTests(unittest.TestCase):
                 "MODE": mode,
                 "L9_MATRIX_ID": "m",
                 "L9_PRIMARY_LANGUAGE": "python",
+                "L9_SCAN_ROOT": ".l9/runtime/m/scan-tree",
             },
+        )
+
+    def test_a_located_finding_carries_its_source_line_and_context(self) -> None:
+        out = self.run_step().stdout
+        self.assertIn("::group::src/app.ts:10 L9-JS-EVAL", out)
+        block = out.split("::group::src/app.ts:10 L9-JS-EVAL", 1)[1].split(
+            "::endgroup::", 1
+        )[0]
+        self.assertEqual(
+            [
+                "      8 | const line8 = 8;",
+                "      9 | const line9 = 9;",
+                ">    10 | const line10 = 10;",
+                "     11 | const line11 = 11;",
+                "     12 | const line12 = 12;",
+            ],
+            block.strip("\n").splitlines(),
+        )
+        self.assertIn("endLine=10", out)
+        summary = (self.dir / "summary").read_text()
+        self.assertIn(">    10 | const line10 = 10;", summary)
+
+    def test_a_secret_finding_never_prints_its_source(self) -> None:
+        secret = "AKIA" + "Z" * 16
+        scan = self.dir / ".l9/runtime/m/scan-tree"
+        (scan / "config.env").write_text(f"A=1\nKEY={secret}\nB=2\n", encoding="utf-8")
+        bundle_path = (
+            self.dir / ".l9/runtime/m/required-instances/typescript/finding-bundle.json"
+        )
+        bundle = json.loads(bundle_path.read_text())
+        bundle["findings"][0].update(
+            provider_id="gitleaks",
+            locations=[{"normalized_path": "config.env", "start_line": 2}],
+        )
+        bundle_path.write_text(json.dumps(bundle))
+        completed = self.run_step()
+        everything = (
+            completed.stdout + completed.stderr + (self.dir / "summary").read_text()
+        )
+        self.assertNotIn(secret, everything)
+        self.assertNotIn("AKIA", everything)
+        self.assertIn("::group::config.env:2 L9-JS-EVAL", completed.stdout)
+        self.assertIn("(masked: secret finding)", completed.stdout)
+        self.assertNotIn(
+            "A=1",
+            completed.stdout.split("::group::config.env:2", 1)[1].split("::endgroup::")[
+                0
+            ],
         )
 
     def test_the_failing_instance_and_its_findings_are_named(self) -> None:
@@ -261,7 +315,7 @@ class RequiredInstancesAreNamedTests(unittest.TestCase):
         )
         self.assertIn("25 blocking finding(s)", out)
         self.assertIn(
-            "::error file=src/app.ts,line=10,title=L9-JS-EVAL (blocking%2C semgrep%3Alanguage%3Atypescript)::eval of untrusted input 0",
+            "::error file=src/app.ts,line=10,endLine=10,title=L9-JS-EVAL (blocking%2C semgrep%3Alanguage%3Atypescript)::eval of untrusted input 0",
             out,
         )
         self.assertNotIn(

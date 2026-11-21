@@ -1352,6 +1352,8 @@ jobs:
           MODE: ${{ steps.gov.outputs.mode }}
           L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
           L9_PRIMARY_LANGUAGE: ${{ steps.language.outputs.language }}
+          # Snippets come from the clean tree of the evaluated commit.
+          L9_SCAN_ROOT: ${{ steps.scan_tree.outputs.root }}
         run: |
           set -euo pipefail
           status="${AGGREGATE_STATUS:-incomplete}"
@@ -1400,6 +1402,31 @@ jobs:
               lines.append(message)
 
 
+          # Providers whose findings are secrets: never print their source.
+          SENSITIVE = {"gitleaks", "trufflehog", "detect-secrets"}
+          snippets = []
+
+
+          def snippet(path, start, end, provider):
+              """The offending lines and 2 either side, numbered, marked."""
+              root = Path(env.get("L9_SCAN_ROOT") or ".")
+              try:
+                  source = (root / path).read_text(encoding="utf-8", errors="replace").splitlines()
+              except OSError:
+                  return [f"    (source unavailable: {path})"]
+              first, last = max(1, start - 2), min(len(source), end + 2)
+              rendered = []
+              for number in range(first, last + 1):
+                  marker = ">" if start <= number <= end else " "
+                  text = source[number - 1]
+                  if provider in SENSITIVE and marker == ">":
+                      text = "*" * 8 + " (masked: secret finding)"
+                  elif provider in SENSITIVE:
+                      continue
+                  rendered.append(f"{marker} {number:>5} | {text}")
+              return rendered
+
+
           aggregate = load(instances / "aggregate.json") or {}
           if not aggregate:
               emit({"title": "Required instances"}, "no aggregate was written: the planned instances did not all run")
@@ -1428,17 +1455,28 @@ jobs:
                       rule = finding.get("canonical_rule_id") or finding.get("provider_rule_id") or finding_id
                       where_ = (finding.get("locations") or [{}])[0]
                       props = {"title": f"{rule} ({kind.split('_')[0]}, {ident})"}
-                      if where_.get("normalized_path"):
-                          props = {"file": where_["normalized_path"], "line": where_.get("start_line") or 1, **props}
+                      path = where_.get("normalized_path")
+                      if path:
+                          start = int(where_.get("start_line") or 1)
+                          end = int(where_.get("end_line") or start)
+                          props = {"file": path, "line": start, "endLine": end, **props}
+                          provider = finding.get("provider_id", "")
+                          snippets.append((f"{path}:{start} {rule}", snippet(path, start, end, provider)))
                       emit(props, finding.get("message") or finding_id)
                       named += 1
           if hidden:
               emit({"title": "Required instances"}, f"+{hidden} more finding(s) not listed; see the instance bundles artifact")
+          for heading, body in snippets:
+              print(f"::group::{heading}")
+              print("\n".join(body))
+              print("::endgroup::")
           summary = env.get("GITHUB_STEP_SUMMARY")
           if summary and lines:
               with open(summary, "a", encoding="utf-8") as stream:
                   stream.write("\n### Why the required instances did not pass\n\n")
                   stream.writelines(f"- {line}\n" for line in lines)
+                  for heading, body in snippets:
+                      stream.write(f"\n`{heading}`\n\n~~~~\n" + "\n".join(body) + "\n~~~~\n")
           PY
           fi
           if [ "${status}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
