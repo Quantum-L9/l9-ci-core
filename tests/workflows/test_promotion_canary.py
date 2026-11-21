@@ -33,6 +33,18 @@ def _load():
 
 
 pc = _load()
+ADMISSION = (ROOT / pc.PROVISION_ACTION).read_text(encoding="utf-8")
+COMPATIBILITY = (ROOT / pc.SDK_COMPATIBILITY).read_text(encoding="utf-8")
+
+
+def write_admission(root: Path) -> None:
+    """The provision-sdk action and compatibility manifest a tree carries."""
+    for path, text in (
+        (pc.PROVISION_ACTION, ADMISSION),
+        (pc.SDK_COMPATIBILITY, COMPATIBILITY),
+    ):
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(text, encoding="utf-8")
 
 
 def NO_REUSABLE(name: str, path: str, sha: str, values: dict[str, str]) -> str:
@@ -85,7 +97,9 @@ class RenderTests(unittest.TestCase):
 
     def test_the_committed_canary_is_the_render_of_org_ci(self) -> None:
         base = pc.embedded_base(self.canary)
-        self.assertEqual(pc.render(self.org_ci, base, NO_REUSABLE), self.canary)
+        self.assertEqual(
+            pc.render(self.org_ci, base, NO_REUSABLE, ADMISSION), self.canary
+        )
         with redirect_stdout(io.StringIO()):
             self.assertEqual(0, pc.main(["--root", str(ROOT), "render", "--check"]))
 
@@ -107,7 +121,7 @@ class RenderTests(unittest.TestCase):
         block = pc.base_block(self.org_ci, NO_REUSABLE)
         self.assertTrue(block.startswith(pc.BASE_BEGIN))
         self.assertTrue(block.endswith(pc.BASE_END))
-        rendered = pc.render(self.org_ci, block, NO_REUSABLE)
+        rendered = pc.render(self.org_ci, block, NO_REUSABLE, ADMISSION)
         head = leg_steps(rendered, "head")
         base = leg_steps(rendered, "base")
         self.assertEqual(len(head), len(base))
@@ -150,6 +164,7 @@ class RenderTests(unittest.TestCase):
             root = Path(tmp)
             (root / pc.ORG_CI).parent.mkdir(parents=True)
             (root / pc.ORG_CI).write_text(self.org_ci, encoding="utf-8")
+            write_admission(root)
             (root / pc.CANARY).write_text(self.canary + "# drift\n", encoding="utf-8")
             with redirect_stderr(io.StringIO()):
                 self.assertEqual(1, pc.main(["--root", tmp, "render", "--check"]))
@@ -160,17 +175,18 @@ class RenderTests(unittest.TestCase):
 
     def test_every_job_is_read_only_and_the_verdict_decides_itself(self) -> None:
         jobs = yaml.safe_load(self.canary)["jobs"]
-        self.assertEqual(["plan", "head", "base", "verdict"], list(jobs))
+        self.assertEqual(["plan", "head", "admitted", "base", "verdict"], list(jobs))
         for name, job in jobs.items():
             with self.subTest(job=name):
                 self.assertEqual({"contents": "read"}, job["permissions"])
         self.assertEqual("${{ !cancelled() }}", jobs["verdict"]["if"])
         self.assertEqual("Promotion canary (Core)", jobs["verdict"]["name"])
-        self.assertEqual(["plan", "head", "base"], jobs["verdict"]["needs"])
-        for leg in ("head", "base"):
+        self.assertEqual(["plan", "head", "admitted", "base"], jobs["verdict"]["needs"])
+        for leg in ("head", "admitted", "base"):
             self.assertIs(False, jobs[leg]["strategy"]["fail-fast"])
         self.assertEqual(pc.HEAD_IF, jobs["head"]["if"])
         self.assertEqual(pc.BASE_IF, jobs["base"]["if"])
+        self.assertEqual(pc.ADMITTED_IF, jobs["admitted"]["if"])
 
     def test_the_verdict_downloads_both_legs_of_one_run(self) -> None:
         """The #312 failure: a differential plan must reach base-<slug> records.
@@ -217,6 +233,7 @@ class ReusableJobTests(unittest.TestCase):
             self.org_ci,
             pc.base_block(self.org_ci, security_provider),
             security_provider,
+            ADMISSION,
         )
         self.steps = leg_steps(self.workflow, "head")
 
@@ -293,6 +310,7 @@ class ReusableJobTests(unittest.TestCase):
                 self.org_ci,
                 pc.embedded_base(self.workflow),
                 pc.embedded_provider(head_part),
+                ADMISSION,
             ),
         )
         provide = pc.embedded_provider("")
@@ -397,9 +415,13 @@ class PlanTests(unittest.TestCase):
             (ROOT / pc.DECLARATION).read_text("utf-8"), encoding="utf-8"
         )
         (root / pc.ORG_CI).write_text(self.org_ci, encoding="utf-8")
+        write_admission(root)
         (root / pc.CANARY).write_text(
             pc.render(
-                self.org_ci, pc.base_block(self.org_ci, NO_REUSABLE), NO_REUSABLE
+                self.org_ci,
+                pc.base_block(self.org_ci, NO_REUSABLE),
+                NO_REUSABLE,
+                ADMISSION,
             ),
             encoding="utf-8",
         )
@@ -409,7 +431,10 @@ class PlanTests(unittest.TestCase):
         (root / pc.ORG_CI).write_text(head_org_ci, encoding="utf-8")
         (root / pc.CANARY).write_text(
             pc.render(
-                head_org_ci, pc.base_block(embedded_from, NO_REUSABLE), NO_REUSABLE
+                head_org_ci,
+                pc.base_block(embedded_from, NO_REUSABLE),
+                NO_REUSABLE,
+                ADMISSION,
             ),
             encoding="utf-8",
         )
@@ -717,6 +742,183 @@ class VerdictTests(unittest.TestCase):
             self.assertEqual(1, pc.main(["verdict"]))
             self.both("pass", "pass")
             self.assertEqual(0, pc.main(["verdict"]))
+
+
+ADMITTED = "f" * 40
+
+
+def with_default(compatibility: str, revision: str) -> str:
+    """The compatibility manifest with another default revision."""
+    current = pc.DEFAULT_REVISION.findall(compatibility)[0]
+    head, tail = compatibility.split("\ndefault:\n", 1)
+    return head + "\ndefault:\n" + tail.replace(current, revision, 1)
+
+
+class AdmittedLegTests(unittest.TestCase):
+    """Row 25: an admission-only pull request runs the revision it admits."""
+
+    def setUp(self) -> None:
+        self.org_ci = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
+        self.canary = (ROOT / pc.CANARY).read_text(encoding="utf-8")
+        self.jobs = yaml.safe_load(self.canary)["jobs"]
+
+    def test_nothing_is_admitted_while_org_ci_runs_the_default(self) -> None:
+        self.assertEqual("", pc.admitted_revision(self.org_ci, COMPATIBILITY))
+
+    def test_a_new_default_is_the_admitted_revision(self) -> None:
+        changed = with_default(COMPATIBILITY, ADMITTED)
+        self.assertEqual(ADMITTED, pc.admitted_revision(self.org_ci, changed))
+
+    def test_an_unreadable_admission_is_refused(self) -> None:
+        with self.assertRaisesRegex(pc.CanaryError, "one default revision"):
+            pc.admitted_revision(self.org_ci, "schema: x\n")
+        no_fallback = pc.SDK_FALLBACK.sub("''", self.org_ci)
+        with self.assertRaisesRegex(pc.CanaryError, "one sdk-revision fallback"):
+            pc.admitted_revision(no_fallback, COMPATIBILITY)
+
+    def test_the_admitted_leg_is_the_head_leg_but_for_provision_sdk(self) -> None:
+        head = self.jobs["head"]["steps"]
+        admitted = self.jobs["admitted"]["steps"]
+        index = next(i for i, s in enumerate(head) if s.get("id") == "sdk")
+
+        def same(steps: list[dict[str, object]]) -> str:
+            # Each leg names its own artifact set; nothing else may differ.
+            return yaml.safe_dump(steps).replace("canary-admitted-", "canary-head-")
+
+        self.assertEqual(same(head[:index]), same(admitted[:index]))
+        # The provision-sdk step becomes download + its own composite steps.
+        replacement = len(pc._composite_steps(ADMISSION)) + 1
+        # The last two steps record and upload the leg under its own side.
+        self.assertEqual(
+            same(head[index + 1 : -2]), same(admitted[index + replacement : -2])
+        )
+        self.assertEqual("admitted", admitted[-2]["env"]["SIDE"])
+        download, *inner = admitted[index : index + replacement]
+        self.assertEqual(pc.ADMISSION_ARTIFACT, download["with"]["name"])
+        self.assertEqual(pc.ADMITTED_CORE, download["with"]["path"])
+        provision = inner[-1]
+        self.assertEqual("sdk", provision["id"])
+        self.assertEqual(head[index]["if"], provision["if"])
+        self.assertEqual(
+            "${{ needs.plan.outputs.admitted }}", provision["env"]["INPUT_SDK_REVISION"]
+        )
+        self.assertEqual(
+            "${{ secrets.L9_GITHUB_READ_TOKEN }}",
+            provision["env"]["INPUT_GITHUB_READ_TOKEN"],
+        )
+        self.assertIn(
+            f"{pc.ADMITTED_CORE}/.github/actions/provision-sdk/provision.py",
+            provision["run"],
+        )
+        text = yaml.safe_dump(admitted)
+        self.assertNotIn("/.github/actions/provision-sdk@", text)
+        self.assertIn("canary-admitted-${{ matrix.slug }}", text)
+        self.assertNotIn("inputs.", yaml.safe_dump([download, *inner]))
+
+    def test_the_plan_uploads_the_pull_requests_provisioner(self) -> None:
+        plan = self.jobs["plan"]
+        self.assertEqual(
+            "${{ steps.plan.outputs.admitted }}", plan["outputs"]["admitted"]
+        )
+        upload = next(
+            s for s in plan["steps"] if "upload-artifact" in s.get("uses", "")
+        )
+        self.assertEqual("steps.plan.outputs.admitted != ''", upload["if"])
+        self.assertEqual(pc.ADMISSION_ARTIFACT, upload["with"]["name"])
+        self.assertIs(True, upload["with"]["include-hidden-files"])
+        self.assertEqual(
+            [".github/actions/provision-sdk/", ".l9/sdk-compatibility.yaml"],
+            upload["with"]["path"].split(),
+        )
+        # Not a leg record: the verdict's download pattern never matches it.
+        self.assertFalse(pc.ADMISSION_ARTIFACT.startswith("promotion-canary-"))
+
+    def test_an_unmappable_provisioner_is_refused(self) -> None:
+        analyze = pc.analyze_steps(self.org_ci)
+        renamed = ADMISSION.replace(
+            "steps.provision.outputs.contract", "steps.other.outputs.contract"
+        )
+        with self.assertRaisesRegex(pc.CanaryError, "one-to-one"):
+            pc.admit(analyze, renamed)
+        extra = ADMISSION.replace("${{ inputs.sdk-source }}", "${{ inputs.missing }}")
+        with self.assertRaisesRegex(pc.CanaryError, "cannot map"):
+            pc.admit(analyze, extra)
+        no_sdk = analyze.replace("      - id: sdk\n", "      - id: other\n")
+        with self.assertRaisesRegex(pc.CanaryError, "exactly one `id: sdk`"):
+            pc.admit(no_sdk, ADMISSION)
+
+    def test_the_plan_names_the_admitted_revision(self) -> None:
+        for compatibility, expected in (
+            (COMPATIBILITY, ""),
+            (with_default(COMPATIBILITY, ADMITTED), ADMITTED),
+        ):
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as tmp:
+                planner = PlanTests()
+                planner.org_ci = self.org_ci
+                planner.repo(tmp, self.org_ci + "      # changed\n", self.org_ci)
+                (Path(tmp) / pc.SDK_COMPATIBILITY).write_text(
+                    compatibility, encoding="utf-8"
+                )
+                values = planner.plan(tmp)
+                self.assertEqual("true", values["applies"])
+                self.assertEqual(expected, values["admitted"])
+
+
+class AdmittedVerdictTests(VerdictTests):
+    """The admitted leg is judged against the pull request's own pins."""
+
+    def admit(self, status: str, blocking: tuple[str, ...] = ()) -> None:
+        for leg in self.legs:
+            self.record("admitted", leg, status, blocking, digest=DIGEST_B)
+
+    def test_an_admitted_revision_that_fixes_a_finding_passes(self) -> None:
+        self.both("findings", "findings", base_blocking=("f1",), head_blocking=("f1",))
+        self.admit("pass")
+        passed, report = pc.judge(self.env(L9_CANARY_ADMITTED=ADMITTED))
+        self.assertTrue(passed)
+        self.assertIn(
+            "| Repository | Pull request pins | Admitted SDK | Verdict |", report
+        )
+        self.assertTrue(any("| findings | pass | pass: improved" in r for r in report))
+
+    def test_an_admitted_revision_that_regresses_fails(self) -> None:
+        self.both("pass", "pass")
+        self.admit("findings", ("f9",))
+        passed, report = pc.judge(self.env(L9_CANARY_ADMITTED=ADMITTED))
+        self.assertFalse(passed)
+        self.assertTrue(any("regression: pass -> findings" in r for r in report))
+
+    def test_a_new_finding_under_the_admitted_revision_fails(self) -> None:
+        self.both("findings", "findings", base_blocking=("f1",), head_blocking=("f1",))
+        self.admit("findings", ("f1", "f2"))
+        self.assertFalse(pc.judge(self.env(L9_CANARY_ADMITTED=ADMITTED))[0])
+
+    def test_a_missing_or_incomplete_admitted_leg_fails(self) -> None:
+        self.both("pass", "pass")
+        self.assertFalse(pc.judge(self.env(L9_CANARY_ADMITTED=ADMITTED))[0])
+        self.admit("incomplete")
+        self.assertFalse(pc.judge(self.env(L9_CANARY_ADMITTED=ADMITTED))[0])
+
+    def test_an_admitted_leg_is_judged_when_the_steps_are_unchanged(self) -> None:
+        for leg in self.legs:
+            self.record("head", leg, "findings", ("f1",), digest=DIGEST_A)
+            self.record("admitted", leg, "pass", digest=DIGEST_A)
+        passed, report = pc.judge(
+            self.env(differential=False, L9_CANARY_ADMITTED=ADMITTED)
+        )
+        self.assertTrue(passed)
+        self.assertTrue(any("improved" in r for r in report))
+
+    def test_no_admission_judges_no_admitted_leg(self) -> None:
+        self.both("pass", "pass")
+        passed, report = pc.judge(self.env())
+        self.assertTrue(passed)
+        self.assertFalse(any("Admitted SDK" in r for r in report))
+
+    def test_a_malformed_admitted_revision_fails_the_plan(self) -> None:
+        self.both("pass", "pass")
+        self.admit("pass")
+        self.assertFalse(pc.judge(self.env(L9_CANARY_ADMITTED="main"))[0])
 
 
 if __name__ == "__main__":
