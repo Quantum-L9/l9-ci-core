@@ -6,8 +6,42 @@ metadata:
 default:
   source: git
   repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-  revision: fbe14fec1f5dc8edeae8facc76e598e9c5283170
+  revision: 2796d7a4e94ae35558b43a5b1a860386a68e0498
 supported:
+  # 2796d7a4 (l9-ci-sdk#137, #141 on fbe14fec, SDK main): framework-scoped
+  # Semgrep rules apply only where the framework is detected (#141) — the
+  # Django subprocess-injection rule no longer fires on code that is not
+  # Django (the finding that held every l9-ci-sdk PR red and one of
+  # Cursor-Governance's blocking findings). An unreadable repository keeps
+  # every framework-scoped finding. #137 adds a test witness only. No CLI
+  # path, integration-contract or artifact-protocol change; requirements.txt
+  # is byte-identical to fbe14fec, so requirements_sha256 and the runtime lock
+  # are unchanged. fbe14fec below is the tested rollback.
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: 2796d7a4e94ae35558b43a5b1a860386a68e0498
+    integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+      - l9.sarif-log/v1
+    required_cli_paths:
+      - providers detect
+      - providers inventory
+      - semgrep run
+      - semgrep normalize
+      - gate evaluate
+      - bundle validate
+      - bundle project-agent-payload
+      - bundle project-sarif
+      - compatibility check
+      - baseline compare-tests
+      - baseline scan-packet-envelope
+      - baseline compare-scan
+      - baseline validate-ledger
   # fbe14fec (l9-ci-sdk#133 on 9af1a202, SDK main): required central Semgrep
   # runs carry a declared analysis budget (B5) — 30 s per rule and file and
   # --timeout-threshold 0, so Semgrep no longer drops a file's remaining rules
