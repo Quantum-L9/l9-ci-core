@@ -18,8 +18,9 @@ Classes:
 - **PLUMBING**: resolves inputs, installs pinned tools, routes or uploads
   artifacts. A failure is an infrastructure failure, and an evaluation that
   cannot run is INCOMPLETE, so it fails closed rather than passing.
-- **PENDING**: class not yet decided by the CTO; listed, and unchanged until
-  it is.
+- **PENDING**: class not yet decided; listed, and unchanged until it is.
+- **SPLIT**: one step that carries both a blocking and an advisory part,
+  described in its row.
 
 | Step | Class | Why |
 |---|---|---|
@@ -37,7 +38,7 @@ Classes:
 | Inventory repository capabilities (SDK) | PLUMBING | |
 | Plan required instances (Core) | PLUMBING | |
 | Install Biome (digest-locked central pin) | PLUMBING | |
-| Run Biome check (blocking) | PENDING | Biome check combines formatting (housekeeping) with lint (correctness); proposed split: format advisory, lint blocking |
+| Run Biome check (blocking) | SPLIT | Lint is BLOCKING_CORRECTNESS, formatting is HOUSEKEEPING (CTO, 2026-11-21). `run-biome-check` takes `checks: format` or `lint` from this revision on; org-ci runs them as two steps once its pin reaches this revision (§16, step two) |
 | Route apt package archives to the verification cache | PLUMBING | Cache errors only warn |
 | Restore cached apt package archives | PLUMBING | |
 | Run repository verification contract | PLUMBING | Records the result; the enforce step below decides |
@@ -67,6 +68,18 @@ Classes:
 |---|---|---|
 | Contract present and valid (V2 schema, facade bytes, `Repo.mk` ABI) | BLOCKING_CORRECTNESS | Without it the phases below are not the repository's declared execution |
 | Unresolved merge-conflict blocks (#300) | BLOCKING_CORRECTNESS | Operator: stays blocking |
-| `make setup`, `validate`, `check`, `test` | PENDING | Core runs each phase whole, so it cannot separate a consumer's formatting check from its lint and type checks inside `check`; making formatting advisory needs a Core-defined phase split, a contract change |
-| Core-stamp byte drift (`.l9/core-stamp.json`) | PENDING | Stale Core-owned files are drift (housekeeping), but the record is the repository's own claim that the files are Core's (integrity) |
+| `make setup`, `validate`, `check`, `test` | BLOCKING_CORRECTNESS | Whole phases for this campaign (CTO, 2026-11-21). Core cannot separate a consumer's formatting check from its lint and type checks inside `check`; see Backlog |
+| Core-stamp: a Core-owned file modified or removed locally | BLOCKING_CORRECTNESS | Integrity: its bytes match neither Core nor the digest the record holds (`tools/l9_repo/stamp.py` `classify_stamp`) |
+| Core-stamp: a Core-owned file merely behind Core | HOUSEKEEPING | Drift: the file still carries the bytes it was stamped with, Core added a file after the stamp, or the record is stale; reported as `::warning`, never fails |
 | Infrastructure failure (registry unreadable, tool unavailable) | BLOCKING_CORRECTNESS | INCOMPLETE never passes |
+
+## Backlog (rollout campaign)
+
+- **Split formatting out of `make check`.** Making a consumer's formatting
+  check advisory needs a Core-defined phase (for example `make format-check`)
+  in the `l9.repo-execution/v2` contract, the generated facade and every
+  consumer's `Repo.mk`: a contract change, out of this campaign (CTO,
+  2026-11-21).
+- **org-ci step two.** Advance org-ci's Core pins to this revision, run Biome
+  as `checks: lint` (blocking) and `checks: format` (advisory), and pick up
+  the Core-stamp split in repository verification.

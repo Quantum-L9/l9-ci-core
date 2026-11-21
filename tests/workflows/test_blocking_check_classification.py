@@ -23,6 +23,7 @@ CLASSES = {
     "HOUSEKEEPING",
     "PLUMBING",
     "PENDING",
+    "SPLIT",
 }
 ROW = re.compile(r"^\| (?P<step>[^|]+?) \| (?P<cls>[A-Z_]+) \|")
 
