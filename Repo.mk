@@ -56,7 +56,6 @@ REPO_TEST_MODULES := \
 	tests/actions/test_run_supply_chain.py \
 	tests/actions/test_plan_required_instances.py \
 	tests/actions/test_repository_verification_conflict_markers.py \
-	tests/actions/test_repository_verification_clean_tree.py \
 	tests/governance/test_ci_runtime_invariants.py \
 	tests/governance/test_core_toolchain_alignment.py \
 	tests/governance/test_dependabot_core_owned_tools.py \
@@ -88,6 +87,7 @@ REPO_TEST_MODULES := \
 	tests/workflows/test_nightly_apply.py \
 	tests/workflows/test_org_ci_toolchain_drift_report.py \
 	tests/workflows/test_org_ci_required_instances.py \
+	tests/workflows/test_org_ci_scan_tree.py \
 	tests/workflows/test_security_consumer_scope.py \
 	tests/workflows/test_security_pip_audit_lockset.py \
 	tests/workflows/test_blocking_check_classification.py \

@@ -138,6 +138,7 @@ class RunnerTests(unittest.TestCase):
             "PATH": os.environ["PATH"],
             "FAKE_LOG": str(self.log),
             "L9_INSTANCE_DIR": ".l9/runtime/m/required-instances",
+            "L9_SCAN_ROOT": ".l9/runtime/m/scan-tree",
             "L9_EXECUTABLE": str(self.sdk),
             "L9_PROVIDER_EXECUTABLE": str(self.semgrep),
             "L9_PRIMARY_LANGUAGE": "python",
@@ -197,6 +198,24 @@ class RunnerTests(unittest.TestCase):
             ("pass", "0", "true"),
             (result["status"], result["exit-code"], result["accounted"]),
         )
+
+    def test_every_instance_scans_the_clean_scan_tree(self) -> None:
+        """Never the work tree the verification may have changed."""
+        self.run_instances()
+        runs = [
+            line
+            for line in self.log.read_text(encoding="utf-8").splitlines()
+            if line.startswith("semgrep ")
+        ]
+        self.assertTrue(runs)
+        for run in runs:
+            self.assertIn("--root .l9/runtime/m/scan-tree", run)
+            self.assertNotIn("--root . ", run + " ")
+
+    def test_without_a_scan_tree_no_instance_runs(self) -> None:
+        printed = self.run_instances(expect=1, L9_SCAN_ROOT="")
+        self.assertIn("no clean scan tree", printed)
+        self.assertFalse(self.log.exists() and "semgrep run" in self.log.read_text())
 
     def test_the_baseline_and_ledger_reach_every_language_run(self) -> None:
         self.run_instances(
