@@ -285,6 +285,43 @@ class RatchetTests(unittest.TestCase):
             (verdict["ratchet"], verdict["open"], verdict["waived"]),
         )
 
+    def test_an_advisory_category_is_listed_and_never_counted(self) -> None:
+        """Biome is advisory nightly: its first night, or a rise, never fails."""
+
+        def alert(category: str) -> dict[str, str]:
+            return {
+                "category": category,
+                "rule": "r",
+                "severity": "error",
+                "path": "a.js",
+                "line": "1",
+                "url": "https://example.invalid/1",
+            }
+
+        alerts = {
+            1: alert("l9-central/python/"),
+            2: alert("l9-central/biome/"),
+            3: alert("l9-central/biome/"),
+        }
+        advisory = sink.advisory_alerts(alerts)
+        self.assertEqual({2, 3}, advisory)
+        verdict = sink.judge(self.snapshot(1), alerts, {}, advisory)
+        self.assertEqual(
+            ("pass", [1], [2, 3], [], 1),
+            (
+                verdict["ratchet"],
+                verdict["open"],
+                verdict["advisory"],
+                verdict["new"],
+                len(verdict["accepted"]),
+            ),
+        )
+        rendered = sink.render(
+            "Quantum-L9/x", "a" * 40, [], alerts, verdict, "2026-11-22", ""
+        )
+        self.assertIn("- Advisory tools (reported, never counted): 2", rendered)
+        self.assertIn("### Advisory (not counted)", rendered)
+
 
 class LedgerTests(unittest.TestCase):
     TODAY = date(2026, 11, 21)

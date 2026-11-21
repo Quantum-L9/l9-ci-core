@@ -45,7 +45,7 @@ import os
 import re
 import sys
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Set, Callable, Mapping, Sequence
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -488,18 +488,33 @@ def snapshot_of(body: str) -> dict[str, Any] | None:
     return data if data.get("schema") == SNAPSHOT_SCHEMA else None
 
 
+#: Categories whose tool is advisory (docs/biome-check.md): their alerts are
+#: listed in the issue but never counted, so a first night or a rise cannot
+#: fail the ratchet that guards the blocking categories.
+ADVISORY_CATEGORIES = frozenset({"biome"})
+
+
+def advisory_alerts(alerts: Mapping[int, Mapping[str, str]]) -> set[int]:
+    """Alert numbers whose category belongs to an advisory tool."""
+    names = {f"{CATEGORY_PREFIX}{name}/" for name in ADVISORY_CATEGORIES}
+    return {n for n, alert in alerts.items() if alert.get("category") in names}
+
+
 def judge(
     previous: Mapping[str, Any] | None,
     current: Mapping[int, Mapping[str, str]],
     waived: Mapping[int, str],
+    advisory: Set[int] = frozenset(),
 ) -> dict[str, Any]:
     """New, fixed, still-open and waived alerts, and the ratchet verdict.
 
     Waived alerts are open in code scanning but are not counted: the ratchet
-    compares tonight's counted alerts with last night's.
+    compares tonight's counted alerts with last night's. Advisory alerts are
+    neither counted nor waived: they are listed apart.
     """
     before = set(previous.get("alerts", [])) if previous else set()
-    now = set(current) - set(waived)
+    listed = set(current) - set(waived)
+    now = listed - set(advisory)
     previous_open = len(before) if previous else None
     rose = previous_open is not None and len(now) > previous_open
     return {
@@ -511,6 +526,7 @@ def judge(
         # re-running or waiting a night cannot clear a rise.
         "accepted": sorted(before) if rose else sorted(now),
         "waived": dict(sorted(waived.items())),
+        "advisory": sorted(listed & set(advisory)),
         "previous_open": previous_open,
         "rose": rose,
         "ratchet": "fail" if rose else "pass",
@@ -540,6 +556,7 @@ def render(
         + ("" if previous is None else f" (previous night {previous})"),
         f"- New: {len(verdict['new'])} · Fixed: {len(verdict['fixed'])}",
         f"- Waived (central finding-waiver ledger, not counted): {len(verdict['waived'])}",
+        f"- Advisory tools (reported, never counted): {len(verdict.get('advisory', []))}",
         f"- Ratchet: **{verdict['ratchet']}**"
         + (" (first night sets the baseline)" if previous is None else ""),
         "",
@@ -565,6 +582,10 @@ def render(
             _alert_line(n, alerts[n]) + f" — waiver `{waiver}`"
             for n, waiver in verdict["waived"].items()
         ]
+        lines.append("")
+    if verdict.get("advisory"):
+        lines += ["### Advisory (not counted)", ""]
+        lines += [_alert_line(n, alerts[n]) for n in verdict["advisory"]]
         lines.append("")
     if audited:
         lines += _dependency_section(dependencies, audit)
@@ -697,7 +718,7 @@ def report(
     owners = codeowners(transport, repository, ref)
     issue = find_issue(transport, repository, creator)
     previous = snapshot_of(str(issue.get("body") or "")) if issue else None
-    verdict = judge(previous, alerts, waived)
+    verdict = judge(previous, alerts, waived, advisory_alerts(alerts))
     dependencies = judge_dependencies(
         previous, audit, waived_dependencies(audit, ledger)
     )
