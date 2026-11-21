@@ -1696,6 +1696,19 @@ edges and a floating `@main`), a `workflow_dispatch` of main's copy (it needs
   fails with the fix: fetch `origin/main`, run `render`, push. A pull request
   that leaves the `analyze` steps unchanged never runs the base leg, so an
   embedded base that main has since moved past never blocks it.
+- **Every org-ci job, not only `analyze`.** A job `org-ci.yml` adds that calls
+  a Core reusable workflow at a full sha (#312's `security`) is inlined into
+  each leg ahead of the `analyze` steps, from that workflow at that pin, so a
+  pull request that adds a job to Analyze is canaried with that job. The
+  inlined steps are retargeted like `analyze`'s, describe a push of the
+  evaluated head for event-scoped values (a main head has no pull request
+  range), continue on error, and their outcomes become the result `analyze`
+  reads as `needs.<job>.result`; the workspace is cleared before the `analyze`
+  checkout. Any other job shape (own steps, `needs`, `secrets`, a matrix, a
+  multi-job workflow, an unmapped `needs.` read) is refused, never left out.
+  The inlined bytes are embedded; the plan, which has the history the pins
+  need, re-renders them (`head-current`) and a stale render fails the verdict.
+  The differential digest now covers all of org-ci.yml's `jobs:`.
 - **`render --check`** (self-ci drift test) verifies the head leg against the
   tree's `org-ci.yml` and the rest of the file against its own embedded base.
 - **`enforcement`** joins the leg statuses: verified and analysed, then a later

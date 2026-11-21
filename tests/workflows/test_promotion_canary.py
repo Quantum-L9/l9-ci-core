@@ -35,6 +35,45 @@ def _load():
 pc = _load()
 
 
+def NO_REUSABLE(name: str, path: str, sha: str, values: dict[str, str]) -> str:
+    raise AssertionError(f"unexpected reusable job {name} {path}@{sha}")
+
+
+SECURITY_SHA = "1" * 40
+SECURITY_JOB = f"""\
+  # A reusable job ahead of analyze, as #312 adds.
+  security:
+    if: >-
+      github.event_name != 'push'
+    uses: Quantum-L9/l9-ci-core/.github/workflows/security.yml@{SECURITY_SHA}
+    with:
+      gitleaks-scope: event
+
+"""
+ENFORCE = """
+      - name: Enforce security scan (secrets, dependency audit)
+        if: always()
+        env:
+          SECURITY_RESULT: ${{ needs.security.result }}
+        run: |
+          test "${SECURITY_RESULT}" = success
+"""
+
+
+def with_security(org_ci: str) -> str:
+    """org-ci.yml as #312 shapes it: a security job that analyze needs."""
+    return (
+        org_ci.replace("\njobs:\n", "\njobs:\n" + SECURITY_JOB, 1).rstrip("\n")
+        + "\n"
+        + ENFORCE
+    )
+
+
+def security_provider(name: str, path: str, sha: str, values: dict[str, str]) -> str:
+    workflow = (ROOT / path).read_text(encoding="utf-8")
+    return pc.inline_job(name, workflow, values, f"{path}@{sha}")
+
+
 def leg_steps(workflow: str, job: str) -> list[dict[str, object]]:
     return yaml.safe_load(workflow)["jobs"][job]["steps"]
 
@@ -46,7 +85,7 @@ class RenderTests(unittest.TestCase):
 
     def test_the_committed_canary_is_the_render_of_org_ci(self) -> None:
         base = pc.embedded_base(self.canary)
-        self.assertEqual(pc.render(self.org_ci, base), self.canary)
+        self.assertEqual(pc.render(self.org_ci, base, NO_REUSABLE), self.canary)
         with redirect_stdout(io.StringIO()):
             self.assertEqual(0, pc.main(["--root", str(ROOT), "render", "--check"]))
 
@@ -65,10 +104,10 @@ class RenderTests(unittest.TestCase):
         )
 
     def test_the_base_leg_is_the_same_render_for_the_base_org_ci(self) -> None:
-        block = pc.base_block(self.org_ci)
+        block = pc.base_block(self.org_ci, NO_REUSABLE)
         self.assertTrue(block.startswith(pc.BASE_BEGIN))
         self.assertTrue(block.endswith(pc.BASE_END))
-        rendered = pc.render(self.org_ci, block)
+        rendered = pc.render(self.org_ci, block, NO_REUSABLE)
         head = leg_steps(rendered, "head")
         base = leg_steps(rendered, "base")
         self.assertEqual(len(head), len(base))
@@ -99,12 +138,12 @@ class RenderTests(unittest.TestCase):
             1,
         )
         with self.assertRaisesRegex(pc.CanaryError, "cannot retarget"):
-            pc.leg_job("head", changed)
+            pc.leg_job("head", changed, NO_REUSABLE)
 
     def test_a_vanished_target_reference_is_refused(self) -> None:
         changed = self.org_ci.replace("${{ github.ref }}", "refs/heads/main")
         with self.assertRaisesRegex(pc.CanaryError, "no longer contains"):
-            pc.leg_job("head", changed)
+            pc.leg_job("head", changed, NO_REUSABLE)
 
     def test_a_stale_or_baseless_canary_fails_the_check(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -167,6 +206,129 @@ class RenderTests(unittest.TestCase):
         on = yaml.safe_load(self.canary)[True]
         self.assertNotIn("paths", on["pull_request"])
         self.assertNotIn("paths-ignore", on["pull_request"])
+
+
+class ReusableJobTests(unittest.TestCase):
+    """A job org-ci.yml adds ahead of analyze is canaried with that job (#312)."""
+
+    def setUp(self) -> None:
+        self.org_ci = with_security((ROOT / pc.ORG_CI).read_text(encoding="utf-8"))
+        self.workflow = pc.render(
+            self.org_ci,
+            pc.base_block(self.org_ci, security_provider),
+            security_provider,
+        )
+        self.steps = leg_steps(self.workflow, "head")
+
+    def test_the_reusable_job_is_found_with_its_pin_and_inputs(self) -> None:
+        self.assertEqual(
+            [
+                (
+                    "security",
+                    ".github/workflows/security.yml",
+                    SECURITY_SHA,
+                    {"gitleaks-scope": "event"},
+                )
+            ],
+            pc.reusable_jobs(self.org_ci),
+        )
+
+    def test_each_leg_runs_the_security_job_ahead_of_analyze(self) -> None:
+        for side in ("head", "base"):
+            steps = leg_steps(self.workflow, side)
+            ids = [s.get("id") for s in steps]
+            names = [s.get("name") for s in steps]
+            result = ids.index("security__result")
+            checkout = names.index("Checkout immutable event revision")
+            self.assertLess(ids.index("security__gitleaks"), result)
+            self.assertLess(result, checkout)
+            enforce = next(
+                s
+                for s in steps
+                if str(s.get("name", "")).startswith("Enforce security")
+            )
+            self.assertEqual(
+                "${{ steps.security__result.outputs.result }}",
+                enforce["env"]["SECURITY_RESULT"],
+            )
+
+    def test_the_inlined_job_is_retargeted_and_isolated(self) -> None:
+        by_id = {s.get("id"): s for s in self.steps}
+        checkout = by_id["security__s0"]
+        self.assertEqual("${{ matrix.repository }}", checkout["with"]["repository"])
+        self.assertEqual("${{ matrix.revision }}", checkout["with"]["ref"])
+        gitleaks = by_id["security__gitleaks"]["env"]
+        self.assertEqual("push", gitleaks["EVENT_NAME"])
+        self.assertEqual("${{ matrix.revision }}", gitleaks["EVENT_SHA"])
+        self.assertEqual("", gitleaks["PUSH_BEFORE"])
+        self.assertEqual("event", gitleaks["GITLEAKS_SCOPE"])
+        inlined = [
+            s for s in self.steps if str(s.get("id", "")).startswith("security__s")
+        ]
+        inlined += [by_id[k] for k in ("security__detect", "security__gitleaks")]
+        for step in inlined:
+            self.assertIs(True, step["continue-on-error"])
+        security = [
+            s for s in self.steps if str(s.get("id", "")).startswith("security__")
+        ]
+        text = yaml.safe_dump(security)
+        self.assertNotRegex(text, r"\binputs\.")
+        self.assertNotIn("github.event.", text)
+        self.assertNotIn("needs.security", yaml.safe_dump(self.steps))
+        clear = next(
+            s
+            for s in self.steps
+            if str(s.get("name", "")).startswith("Clear the workspace")
+        )
+        self.assertEqual("always()", clear["if"])
+        self.assertEqual(
+            60, yaml.safe_load(self.workflow)["jobs"]["head"]["timeout-minutes"]
+        )
+
+    def test_the_check_reads_the_inlined_job_from_the_workflow_itself(self) -> None:
+        head_part = self.workflow.split(pc.BASE_BEGIN, 1)[0]
+        self.assertEqual(
+            self.workflow,
+            pc.render(
+                self.org_ci,
+                pc.embedded_base(self.workflow),
+                pc.embedded_provider(head_part),
+            ),
+        )
+        with self.assertRaisesRegex(pc.CanaryError, "no inlined"):
+            pc.embedded_provider("")(
+                "security", ".github/workflows/security.yml", SECURITY_SHA, {}
+            )
+
+    def test_unsupported_shapes_are_refused_not_left_out(self) -> None:
+        for job in (
+            "  other:\n    runs-on: ubuntu-24.04\n    steps: []\n",
+            "  other:\n    uses: actions/other/.github/workflows/x.yml@v1\n",
+            "  other:\n    uses: Quantum-L9/l9-ci-core/.github/workflows/x.yml@main\n",
+            "  other:\n    uses: Quantum-L9/l9-ci-core/.github/workflows/x.yml@"
+            + "2" * 40
+            + "\n    secrets: inherit\n",
+        ):
+            with self.subTest(job=job.split("\n")[1]):
+                org = self.org_ci.replace("\njobs:\n", "\njobs:\n" + job, 1)
+                with self.assertRaises(pc.CanaryError):
+                    pc.reusable_jobs(org)
+        two_jobs = (ROOT / ".github/workflows/security.yml").read_text("utf-8") + (
+            "  second:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: true\n"
+        )
+        with self.assertRaisesRegex(pc.CanaryError, "one-job"):
+            pc.inline_job("security", two_jobs, {}, "x")
+        unmapped = self.org_ci.replace(
+            "${{ needs.security.result }}", "${{ needs.security.outputs.x }}"
+        )
+        with self.assertRaisesRegex(pc.CanaryError, "needs"):
+            pc.leg_job("head", unmapped, security_provider)
+
+    def test_adding_a_job_makes_the_change_differential(self) -> None:
+        main = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
+        self.assertNotEqual(pc.steps_digest(main), pc.steps_digest(self.org_ci))
+        header_only = "# comment\n" + main
+        self.assertEqual(pc.steps_digest(main), pc.steps_digest(header_only))
 
 
 class DeclarationTests(unittest.TestCase):
@@ -237,14 +399,20 @@ class PlanTests(unittest.TestCase):
         )
         (root / pc.ORG_CI).write_text(self.org_ci, encoding="utf-8")
         (root / pc.CANARY).write_text(
-            pc.render(self.org_ci, pc.base_block(self.org_ci)), encoding="utf-8"
+            pc.render(
+                self.org_ci, pc.base_block(self.org_ci, NO_REUSABLE), NO_REUSABLE
+            ),
+            encoding="utf-8",
         )
         (root / "README.md").write_text("x\n", encoding="utf-8")
         _git(tmp, "add", ".")
         _git(tmp, "commit", "-qm", "base")
         (root / pc.ORG_CI).write_text(head_org_ci, encoding="utf-8")
         (root / pc.CANARY).write_text(
-            pc.render(head_org_ci, pc.base_block(embedded_from)), encoding="utf-8"
+            pc.render(
+                head_org_ci, pc.base_block(embedded_from, NO_REUSABLE), NO_REUSABLE
+            ),
+            encoding="utf-8",
         )
         (root / "README.md").write_text("y\n", encoding="utf-8")
         _git(tmp, "commit", "-qam", "change")
@@ -398,6 +566,7 @@ class VerdictTests(unittest.TestCase):
             "L9_CANARY_APPLIES": "true",
             "L9_CANARY_DIFFERENTIAL": "true" if differential else "false",
             "L9_CANARY_BASE_CURRENT": "true" if differential else "false",
+            "L9_CANARY_HEAD_CURRENT": "true",
             "L9_CANARY_HEAD_DIGEST": DIGEST_B if differential else DIGEST_A,
             "L9_CANARY_BASE_DIGEST": DIGEST_A,
             "L9_CANARY_MATRIX": json.dumps({"include": self.legs}),
@@ -475,6 +644,12 @@ class VerdictTests(unittest.TestCase):
                 )
                 self.both(status, status)
                 self.assertFalse(pc.judge(self.env(differential=False))[0])
+
+    def test_a_stale_inlined_job_fails_with_the_fix(self) -> None:
+        self.both("pass", "pass")
+        passed, report = pc.judge(self.env(L9_CANARY_HEAD_CURRENT="false"))
+        self.assertFalse(passed)
+        self.assertIn("inlined org-ci jobs", report[0])
 
     def test_a_stale_embedded_base_fails_with_the_fix(self) -> None:
         self.both("pass", "pass")

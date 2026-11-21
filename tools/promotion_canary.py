@@ -21,6 +21,18 @@ job's steps verbatim apart from the target identity:
 * the **base** leg, rendered from ``origin/main``'s ``org-ci.yml`` when
   ``render`` ran.
 
+Each leg runs everything ``org-ci.yml`` runs, not only ``analyze``: a job that
+calls a Core reusable workflow (``uses: Quantum-L9/l9-ci-core/.github/workflows/
+<file>@<sha>``, today ``security``) is inlined into the leg ahead of the
+``analyze`` steps from that workflow at that pin. Its target identity is
+retargeted the same way, and its event-scoped values describe a push of the
+evaluated head (one commit), since a main head has no pull request range. Each
+inlined step continues on error and their outcomes become the job result that
+``analyze`` reads as ``needs.<job>.result``. The inlined bytes are embedded and,
+like the base leg, re-rendered and compared by the plan, which has the history
+the pins need; a stale render fails the verdict with the instruction to
+re-render.
+
 Both run inline in the pull request's own run: no write permission, no
 ``pull_request_target``, no floating reference and no composite action
 (AGENTS.md §8, ``tests/workflows/test_workflow_permissions.py``).
@@ -85,6 +97,13 @@ BASE_BEGIN = (
     "  # --- base pins leg: begin (rendered from origin/main's org-ci.yml) ---\n"
 )
 BASE_END = "  # --- base pins leg: end ---\n"
+REUSABLE = re.compile(
+    r"^Quantum-L9/l9-ci-core/(\.github/workflows/[A-Za-z0-9._-]+\.ya?ml)@([0-9a-f]{40})$"
+)
+JOB_NAME = re.compile(r"^  ([a-z][a-z0-9_-]*):\n$")
+INLINE_BEGIN = "      # --- inlined org-ci job {key}: begin ---\n"
+INLINE_END = "      # --- inlined org-ci job {key}: end ---\n"
+LEG_TIMEOUT = 30
 
 # Paths whose change alters what the required check (org-ci.yml) runs, or the
 # canary itself. Core actions are added from org-ci.yml's own `uses:` lines.
@@ -156,6 +175,7 @@ jobs:
       applies: ${{ steps.plan.outputs.applies }}
       differential: ${{ steps.plan.outputs.differential }}
       base-current: ${{ steps.plan.outputs['base-current'] }}
+      head-current: ${{ steps.plan.outputs['head-current'] }}
       head-digest: ${{ steps.plan.outputs['head-digest'] }}
       base-digest: ${{ steps.plan.outputs['base-digest'] }}
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -183,7 +203,7 @@ LEG = """\
     needs: plan
     if: @@IF@@
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: @@TIMEOUT@@
     permissions:
       contents: read
     strategy:
@@ -270,7 +290,10 @@ LEG = """\
 
 """
 
-HEAD_IF = "needs.plan.outputs.applies == 'true'"
+HEAD_IF = (
+    "needs.plan.outputs.applies == 'true' && needs.plan.outputs['head-current'] "
+    "== 'true'"
+)
 BASE_IF = (
     "needs.plan.outputs.applies == 'true' && needs.plan.outputs.differential == "
     "'true' && needs.plan.outputs['base-current'] == 'true'"
@@ -307,6 +330,7 @@ VERDICT = """\
           L9_CANARY_APPLIES: ${{ needs.plan.outputs.applies }}
           L9_CANARY_DIFFERENTIAL: ${{ needs.plan.outputs.differential }}
           L9_CANARY_BASE_CURRENT: ${{ needs.plan.outputs['base-current'] }}
+          L9_CANARY_HEAD_CURRENT: ${{ needs.plan.outputs['head-current'] }}
           L9_CANARY_HEAD_DIGEST: ${{ needs.plan.outputs['head-digest'] }}
           L9_CANARY_BASE_DIGEST: ${{ needs.plan.outputs['base-digest'] }}
           L9_CANARY_MATRIX: ${{ needs.plan.outputs.matrix }}
@@ -353,9 +377,272 @@ def analyze_steps(text: str) -> str:
     return body
 
 
+def jobs_section(org_ci: str) -> str:
+    """org-ci.yml from its ``jobs:`` line on: everything the run executes."""
+    index = org_ci.find("\njobs:\n")
+    if index < 0:
+        raise CanaryError("org-ci.yml has no top-level `jobs:`")
+    return org_ci[index + 1 :]
+
+
 def steps_digest(org_ci: str) -> str:
-    """sha256 of the ``analyze`` steps: what decides what the job runs."""
-    return hashlib.sha256(analyze_steps(org_ci).encode("utf-8")).hexdigest()
+    """sha256 of org-ci.yml's jobs: what decides what the required check runs."""
+    return hashlib.sha256(jobs_section(org_ci).encode("utf-8")).hexdigest()
+
+
+def job_blocks(org_ci: str) -> dict[str, str]:
+    """Each top-level job of org-ci.yml, by name, as its verbatim text."""
+    lines = jobs_section(org_ci).splitlines(keepends=True)[1:]
+    blocks: dict[str, list[str]] = {}
+    current = ""
+    for line in lines:
+        match = JOB_NAME.match(line)
+        if match:
+            current = match.group(1)
+            blocks[current] = []
+        elif current:
+            blocks[current].append(line)
+        elif line.strip() and not line.lstrip().startswith("#"):
+            raise CanaryError(f"org-ci.yml jobs: unexpected line {line.strip()!r}")
+    return {name: "".join(body) for name, body in blocks.items()}
+
+
+def reusable_jobs(org_ci: str) -> list[tuple[str, str, str, dict[str, str]]]:
+    """(job, workflow path, pinned sha, with-values) for every non-analyze job.
+
+    A job other than ``analyze`` must call a Core reusable workflow at a full
+    sha, optionally with ``with:`` values and an ``if:``; anything else (steps,
+    needs, secrets, a matrix) is refused rather than left out of the canary.
+    """
+    out = []
+    for name, body in job_blocks(org_ci).items():
+        if name == "analyze":
+            continue
+        uses = ""
+        values: dict[str, str] = {}
+        section = ""
+        for line in body.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if line.startswith("    ") and not line.startswith("     "):
+                key, _, value = stripped.partition(":")
+                section = key
+                if key == "uses":
+                    uses = value.strip()
+                elif key not in ("if", "with"):
+                    raise CanaryError(
+                        f"org-ci.yml job {name!r}: {key!r} is not supported by the canary"
+                    )
+            elif section == "with" and line.startswith("      "):
+                key, _, value = stripped.partition(":")
+                values[key.strip()] = value.strip().strip("'\"")
+            elif section != "if":
+                raise CanaryError(f"org-ci.yml job {name!r}: unexpected {stripped!r}")
+        match = REUSABLE.match(uses)
+        if not match:
+            raise CanaryError(
+                f"org-ci.yml job {name!r} must call a Core reusable workflow at a "
+                f"full sha (got {uses!r})"
+            )
+        out.append((name, match.group(1), match.group(2), values))
+    return out
+
+
+def _inputs(workflow: str) -> dict[str, str]:
+    """``workflow_call`` input defaults of a reusable workflow (strings)."""
+    lines = workflow.splitlines()
+    try:
+        start = lines.index("  workflow_call:")
+        start = lines.index("    inputs:", start)
+    except ValueError:
+        return {}
+    defaults: dict[str, str] = {}
+    name = ""
+    for line in lines[start + 1 :]:
+        if line and not line.startswith("      "):
+            break
+        if (
+            line.startswith("      ")
+            and not line.startswith("       ")
+            and line.endswith(":")
+        ):
+            name = line.strip()[:-1]
+            defaults[name] = ""
+        elif name and line.strip().startswith("default:"):
+            defaults[name] = line.strip()[len("default:") :].strip().strip("'\"")
+    return defaults
+
+
+def _single_job(workflow: str, what: str) -> tuple[str, str, int]:
+    """(steps block, default working directory, timeout) of a one-job workflow."""
+    blocks = job_blocks(workflow)
+    if len(blocks) != 1:
+        raise CanaryError(f"{what}: the canary inlines one-job workflows only")
+    (body,) = blocks.values()
+    for key in ("strategy:", "services:", "container:", "needs:", "outputs:"):
+        if re.search(rf"(?m)^    {key}", body):
+            raise CanaryError(f"{what}: job-level {key[:-1]} is not supported")
+    lines = body.splitlines(keepends=True)
+    try:
+        steps = lines.index("    steps:\n")
+    except ValueError as error:
+        raise CanaryError(f"{what}: the job has no steps") from error
+    directory = re.search(r"(?m)^ {8}working-directory: (.+)$", "".join(lines[:steps]))
+    timeout = re.search(r"(?m)^    timeout-minutes: ([0-9]+)$", body)
+    return (
+        "".join(lines[steps + 1 :]).rstrip("\n") + "\n",
+        directory.group(1).strip() if directory else ".",
+        int(timeout.group(1)) if timeout else 360,
+    )
+
+
+def _expression_value(value: str) -> str:
+    if value in ("true", "false") or re.fullmatch(r"-?[0-9]+", value):
+        return value
+    return "'" + value.replace("'", "''") + "'"
+
+
+def inline_job(name: str, workflow: str, values: dict[str, str], what: str) -> str:
+    """A reusable workflow's job as canary leg steps, retargeted and isolated."""
+    steps, directory, _ = _single_job(workflow, what)
+    inputs = {**_inputs(workflow), **values}
+
+    def scalar(match: re.Match[str]) -> str:
+        key = match.group(1)
+        if key not in inputs:
+            raise CanaryError(f"{what}: input {key!r} has no value")
+        return inputs[key] or "''"
+
+    def bare(match: re.Match[str]) -> str:
+        key = match.group(1)
+        if key not in inputs:
+            raise CanaryError(f"{what}: input {key!r} has no value")
+        return _expression_value(inputs[key])
+
+    directory = re.sub(r"\$\{\{\s*inputs\.([a-z0-9-]+)\s*\}\}", scalar, directory)
+    steps = re.sub(r"\$\{\{\s*inputs\.([a-z0-9-]+)\s*\}\}", scalar, steps)
+    steps = re.sub(r"\binputs\.([a-z0-9-]+)\b", bare, steps)
+    # A main head has no pull request range: describe a push of that commit.
+    steps = steps.replace("${{ github.event_name }}", "push")
+    steps = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", "''", steps)
+    steps = steps.replace("${{ github.sha }}", "${{ matrix.revision }}")
+    steps = steps.replace("${{ github.repository }}", "${{ matrix.repository }}")
+    items = re.split(r"(?m)^(?= {6}- )", steps)
+    if items and not items[0].strip():
+        items = items[1:]
+    ids: list[str] = []
+    out: list[str] = []
+    for number, item in enumerate(items):
+        own = re.search(r"(?m)^ {8}id: ([A-Za-z0-9_-]+)$", item)
+        step_id = f"{name}__{own.group(1) if own else f's{number}'}"
+        if own:
+            item = item.replace(own.group(0), f"        id: {step_id}")
+        first, _, rest = item.partition("\n")
+        extra = "" if own else f"        id: {step_id}\n"
+        extra += "        continue-on-error: true\n"
+        if (
+            re.search(r"(?m)^ {8}run:", item)
+            and not re.search(r"(?m)^ {8}working-directory:", item)
+            and directory != "."
+        ):
+            extra += f"        working-directory: {directory}\n"
+        item = first + "\n" + extra + rest
+        if "actions/checkout@" in first or re.search(
+            r"(?m)^ {8}uses: actions/checkout@", item
+        ):
+            identity = (
+                "          repository: ${{ matrix.repository }}\n"
+                "          ref: ${{ matrix.revision }}\n"
+                "          token: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN"
+                " || github.token }}\n"
+            )
+            if re.search(r"(?m)^ {8}with:$", item):
+                item = re.sub(
+                    r"(?m)^( {8}with:\n)",
+                    lambda m: m.group(1) + identity,
+                    item,
+                    count=1,
+                )
+            else:
+                item = item.rstrip("\n") + "\n        with:\n" + identity
+        ids.append(step_id)
+        out.append(item if item.endswith("\n") else item + "\n")
+    body = "".join(out)
+    for step in ids:
+        bare_id = step.split("__", 1)[1]
+        body = re.sub(rf"\bsteps\.{re.escape(bare_id)}\.", f"steps.{step}.", body)
+    left = [
+        line.strip()
+        for line in body.splitlines()
+        if not line.lstrip().startswith("#")
+        and (
+            TARGET_SHAPED.search(line)
+            or re.search(
+                r"\b(inputs|needs)\.|\bsecrets\.(?!L9_GITHUB_READ_TOKEN\b)", line
+            )
+        )
+    ]
+    if left:
+        raise CanaryError(f"{what}: references the canary cannot retarget: {left}")
+    outcomes = "".join(
+        f"          {step.upper().replace('-', '_')}: ${{{{ steps.{step}.outcome }}}}\n"
+        for step in ids
+    )
+    return (
+        body
+        + f"      - name: Result of the inlined {name} job\n"
+        + f"        id: {name}__result\n"
+        + "        if: always()\n"
+        + "        env:\n"
+        + outcomes
+        + "        run: |\n"
+        + "          set -euo pipefail\n"
+        + "          result=success\n"
+        + f"          for outcome in {' '.join('"${' + s.upper().replace('-', '_') + '}"' for s in ids)}; do\n"
+        + '            case "${outcome}" in failure|cancelled) result=failure ;; esac\n'
+        + "          done\n"
+        + f'          echo "{name} job: ${{result}}"\n'
+        + '          echo "result=${result}" >> "$GITHUB_OUTPUT"\n'
+        + f"      - name: Clear the workspace after the inlined {name} job\n"
+        + "        if: always()\n"
+        + "        run: |\n"
+        + "          set -euo pipefail\n"
+        + '          test -n "${GITHUB_WORKSPACE:-}" && test "${GITHUB_WORKSPACE}" != "/"\n'
+        + '          find "${GITHUB_WORKSPACE}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +\n'
+    )
+
+
+Provider = Any  # Callable[[str, str, str, dict[str, str]], str]
+
+
+def git_provider(root: Path) -> Provider:
+    """Inline a reusable job from the workflow at its pinned sha (needs history)."""
+
+    def provide(name: str, path: str, sha: str, values: dict[str, str]) -> str:
+        if not SHA.match(sha) or not re.fullmatch(
+            r"\.github/workflows/[A-Za-z0-9._-]+\.ya?ml", path
+        ):
+            raise CanaryError(f"invalid reusable workflow reference {path}@{sha}")
+        workflow = _git(root, "show", f"{sha}:{path}")
+        return inline_job(name, workflow, values, f"{path}@{sha}")
+
+    return provide
+
+
+def embedded_provider(workflow: str) -> Provider:
+    """Inline a reusable job from the blocks a committed workflow carries."""
+
+    def provide(name: str, path: str, sha: str, values: dict[str, str]) -> str:
+        key = f"{name} {path}@{sha}"
+        begin = INLINE_BEGIN.format(key=key)
+        start = workflow.find(begin)
+        end = workflow.find(INLINE_END.format(key=key), start)
+        if start < 0 or end < 0:
+            raise CanaryError(f"{CANARY} carries no inlined {key}; run render")
+        return workflow[start + len(begin) : end]
+
+    return provide
 
 
 def retarget(steps: str, side: str = "head") -> str:
@@ -376,21 +663,39 @@ def retarget(steps: str, side: str = "head") -> str:
     return steps
 
 
-def leg_job(side: str, org_ci: str) -> str:
-    """One leg: ``org-ci.yml``'s analyze steps for ``side``, plus the record."""
+def leg_job(side: str, org_ci: str, provider: Provider) -> str:
+    """One leg: every org-ci.yml job for ``side`` (reusable ones inlined ahead
+    of ``analyze``), plus the record."""
+    inlined = ""
+    timeout = LEG_TIMEOUT
+    analyze = retarget(analyze_steps(org_ci), side)
+    for name, path, sha, values in reusable_jobs(org_ci):
+        key = f"{name} {path}@{sha}"
+        block = provider(name, path, sha, values)
+        inlined += INLINE_BEGIN.format(key=key) + block + INLINE_END.format(key=key)
+        timeout += 30
+        pattern = rf"\$\{{\{{\s*needs\.{re.escape(name)}\.result\s*\}}\}}"
+        analyze = re.sub(
+            pattern, f"${{{{ steps.{name}__result.outputs.result }}}}", analyze
+        )
+    if re.search(r"\bneeds\.", analyze):
+        raise CanaryError(
+            "org-ci.yml analyze reads a `needs.` value the canary cannot map"
+        )
     return _fill(
         LEG,
         SIDE=side,
         TITLE=" (base pins)" if side == "base" else "",
         IF=BASE_IF if side == "base" else HEAD_IF,
-        STEPS=retarget(analyze_steps(org_ci), side).rstrip("\n"),
+        TIMEOUT=str(timeout),
+        STEPS=(inlined + analyze).rstrip("\n"),
         DIGEST=steps_digest(org_ci),
     )
 
 
-def base_block(base_org_ci: str) -> str:
+def base_block(base_org_ci: str, provider: Provider) -> str:
     """The embedded base leg, between its markers."""
-    return BASE_BEGIN + leg_job("base", base_org_ci) + BASE_END
+    return BASE_BEGIN + leg_job("base", base_org_ci, provider) + BASE_END
 
 
 def embedded_base(workflow: str) -> str:
@@ -402,11 +707,11 @@ def embedded_base(workflow: str) -> str:
     return workflow[start : end + len(BASE_END)]
 
 
-def render(org_ci: str, base: str) -> str:
+def render(org_ci: str, base: str, provider: Provider) -> str:
     """The workflow for this ``org-ci.yml`` and an embedded base leg block."""
     return (
         _fill(HEADER, HEAD_DIGEST=steps_digest(org_ci))
-        + leg_job("head", org_ci)
+        + leg_job("head", org_ci, provider)
         + base
         + "\n"
         + VERDICT
@@ -423,7 +728,9 @@ def _cmd_render(args: argparse.Namespace) -> int:
     target = args.root / CANARY
     if args.check:
         current = target.read_text(encoding="utf-8") if target.is_file() else ""
-        if current != render(org_ci, embedded_base(current)):
+        head_part = current.split(BASE_BEGIN, 1)[0]
+        expected = render(org_ci, embedded_base(current), embedded_provider(head_part))
+        if current != expected:
             print(
                 f"::error::{CANARY} is stale against {ORG_CI}; run "
                 "python3 tools/promotion_canary.py render",
@@ -433,7 +740,9 @@ def _cmd_render(args: argparse.Namespace) -> int:
         print(f"{CANARY} matches {ORG_CI}")
         return 0
     main_org_ci = _git(args.root, "show", "origin/main:.github/workflows/org-ci.yml")
-    target.write_text(render(org_ci, base_block(main_org_ci)), encoding="utf-8")
+    provider = git_provider(args.root)
+    base = base_block(main_org_ci, provider)
+    target.write_text(render(org_ci, base, provider), encoding="utf-8")
     print(f"wrote {CANARY} (base leg from origin/main)")
     return 0
 
@@ -562,13 +871,17 @@ def _cmd_plan(args: argparse.Namespace) -> None:
     base_digest = steps_digest(base)
     differential = head_digest != base_digest
     workflow = (args.root / CANARY).read_text(encoding="utf-8")
-    base_current = differential and embedded_base(workflow) == base_block(base)
+    provider = git_provider(args.root)
+    embedded = embedded_base(workflow)
+    head_current = workflow == render(org_ci, embedded, provider)
+    base_current = differential and embedded == base_block(base, provider)
     watched = [*STATIC_PATHS, *core_action_paths(org_ci)]
     reasons = ["dispatch"] if args.force else touched(changed_paths(args.root), watched)
     outputs = {
         "applies": "false",
         "differential": "true" if differential else "false",
         "base-current": "true" if base_current else "false",
+        "head-current": "true" if head_current else "false",
         "head-digest": head_digest,
         "base-digest": base_digest,
         "matrix": json.dumps({"include": []}),
@@ -578,6 +891,11 @@ def _cmd_plan(args: argparse.Namespace) -> None:
         _write_output(outputs)
         return
     print("Canary paths changed: " + ", ".join(reasons[:20]))
+    if not head_current:
+        print(
+            "::error::The canary's inlined org-ci jobs are not what org-ci.yml pins: "
+            "run python3 tools/promotion_canary.py render"
+        )
     if not differential:
         print("The analyze steps are unchanged: the base result is the pull request's.")
     elif base_current:
@@ -661,6 +979,11 @@ def judge(env: dict[str, str]) -> tuple[bool, list[str]]:
     differential = env.get("L9_CANARY_DIFFERENTIAL") == "true"
     if differential == (head_digest == base_digest):
         return False, ["FAIL the plan's differential flag contradicts its digests"]
+    if env.get("L9_CANARY_HEAD_CURRENT") != "true":
+        return False, [
+            "FAIL the canary's inlined org-ci jobs are not what org-ci.yml pins: "
+            "run `python3 tools/promotion_canary.py render`, and push"
+        ]
     if differential and env.get("L9_CANARY_BASE_CURRENT") != "true":
         return False, [
             "FAIL the pull request changes the analyze steps, but its embedded base "

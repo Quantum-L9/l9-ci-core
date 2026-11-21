@@ -11,7 +11,7 @@
 # pull request changes the analyze steps, at the base's pins (the `base` job).
 # Both are org-ci.yml's steps verbatim apart from the target identity.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 3dda145c406c4dd6c3b97ecca0a7f6300494762b43103eb48d150c30b9ed2437
+# worse. Head steps digest: fb63d27eb02648548ffe95253895bde2e62a94f6c03f21bb20c7cd51c65ab278
 name: Promotion canary (Core)
 on:
   pull_request:
@@ -33,6 +33,7 @@ jobs:
       applies: ${{ steps.plan.outputs.applies }}
       differential: ${{ steps.plan.outputs.differential }}
       base-current: ${{ steps.plan.outputs['base-current'] }}
+      head-current: ${{ steps.plan.outputs['head-current'] }}
       head-digest: ${{ steps.plan.outputs['head-digest'] }}
       base-digest: ${{ steps.plan.outputs['base-digest'] }}
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -55,7 +56,7 @@ jobs:
   head:
     name: Canary ${{ matrix.repository }}
     needs: plan
-    if: needs.plan.outputs.applies == 'true'
+    if: needs.plan.outputs.applies == 'true' && needs.plan.outputs['head-current'] == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -876,7 +877,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 3dda145c406c4dd6c3b97ecca0a7f6300494762b43103eb48d150c30b9ed2437
+          DIGEST: fb63d27eb02648548ffe95253895bde2e62a94f6c03f21bb20c7cd51c65ab278
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -1773,7 +1774,7 @@ jobs:
         if: always()
         env:
           SIDE: base
-          DIGEST: 3dda145c406c4dd6c3b97ecca0a7f6300494762b43103eb48d150c30b9ed2437
+          DIGEST: fb63d27eb02648548ffe95253895bde2e62a94f6c03f21bb20c7cd51c65ab278
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -1877,6 +1878,7 @@ jobs:
           L9_CANARY_APPLIES: ${{ needs.plan.outputs.applies }}
           L9_CANARY_DIFFERENTIAL: ${{ needs.plan.outputs.differential }}
           L9_CANARY_BASE_CURRENT: ${{ needs.plan.outputs['base-current'] }}
+          L9_CANARY_HEAD_CURRENT: ${{ needs.plan.outputs['head-current'] }}
           L9_CANARY_HEAD_DIGEST: ${{ needs.plan.outputs['head-digest'] }}
           L9_CANARY_BASE_DIGEST: ${{ needs.plan.outputs['base-digest'] }}
           L9_CANARY_MATRIX: ${{ needs.plan.outputs.matrix }}
