@@ -300,13 +300,54 @@ class AdvisoryException:
     expires: dt.date
 
 
-def _date(entry: dict[str, object], key: str, where: str) -> dt.date:
+def _date(entry: dict[str, str], key: str, where: str) -> dt.date:
     value = entry[key]
     try:
         return dt.date.fromisoformat(str(value))
     except ValueError:
         msg = f"{where}: {key} {value!r} is not a YYYY-MM-DD date"
         raise AuditError(msg) from None
+
+
+def _entry_shape(entry: object, where: str) -> dict[str, str]:
+    """The entry's fields, refused unless exactly the schema's, all non-empty text."""
+    if not isinstance(entry, dict) or set(entry) != EXCEPTION_KEYS:
+        msg = f"{where} must hold exactly {', '.join(sorted(EXCEPTION_KEYS))}"
+        raise AuditError(msg)
+    blank = sorted(
+        key
+        for key, value in entry.items()
+        if not isinstance(value, str) or not value.strip()
+    )
+    if blank:
+        raise AuditError(f"{where}: {', '.join(blank)} must be non-empty text")
+    if not ADVISORY.match(entry["id"]):
+        raise AuditError(f"{where}: {entry['id']!r} is not an advisory id")
+    if not (
+        EXACT_NAME.fullmatch(entry["package"])
+        and EXACT_VERSION.fullmatch(entry["version"])
+    ):
+        msg = f"{where}: {entry['package']}@{entry['version']} is not a pin"
+        raise AuditError(msg)
+    return entry
+
+
+def _entry_window(entry: dict[str, str], where: str, today: dt.date) -> dt.date:
+    """The entry's expiry, refused when premature, too long or expired."""
+    created = _date(entry, "created", where)
+    expires = _date(entry, "expires", where)
+    if created > today:
+        raise AuditError(f"{where}: created {created} is after today {today}")
+    if expires < created or (expires - created).days > MAX_EXCEPTION_DAYS:
+        msg = (
+            f"{where}: expires {expires} must be within {MAX_EXCEPTION_DAYS} "
+            f"days of created {created}"
+        )
+        raise AuditError(msg)
+    if expires < today:
+        msg = f"{where}: {entry['id']} expired on {expires}; fix or renew it"
+        raise AuditError(msg)
+    return expires
 
 
 def load_exceptions(path: Path, today: dt.date) -> list[AdvisoryException]:
@@ -321,49 +362,23 @@ def load_exceptions(path: Path, today: dt.date) -> list[AdvisoryException]:
         msg = f"{path} is not an {EXCEPTIONS_SCHEMA} document"
         raise AuditError(msg)
     found: list[AdvisoryException] = []
-    seen: set[tuple[str, str, str]] = set()
-    for index, entry in enumerate(document["exceptions"]):
+    for index, raw in enumerate(document["exceptions"]):
         where = f"{path} exception #{index + 1}"
-        if not isinstance(entry, dict) or set(entry) != EXCEPTION_KEYS:
-            msg = f"{where} must hold exactly {', '.join(sorted(EXCEPTION_KEYS))}"
-            raise AuditError(msg)
-        blank = sorted(
-            key
-            for key, value in entry.items()
-            if not isinstance(value, str) or not value.strip()
+        entry = _entry_shape(raw, where)
+        item = AdvisoryException(
+            entry["id"],
+            canonical(entry["package"]),
+            entry["version"],
+            _entry_window(entry, where, today),
         )
-        if blank:
-            raise AuditError(f"{where}: {', '.join(blank)} must be non-empty text")
-        if not ADVISORY.match(entry["id"]):
-            raise AuditError(f"{where}: {entry['id']!r} is not an advisory id")
-        if not (
-            EXACT_NAME.fullmatch(entry["package"])
-            and EXACT_VERSION.fullmatch(entry["version"])
+        if any(
+            (other.advisory, other.package, other.version)
+            == (item.advisory, item.package, item.version)
+            for other in found
         ):
-            msg = f"{where}: {entry['package']}@{entry['version']} is not a pin"
-            raise AuditError(msg)
-        created = _date(entry, "created", where)
-        expires = _date(entry, "expires", where)
-        if created > today:
-            raise AuditError(f"{where}: created {created} is after today {today}")
-        if expires < created or (expires - created).days > MAX_EXCEPTION_DAYS:
-            msg = (
-                f"{where}: expires {expires} must be within {MAX_EXCEPTION_DAYS} "
-                f"days of created {created}"
-            )
-            raise AuditError(msg)
-        if expires < today:
-            msg = f"{where}: {entry['id']} expired on {expires}; fix or renew it"
-            raise AuditError(msg)
-        key = (entry["id"], canonical(entry["package"]), entry["version"])
-        if key in seen:
+            key = (item.advisory, item.package, item.version)
             raise AuditError(f"{where}: duplicate exception for {key}")
-        seen.add(key)
-        found.append(
-            AdvisoryException(
-                entry["id"], canonical(entry["package"]), entry["version"], expires
-            )
-        )
+        found.append(item)
     return found
 
 
@@ -375,17 +390,15 @@ class Verdict:
     stale: list[AdvisoryException]
 
 
-def judge(
-    layer_texts: Sequence[str],
+Finding = tuple[str, str, str, frozenset[str]]
+
+
+def _findings(
     reports: Sequence[dict[str, object]],
-    exceptions: Sequence[AdvisoryException],
-) -> Verdict:
-    """Every pinned package audited; every finding excepted or open."""
-    expected = {
-        (name, version) for text in layer_texts for name, version in pins(text).items()
-    }
+) -> tuple[set[tuple[str, str]], list[Finding]]:
+    """``(audited pins, findings)`` of pip-audit's reports; a skip is refused."""
     audited: set[tuple[str, str]] = set()
-    findings: list[tuple[str, str, str, frozenset[str]]] = []
+    findings: list[Finding] = []
     for report in reports:
         dependencies = report.get("dependencies")
         if not isinstance(dependencies, list):
@@ -397,9 +410,28 @@ def judge(
                 reason = dependency.get("skip_reason", "no version")
                 raise AuditError(f"pip-audit did not audit {name}: {reason}")
             audited.add((name, version))
-            for vuln in dependency.get("vulns", []):
-                ids = frozenset([str(vuln["id"]), *map(str, vuln.get("aliases", []))])
-                findings.append((name, version, str(vuln["id"]), ids))
+            findings.extend(
+                (
+                    name,
+                    version,
+                    str(vuln["id"]),
+                    frozenset([str(vuln["id"]), *map(str, vuln.get("aliases", []))]),
+                )
+                for vuln in dependency.get("vulns", [])
+            )
+    return audited, findings
+
+
+def judge(
+    layer_texts: Sequence[str],
+    reports: Sequence[dict[str, object]],
+    exceptions: Sequence[AdvisoryException],
+) -> Verdict:
+    """Every pinned package audited; every finding excepted or open."""
+    expected = {
+        (name, version) for text in layer_texts for name, version in pins(text).items()
+    }
+    audited, findings = _findings(reports)
     unaudited = sorted(expected - audited)
     if unaudited:
         listed = ", ".join(f"{n}=={v}" for n, v in unaudited)
@@ -411,7 +443,7 @@ def judge(
         cover = [
             item
             for item in exceptions
-            if item.package == name and item.version == version and item.advisory in ids
+            if (item.package, item.version) == (name, version) and item.advisory in ids
         ]
         used.update(cover)
         (excepted if cover else still_open).append((name, version, advisory))
