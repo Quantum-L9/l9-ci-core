@@ -25,7 +25,8 @@ TOOL = ROOT / "tools" / "promotion_canary.py"
 
 def _load():
     spec = importlib.util.spec_from_file_location("core_promotion_canary", TOOL)
-    assert spec and spec.loader
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

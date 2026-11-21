@@ -67,7 +67,7 @@ jobs:
           GH_EVENT: ${{ github.event_name }}
           INPUT_EVENT: ${{ inputs.event || '' }}
           INPUT_PROFILE: ${{ inputs.profile || '' }}
-          INPUT_MATRIX_ID: ${{ inputs.matrix-id || 'org-semgrep' }}
+          INPUT_MATRIX_ID: canary-${{ matrix.slug }}
           INPUT_SDK_REVISION: ${{ inputs.sdk-revision || '' }}
           INPUT_SEMGREP_VERSION: ${{ inputs.semgrep-version || '1.171.0' }}
           INPUT_RETENTION: ${{ inputs.artifact-retention-days || 14 }}

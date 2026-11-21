@@ -84,6 +84,12 @@ REPLACEMENTS = (
     ("${{ github.repository }}", "${{ matrix.repository }}"),
     ("${{ github.sha }}", "${{ matrix.revision }}"),
     ("${{ github.ref }}", "refs/heads/${{ matrix.branch }}"),
+    # One artifact set per leg: org-ci.yml names its artifacts after the
+    # matrix id, which a reusable caller sets and the canary does not.
+    (
+        "INPUT_MATRIX_ID: ${{ inputs.matrix-id || 'org-semgrep' }}",
+        "INPUT_MATRIX_ID: canary-${{ matrix.slug }}",
+    ),
     (
         "TOKEN: ${{ github.token }}",
         "TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}",
@@ -263,7 +269,7 @@ def analyze_steps(text: str) -> str:
     except StopIteration as error:
         raise CanaryError("the analyze job has no `steps:` block") from error
     end = next(
-        (i for i in range(steps + 1, len(lines)) if re.match(r"^  \S", lines[i])),
+        (i for i in range(steps + 1, len(lines)) if re.match(r"^ {2}\S", lines[i])),
         len(lines),
     )
     body = "".join(lines[steps + 1 : end]).rstrip("\n") + "\n"
@@ -436,7 +442,7 @@ def _write_output(values: dict[str, str]) -> None:
         sys.stdout.write(lines)
 
 
-def _cmd_plan(args: argparse.Namespace) -> int:
+def _cmd_plan(args: argparse.Namespace) -> None:
     entries = load_declaration(args.root)
     org_ci = (args.root / ORG_CI).read_text(encoding="utf-8")
     watched = [*STATIC_PATHS, *core_action_paths(org_ci)]
@@ -447,7 +453,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     if not reasons:
         print("No canary path changed; the canary does not apply.")
         _write_output({"applies": "false", "matrix": json.dumps({"include": []})})
-        return 0
+        return
     print("Canary paths changed: " + ", ".join(reasons[:20]))
     include = [resolve(entry, dict(os.environ)) for entry in entries]
     for leg in include:
@@ -459,7 +465,6 @@ def _cmd_plan(args: argparse.Namespace) -> int:
             "matrix": json.dumps({"include": include}, separators=(",", ":")),
         }
     )
-    return 0
 
 
 # --- verdict --------------------------------------------------------------
@@ -480,35 +485,33 @@ def judge(
     if not legs:
         return False, ["the canary applies but planned no leg"]
     passed = True
-    report = []
+    report: list[str] = []
     for leg in legs:
-        name = f"{leg['repository']}@{leg['revision'][:12]}"
-        path = records / f"{leg['slug']}.json"
-        try:
-            record = json.loads(path.read_text(encoding="utf-8"))
-            status = record["status"]
-            if record.get("revision") != leg["revision"]:
-                raise ValueError("revision mismatch")
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            passed = False
-            report.append(f"FAIL {name}: no leg record ({error})")
-            continue
-        red = leg.get("known_red", "")
-        if status == "pass":
-            report.append(f"pass {name}")
-            if red:
-                report.append(
-                    f"stale-known-red {name}: green; remove its known_red declaration"
-                )
-        elif status == "incomplete":
-            passed = False
-            report.append(f"FAIL {name}: incomplete")
-        elif red:
-            report.append(f"known-red {name}: {status}, announced ({red})")
-        else:
-            passed = False
-            report.append(f"FAIL {name}: {status}")
+        ok, lines = judge_leg(leg, records)
+        passed = passed and ok
+        report.extend(lines)
     return passed, report
+
+
+def judge_leg(leg: dict[str, Any], records: Path) -> tuple[bool, list[str]]:
+    """(passed, report lines) for one planned leg."""
+    name = f"{leg['repository']}@{leg['revision'][:12]}"
+    try:
+        record = json.loads((records / f"{leg['slug']}.json").read_text("utf-8"))
+        status = record["status"]
+        if record.get("revision") != leg["revision"]:
+            raise ValueError("revision mismatch")
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return False, [f"FAIL {name}: no leg record ({error})"]
+    red = leg.get("known_red", "")
+    if status == "pass":
+        stale = f"stale-known-red {name}: green; remove its known_red declaration"
+        return True, [f"pass {name}", *([stale] if red else [])]
+    if status == "incomplete":
+        return False, [f"FAIL {name}: incomplete"]
+    if red:
+        return True, [f"known-red {name}: {status}, announced ({red})"]
+    return False, [f"FAIL {name}: {status}"]
 
 
 def _cmd_verdict(args: argparse.Namespace) -> int:
@@ -544,9 +547,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     verdict_parser.add_argument("--matrix", default="")
     verdict_parser.add_argument("--records", type=Path, required=True)
     args = parser.parse_args(list(argv) if argv is not None else None)
-    handlers = {"render": _cmd_render, "plan": _cmd_plan, "verdict": _cmd_verdict}
     try:
-        return handlers[args.command](args)
+        if args.command == "plan":
+            _cmd_plan(args)
+            return 0
+        if args.command == "render":
+            return _cmd_render(args)
+        return _cmd_verdict(args)
     except CanaryError as error:
         print(f"::error::{error}", file=sys.stderr)
         return 2

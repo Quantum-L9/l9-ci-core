@@ -1640,7 +1640,12 @@ no longer turn a green repository red unannounced.
   consumer's main head carries no verdict to compare with: "red today" is a
   reviewed declaration, and a `known_red` repository that comes out green is
   reported so the declaration is removed. Today: Cursor-Governance (29 Semgrep
-  findings, CG-CUTOVER).
+  findings, CG-CUTOVER) and l9-ci-sdk (one high `subprocess-injection` finding
+  at `l9_ci/providers/semgrep/provider.py:153`, first surfaced by this
+  canary's own run on #311).
+- **One artifact set per leg:** org-ci.yml names its artifacts after the
+  matrix id; the canary sets it to `canary-<repository slug>`, the only
+  difference from the target identity.
 - **Access:** public repositories are read with `github.token`; l9-ci-sdk with
   the existing read-only `L9_GITHUB_READ_TOKEN`. No App token and no write
   access. A fork pull request has no secrets, so its l9-ci-sdk leg cannot
