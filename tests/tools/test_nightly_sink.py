@@ -46,9 +46,52 @@ def alert(
         "rule": {"id": rule, "security_severity_level": "high"},
         "most_recent_instance": {
             "category": category,
-            "location": {"path": "src/a.py"},
+            "location": {"path": "src/a.py", "start_line": number},
         },
     }
+
+
+FINGERPRINT = "f" * 64
+
+
+def finding(
+    line: int, rule: str = "r", fingerprint: str = FINGERPRINT
+) -> dict[str, Any]:
+    """A canonical bundle finding that projects onto ``alert(line, rule=rule)``."""
+    return {
+        "provider_id": "semgrep",
+        "provider_rule_id": rule,
+        "fingerprint": fingerprint,
+        "locations": [{"normalized_path": "src/a.py", "start_line": line}],
+    }
+
+
+def waiver(
+    expires: str = "2026-12-31", rule: str = "r", fingerprint: str = FINGERPRINT
+) -> dict[str, Any]:
+    return {
+        "id": "w-1",
+        "owner": "@quantum-l9/core",
+        "reason": "accepted",
+        "created": "2026-11-01",
+        "expires": expires,
+        "scope": {
+            "repository": REPO,
+            "provider_id": "semgrep",
+            "provider_rule_id": rule,
+            "path": "src/a.py",
+        },
+        "fingerprint": fingerprint,
+        "source_sha256": "0" * 64,
+    }
+
+
+def ledger_file(directory: str, *entries: dict[str, Any]) -> Path:
+    path = Path(directory) / "finding-waivers.yaml"
+    path.write_text(
+        json.dumps({"schema": sink.LEDGER_SCHEMA, "waivers": list(entries)})
+    )
+    return path
 
 
 class FakeGitHub:
@@ -149,6 +192,50 @@ class PublishTests(unittest.TestCase):
                     )
 
 
+class RetireTests(unittest.TestCase):
+    def tonight(self) -> dict[str, Any]:
+        document = sarif()
+        document["runs"][0]["tool"]["driver"].update(
+            {
+                "informationUri": "https://example.test",
+                "version": "1.2.3",
+                "rules": [{"id": "r"}],
+            }
+        )
+        return {"python": document}
+
+    def test_a_category_with_open_alerts_and_no_file_tonight_gets_an_empty_run(
+        self,
+    ) -> None:
+        github = FakeGitHub()
+        github.alerts = [
+            alert(1),
+            alert(2, "l9-central/typescript/"),
+            alert(3, "l9-central/consumer-x/"),
+        ]
+        retire = sink.retired(sink.open_alerts(github, REPO), self.tonight())
+        self.assertEqual(["consumer-x", "typescript"], sorted(retire))
+        run = retire["typescript"]["runs"][0]
+        self.assertEqual([], run["results"])
+        self.assertEqual(
+            {
+                "name": "Semgrep",
+                "informationUri": "https://example.test",
+                "version": "1.2.3",
+                "rules": [],
+            },
+            run["tool"]["driver"],
+            "the same tool as tonight's analyses, so the category's alerts close",
+        )
+
+    def test_nothing_to_retire_when_every_category_is_published(self) -> None:
+        github = FakeGitHub()
+        github.alerts = [alert(1)]
+        self.assertEqual(
+            {}, sink.retired(sink.open_alerts(github, REPO), self.tonight())
+        )
+
+
 class AlertTests(unittest.TestCase):
     def test_only_l9_central_alerts_count_across_pages(self) -> None:
         github = FakeGitHub()
@@ -172,56 +259,102 @@ class RatchetTests(unittest.TestCase):
         return {"schema": sink.SNAPSHOT_SCHEMA, "alerts": list(alerts)}
 
     def test_the_first_night_sets_the_baseline(self) -> None:
-        verdict = sink.judge(None, self.ALERTS, None)
+        verdict = sink.judge(None, self.ALERTS, {})
         self.assertEqual(
             ("pass", None, []),
             (verdict["ratchet"], verdict["previous_open"], verdict["new"]),
         )
 
     def test_new_fixed_and_open_against_the_previous_night(self) -> None:
-        verdict = sink.judge(self.snapshot(2, 3, 4, 5), self.ALERTS, None)
+        verdict = sink.judge(self.snapshot(2, 3, 4, 5), self.ALERTS, {})
         self.assertEqual([1], verdict["new"])
         self.assertEqual([4, 5], verdict["fixed"])
         self.assertEqual("pass", verdict["ratchet"])
 
-    def test_a_rise_fails_unless_a_waiver_covers_it(self) -> None:
+    def test_a_rise_fails_unless_ledger_waived_findings_cover_it(self) -> None:
         previous = self.snapshot(1, 2)
-        self.assertEqual("fail", sink.judge(previous, self.ALERTS, None)["ratchet"])
-        covered = {"allow_open": 3}
-        self.assertEqual("pass", sink.judge(previous, self.ALERTS, covered)["ratchet"])
-        short = {"allow_open": 2}
-        self.assertEqual("fail", sink.judge(previous, self.ALERTS, short)["ratchet"])
+        self.assertEqual("fail", sink.judge(previous, self.ALERTS, {})["ratchet"])
+        verdict = sink.judge(previous, self.ALERTS, {3: "w-1"})
+        self.assertEqual(
+            ("pass", [1, 2], {3: "w-1"}),
+            (verdict["ratchet"], verdict["open"], verdict["waived"]),
+        )
 
-    def test_waiver_ledger_drops_expired_and_refuses_malformed(self) -> None:
+
+class LedgerTests(unittest.TestCase):
+    TODAY = date(2026, 11, 21)
+
+    def test_live_entries_for_this_repository_only(self) -> None:
+        other = waiver()
+        other["id"] = "w-2"
+        other["scope"] = {**other["scope"], "repository": "Quantum-L9/Other"}
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "w.json"
-            entry = {
-                "repository": REPO,
-                "allow_open": 5,
-                "reason": "r",
-                "approved_by": "op",
-                "expires": "2026-12-31",
-            }
-            path.write_text(
-                json.dumps({"schema": sink.WAIVER_SCHEMA, "waivers": [entry]})
+            path = ledger_file(tmp, waiver(), other)
+            self.assertEqual(
+                ["w-1"], [e["id"] for e in sink.load_ledger(path, REPO, self.TODAY)]
             )
-            self.assertIn(REPO, sink.load_waivers(path, date(2026, 11, 21)))
-            self.assertEqual({}, sink.load_waivers(path, date(2027, 1, 1)))
-            path.write_text(
-                json.dumps(
-                    {"schema": sink.WAIVER_SCHEMA, "waivers": [{"repository": REPO}]}
-                )
+
+    def test_an_expired_entry_stops_excluding_its_finding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = ledger_file(tmp, waiver(expires="2026-11-20"))
+            self.assertEqual([], sink.load_ledger(path, REPO, self.TODAY))
+            path = ledger_file(tmp, waiver(expires="2026-11-21"))
+            self.assertEqual(
+                1,
+                len(sink.load_ledger(path, REPO, self.TODAY)),
+                "in force on its expiry day",
+            )
+
+    def test_a_malformed_or_missing_ledger_fails_closed(self) -> None:
+        broken = waiver()
+        del broken["source_sha256"]
+        with tempfile.TemporaryDirectory() as tmp:
+            for path in (
+                ledger_file(tmp, broken),
+                Path(tmp) / "absent.yaml",
+            ):
+                with self.subTest(path=path.name), self.assertRaises(sink.SinkError):
+                    sink.load_ledger(path, REPO, self.TODAY)
+            bad = Path(tmp) / "bad.yaml"
+            bad.write_text(
+                json.dumps({"schema": "l9.nightly-ratchet-waivers/v1", "waivers": []})
             )
             with self.assertRaises(sink.SinkError):
-                sink.load_waivers(path, date(2026, 11, 21))
-            self.assertEqual(
-                {}, sink.load_waivers(Path(tmp) / "absent.json", date(2026, 11, 21))
-            )
+                sink.load_ledger(bad, REPO, self.TODAY)
+
+    def test_the_committed_central_ledger_loads(self) -> None:
+        path = ROOT / ".github/actions/resolve-governance/finding-waivers.yaml"
+        self.assertIsInstance(sink.load_ledger(path, REPO, self.TODAY), list)
+
+    def test_waived_findings_match_rule_path_and_fingerprint(self) -> None:
+        bundles = {
+            "python": {
+                "findings": [
+                    finding(2),
+                    finding(3, rule="other"),
+                    finding(4, fingerprint="e" * 64),
+                ]
+            }
+        }
+        self.assertEqual(
+            {("l9-central/python/", "r", "src/a.py", "2"): "w-1"},
+            sink.waived_findings(bundles, [waiver()]),
+        )
+
+    def test_the_alert_key_uses_the_canonical_rule_id_like_the_sarif(self) -> None:
+        canonical = {**finding(2), "canonical_rule_id": "l9.canonical"}
+        keys = sink.waived_findings({"python": {"findings": [canonical]}}, [waiver()])
+        self.assertEqual(
+            {("l9-central/python/", "l9.canonical", "src/a.py", "2")}, set(keys)
+        )
 
 
 class ReportTests(unittest.TestCase):
     def run_report(
-        self, github: FakeGitHub, waivers: dict[str, Any] | None = None
+        self,
+        github: FakeGitHub,
+        ledger: list[dict[str, Any]] | None = None,
+        bundles: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return sink.report(
             github,
@@ -229,7 +362,8 @@ class ReportTests(unittest.TestCase):
             SHA,
             "refs/heads/main",
             CREATOR,
-            waivers or {},
+            ledger or [],
+            bundles or {},
             "2026-11-21",
             "https://github.com/Quantum-L9/l9-ci-core/actions/runs/1",
         )
@@ -270,18 +404,39 @@ class ReportTests(unittest.TestCase):
         self.assertEqual("fail", result["ratchet"])
         [comment] = github.made("POST", "/comments")
         self.assertIn("rose from 1 to 2", comment["body"])
-        self.assertIn("no waiver", comment["body"])
+        self.assertIn("central finding-waiver ledger", comment["body"])
 
-    def test_a_waived_rise_passes_and_is_still_recorded(self) -> None:
+    def test_a_failed_ratchet_keeps_the_last_accepted_snapshot(self) -> None:
         github = FakeGitHub()
         github.alerts = [alert(1)]
         self.run_report(github)
         github.alerts = [alert(1), alert(2)]
-        waiver = {REPO: {"allow_open": 2, "reason": "upgrade", "approved_by": "op"}}
-        result = self.run_report(github, waiver)
-        self.assertEqual(("pass", True), (result["ratchet"], result["waived"]))
-        [comment] = github.made("POST", "/comments")
-        self.assertIn("waived", comment["body"])
+        self.assertEqual("fail", self.run_report(github)["ratchet"])
+        self.assertEqual([1], sink.snapshot_of(github.issues[0]["body"])["alerts"])
+        again = self.run_report(github)
+        self.assertEqual(
+            ("fail", 1),
+            (again["ratchet"], again["previous_open"]),
+            "a re-run cannot clear a rise",
+        )
+        github.alerts = [alert(1)]
+        self.assertEqual("pass", self.run_report(github)["ratchet"])
+
+    def test_a_ledger_waived_finding_is_listed_and_not_counted(self) -> None:
+        github = FakeGitHub()
+        github.alerts = [alert(1)]
+        self.run_report(github)
+        github.alerts = [alert(1), alert(2)]
+        bundles = {"python": {"findings": [finding(2)]}}
+        result = self.run_report(github, [waiver()], bundles)
+        self.assertEqual(
+            ("pass", [1], {2: "w-1"}),
+            (result["ratchet"], result["open"], result["waived"]),
+        )
+        self.assertEqual([], github.made("POST", "/comments"))
+        body = github.issues[0]["body"]
+        self.assertIn("waiver `w-1`", body)
+        self.assertEqual([1], sink.snapshot_of(body)["alerts"])
 
     def test_another_authors_issue_or_a_pull_request_is_not_the_rolling_issue(
         self,
@@ -305,8 +460,10 @@ class CommandLineTests(unittest.TestCase):
             SHA,
             "--creator",
             CREATOR,
-            "--waivers",
-            "/nonexistent.json",
+            "--ledger",
+            "/nonexistent.yaml",
+            "--bundle-dir",
+            "/nonexistent",
         ]
         with (
             mock.patch.dict("os.environ", {}, clear=True),
@@ -325,6 +482,10 @@ class CommandLineTests(unittest.TestCase):
                         SHA,
                         "--creator",
                         CREATOR,
+                        "--ledger",
+                        "x",
+                        "--bundle-dir",
+                        "y",
                     ]
                 ),
             )
@@ -334,10 +495,17 @@ class CommandLineTests(unittest.TestCase):
             {
                 "number": 7,
                 "body": sink.render(
-                    REPO, SHA, [], {}, sink.judge(None, {}, None), "2026-11-20", ""
+                    REPO, SHA, [], {}, sink.judge(None, {}, {}), "2026-11-20", ""
                 ),
             }
         ]
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        bundle_dir = Path(tmp.name, "bundles")
+        bundle_dir.mkdir()
+        (bundle_dir / "python.json").write_text(json.dumps({"findings": []}))
+        args[args.index("--ledger") + 1] = str(ledger_file(tmp.name))
+        args[args.index("--bundle-dir") + 1] = str(bundle_dir)
         with (
             mock.patch.dict("os.environ", {sink.TOKEN_ENV: "t"}),
             mock.patch.object(
@@ -399,6 +567,14 @@ class WorkflowTests(unittest.TestCase):
             workflow["jobs"]["plan"]["if"],
             "github.repository == 'Quantum-L9/l9-ci-core'",
         )
+
+    def test_biome_runs_advisory_so_its_findings_cannot_stop_the_scan(self) -> None:
+        steps = sink.sink_steps(self.org_ci)
+        biome = steps[steps.index("- id: biome_check") :]
+        biome = biome[: biome.index("\n      - ")]
+        self.assertIn("mode: advisory", biome)
+        self.assertNotIn("mode: blocking", biome)
+        self.assertIn("mode: blocking", self.org_ci, "org-ci itself is unchanged")
 
     def test_a_moved_cut_point_is_refused(self) -> None:
         moved = self.org_ci.replace(
@@ -469,8 +645,15 @@ class PlanTests(unittest.TestCase):
             json.loads(line[7:])["include"][0]["name"], "Cursor-Governance"
         )
 
-    def test_committed_waiver_ledger_is_well_formed(self) -> None:
-        self.assertEqual(sink.load_waivers(ROOT / sink.WAIVERS, date(2026, 11, 21)), {})
+    def test_the_ratchet_reads_the_ledger_the_scan_was_given(self) -> None:
+        workflow = WorkflowTests.committed
+        self.assertIn(
+            "L9_FINDING_WAIVERS: ${{ steps.gov.outputs['finding-waivers'] }}", workflow
+        )
+        self.assertIn('--ledger "${L9_FINDING_WAIVERS}"', workflow)
+        self.assertFalse(
+            (ROOT / ".l9/nightly-ratchet-waivers.json").exists(), "no second ledger"
+        )
 
 
 if __name__ == "__main__":

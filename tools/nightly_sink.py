@@ -20,11 +20,13 @@ results here:
     fixed and still open against the previous night, and links each alert. The
     previous night is the snapshot the issue itself carries.
 
-    Ratchet: the open count may not rise night over night unless a waiver in
-    ``.l9/nightly-ratchet-waivers.json`` covers it (repository, the most open
-    alerts allowed, a reason, an approver and an expiry date). An unwaived rise
-    is recorded on the issue and fails the run. The first night sets the
-    baseline.
+    Ratchet: the open count may not rise night over night. Findings matched
+    by a live entry of Core's central finding-waiver ledger
+    (``l9.finding-waivers/v1``, the same file pull-request gating reads) are
+    excluded from the count, by repository, provider, rule, path and
+    fingerprint; an expired entry stops excluding its finding, so the count
+    rises. A rise is recorded on the issue and fails the run. The first night
+    sets the baseline.
 
 Both subcommands call api.github.com only, under one repository's path, with
 the token in ``L9_NIGHTLY_SINK_TOKEN`` (the l9-nightly-dispatch App, minted for
@@ -58,7 +60,20 @@ ISSUE_TITLE = "Nightly findings (Core central scan)"
 ISSUE_MARKER = "<!-- l9-nightly-findings -->"
 SNAPSHOT = re.compile(r"<!-- l9-nightly-snapshot (\{.*?\}) -->", re.DOTALL)
 SNAPSHOT_SCHEMA = "l9.nightly-findings-snapshot/v1"
-WAIVER_SCHEMA = "l9.nightly-ratchet-waivers/v1"
+LEDGER_SCHEMA = "l9.finding-waivers/v1"
+LEDGER_KEYS = frozenset(
+    {
+        "id",
+        "owner",
+        "reason",
+        "created",
+        "expires",
+        "scope",
+        "fingerprint",
+        "source_sha256",
+    }
+)
+SCOPE_KEYS = frozenset({"repository", "provider_id", "provider_rule_id", "path"})
 REPOSITORY = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 NAME = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
@@ -122,6 +137,44 @@ def publish(
     return results
 
 
+def retired(
+    alerts: Mapping[int, Mapping[str, str]],
+    files: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """An empty analysis for every category with open alerts and no file tonight.
+
+    A repository that drops a secondary language or its consumer rulepack
+    publishes no SARIF for that instance any more, and code scanning closes an
+    alert only when a new analysis of its category omits it. Each such
+    category gets an empty run under tonight's tool driver, so its alerts
+    close and the issue reports them fixed.
+    """
+    gone = sorted(
+        {
+            alert["category"][len(CATEGORY_PREFIX) : -1]
+            for alert in alerts.values()
+            if alert["category"].endswith("/")
+        }
+        - set(files)
+    )
+    if not gone:
+        return {}
+    first = files[min(files)]
+    runs = first.get("runs") or []
+    if not runs:
+        raise SinkError("tonight's SARIF has no run to take the tool driver from")
+    driver = {
+        key: value
+        for key, value in ((runs[0].get("tool") or {}).get("driver") or {}).items()
+        if key in ("name", "informationUri", "version")
+    }
+    empty = {
+        "version": first.get("version", "2.1.0"),
+        "runs": [{"tool": {"driver": {**driver, "rules": []}}, "results": []}],
+    }
+    return {name: empty for name in gone}
+
+
 def _await_processing(
     transport: Transport,
     repository: str,
@@ -167,7 +220,10 @@ def open_alerts(transport: Transport, repository: str) -> dict[int, dict[str, st
                 continue
             rule = alert.get("rule") or {}
             location = (instance.get("location") or {}).get("path", "")
+            where = instance.get("location") or {}
             alerts[int(alert["number"])] = {
+                "category": category,
+                "line": str(where.get("start_line") or ""),
                 "rule": str(rule.get("id") or rule.get("name") or "?"),
                 "severity": str(
                     rule.get("security_severity_level") or rule.get("severity") or ""
@@ -202,25 +258,86 @@ def codeowners(transport: Transport, repository: str, ref: str) -> list[str]:
     return []
 
 
-def load_waivers(path: Path, today: date) -> dict[str, dict[str, Any]]:
-    """Unexpired waivers by repository. A malformed ledger fails closed."""
-    if not path.is_file():
-        return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if data.get("schema") != WAIVER_SCHEMA or not isinstance(data.get("waivers"), list):
-        raise SinkError(f"{path} is not a {WAIVER_SCHEMA} ledger")
-    waivers: dict[str, dict[str, Any]] = {}
-    for entry in data["waivers"]:
-        required = ("repository", "allow_open", "reason", "approved_by", "expires")
-        if not isinstance(entry, dict) or any(
-            not entry.get(k) and entry.get(k) != 0 for k in required
+def load_ledger(path: Path, repository: str, today: date) -> list[dict[str, Any]]:
+    """The central ledger's entries for ``repository`` that are in force today.
+
+    The ledger is Core's ``l9.finding-waivers/v1`` (resolve-governance), whose
+    semantics the SDK owns (``l9_ci.policy.waivers``). It is read with the
+    SDK's shape: a malformed ledger fails closed, and an entry not yet in force
+    or past its expiry excludes nothing.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise SinkError(f"finding-waiver ledger unreadable: {error}") from error
+    if (
+        not isinstance(data, dict)
+        or set(data) != {"schema", "waivers"}
+        or data["schema"] != LEDGER_SCHEMA
+        or not isinstance(data["waivers"], list)
+    ):
+        raise SinkError(f"{path} is not a {LEDGER_SCHEMA} ledger")
+    live = []
+    for index, entry in enumerate(data["waivers"]):
+        scope = entry.get("scope") if isinstance(entry, dict) else None
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != LEDGER_KEYS
+            or not isinstance(scope, dict)
+            or set(scope) != SCOPE_KEYS
+            or not all(isinstance(scope[k], str) and scope[k] for k in SCOPE_KEYS)
+            or not isinstance(entry["fingerprint"], str)
         ):
-            raise SinkError(f"{path}: a waiver needs {', '.join(required)}")
-        if not isinstance(entry["allow_open"], int) or entry["allow_open"] < 0:
-            raise SinkError(f"{path}: allow_open must be a non-negative integer")
-        if date.fromisoformat(str(entry["expires"])) >= today:
-            waivers[str(entry["repository"])] = entry
-    return waivers
+            raise SinkError(f"{path}: waiver {index} is malformed")
+        try:
+            created = date.fromisoformat(str(entry["created"]))
+            expires = date.fromisoformat(str(entry["expires"]))
+        except ValueError as error:
+            raise SinkError(f"{path}: waiver {index} has a bad date") from error
+        if scope["repository"] == repository and created <= today <= expires:
+            live.append(entry)
+    return live
+
+
+def waived_findings(
+    bundles: Mapping[str, Mapping[str, Any]], entries: Sequence[Mapping[str, Any]]
+) -> dict[tuple[str, str, str, str], str]:
+    """Waiver ids by alert key (category, SARIF rule, path, start line).
+
+    A finding is waived when a live entry names its provider, provider rule,
+    primary path and fingerprint. The key is what the SDK's SARIF projection
+    gives the alert: ``ruleId`` is the canonical rule id, else the provider's.
+    """
+    waived: dict[tuple[str, str, str, str], str] = {}
+    for name, bundle in bundles.items():
+        for finding in bundle.get("findings") or []:
+            locations = finding.get("locations") or []
+            if not locations:
+                continue
+            path = str(locations[0].get("normalized_path") or "")
+            hit = next(
+                (
+                    e
+                    for e in entries
+                    if e["scope"]["provider_id"] == finding.get("provider_id")
+                    and e["scope"]["provider_rule_id"]
+                    == finding.get("provider_rule_id")
+                    and e["scope"]["path"] == path
+                    and e["fingerprint"] == finding.get("fingerprint")
+                ),
+                None,
+            )
+            if hit is None:
+                continue
+            rule = finding.get("canonical_rule_id") or finding.get("provider_rule_id")
+            line = str(locations[0].get("start_line") or "")
+            key = (CATEGORY_PREFIX + name + "/", str(rule), path, line)
+            waived[key] = str(hit["id"])
+    return waived
+
+
+def alert_key(alert: Mapping[str, str]) -> tuple[str, str, str, str]:
+    return (alert["category"], alert["rule"], alert["path"], alert["line"])
 
 
 def snapshot_of(body: str) -> dict[str, Any] | None:
@@ -234,22 +351,29 @@ def snapshot_of(body: str) -> dict[str, Any] | None:
 def judge(
     previous: Mapping[str, Any] | None,
     current: Mapping[int, Mapping[str, str]],
-    waiver: Mapping[str, Any] | None,
+    waived: Mapping[int, str],
 ) -> dict[str, Any]:
-    """New, fixed and still-open alerts, and the ratchet verdict."""
+    """New, fixed, still-open and waived alerts, and the ratchet verdict.
+
+    Waived alerts are open in code scanning but are not counted: the ratchet
+    compares tonight's counted alerts with last night's.
+    """
     before = set(previous.get("alerts", [])) if previous else set()
-    now = set(current)
+    now = set(current) - set(waived)
     previous_open = len(before) if previous else None
     rose = previous_open is not None and len(now) > previous_open
-    waived = bool(rose and waiver and len(now) <= int(waiver["allow_open"]))
     return {
         "new": sorted(now - before) if previous else [],
         "fixed": sorted(before - now),
         "open": sorted(now),
+        # The snapshot the next night compares with: tonight's alerts, unless
+        # the ratchet failed, when the last accepted night stays the bar, so
+        # re-running or waiting a night cannot clear a rise.
+        "accepted": sorted(before) if rose else sorted(now),
+        "waived": dict(sorted(waived.items())),
         "previous_open": previous_open,
         "rose": rose,
-        "waived": waived,
-        "ratchet": "fail" if rose and not waived else "pass",
+        "ratchet": "fail" if rose else "pass",
     }
 
 
@@ -274,8 +398,8 @@ def render(
         f"- Open: **{len(verdict['open'])}**"
         + ("" if previous is None else f" (previous night {previous})"),
         f"- New: {len(verdict['new'])} · Fixed: {len(verdict['fixed'])}",
+        f"- Waived (central finding-waiver ledger, not counted): {len(verdict['waived'])}",
         f"- Ratchet: **{verdict['ratchet']}**"
-        + (" (waived)" if verdict["waived"] else "")
         + (" (first night sets the baseline)" if previous is None else ""),
         "",
     ]
@@ -290,11 +414,18 @@ def render(
         lines += (
             ["### Still open", ""] + [_alert_line(n, alerts[n]) for n in still] + [""]
         )
+    if verdict["waived"]:
+        lines += ["### Waived", ""]
+        lines += [
+            _alert_line(n, alerts[n]) + f" — waiver `{waiver}`"
+            for n, waiver in verdict["waived"].items()
+        ]
+        lines.append("")
     snapshot = {
         "schema": SNAPSHOT_SCHEMA,
         "night": night,
         "commit": commit,
-        "alerts": verdict["open"],
+        "alerts": verdict["accepted"],
     }
     lines.append(f"<!-- l9-nightly-snapshot {json.dumps(snapshot, sort_keys=True)} -->")
     return "\n".join(lines) + "\n"
@@ -338,15 +469,22 @@ def report(
     commit: str,
     ref: str,
     creator: str,
-    waivers: Mapping[str, Mapping[str, Any]],
+    ledger: Sequence[Mapping[str, Any]],
+    bundles: Mapping[str, Mapping[str, Any]],
     night: str,
     run_url: str,
 ) -> dict[str, Any]:
     alerts = open_alerts(transport, repository)
+    by_key = waived_findings(bundles, ledger)
+    waived = {
+        number: by_key[alert_key(alert)]
+        for number, alert in alerts.items()
+        if alert_key(alert) in by_key
+    }
     owners = codeowners(transport, repository, ref)
     issue = find_issue(transport, repository, creator)
     previous = snapshot_of(str(issue.get("body") or "")) if issue else None
-    verdict = judge(previous, alerts, waivers.get(repository))
+    verdict = judge(previous, alerts, waived)
     body = render(repository, commit, owners, alerts, verdict, night, run_url)
     if issue is None:
         status, response = transport(
@@ -365,17 +503,11 @@ def report(
         if status != 200:
             raise SinkError(f"cannot update issue #{number} (HTTP {status})")
     if verdict["rose"]:
-        word = "waived" if verdict["waived"] else "failed"
         note = (
-            f"Ratchet {word} on {night}: open alerts rose from "
-            f"{verdict['previous_open']} to {len(verdict['open'])}"
-            + (
-                f" (waiver: {waivers[repository]['reason']}, "
-                f"approved by {waivers[repository]['approved_by']})"
-                if verdict["waived"]
-                else "; no waiver in .l9/nightly-ratchet-waivers.json covers it"
-            )
-            + f". Run: {run_url or 'n/a'}"
+            f"Ratchet failed on {night}: open alerts rose from "
+            f"{verdict['previous_open']} to {len(verdict['open'])}, and no live "
+            "entry of the central finding-waiver ledger covers the difference. "
+            f"Run: {run_url or 'n/a'}"
         )
         status, _ = transport(
             "POST", f"/repos/{repository}/issues/{number}/comments", {"body": note}
@@ -391,8 +523,9 @@ def report(
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = Path(".github/workflows/nightly-sink.yml")
-WAIVERS = Path(".l9/nightly-ratchet-waivers.json")
 CUT = "      - name: Enforce repository verification\n"
+BIOME_STEP = "        name: Run Biome check (blocking)\n"
+BIOME_MODE = "          mode: blocking\n"
 EVENT_LINE = "          INPUT_EVENT: ${{ inputs.event || '' }}\n"
 MATRIX_ID_LINE = "          INPUT_MATRIX_ID: canary-nightly-${{ matrix.slug }}\n"
 MATRIX_ID = "nightly-${{ matrix.slug }}"
@@ -413,8 +546,10 @@ HEADER = """\
 # the repository's pull-request gate. Every instance bundle is projected to
 # SARIF by the SDK and uploaded to that repository's code scanning (one
 # category per instance), and one rolling "Nightly findings" issue is updated
-# with the new, fixed and still-open alerts. An open count that rises with no
-# waiver in .l9/nightly-ratchet-waivers.json fails the run. Writes use the
+# with the new, fixed and still-open alerts. An open count that rises fails
+# the run; findings a live entry of Core's central finding-waiver ledger
+# (l9.finding-waivers/v1, the file the scan itself was given) matches are not
+# counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
 # and issues: write. Analyze steps digest: @@DIGEST@@
 name: Nightly findings sink (Core)
@@ -496,11 +631,14 @@ SINK = """\
           runtime = Path(".l9/runtime", env["MATRIX_ID"])
           out = Path(env["RUNNER_TEMP"], "nightly-sarif")
           out.mkdir(parents=True, exist_ok=True)
+          kept = Path(env["RUNNER_TEMP"], "nightly-bundles")
+          kept.mkdir(parents=True, exist_ok=True)
           name = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
           primary = env.get("L9_PRIMARY_LANGUAGE", "")
           if not name.match(primary) or not (runtime / "results.sarif").is_file():
               sys.exit("::error::the analyze steps produced no primary SARIF")
           shutil.copyfile(runtime / "results.sarif", out / (primary + ".sarif"))
+          shutil.copyfile(runtime / "finding-bundle.json", kept / (primary + ".json"))
           print("instance " + primary + ": results.sarif")
           errors = []
           bundles = sorted((runtime / "required-instances").glob("*/finding-bundle.json"))
@@ -509,6 +647,7 @@ SINK = """\
               if instance == primary or not name.match(instance):
                   errors.append("unexpected instance directory " + instance)
                   continue
+              shutil.copyfile(bundle, kept / (instance + ".json"))
               command = [env["L9_EXECUTABLE"], "bundle", "project-sarif",
                          "--input", str(bundle), "--output", str(out / (instance + ".sarif"))]
               if env.get("L9_STRICT") == "true":
@@ -580,6 +719,8 @@ SINK = """\
           REVISION: ${{ matrix.revision }}
           BRANCH: ${{ matrix.branch }}
           CREATOR: ${{ steps.sink_token.outputs.app-slug }}[bot]
+          # The central ledger the scan above was given (resolve-governance).
+          L9_FINDING_WAIVERS: ${{ steps.gov.outputs['finding-waivers'] }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -589,7 +730,8 @@ SINK = """\
             --commit "${REVISION}" \\
             --ref "refs/heads/${BRANCH}" \\
             --creator "${CREATOR}" \\
-            --waivers "${core}/.l9/nightly-ratchet-waivers.json" \\
+            --ledger "${L9_FINDING_WAIVERS}" \\
+            --bundle-dir "${RUNNER_TEMP}/nightly-bundles" \\
             --run-url "${RUN_URL}"
 """
 
@@ -616,6 +758,24 @@ def sink_steps(org_ci: str) -> str:
                 f"org-ci.yml's analyze steps no longer contain {old.strip()!r} once"
             )
         steps = steps.replace(old, new)
+    # The sink judges Semgrep's findings; Biome's own blocking verdict belongs
+    # to the pull-request gate, and in blocking mode it would stop the job
+    # before the Semgrep scan and the publication.
+    if steps.count(BIOME_STEP) != 1:
+        raise SinkError(
+            f"org-ci.yml's analyze steps no longer contain {BIOME_STEP.strip()!r} once"
+        )
+    head, _, tail = steps.partition(BIOME_STEP)
+    step, separator, rest = tail.partition("\n      - ")
+    if step.count(BIOME_MODE) != 1:
+        raise SinkError("the Biome check step no longer sets `mode: blocking` once")
+    steps = (
+        head
+        + "        name: Run Biome check (advisory in the nightly sink)\n"
+        + step.replace(BIOME_MODE, "          mode: advisory\n")
+        + separator
+        + rest
+    )
     lines = steps.splitlines(keepends=True)
     try:
         cut = lines.index(CUT)
@@ -695,24 +855,42 @@ def _cmd_publish(args: argparse.Namespace) -> int:
         files[path.stem] = json.loads(path.read_text(encoding="utf-8"))
     if not files:
         raise SinkError(f"no SARIF files in {args.sarif_dir}")
+    transport = _transport(args.repository)
+    retire = retired(open_alerts(transport, args.repository), files)
     results = publish(
-        _transport(args.repository), args.repository, args.commit, args.ref, files
+        transport, args.repository, args.commit, args.ref, {**files, **retire}
     )
-    print(json.dumps({"repository": args.repository, "uploads": results}))
+    print(
+        json.dumps(
+            {
+                "repository": args.repository,
+                "uploads": results,
+                "retired": sorted(retire),
+            }
+        )
+    )
     return 0
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
     _checked(args)
     today = datetime.now(timezone.utc).date()
-    waivers = load_waivers(Path(args.waivers), today)
+    if not args.ledger:
+        raise SinkError("no finding-waiver ledger: the scan's governance gave none")
+    ledger = load_ledger(Path(args.ledger), args.repository, today)
+    bundles = {}
+    for path in sorted(Path(args.bundle_dir).glob("*.json")):
+        bundles[path.stem] = json.loads(path.read_text(encoding="utf-8"))
+    if not bundles:
+        raise SinkError(f"no finding bundles in {args.bundle_dir}")
     result = report(
         _transport(args.repository),
         args.repository,
         args.commit,
         args.ref,
         args.creator,
-        waivers,
+        ledger,
+        bundles,
         today.isoformat(),
         args.run_url,
     )
@@ -720,7 +898,8 @@ def _cmd_report(args: argparse.Namespace) -> int:
     if result["ratchet"] == "fail":
         print(
             f"::error::ratchet: open alerts rose from {result['previous_open']} "
-            f"to {len(result['open'])} with no waiver (issue #{result['issue']})"
+            f"to {len(result['open'])}, not covered by the central finding-waiver "
+            f"ledger (issue #{result['issue']})"
         )
         return 1
     return 0
@@ -773,7 +952,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         command.add_argument("--ref", default="refs/heads/main")
     sub.choices["publish"].add_argument("--sarif-dir", required=True)
     sub.choices["report"].add_argument("--creator", required=True)
-    sub.choices["report"].add_argument("--waivers", default=str(ROOT / WAIVERS))
+    sub.choices["report"].add_argument("--ledger", required=True)
+    sub.choices["report"].add_argument("--bundle-dir", required=True)
     sub.choices["report"].add_argument("--run-url", default="")
     args = parser.parse_args(argv)
     try:

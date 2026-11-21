@@ -11,10 +11,12 @@
 # the repository's pull-request gate. Every instance bundle is projected to
 # SARIF by the SDK and uploaded to that repository's code scanning (one
 # category per instance), and one rolling "Nightly findings" issue is updated
-# with the new, fixed and still-open alerts. An open count that rises with no
-# waiver in .l9/nightly-ratchet-waivers.json fails the run. Writes use the
+# with the new, fixed and still-open alerts. An open count that rises fails
+# the run; findings a live entry of Core's central finding-waiver ledger
+# (l9.finding-waivers/v1, the file the scan itself was given) matches are not
+# counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: 8e6a3a4b027fb79120e42a6b740b71bf170ce1ebceb62ab67e6231cc23485db7
+# and issues: write. Analyze steps digest: b61c27d81c83a92e27d81dcd899ff2429427c9a94f32ba4346cb309110b096c9
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -357,13 +359,13 @@ jobs:
         uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@284a5eb6f55828ab37f992c783aa3ed2273f3213
 
       - id: biome_check
-        name: Run Biome check (blocking)
+        name: Run Biome check (advisory in the nightly sink)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
         uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@284a5eb6f55828ab37f992c783aa3ed2273f3213
         with:
           executable: ${{ steps.biome.outputs.executable }}
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
-          mode: blocking
+          mode: advisory
 
       # Repository verification runs the consumer's `make setup`, which may
       # install OS packages with apt (e.g. Playwright's Chromium libraries and
@@ -942,11 +944,14 @@ jobs:
           runtime = Path(".l9/runtime", env["MATRIX_ID"])
           out = Path(env["RUNNER_TEMP"], "nightly-sarif")
           out.mkdir(parents=True, exist_ok=True)
+          kept = Path(env["RUNNER_TEMP"], "nightly-bundles")
+          kept.mkdir(parents=True, exist_ok=True)
           name = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
           primary = env.get("L9_PRIMARY_LANGUAGE", "")
           if not name.match(primary) or not (runtime / "results.sarif").is_file():
               sys.exit("::error::the analyze steps produced no primary SARIF")
           shutil.copyfile(runtime / "results.sarif", out / (primary + ".sarif"))
+          shutil.copyfile(runtime / "finding-bundle.json", kept / (primary + ".json"))
           print("instance " + primary + ": results.sarif")
           errors = []
           bundles = sorted((runtime / "required-instances").glob("*/finding-bundle.json"))
@@ -955,6 +960,7 @@ jobs:
               if instance == primary or not name.match(instance):
                   errors.append("unexpected instance directory " + instance)
                   continue
+              shutil.copyfile(bundle, kept / (instance + ".json"))
               command = [env["L9_EXECUTABLE"], "bundle", "project-sarif",
                          "--input", str(bundle), "--output", str(out / (instance + ".sarif"))]
               if env.get("L9_STRICT") == "true":
@@ -1026,6 +1032,8 @@ jobs:
           REVISION: ${{ matrix.revision }}
           BRANCH: ${{ matrix.branch }}
           CREATOR: ${{ steps.sink_token.outputs.app-slug }}[bot]
+          # The central ledger the scan above was given (resolve-governance).
+          L9_FINDING_WAIVERS: ${{ steps.gov.outputs['finding-waivers'] }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -1035,5 +1043,6 @@ jobs:
             --commit "${REVISION}" \
             --ref "refs/heads/${BRANCH}" \
             --creator "${CREATOR}" \
-            --waivers "${core}/.l9/nightly-ratchet-waivers.json" \
+            --ledger "${L9_FINDING_WAIVERS}" \
+            --bundle-dir "${RUNNER_TEMP}/nightly-bundles" \
             --run-url "${RUN_URL}"
