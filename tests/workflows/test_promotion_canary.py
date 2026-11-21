@@ -13,6 +13,7 @@ import json
 import textwrap
 import sys
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -135,6 +136,9 @@ class RenderTests(unittest.TestCase):
                 f"${{{{ needs.{name}.result }}}}",
                 f"${{{{ steps.{name}__result.outputs.result }}}}",
             )
+        # The canary declares no inputs: each `inputs.X || default` is written
+        # as its default, so the rendered workflow reads no undefined input.
+        steps = pc.undeclared_defaults(steps)
         self.assertIn(steps, self.canary)
         org = yaml.safe_load(self.org_ci)["jobs"]["analyze"]["steps"]
         head = leg_steps(self.canary, "head")
@@ -479,6 +483,7 @@ class ReusableJobTests(unittest.TestCase):
                 "head__pip-audit",
                 "head__npm-audit",
                 "head__codeql",
+                "head__actionlint",
                 "head__biome",
                 "head",
                 # The scan legs run central-semgrep.yml, which has no sibling
@@ -490,6 +495,7 @@ class ReusableJobTests(unittest.TestCase):
                 "base__pip-audit",
                 "base__npm-audit",
                 "base__codeql",
+                "base__actionlint",
                 "base__biome",
                 "base",
                 "verdict",
@@ -526,6 +532,7 @@ class ReusableJobTests(unittest.TestCase):
                                 "pip-audit",
                                 "npm-audit",
                                 "codeql",
+                                "actionlint",
                                 "biome",
                             )
                         ),
@@ -1400,6 +1407,60 @@ class ScanLegTests(unittest.TestCase):
         ):
             with self.subTest(job=job_status, aggregate=aggregate):
                 self.assertEqual(expected, self.classify(job_status, aggregate))
+
+
+class UndeclaredDefaultTests(unittest.TestCase):
+    def test_an_undeclared_input_is_written_as_its_default(self) -> None:
+        text = (
+            "          A: ${{ inputs.event || '' }}\n"
+            "          B: ${{ inputs.semgrep-version || '1.186.0' }}\n"
+            "          C: ${{ inputs.artifact-retention-days || 14 }}\n"
+            "          D: ${{ inputs.repository || '' }}\n"
+            "          E: ${{ inputs.name || 'it''s' }}\n"
+        )
+        self.assertEqual(
+            '          A: ""\n'
+            '          B: "1.186.0"\n'
+            '          C: "14"\n'
+            "          D: ${{ inputs.repository || '' }}\n"
+            '          E: "it\'s"\n',
+            pc.undeclared_defaults(text, frozenset({"repository"})),
+        )
+
+    def test_the_committed_workflows_read_no_undeclared_input(self) -> None:
+        for path in (pc.CANARY, ".github/workflows/nightly-sink.yml"):
+            with self.subTest(workflow=path):
+                text = (ROOT / path).read_text(encoding="utf-8")
+                declared = set(
+                    (yaml.safe_load(text)[True].get("workflow_dispatch") or {}).get(
+                        "inputs", {}
+                    )
+                    or {}
+                )
+                read = set(re.findall(r"\$\{\{[^}]*\binputs\.([a-z0-9-]+)", text))
+                self.assertEqual(set(), read - declared)
+
+    def test_the_leg_record_reads_only_steps_its_leg_has(self) -> None:
+        jobs = yaml.safe_load(self.canary())["jobs"]
+        for side in ("head", "base", "scan", "scanbase", "admitted"):
+            with self.subTest(side=side):
+                steps = jobs[side]["steps"]
+                ids = {s.get("id") for s in steps}
+                [record] = [
+                    s for s in steps if s.get("name") == "Record the canary leg"
+                ]
+                for step, key in (
+                    ("aggregate", "AGGREGATE_STATUS"),
+                    ("repository_verify", "REPOSITORY_VERIFY"),
+                ):
+                    expected = (
+                        f"${{{{ steps.{step}.outputs.status }}}}" if step in ids else ""
+                    )
+                    self.assertEqual(expected, record["env"][key])
+
+    @staticmethod
+    def canary() -> str:
+        return (ROOT / pc.CANARY).read_text(encoding="utf-8")
 
 
 class ResolveBaseTests(unittest.TestCase):

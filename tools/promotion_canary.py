@@ -736,6 +736,39 @@ INPUT_BARE = re.compile(r"\binputs\.([a-z0-9-]+)\b")
 NOT_RETARGETED = re.compile(r"\b(inputs|needs)\.|\bsecrets\.(?!L9_GITHUB_READ_TOKEN\b)")
 
 
+# `${{ inputs.NAME || DEFAULT }}` where DEFAULT is a quoted string or a number.
+INPUT_DEFAULT = re.compile(
+    r"\$\{\{\s*inputs\.([a-z0-9-]+)\s*\|\|\s*('(?:[^']|'')*'|-?\d+(?:\.\d+)?)\s*\}\}"
+)
+
+
+def undeclared_defaults(text: str, declared: frozenset[str] = frozenset()) -> str:
+    """Write each undeclared ``inputs.NAME || DEFAULT`` as DEFAULT.
+
+    A step inlined into a workflow that does not declare the input it reads
+    always gets the default at run time; written out, the rendered workflow
+    reads no undefined property (actionlint's expression check). The value
+    is a quoted YAML string, so an empty default stays an empty string.
+    """
+
+    def value(match: re.Match[str]) -> str:
+        if match.group(1) in declared:
+            return match.group(0)
+        literal = match.group(2)
+        if literal.startswith("'"):
+            literal = literal[1:-1].replace("''", "'")
+        return json.dumps(literal)
+
+    return INPUT_DEFAULT.sub(value, text)
+
+
+RECORD_STEP = "      - name: Record the canary leg\n"
+
+
+def _step_ids(steps: str) -> set[str]:
+    return set(re.findall(r"(?m)^ {6,8}(?:- )?id: ([A-Za-z0-9_-]+)$", steps))
+
+
 def _substitute(text: str, inputs: dict[str, str], what: str) -> str:
     """Resolve ``inputs.*`` and the event identity for a push of the head."""
 
@@ -1057,6 +1090,8 @@ def leg_job(
         )
     if side == "admitted":
         analyze = admit(analyze, admission)
+    # The canary declares no inputs: an inlined step reads each one's default.
+    analyze = undeclared_defaults(analyze)
     if len(needs) > 1:
         # org-ci.yml runs analyze whatever its sibling jobs concluded, then
         # enforces their results; a skipped leg would read as passing.
@@ -1064,7 +1099,7 @@ def leg_job(
         condition = f"${{{{ !cancelled() && ({condition}) }}}}"
     else:
         needs_text = "plan"
-    return siblings + _fill(
+    leg = _fill(
         LEG,
         SIDE=side,
         TITLE=title,
@@ -1075,6 +1110,27 @@ def leg_job(
         DIGEST=digest or steps_digest(org_ci),
         INDEPENDENT=",".join(independent),
     )
+    # The record reads the scan's aggregate and org-ci's repository
+    # verification; a leg has one or the other, and an absent one is "".
+    ids = _step_ids(analyze)
+    head, marker, record = leg.partition(RECORD_STEP)
+    if not marker:
+        raise CanaryError("the leg template has no record step")
+    for step, line in (
+        (
+            "aggregate",
+            "          AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}\n",
+        ),
+        (
+            "repository_verify",
+            "          REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}\n",
+        ),
+    ):
+        if record.count(line) != 1:
+            raise CanaryError(f"the leg record no longer reads {step} once")
+        if step not in ids:
+            record = record.replace(line, line.split(":", 1)[0] + ': ""\n')
+    return siblings + head + marker + record
 
 
 def base_block(base_org_ci: str, provider: Provider, base_scan: str = "") -> str:

@@ -125,6 +125,7 @@ class LockBindingTests(unittest.TestCase):
     #: tool-ownership.json). `uv` is installed by install-consumer-ci and
     #: pinned in consumers by the stamped uv.toml.
     EXPECTED_KEYS = {
+        "actionlint",
         "bandit",
         "biome",
         "gitleaks",
@@ -234,6 +235,10 @@ class LockBindingTests(unittest.TestCase):
     def test_gitleaks_selection_matches_the_lock(self) -> None:
         pattern = re.compile(r"GITLEAKS_VERSION=[\"']?([0-9]+\.[0-9]+\.[0-9]+)")
         self._assert_bound("gitleaks", self._literals(pattern), minimum=1)
+
+    def test_actionlint_selection_matches_the_lock(self) -> None:
+        pattern = re.compile(r"ACTIONLINT_VERSION=[\"']?([0-9]+\.[0-9]+\.[0-9]+)")
+        self._assert_bound("actionlint", self._literals(pattern), minimum=1)
 
     def test_bandit_and_pip_audit_selections_match_the_lock(self) -> None:
         for key in ("bandit", "pip-audit"):

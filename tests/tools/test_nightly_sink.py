@@ -905,6 +905,7 @@ class WorkflowTests(unittest.TestCase):
                 " && steps.biome_check.outcome != 'failure'"
                 " && steps.gitleaks.outcome != 'failure'"
                 " && steps.codeql_analyze.outcome != 'failure'"
+                " && steps.actionlint_check.outcome != 'failure'"
                 " && steps.bandit.outcome != 'failure' }}",
                 "${{ !cancelled() && steps.sink_tool.outcome == 'success' }}",
                 "${{ !cancelled() && steps.sink_token.outcome == 'success' }}",
@@ -1138,6 +1139,38 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(sink.SinkError):
             sink.codeql_steps(
                 self.org_ci.replace("id: codeql_install\n", "id: install\n")
+            )
+
+    def test_actionlint_runs_nightly_on_every_workflow_and_reports(self) -> None:
+        """The check's own steps: no base, every workflow, SARIF, counted."""
+        import yaml  # noqa: PLC0415
+
+        steps = self.sink_job_steps()
+        original = {
+            s.get("id"): s
+            for s in yaml.safe_load(self.org_ci)["jobs"]["actionlint"]["steps"]
+        }
+        for identifier in sink.ACTIONLINT_STEPS:
+            with self.subTest(step=identifier):
+                [inlined] = [s for s in steps if s.get("id") == identifier]
+                self.assertEqual(original[identifier]["run"], inlined["run"])
+                self.assertIn("!cancelled()", inlined["if"])
+        [scope] = [s for s in steps if s.get("id") == "actionlint_scope"]
+        self.assertEqual("nightly", scope["env"]["EVENT_NAME"])
+        self.assertEqual("", scope["env"]["PR_BASE"])
+        [check] = [s for s in steps if s.get("id") == "actionlint_check"]
+        self.assertEqual("false", check["env"]["ACTIONLINT_FINDINGS_FAIL"])
+        self.assertEqual(sink.ACTIONLINT_SARIF, check["env"]["ACTIONLINT_SARIF"])
+        self.assertNotIn("actionlint", sink.ADVISORY_CATEGORIES)
+
+    def test_a_missing_actionlint_job_or_mode_line_is_refused(self) -> None:
+        with self.assertRaises(sink.SinkError):
+            sink.actionlint_steps(
+                self.org_ci.replace("\n  actionlint:\n", "\n  lint:\n")
+            )
+        with self.assertRaises(sink.SinkError):
+            sink.actionlint_steps(
+                self.org_ci.replace('ACTIONLINT_SARIF: ""', "ACTIONLINT_SARIF: x")
             )
 
     def test_bandit_runs_nightly_only_on_the_whole_tree_advisory(self) -> None:

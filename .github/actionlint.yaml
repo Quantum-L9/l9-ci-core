@@ -1,0 +1,10 @@
+# actionlint configuration for Core's own workflows (the org-wide `actionlint`
+# check reads a repository's .github/actionlint.yaml; docs/actionlint-check.md).
+paths:
+  .github/workflows/settings-runner.yml:
+    ignore:
+      # `job.workflow_sha` is a documented job-context property ("The commit
+      # SHA of the workflow file that defines the current job", GitHub docs,
+      # contexts reference, job context); actionlint 1.7.12's job-context type
+      # does not have it yet. Only this message, only this file.
+      - 'property "workflow_sha" is not defined in object type'

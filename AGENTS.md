@@ -2100,3 +2100,26 @@ Operator decision. Record: [`docs/codeql-check.md`](docs/codeql-check.md).
 
 Tests: `tests/workflows/test_org_ci_codeql_job.py`,
 `tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`.
+
+## 51. actionlint is one org-wide check, judging changed workflows (2026-11-21)
+
+Operator decision. Record: [`docs/actionlint-check.md`](docs/actionlint-check.md).
+
+- **Check.** `org-ci.yml` job `actionlint`, named `actionlint`, blocking,
+  `contents: read`. A pull request, merge group or push judges the workflow
+  files it changes (every workflow when an action definition changes);
+  other events and the nightly sink judge every workflow. It always reports.
+- **Pin.** Core's toolchain lock: `toolchain-lock.json` `actionlint` and
+  `install-consumer-ci/locks/actionlint-<version>.json` (sha256), bound to the
+  job's literals by test; `tool-ownership.json` now owns actionlint.
+- **Deterministic.** shellcheck and pyflakes integrations are off (the runner
+  image's copies are unpinned). A repository's `.github/actionlint.yaml`
+  applies; Core's ignores only `job.workflow_sha` in `settings-runner.yml`.
+- **Generated workflows.** The canary and sink renderers write an undeclared
+  `inputs.X || default` as its default and the leg record reads only its own
+  leg's steps, so Core's generated workflows pass actionlint.
+- **Nightly.** `l9-central/actionlint/`, counted.
+
+Tests: `tests/workflows/test_org_ci_actionlint_job.py`,
+`tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`,
+`tests/workflows/test_workflow_toolchain_pins.py`.
