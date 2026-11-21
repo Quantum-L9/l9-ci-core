@@ -1,0 +1,30 @@
+{
+  "schema": "l9.promotion-canary/v1",
+  "repositories": [
+    {
+      "repository": "Quantum-L9/Cursor-Governance",
+      "branch": "main",
+      "private": false
+    },
+    {
+      "repository": "Quantum-L9/Cognitive.Engine.Graphs",
+      "branch": "main",
+      "private": false
+    },
+    {
+      "repository": "Quantum-L9/Enrichment.Inference.Engine",
+      "branch": "main",
+      "private": false
+    },
+    {
+      "repository": "Quantum-L9/l9-ci-sdk",
+      "branch": "main",
+      "private": true
+    },
+    {
+      "repository": "Quantum-L9/l9-ci-core",
+      "branch": "main",
+      "private": false
+    }
+  ]
+}

@@ -1605,3 +1605,69 @@ reason; a Core-denied licence can never be allowed; a name that is not
   `docs/supply-chain.md`, all first-party and Proprietary.
 
 Tests: `tests/actions/test_run_supply_chain.py`.
+
+## 40. The promotion canary judges a Core change against the fleet before merge (2026-11-21)
+
+A Core pull request that changes what `Analyze (central Core)` runs is checked
+against the current main heads of the repositories declared in
+`.l9/promotion-canary.json` (Cursor-Governance, Cognitive.Engine.Graphs,
+Enrichment.Inference.Engine, l9-ci-sdk, l9-ci-core) and judged
+**differentially**: it fails only when it makes a repository worse than the
+base pins do. This is the #308 hand canary made a blocking check,
+`Promotion canary (Core)`. A repository already red for its own reasons does
+not block the Core change, so the pin advance that fixes it is never
+deadlocked.
+
+- **What counts as such a change:** `org-ci.yml`,
+  `.l9/sdk-compatibility.yaml`, any `.github/actions/<name>/` that `org-ci.yml`
+  calls (read from its `uses:` lines), and the canary itself. Any other pull
+  request passes the verdict without running a leg. The workflow has no
+  `paths:` filter, so the check always reports.
+- **How it runs the pull request's pins:** `org-ci.yml` targets
+  `github.repository` at `github.sha` and no caller can redirect it, so the
+  canary does not call it. `tools/promotion_canary.py render` generates
+  `.github/workflows/promotion-canary.yml` from the `analyze` job's steps,
+  verbatim, replacing only the target identity (repository, revision, ref, the
+  checkout token, and the matrix id that names the leg's artifacts) with a
+  matrix entry. A pull request runs its own workflow files, so the leg runs the
+  pull request's steps and pins. A change to `org-ci.yml` must regenerate the
+  canary in the same pull request: `tests/workflows/test_promotion_canary.py`
+  (self-ci) fails on drift, and `render` refuses an `org-ci.yml` that gains a
+  target reference it cannot retarget.
+- **The base pins, and the reuse:** the plan compares the `analyze` steps at
+  the base tip (`HEAD^1` of the merge commit) and at the pull request by sha256
+  digest. When they are equal, the base pins would run the same steps against
+  the same heads, so the base result *is* the pull request's: one run per
+  repository, nothing cached or guessed. When they differ, the verdict requires
+  a base-pins leg record per repository whose digest is the base's, and fails
+  closed without one. How that leg runs is an open decision (the CTO question
+  of 2026-11-21: AGENTS.md §8 forbids both a composite action nesting Core
+  action edges and a floating `@main`).
+- **Verdict, per repository, base pins → pull request pins:** a pull-request
+  leg that is incomplete, cancelled or errored (no verdict reached) always
+  fails, as does a missing leg or one whose steps digest is not the plan's.
+  Pass → findings or verification fails; findings → verification fails; a
+  blocking finding id (the SDK gate results' `blocking_finding_ids`) present
+  at the pull request's pins and absent at the base's fails. Keeping a result
+  or improving it (fail → pass) passes. The verdict prints the before/after
+  table in the run summary. The leg record names why a leg failed: `findings`,
+  `verification`, `incomplete`, `cancelled` (superseded, or over its time
+  limit) or `error`.
+- **Two-step pins (§16):** a step-one pull request that changes only action
+  code leaves `org-ci.yml`'s pins unchanged, so its canary re-runs today's
+  behaviour; the change is judged on the step-two pin advance, the #308 case.
+- **First live run (#311, run 44848185909):** Cognitive.Engine.Graphs,
+  Enrichment.Inference.Engine and l9-ci-core green; Cursor-Governance red (29
+  Semgrep findings, CG-CUTOVER); l9-ci-sdk main `0fa99e8` red at Core
+  `eba72ac3` on one high `subprocess-injection` finding at
+  `l9_ci/providers/semgrep/provider.py:153`, which #308's hand canary did not
+  cover. Both reds are pre-existing, so a pull request that leaves them as
+  they are passes.
+- **Access:** public repositories are read with `github.token`; l9-ci-sdk with
+  the existing read-only `L9_GITHUB_READ_TOKEN`. No App token and no write
+  access. A fork pull request has no secrets, so its l9-ci-sdk leg cannot
+  check out and the canary fails closed.
+
+Tests: `tests/workflows/test_promotion_canary.py`,
+`tests/workflows/test_artifact_handoff_producers.py`,
+`tests/workflows/test_phase_scope.py`.
