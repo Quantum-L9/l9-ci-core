@@ -603,11 +603,29 @@ class DeclarationTests(unittest.TestCase):
                 "Quantum-L9/Enrichment.Inference.Engine",
                 "Quantum-L9/l9-ci-sdk",
                 "Quantum-L9/l9-ci-core",
+                "Quantum-L9/.github",
             ],
             names,
         )
         private = {e["repository"] for e in entries if e["private"]}
         self.assertEqual({"Quantum-L9/l9-ci-sdk"}, private)
+        # .github exposed the dirty-tree break (#278); the canary judges it,
+        # the nightly sink does not write code scanning or an issue there.
+        canary_only = {e["repository"] for e in entries if not e["nightly"]}
+        self.assertEqual({"Quantum-L9/.github"}, canary_only)
+
+    def test_nightly_defaults_to_true(self) -> None:
+        good = {"repository": "Quantum-L9/a", "branch": "main", "private": False}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / pc.DECLARATION
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps({"schema": pc.SCHEMA, "repositories": [good]}),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                [{**good, "nightly": True}], pc.load_declaration(Path(tmp))
+            )
 
     def test_invalid_declarations_are_refused(self) -> None:
         good = {"repository": "Quantum-L9/a", "branch": "main", "private": False}
@@ -617,6 +635,8 @@ class DeclarationTests(unittest.TestCase):
             [{**good, "repository": "Quantum-L9/../x"}],
             [{**good, "branch": "../x"}],
             [{**good, "private": "no"}],
+            [{**good, "nightly": "no"}],
+            [{"repository": "Quantum-L9/a", "branch": "main"}],
             [{**good, "extra": 1}],
             [{**good, "known_red": {"reason": "retired"}}],
             [good, {**good, "repository": "quantum-l9/A"}],
@@ -743,7 +763,7 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(pc.steps_digest(self.org_ci), values["base-digest"])
         self.assertEqual(pc.steps_digest(self.changed), values["head-digest"])
         legs = json.loads(values["matrix"])["include"]
-        self.assertEqual(5, len(legs))
+        self.assertEqual(6, len(legs), "every declared repository, .github included")
 
     def test_a_stale_embedded_base_is_reported_not_run(self) -> None:
         stale = self.org_ci + "      # main moved since the render\n"

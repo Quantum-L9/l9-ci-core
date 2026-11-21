@@ -1073,20 +1073,24 @@ def load_declaration(root: Path) -> list[dict[str, Any]]:
     for entry in entries:
         if (
             not isinstance(entry, dict)
-            or set(entry) != {"repository", "branch", "private"}
+            or not {"repository", "branch", "private"} <= set(entry)
+            or not set(entry) <= {"repository", "branch", "private", "nightly"}
             or not isinstance(entry["repository"], str)
             or not REPOSITORY.match(entry["repository"])
             or not isinstance(entry["branch"], str)
             or not BRANCH.match(entry["branch"])
             or ".." in entry["branch"]
             or not isinstance(entry["private"], bool)
+            or not isinstance(entry.get("nightly", True), bool)
         ):
             raise CanaryError(f"{DECLARATION} has an invalid entry: {entry!r}")
         key = entry["repository"].lower()
         if key in seen:
             raise CanaryError(f"{DECLARATION} lists {entry['repository']} twice")
         seen.add(key)
-        out.append(dict(entry))
+        # ``nightly`` (default true): whether tools/nightly_sink.py also scans
+        # the repository each night. The canary judges every entry.
+        out.append({**entry, "nightly": entry.get("nightly", True)})
     return out
 
 
