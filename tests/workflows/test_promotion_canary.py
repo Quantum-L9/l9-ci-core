@@ -762,8 +762,12 @@ class AdmittedLegTests(unittest.TestCase):
         self.canary = (ROOT / pc.CANARY).read_text(encoding="utf-8")
         self.jobs = yaml.safe_load(self.canary)["jobs"]
 
+    def fallback(self) -> str:
+        return pc.SDK_FALLBACK.findall(self.org_ci)[0]
+
     def test_nothing_is_admitted_while_org_ci_runs_the_default(self) -> None:
-        self.assertEqual("", pc.admitted_revision(self.org_ci, COMPATIBILITY))
+        running = with_default(COMPATIBILITY, self.fallback())
+        self.assertEqual("", pc.admitted_revision(self.org_ci, running))
 
     def test_a_new_default_is_the_admitted_revision(self) -> None:
         changed = with_default(COMPATIBILITY, ADMITTED)
@@ -849,7 +853,7 @@ class AdmittedLegTests(unittest.TestCase):
 
     def test_the_plan_names_the_admitted_revision(self) -> None:
         for compatibility, expected in (
-            (COMPATIBILITY, ""),
+            (with_default(COMPATIBILITY, self.fallback()), ""),
             (with_default(COMPATIBILITY, ADMITTED), ADMITTED),
         ):
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as tmp:
