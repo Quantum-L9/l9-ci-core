@@ -1930,3 +1930,29 @@ regardless; there a finding fails the run, and the run, its summary and the
 `toolchain-audit` artifact are the report. Org-ci does not consume it, so no
 two-step activation applies. Making it a required check is a ruleset change
 (the ruleset binds contexts from real runs, `.l9/release-plane.yaml`).
+
+**Exceptions and the Semgrep re-lock (2026-11-21, addendum to §46).** The first
+audit found 30 known vulnerabilities, all in Semgrep 1.171.0's hash-locked
+closure. `locks/semgrep-1.171.0.txt` is re-locked with `lock_semgrep.py`
+(urllib3 2.8.0, certifi 2026.11.20 and other patch updates; the engine stays at
+1.171.0). Core's one exceptions file,
+`.github/actions/install-semgrep/audit-exceptions.yaml`
+(`l9.toolchain-audit-exceptions/v1`, a JSON document like the finding-waiver
+ledger, whose entries need a Semgrep finding fingerprint and so cannot name an
+advisory on a package), excepts one advisory on one `package@version`. Each
+entry carries a concrete reason that it is not reachable in Core's use (checked
+against how the pinned SDK invokes Semgrep), owner `l9-ci-core`, a creation
+date, an expiry at most 14 days later, and a removal trigger. `audit_core_toolchain.py
+judge` reads pip-audit's JSON, which is run without any ignore. The audit fails
+on any of these:
+
+- an open finding;
+- a stale entry;
+- an expired or malformed entry;
+- a pinned package that pip-audit did not audit.
+
+The log reads `<n> pinned package(s) audited, <m> finding(s) excepted, <k>
+open`. pip-audit's readable report takes each exception as `--ignore-vuln`.
+The subcommands are `resolve`, `exceptions` and `judge`. Promoting Semgrep
+1.186.0 makes the pyjwt and mcp PYSEC entries stale, and they must then be
+removed.

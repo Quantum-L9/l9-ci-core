@@ -8,7 +8,9 @@ regardless. Its scope step runs here against a real git history.
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -58,7 +60,12 @@ class TriggerTests(unittest.TestCase):
         self.assertIn("--disable-pip --no-deps", run)
         self.assertIn('for layer in "${out}"/layer-*.txt', run)
         self.assertIn("exit 1", run)
-        self.assertNotIn("continue-on-error", WORKFLOW.read_text(encoding="utf-8"))
+        self.assertIn('"${ignores[@]}"', run)
+        self.assertIn("tools/audit_core_toolchain.py exceptions --today", run)
+        self.assertIn("tools/audit_core_toolchain.py judge --today", run)
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("continue-on-error", text)
+        self.assertNotIn("|| true", text)
 
     def test_the_tool_versions_come_from_the_lock(self) -> None:
         run = str(step("Install Core's pinned uv and pip-audit")["run"])
@@ -67,7 +74,7 @@ class TriggerTests(unittest.TestCase):
         self.assertIn('lock["pip-audit"]', run)
         self.assertNotRegex(run, r"uv==\d")
         resolve = str(step("Resolve the pinned toolchain")["run"])
-        self.assertIn("tools/audit_core_toolchain.py --uv uv", resolve)
+        self.assertIn("tools/audit_core_toolchain.py resolve --uv uv", resolve)
 
 
 class ScopeTests(unittest.TestCase):
@@ -124,6 +131,7 @@ class ScopeTests(unittest.TestCase):
             ".github/actions/install-consumer-ci/action.yml",
             ".github/actions/install-semgrep/install.sh",
             ".github/actions/install-semgrep/action.yml",
+            ".github/actions/install-semgrep/audit-exceptions.yaml",
             ".github/workflows/security.yml",
             "tools/audit_core_toolchain.py",
             ".github/workflows/self-toolchain-audit.yml",
@@ -150,6 +158,138 @@ class ScopeTests(unittest.TestCase):
         for base in ("", "not-a-sha", "f" * 40):
             with self.subTest(base=base):
                 self.assertEqual("applies=true", self.applies("pull_request", base))
+
+
+EXCEPTION = {
+    "id": "PYSEC-2026-1",
+    "package": "mcp",
+    "version": "1.23.3",
+    "reason": "not reachable under `semgrep scan`",
+    "owner": "l9-ci-core",
+    "created": "2026-11-21",
+    "expires": "2026-12-05",
+    "removal_trigger": "upstream fix published",
+}
+
+
+class AuditStepTests(unittest.TestCase):
+    """The audit step's own script, with a stub pip-audit, decides the run."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+        self.core = self.tmp / "core"
+        (self.core / "tools").mkdir(parents=True)
+        shutil.copy(ROOT / "tools" / "audit_core_toolchain.py", self.core / "tools")
+        (self.core / ".github/actions/install-semgrep").mkdir(parents=True)
+        self.out = self.tmp / "runner" / "toolchain-audit"
+        self.out.mkdir(parents=True)
+        (self.out / "layer-1.txt").write_text("mcp==1.23.3\n", encoding="utf-8")
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        # Stub pip-audit: --format json writes $STUB_REPORT; the readable
+        # run fails exactly when a finding is left after --ignore-vuln.
+        stub = self.bin / "pip-audit"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            'out=""; ignored=" "\n'
+            'while [ "$#" -gt 0 ]; do\n'
+            '  case "$1" in --output) out="$2"; shift;; --ignore-vuln) ignored+="$2 "; shift;; esac\n'
+            "  shift\n"
+            "done\n"
+            'if [ -n "${out}" ]; then cp "${STUB_REPORT}" "${out}"; exit "${STUB_RC:-0}"; fi\n'
+            'for id in ${STUB_IDS:-}; do [[ "${ignored}" == *" ${id} "* ]] || exit 1; done\n'
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+
+    def run_step(
+        self, exceptions: list[dict[str, str]], vulns: list[str], rc: int = 0
+    ) -> tuple[int, str, str]:
+        (
+            self.core / ".github/actions/install-semgrep/audit-exceptions.yaml"
+        ).write_text(
+            json.dumps(
+                {"schema": "l9.toolchain-audit-exceptions/v1", "exceptions": exceptions}
+            ),
+            encoding="utf-8",
+        )
+        report = self.tmp / "report.json"
+        report.write_text(
+            json.dumps(
+                {
+                    "dependencies": [
+                        {
+                            "name": "mcp",
+                            "version": "1.23.3",
+                            "vulns": [
+                                {"id": v, "aliases": [], "fix_versions": []}
+                                for v in vulns
+                            ],
+                        }
+                    ],
+                    "fixes": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        summary = self.tmp / "summary.md"
+        env = {
+            "PATH": f"{self.bin}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(self.out.parent),
+            "GITHUB_STEP_SUMMARY": str(summary),
+            "STUB_REPORT": str(report),
+            "STUB_IDS": " ".join(vulns),
+            "STUB_RC": str(rc),
+        }
+        script = str(step("Audit the pinned toolchain (pip-audit)")["run"])
+        script = script.replace('"$(date -u +%F)"', '"2026-11-21"')
+        done = subprocess.run(
+            ["bash", "-c", script],
+            cwd=self.core,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return (
+            done.returncode,
+            done.stdout + done.stderr,
+            summary.read_text(encoding="utf-8") if summary.exists() else "",
+        )
+
+    def test_every_finding_excepted_passes_with_the_counts(self) -> None:
+        code, log, summary = self.run_step([EXCEPTION], ["PYSEC-2026-1"], rc=1)
+        self.assertEqual(0, code, log)
+        self.assertIn("1 excepted advisory id(s) passed as --ignore-vuln", log)
+        self.assertIn(
+            "1 pinned package(s) audited, 1 finding(s) excepted, 0 open", summary
+        )
+
+    def test_an_open_finding_fails(self) -> None:
+        code, log, summary = self.run_step([], ["GHSA-53pm-wgxf-c6qf"], rc=1)
+        self.assertEqual(1, code, log)
+        self.assertIn("0 finding(s) excepted, 1 open", summary)
+
+    def test_a_stale_exception_fails(self) -> None:
+        code, log, _ = self.run_step([EXCEPTION], [])
+        self.assertEqual(1, code, log)
+        self.assertIn("stale exception PYSEC-2026-1", log)
+
+    def test_an_expired_exception_fails_before_the_audit(self) -> None:
+        code, log, _ = self.run_step(
+            [{**EXCEPTION, "created": "2026-11-01", "expires": "2026-11-15"}], []
+        )
+        self.assertNotEqual(0, code)
+        self.assertIn("expired on 2026-11-15", log)
+        self.assertNotIn("pip-audit: auditing", log)
+
+    def test_a_pip_audit_crash_fails_closed(self) -> None:
+        code, log, _ = self.run_step([], [], rc=2)
+        self.assertEqual(2, code, log)
+        self.assertIn("pip-audit could not audit", log)
 
 
 if __name__ == "__main__":

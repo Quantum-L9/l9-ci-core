@@ -27,11 +27,24 @@ different versions, and pip-audit refuses a requirements file that names a
 package twice, so the deduplicated set is written as layers
 (``layer-1.txt``, ``layer-2.txt``, ...), each naming every package at most
 once; every layer is audited. The number of distinct pins is printed.
+
+``judge`` then reads pip-audit's JSON for every layer (run without any
+ignore) against Core's one exceptions file
+(``install-semgrep/audit-exceptions.yaml``, ``l9.toolchain-audit-exceptions/v1``).
+An exception names one advisory on one ``package@version`` with a concrete
+reason it is not reachable in Core's use, an owner, a creation date, an expiry
+at most 14 days later and a removal trigger. A malformed or expired entry, an
+entry that matches no finding (stale), a finding no entry covers (open), or a
+pinned package pip-audit did not audit fails the audit; the log names how many
+pins were audited, how many findings are excepted and how many are open.
+``exceptions`` validates the file and prints the advisory ids that
+``--ignore-vuln`` takes for pip-audit's human-readable report.
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import re
@@ -47,6 +60,28 @@ LOCK = CONSUMER_CI / "toolchain-lock.json"
 OWNERSHIP = CONSUMER_CI / "core-owned-tools.json"
 CONSUMER_REQUIREMENTS = CONSUMER_CI / "requirements-consumer-ci.txt"
 SEMGREP_LOCKS = Path(".github/actions/install-semgrep/locks")
+EXCEPTIONS = Path(".github/actions/install-semgrep/audit-exceptions.yaml")
+EXCEPTIONS_SCHEMA = "l9.toolchain-audit-exceptions/v1"
+EXCEPTION_KEYS = frozenset(
+    {
+        "id",
+        "package",
+        "version",
+        "reason",
+        "owner",
+        "created",
+        "expires",
+        "removal_trigger",
+    }
+)
+MAX_EXCEPTION_DAYS = 14
+EXACT_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?")
+EXACT_VERSION = re.compile(
+    r"\d+(?:\.\d+)*(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?"
+)
+ADVISORY = re.compile(
+    r"^(?:PYSEC-\d{4}-\d+|GHSA(?:-[23456789cfghjmpqrvwx]{4}){3}|CVE-\d{4}-\d+)$"
+)
 PLATFORM = "x86_64-manylinux_2_28"
 PIN = re.compile(
     r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?\s*==\s*(?P<version>[^\s;\\]+)"
@@ -255,17 +290,136 @@ def confined(path: Path) -> Path:
     raise AuditError(msg)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="audit_core_toolchain")
-    parser.add_argument("--root", type=Path, default=Path("."))
-    parser.add_argument("--uv", default="uv", help="Core's pinned uv executable")
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        required=True,
-        help="directory the layer-<n>.txt requirement files are written to",
-    )
-    args = parser.parse_args(argv)
+@dataclass(frozen=True)
+class AdvisoryException:
+    """One Core-owned exception: an advisory on one package@version."""
+
+    advisory: str
+    package: str
+    version: str
+    expires: dt.date
+
+
+def _date(entry: dict[str, object], key: str, where: str) -> dt.date:
+    value = entry[key]
+    try:
+        return dt.date.fromisoformat(str(value))
+    except ValueError:
+        msg = f"{where}: {key} {value!r} is not a YYYY-MM-DD date"
+        raise AuditError(msg) from None
+
+
+def load_exceptions(path: Path, today: dt.date) -> list[AdvisoryException]:
+    """Core's exceptions, refused when malformed, premature or expired."""
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if (
+        not isinstance(document, dict)
+        or set(document) != {"schema", "exceptions"}
+        or document["schema"] != EXCEPTIONS_SCHEMA
+        or not isinstance(document["exceptions"], list)
+    ):
+        msg = f"{path} is not an {EXCEPTIONS_SCHEMA} document"
+        raise AuditError(msg)
+    found: list[AdvisoryException] = []
+    seen: set[tuple[str, str, str]] = set()
+    for index, entry in enumerate(document["exceptions"]):
+        where = f"{path} exception #{index + 1}"
+        if not isinstance(entry, dict) or set(entry) != EXCEPTION_KEYS:
+            msg = f"{where} must hold exactly {', '.join(sorted(EXCEPTION_KEYS))}"
+            raise AuditError(msg)
+        blank = sorted(
+            key
+            for key, value in entry.items()
+            if not isinstance(value, str) or not value.strip()
+        )
+        if blank:
+            raise AuditError(f"{where}: {', '.join(blank)} must be non-empty text")
+        if not ADVISORY.match(entry["id"]):
+            raise AuditError(f"{where}: {entry['id']!r} is not an advisory id")
+        if not (
+            EXACT_NAME.fullmatch(entry["package"])
+            and EXACT_VERSION.fullmatch(entry["version"])
+        ):
+            msg = f"{where}: {entry['package']}@{entry['version']} is not a pin"
+            raise AuditError(msg)
+        created = _date(entry, "created", where)
+        expires = _date(entry, "expires", where)
+        if created > today:
+            raise AuditError(f"{where}: created {created} is after today {today}")
+        if expires < created or (expires - created).days > MAX_EXCEPTION_DAYS:
+            msg = (
+                f"{where}: expires {expires} must be within {MAX_EXCEPTION_DAYS} "
+                f"days of created {created}"
+            )
+            raise AuditError(msg)
+        if expires < today:
+            msg = f"{where}: {entry['id']} expired on {expires}; fix or renew it"
+            raise AuditError(msg)
+        key = (entry["id"], canonical(entry["package"]), entry["version"])
+        if key in seen:
+            raise AuditError(f"{where}: duplicate exception for {key}")
+        seen.add(key)
+        found.append(
+            AdvisoryException(
+                entry["id"], canonical(entry["package"]), entry["version"], expires
+            )
+        )
+    return found
+
+
+@dataclass(frozen=True)
+class Verdict:
+    audited: int
+    excepted: list[tuple[str, str, str]]
+    open: list[tuple[str, str, str]]
+    stale: list[AdvisoryException]
+
+
+def judge(
+    layer_texts: Sequence[str],
+    reports: Sequence[dict[str, object]],
+    exceptions: Sequence[AdvisoryException],
+) -> Verdict:
+    """Every pinned package audited; every finding excepted or open."""
+    expected = {
+        (name, version) for text in layer_texts for name, version in pins(text).items()
+    }
+    audited: set[tuple[str, str]] = set()
+    findings: list[tuple[str, str, str, frozenset[str]]] = []
+    for report in reports:
+        dependencies = report.get("dependencies")
+        if not isinstance(dependencies, list):
+            raise AuditError("a pip-audit report holds no dependency list")
+        for dependency in dependencies:
+            name = canonical(str(dependency["name"]))
+            version = str(dependency.get("version", ""))
+            if "skip_reason" in dependency or not version:
+                reason = dependency.get("skip_reason", "no version")
+                raise AuditError(f"pip-audit did not audit {name}: {reason}")
+            audited.add((name, version))
+            for vuln in dependency.get("vulns", []):
+                ids = frozenset([str(vuln["id"]), *map(str, vuln.get("aliases", []))])
+                findings.append((name, version, str(vuln["id"]), ids))
+    unaudited = sorted(expected - audited)
+    if unaudited:
+        listed = ", ".join(f"{n}=={v}" for n, v in unaudited)
+        raise AuditError(f"pip-audit reported no result for {listed}")
+    used: set[AdvisoryException] = set()
+    excepted: list[tuple[str, str, str]] = []
+    still_open: list[tuple[str, str, str]] = []
+    for name, version, advisory, ids in findings:
+        cover = [
+            item
+            for item in exceptions
+            if item.package == name and item.version == version and item.advisory in ids
+        ]
+        used.update(cover)
+        (excepted if cover else still_open).append((name, version, advisory))
+    stale = [item for item in exceptions if item not in used]
+    return Verdict(len(audited), excepted, still_open, stale)
+
+
+def _cmd_resolve(args: argparse.Namespace) -> int:
     try:
         output_dir = confined(args.output_dir)
         tools = python_tools(args.root)
@@ -288,6 +442,81 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{', '.join(sorted(tools))}"
     )
     return 0
+
+
+def _cmd_exceptions(args: argparse.Namespace) -> int:
+    try:
+        loaded = load_exceptions(args.root / EXCEPTIONS, args.today)
+    except (AuditError, OSError, ValueError) as error:
+        print(f"::error::toolchain audit exceptions: {error}", file=sys.stderr)
+        return 2
+    for advisory in sorted({item.advisory for item in loaded}):
+        print(advisory)
+    return 0
+
+
+def _cmd_judge(args: argparse.Namespace) -> int:
+    try:
+        directory = confined(args.reports)
+        loaded = load_exceptions(args.root / EXCEPTIONS, args.today)
+        texts = [
+            p.read_text(encoding="utf-8") for p in sorted(directory.glob("layer-*.txt"))
+        ]
+        jsons = sorted(directory.glob("layer-*.json"))
+        if not texts or len(jsons) != len(texts):
+            msg = f"{directory} holds {len(texts)} layer(s) and {len(jsons)} report(s)"
+            raise AuditError(msg)
+        reports = [json.loads(p.read_text(encoding="utf-8")) for p in jsons]
+        verdict = judge(texts, reports, loaded)
+    except (AuditError, OSError, ValueError, KeyError) as error:
+        print(f"::error::toolchain audit: {error}", file=sys.stderr)
+        return 2
+    for name, version, advisory in verdict.excepted:
+        print(f"toolchain audit: excepted {advisory} on {name}=={version}")
+    for name, version, advisory in verdict.open:
+        print(f"::error::toolchain audit: open {advisory} on {name}=={version}")
+    for item in verdict.stale:
+        print(
+            f"::error::toolchain audit: stale exception {item.advisory} on "
+            f"{item.package}=={item.version} matches no finding; remove it"
+        )
+    print(
+        f"toolchain audit: {verdict.audited} pinned package(s) audited, "
+        f"{len(verdict.excepted)} finding(s) excepted, {len(verdict.open)} open"
+    )
+    if verdict.stale:
+        return 2
+    return 1 if verdict.open else 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="audit_core_toolchain")
+    parser.add_argument("--root", type=Path, default=Path("."))
+    commands = parser.add_subparsers(dest="command", required=True)
+    resolve = commands.add_parser("resolve", help="write the layered pinned set")
+    resolve.add_argument("--uv", default="uv", help="Core's pinned uv executable")
+    resolve.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="directory the layer-<n>.txt requirement files are written to",
+    )
+    resolve.set_defaults(handler=_cmd_resolve)
+    today = {
+        "type": dt.date.fromisoformat,
+        "required": True,
+        "help": "YYYY-MM-DD (UTC)",
+    }
+    exceptions = commands.add_parser("exceptions", help="validate; print ignore ids")
+    exceptions.add_argument("--today", **today)  # type: ignore[arg-type]
+    exceptions.set_defaults(handler=_cmd_exceptions)
+    verdict = commands.add_parser("judge", help="judge pip-audit's JSON reports")
+    verdict.add_argument("--today", **today)  # type: ignore[arg-type]
+    verdict.add_argument("--reports", type=Path, required=True)
+    verdict.set_defaults(handler=_cmd_judge)
+    args = parser.parse_args(argv)
+    handler: Callable[[argparse.Namespace], int] = args.handler
+    return handler(args)
 
 
 if __name__ == "__main__":

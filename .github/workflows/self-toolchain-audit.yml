@@ -8,6 +8,14 @@
 # installs actually use, into pinned requirement files; pip-audit audits them
 # as written (--disable-pip --no-deps). The log names the package count.
 #
+# Core's one exceptions file (install-semgrep/audit-exceptions.yaml) may except
+# an advisory on one package@version, with a concrete reason it is not
+# reachable in Core's use, for at most 14 days. The judge reads pip-audit's
+# JSON (run without any ignore) and fails on an open finding, a stale,
+# expired or malformed exception, or a pin pip-audit did not audit; the log
+# names "<n> pinned package(s) audited, <m> finding(s) excepted, <k> open".
+# pip-audit's human-readable report passes each exception as --ignore-vuln.
+#
 # On a pull request or merge group it audits when the change touches the
 # toolchain lock, an install it audits (its requirements or its installer), or
 # this audit, and a known
@@ -50,7 +58,7 @@ jobs:
           # The lock, every install it audits (its requirements and its installer:
           # install-consumer-ci, install-semgrep, and security.yml for bandit and
           # pip-audit), and this audit.
-          watched='^(\.github/actions/install-consumer-ci/(toolchain-lock\.json|core-owned-tools\.json|requirements-consumer-ci\.txt|install\.sh)|\.github/actions/install-semgrep/(locks/.*|install\.sh|action\.ya?ml)|\.github/actions/install-consumer-ci/action\.ya?ml|\.github/workflows/(security|self-toolchain-audit)\.yml|tools/audit_core_toolchain\.py)$'
+          watched='^(\.github/actions/install-consumer-ci/(toolchain-lock\.json|core-owned-tools\.json|requirements-consumer-ci\.txt|install\.sh)|\.github/actions/install-semgrep/(locks/.*|install\.sh|action\.ya?ml|audit-exceptions\.yaml)|\.github/actions/install-consumer-ci/action\.ya?ml|\.github/workflows/(security|self-toolchain-audit)\.yml|tools/audit_core_toolchain\.py)$'
           case "${EVENT_NAME}" in
             pull_request) base="${PR_BASE}" ;;
             merge_group) base="${MERGE_GROUP_BASE}" ;;
@@ -90,30 +98,51 @@ jobs:
         if: steps.scope.outputs.applies == 'true'
         run: |
           set -euo pipefail
-          python3 -I tools/audit_core_toolchain.py --uv uv --output-dir "${RUNNER_TEMP}/toolchain-audit"
+          python3 -I tools/audit_core_toolchain.py resolve --uv uv --output-dir "${RUNNER_TEMP}/toolchain-audit"
       - name: Audit the pinned toolchain (pip-audit)
         if: steps.scope.outputs.applies == 'true'
         run: |
           set -euo pipefail
           out="${RUNNER_TEMP}/toolchain-audit"
+          today="$(date -u +%F)"
+          # Malformed or expired exceptions fail here, before any audit.
+          # (A command substitution, not process substitution, so set -e sees it.)
+          excepted="$(python3 -I tools/audit_core_toolchain.py exceptions --today "${today}")"
+          ignores=()
+          while read -r advisory; do
+            if [ -n "${advisory}" ]; then
+              ignores+=(--ignore-vuln "${advisory}")
+            fi
+          done <<< "${excepted}"
+          echo "toolchain audit: $(( ${#ignores[@]} / 2 )) excepted advisory id(s) passed as --ignore-vuln"
           status=0
           for layer in "${out}"/layer-*.txt; do
             echo "pip-audit: auditing $(grep -c '==' "${layer}") pinned package(s) from ${layer}"
             # As written: every pin is exact, so nothing is resolved again.
+            # The JSON holds every finding (no ignore); the judge decides.
+            rc=0
             pip-audit --desc on --disable-pip --no-deps -r "${layer}" \
-              --format json --output "${layer%.txt}.json" || status=1
-            pip-audit --desc off --disable-pip --no-deps -r "${layer}" || status=1
+              --format json --output "${layer%.txt}.json" || rc=$?
+            if [ "${rc}" -gt 1 ] || [ ! -s "${layer%.txt}.json" ]; then
+              echo "::error::pip-audit could not audit ${layer} (exit ${rc})"
+              exit 2
+            fi
+            # Human-readable: open findings only (exceptions passed as --ignore-vuln).
+            pip-audit --desc off --disable-pip --no-deps -r "${layer}" "${ignores[@]}" || status=1
           done
+          python3 -I tools/audit_core_toolchain.py judge --today "${today}" --reports "${out}" | tee "${out}/verdict.txt" || status=$?
           if [ "${status}" -ne 0 ]; then
-            echo "::error title=Core toolchain audit::a Core-pinned tool, or a dependency at the version Core installs, has a known vulnerability (see the pip-audit report above and the toolchain-audit artifact)"
+            echo "::error title=Core toolchain audit::a Core-pinned tool, or a dependency at the version Core installs, has an open known vulnerability, or an exception is stale, expired or malformed (see the verdict above and the toolchain-audit artifact)"
             {
               echo "### Core toolchain audit"
               echo
-              echo "A known vulnerability is in Core's pinned toolchain. See this run's log and the \`toolchain-audit\` artifact."
+              tail -n 1 "${out}/verdict.txt"
+              echo
+              echo "An open finding or a stale, expired or malformed exception. See this run's log and the \`toolchain-audit\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          echo "Core toolchain audit: no known vulnerabilities"
+          tail -n 1 "${out}/verdict.txt" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the toolchain audit
         if: always() && steps.scope.outputs.applies == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
