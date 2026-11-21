@@ -1,0 +1,70 @@
+# L9 Biome: Core's JS/TS/JSON lint and format check, as its own job.
+#
+# Operator decision (2026-11-21): Biome leaves the `analyze` monolith and runs
+# as its own check, beside the security job. org-ci.yml calls this workflow at
+# a pinned Core revision (step two, once this file is on main) and enforces its
+# result inside the required job, as it does the security job's, so the one
+# required context still carries it and the organization ruleset needs no new
+# entry.
+#
+# A repository with no biome.json or biome.jsonc at its root is
+# not_applicable: the job checks out the evaluated revision, finds no
+# configuration, says so in the log and the job summary, and ends without
+# installing anything. Otherwise Core installs its digest-locked Biome
+# (toolchain-lock.json `biome`) and runs `biome ci --reporter=github`, which
+# annotates every diagnostic at its file and line; run-biome-check records the
+# status, writes the job summary and, in blocking mode, fails the job after
+# them. A missing or corrupt binary or a Biome crash is an infrastructure
+# failure and always fatal.
+name: L9 Biome
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: >-
+          `blocking` (findings fail the job) or `advisory` (they never do).
+          Core selects it in org-ci.yml; a consumer never does.
+        type: string
+        required: false
+        default: blocking
+permissions:
+  contents: read
+jobs:
+  biome:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          persist-credentials: false
+
+      - name: Detect a Biome configuration
+        id: config
+        run: |
+          set -euo pipefail
+          if [ -f biome.json ] || [ -f biome.jsonc ]; then
+            echo "applies=true" >> "$GITHUB_OUTPUT"
+            echo "Biome configuration found: the check runs."
+          else
+            echo "applies=false" >> "$GITHUB_OUTPUT"
+            echo "Biome: not_applicable (no biome.json or biome.jsonc at the repository root)"
+            echo "- Biome: \`not_applicable\` (no biome.json or biome.jsonc at the repository root)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Install Biome (digest-locked central pin)
+        id: install
+        if: steps.config.outputs.applies == 'true'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ee1720b9863bec15fdfebac13b220aeb699d781
+
+      - name: Run Biome check
+        id: check
+        if: steps.config.outputs.applies == 'true'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@2ee1720b9863bec15fdfebac13b220aeb699d781
+        with:
+          executable: ${{ steps.install.outputs.executable }}
+          mode: ${{ inputs.mode }}
+          provider-version: ${{ steps.install.outputs['provider-version'] }}

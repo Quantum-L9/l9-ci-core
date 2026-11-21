@@ -58,6 +58,7 @@ REPO_TEST_MODULES = (
     "tests/repo_execution/test_stamp.py",
     "tests/settings_engine/test_settings_requirements.py",
     "tests/workflows/test_org_ci_security_job.py",
+    "tests/workflows/test_biome_workflow.py",
     "tests/test_unittest_collectability.py",
     "tests/tools/test_advance_core_action_pins.py",
     "tests/tools/test_audit_core_toolchain.py",
