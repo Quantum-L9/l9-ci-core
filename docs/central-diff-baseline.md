@@ -1,4 +1,8 @@
-# ADR 0003: CENTRAL-DIFF baseline per event class (amends l9-ci-sdk ADR 0023, Core side)
+# CENTRAL-DIFF baseline per event class — dated amendment of l9-ci-sdk ADR 0023 (Core side)
+
+This is a decision record, kept outside `docs/adr/`. That directory holds
+only Core's proposed, invariant-binding ADRs
+(`tests/governance/test_ci_runtime_invariants.py`).
 
 ## Status
 

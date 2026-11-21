@@ -1893,3 +1893,6 @@ step one's merge, has org-ci pass `event-name: ''` / `event-ref: ''`, and the
 canary retargets those to `push` / `refs/heads/${{ matrix.branch }}` for every
 consumer leg, with a canary test that no leg's verification runs under the
 Core PR's event.
+
+The CENTRAL-DIFF baseline per event class, a dated amendment of l9-ci-sdk ADR
+0023 (operator row 23), is recorded in `docs/central-diff-baseline.md`.
