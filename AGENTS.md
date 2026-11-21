@@ -1555,3 +1555,31 @@ executed, the scan invocation with a stub gitleaks, event ranges, pip-audit
 target selection). Layering was also checked with gitleaks 8.24.3 itself: a
 consumer config alone reports only its own rule; the layered copy reports it
 and gitleaks' default `github-pat`.
+
+## 38. SDK `fbe14fec` activation (2026-11-20) — the §16 pin advance, applied; P0 step two
+
+Step one (#307) admitted l9-ci-sdk `fbe14fec` (#133 on `9af1a202`, #305): a
+required central Semgrep run carries a declared analysis budget, 30 s per rule
+and file and `--timeout-threshold 0`. Under Semgrep's default (5 s, a file's
+remaining rules dropped after three timeouts) Cursor-Governance's required
+Python instance ended `incomplete`, and with it `Analyze (central Core)` on
+every Cursor-Governance pull request.
+
+- `org-ci.yml`'s 18 Core action pins advance from `8554ce96` to `eba72ac3`
+  (#307's merge, an ancestor of `main`), and the `sdk-revision` fallback moves
+  from `dc783c64` to `fbe14fec`. `analyze-semgrep.yml`'s `install-semgrep` pin
+  moves with them (identical bytes).
+- Between `8554ce96` and `eba72ac3` the actions `org-ci.yml` uses change in two
+  places: `provision-sdk` admits `fbe14fec` (and `9af1a202`, the tested
+  rollback), and the advisory `check-toolchain-alignment` reports drift on
+  every declaration surface (#295). Nothing else that `org-ci.yml` runs
+  changes.
+- The fleet gains `9af1a202`'s scan-scope planning (#130: a language whose
+  files the scan never reaches is not applicable, not a required instance that
+  scans nothing) and its incomplete-coverage accounting (#131), plus the B5
+  budget.
+
+Tests: `tests/workflows/test_org_repository_verification.py`,
+`tests/workflows/test_workflow_toolchain_pins.py`,
+`tests/workflows/test_org_ci_required_instances.py`;
+`tools/check_core_pin_ancestry.py --main origin/main`.
