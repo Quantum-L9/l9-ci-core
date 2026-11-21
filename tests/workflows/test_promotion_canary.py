@@ -478,6 +478,8 @@ class ReusableJobTests(unittest.TestCase):
                 "head__gitleaks",
                 "head__pip-audit",
                 "head__npm-audit",
+                "head__no-bytecode",
+                "head__sha-pins",
                 "head__biome",
                 "head",
                 # The scan legs run central-semgrep.yml, which has no sibling
@@ -488,6 +490,8 @@ class ReusableJobTests(unittest.TestCase):
                 "base__gitleaks",
                 "base__pip-audit",
                 "base__npm-audit",
+                "base__no-bytecode",
+                "base__sha-pins",
                 "base__biome",
                 "base",
                 "verdict",
@@ -519,7 +523,14 @@ class ReusableJobTests(unittest.TestCase):
                         f"{side}__security",
                         *(
                             f"{side}__{name}"
-                            for name in ("gitleaks", "pip-audit", "npm-audit", "biome")
+                            for name in (
+                                "gitleaks",
+                                "pip-audit",
+                                "npm-audit",
+                                "no-bytecode",
+                                "sha-pins",
+                                "biome",
+                            )
                         ),
                     ],
                     leg["needs"],

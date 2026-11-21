@@ -2095,3 +2095,18 @@ Operator-directed correction. Record:
 
 Tests: `tests/workflows/test_gitleaks_core_rules.py`,
 `tests/workflows/test_security_consumer_scope.py`.
+
+## 53. no-bytecode and sha-pins are org-wide checks (2026-11-21)
+
+Operator-directed correction. Record: [`docs/hygiene-checks.md`](docs/hygiene-checks.md).
+
+- **Checks.** `org-ci.yml` jobs `no-bytecode` and `sha-pins`, blocking,
+  `contents: read`, always reporting: what a pull request, merge group or push
+  adds or changes; with no base (dispatch, canary) every file, reported; the
+  nightly sink every file, to code scanning, counted.
+- **sha-pins** ports `.github` `ops/audit-sha-pins.sh` (full 40-character SHA,
+  frozen Core tags `@v1`/`@v2`/`@v2.0.0`), adding action definitions and
+  docker digests. **no-bytecode** is new: the named `.github` script does not
+  exist.
+
+Tests: `tests/workflows/test_org_ci_hygiene_checks.py`, `tests/tools/test_nightly_sink.py`.

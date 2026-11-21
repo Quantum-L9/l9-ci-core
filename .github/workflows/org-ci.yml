@@ -820,6 +820,297 @@ jobs:
           fi
           exit "${status}"
 
+  # no-bytecode and sha-pins are org-wide checks (operator, 2026-11-21;
+  # docs/hygiene-checks.md), blocking, always reporting: a pull request, merge
+  # group or push is judged on the files it adds or changes; an event with no
+  # base (a dispatch, the promotion canary) on every tracked file, reported,
+  # never failing; the nightly sink on every file, to code scanning.
+  # no-bytecode: no tracked *.pyc / *.pyo / *.pyd or __pycache__/ file.
+  no-bytecode:
+    name: no-bytecode
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check for tracked Python bytecode (blocking)
+        id: no_bytecode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to SARIF.
+          FINDINGS_FAIL: "true"
+          SARIF: ""
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          CHECK = "no-bytecode"
+          RULE = "Python bytecode is never tracked"
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+
+
+          def git(*args):
+              return subprocess.run(["git", *args], capture_output=True, text=True, check=False)
+
+
+          bases = {
+              "pull_request": "PR_BASE",
+              "pull_request_target": "PR_BASE",
+              "merge_group": "MERGE_GROUP_BASE",
+              "push": "PUSH_BEFORE",
+          }
+          base = env.get(bases.get(env.get("EVENT_NAME", ""), ""), "")
+          if not re.fullmatch(r"[0-9a-f]{40}", base) or not base.strip("0"):
+              base = ""
+          tracked = git("ls-files", "-z").stdout.split("\0")
+          if base:
+              if git("cat-file", "-e", f"{base}^{{commit}}").returncode != 0:
+                  print(f"::error title={CHECK}::the event's base {base} is not in this clone; the check cannot tell what changed")
+                  sys.exit(2)
+              diff = git("diff", "--name-only", "-z", "--diff-filter=AMR", base, env["EVENT_SHA"], "--")
+              if diff.returncode != 0:
+                  sys.exit(f"::error title={CHECK}::git diff against {base} failed: {diff.stderr.strip()}")
+              scope = [p for p in diff.stdout.split("\0") if p]
+              scope_text = f"the files {base[:12]}..{env['EVENT_SHA'][:12]} changes"
+          else:
+              scope = [p for p in tracked if p]
+              scope_text = "every tracked file"
+          nightly = env.get("FINDINGS_FAIL") == "false"
+          reported = nightly or not base
+          label = "nightly, reported" if nightly else ("reported: no base" if not base else "blocking")
+
+          bytecode = re.compile(r"(^|/)__pycache__/|\.py[cod]$")
+          findings = [
+              (path, 1, "Python bytecode is tracked; delete it from git (git rm --cached) and let .gitignore keep it out")
+              for path in scope
+              if bytecode.search(path)
+          ]
+          applicable = True
+          not_applicable = ""
+          passed = f"no tracked bytecode in {len(scope)} file(s)"
+
+
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          if not applicable:
+              line = f"- {CHECK} ({label}): {not_applicable}"
+          elif not findings:
+              line = f"- {CHECK} ({label}): pass: {passed} ({scope_text})"
+          else:
+              line = f"- {CHECK} ({label}): findings: {len(findings)} ({scope_text})"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Finding |", "|---|---|---|"]
+          for path, number, message in findings:
+              kind = "warning" if reported else "error"
+              safe = path.replace(",", "%2C").replace(":", "%3A")
+              print(f"::{kind} file={safe},line={number},title={CHECK}::{message}")
+          for path, number, message in findings[:20]:
+              lines.append(f"| `{path}` | {number} | {message.replace('|', chr(92) + '|')} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with summary.open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("SARIF"):
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {"name": CHECK, "informationUri": "https://github.com/Quantum-L9/l9-ci-core", "rules": [{"id": CHECK, "shortDescription": {"text": RULE}}]}},
+                      "results": [{
+                          "ruleId": CHECK,
+                          "level": "error",
+                          "message": {"text": message},
+                          "locations": [{"physicalLocation": {"artifactLocation": {"uri": path}, "region": {"startLine": number}}}],
+                      } for path, number, message in findings],
+                  }],
+              }
+              target = Path(env["SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title={CHECK}::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
+  # sha-pins: every `uses:` in a workflow file or action definition is pinned
+  # by a full 40-character commit SHA (a docker:// image by @sha256: digest),
+  # or is a documented, frozen Core major tag (Quantum-L9/l9-ci-core@v1, @v2,
+  # @v2.0.0); local ./ actions have no ref.
+  sha-pins:
+    name: sha-pins
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check action pins (blocking)
+        id: sha_pins
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to SARIF.
+          FINDINGS_FAIL: "true"
+          SARIF: ""
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          CHECK = "sha-pins"
+          RULE = "Every uses: is pinned by a full commit SHA or a documented frozen Core tag"
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+
+
+          def git(*args):
+              return subprocess.run(["git", *args], capture_output=True, text=True, check=False)
+
+
+          bases = {
+              "pull_request": "PR_BASE",
+              "pull_request_target": "PR_BASE",
+              "merge_group": "MERGE_GROUP_BASE",
+              "push": "PUSH_BEFORE",
+          }
+          base = env.get(bases.get(env.get("EVENT_NAME", ""), ""), "")
+          if not re.fullmatch(r"[0-9a-f]{40}", base) or not base.strip("0"):
+              base = ""
+          tracked = git("ls-files", "-z").stdout.split("\0")
+          if base:
+              if git("cat-file", "-e", f"{base}^{{commit}}").returncode != 0:
+                  print(f"::error title={CHECK}::the event's base {base} is not in this clone; the check cannot tell what changed")
+                  sys.exit(2)
+              diff = git("diff", "--name-only", "-z", "--diff-filter=AMR", base, env["EVENT_SHA"], "--")
+              if diff.returncode != 0:
+                  sys.exit(f"::error title={CHECK}::git diff against {base} failed: {diff.stderr.strip()}")
+              scope = [p for p in diff.stdout.split("\0") if p]
+              scope_text = f"the files {base[:12]}..{env['EVENT_SHA'][:12]} changes"
+          else:
+              scope = [p for p in tracked if p]
+              scope_text = "every tracked file"
+          nightly = env.get("FINDINGS_FAIL") == "false"
+          reported = nightly or not base
+          label = "nightly, reported" if nightly else ("reported: no base" if not base else "blocking")
+
+          # Workflow files, and action definitions (a composite action has uses: steps).
+          definition = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$")
+          files = [path for path in scope if definition.search(path) and Path(path).is_file()]
+          uses = re.compile(r"""^\s*(?:-\s+)?uses:\s*(['"]?)([^'"\s#]+)\1\s*(?:#.*)?$""")
+          sha = re.compile(r"[0-9a-f]{40}")
+          frozen = re.compile(r"v1|v2|v2\.0\.0")
+          findings, checked = [], 0
+          for path in files:
+              for number, text in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+                  match = uses.match(text)
+                  if not match:
+                      continue
+                  spec = match.group(2)
+                  if spec.startswith("./"):
+                      continue  # a local action: no ref to pin
+                  checked += 1
+                  if spec.startswith("docker://"):
+                      if "@sha256:" not in spec:
+                          findings.append((path, number, f"'{spec}' is not pinned by image digest (docker://image@sha256:...)"))
+                      continue
+                  if "@" not in spec:
+                      findings.append((path, number, f"'{spec}' names no ref; pin it by full 40-character commit SHA"))
+                      continue
+                  repository, ref = spec.rsplit("@", 1)
+                  if sha.fullmatch(ref):
+                      continue
+                  if repository.startswith("Quantum-L9/l9-ci-core") and frozen.fullmatch(ref):
+                      continue  # a documented, frozen Core major tag
+                  findings.append((path, number, f"floating ref '{ref}' on '{repository}'; pin it by full 40-character commit SHA"))
+          applicable = bool(files) or bool(base)
+          not_applicable = "not applicable: no workflow or action files"
+          if base and not files:
+              passed = "no changed workflow or action files"
+              applicable = True
+          else:
+              passed = f"{checked} uses: reference(s) in {len(files)} file(s) pinned"
+
+
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          if not applicable:
+              line = f"- {CHECK} ({label}): {not_applicable}"
+          elif not findings:
+              line = f"- {CHECK} ({label}): pass: {passed} ({scope_text})"
+          else:
+              line = f"- {CHECK} ({label}): findings: {len(findings)} ({scope_text})"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Finding |", "|---|---|---|"]
+          for path, number, message in findings:
+              kind = "warning" if reported else "error"
+              safe = path.replace(",", "%2C").replace(":", "%3A")
+              print(f"::{kind} file={safe},line={number},title={CHECK}::{message}")
+          for path, number, message in findings[:20]:
+              lines.append(f"| `{path}` | {number} | {message.replace('|', chr(92) + '|')} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with summary.open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("SARIF"):
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {"name": CHECK, "informationUri": "https://github.com/Quantum-L9/l9-ci-core", "rules": [{"id": CHECK, "shortDescription": {"text": RULE}}]}},
+                      "results": [{
+                          "ruleId": CHECK,
+                          "level": "error",
+                          "message": {"text": message},
+                          "locations": [{"physicalLocation": {"artifactLocation": {"uri": path}, "region": {"startLine": number}}}],
+                      } for path, number, message in findings],
+                  }],
+              }
+              target = Path(env["SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title={CHECK}::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
   # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
   # beside gitleaks, pip-audit, npm-audit and `analyze`, for every repository the organization
   # ruleset governs, and always reports: no biome.json / biome.jsonc is a

@@ -14,7 +14,7 @@
 # apart from the target identity; the scan legs are the nightly sink's scan
 # without its publication, so a Semgrep change is proven before promotion.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 4daaa63c64efb696cb82f27f0ecf9b0cee3c65d081c117bf7c4f7f1fc0e77a70
+# worse. Head steps digest: 6986a45a38ac09c2d61d182da04647eb35c0bb20ee7bb80a578c8f7fe2ca6d0c
 name: Promotion canary (Core)
 # One verdict per pushed head (row 22). `make pr` pushes and then edits the
 # pull request's body; that `edited` run used to cancel the push run, whose
@@ -795,17 +795,12 @@ jobs:
           fi
           exit "${status}"
 
-  # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
-  # beside gitleaks, pip-audit, npm-audit and `analyze`, for every repository the organization
-  # ruleset governs, and always reports: no biome.json / biome.jsonc is a
-  # success that says "not applicable: no biome configuration"; a pull request
-  # that changes no file in Biome's scope is a success that says so. A pull
-  # request and a merge group are judged on the files they change, never on
-  # the code already there (incoming code only); a push of the default branch
-  # on the files the push changes; any other event (a dispatch, the nightly
-  # sink, the promotion canary) on the whole tree. Findings are annotated at
-  # their file and line by Biome's GitHub reporter, counted in the job summary
-  # with the first of them, and fail the job: the mode is blocking.
+  # no-bytecode and sha-pins are org-wide checks (operator, 2026-11-21;
+  # docs/hygiene-checks.md), blocking, always reporting: a pull request, merge
+  # group or push is judged on the files it adds or changes; an event with no
+  # base (a dispatch, the promotion canary) on every tracked file, reported,
+  # never failing; the nightly sink on every file, to code scanning.
+  # no-bytecode: no tracked *.pyc / *.pyo / *.pyd or __pycache__/ file.
       # --- inlined org-ci job npm-audit org-ci.yml: end ---
       - name: Record the npm-audit job result
         if: always()
@@ -821,6 +816,350 @@ jobs:
         with:
           name: canary-job-head-npm-audit-${{ matrix.slug }}
           path: ${{ runner.temp }}/canary-job/npm-audit.result
+          if-no-files-found: error
+          retention-days: 1
+
+  head__no-bytecode:
+    name: Canary ${{ matrix.repository }} no-bytecode job
+    needs: plan
+    if: needs.plan.outputs.applies == 'true' && needs.plan.outputs['head-current'] == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      # --- inlined org-ci job no-bytecode org-ci.yml: begin ---
+      - name: Checkout (full history)
+        id: no-bytecode__s0
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.revision }}
+          token: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check for tracked Python bytecode (blocking)
+        id: no-bytecode__no_bytecode
+        env:
+          EVENT_NAME: push
+          PR_BASE: ''
+          MERGE_GROUP_BASE: ''
+          PUSH_BEFORE: ''
+          EVENT_SHA: ${{ matrix.revision }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to SARIF.
+          FINDINGS_FAIL: "true"
+          SARIF: ""
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          CHECK = "no-bytecode"
+          RULE = "Python bytecode is never tracked"
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+
+
+          def git(*args):
+              return subprocess.run(["git", *args], capture_output=True, text=True, check=False)
+
+
+          bases = {
+              "pull_request": "PR_BASE",
+              "pull_request_target": "PR_BASE",
+              "merge_group": "MERGE_GROUP_BASE",
+              "push": "PUSH_BEFORE",
+          }
+          base = env.get(bases.get(env.get("EVENT_NAME", ""), ""), "")
+          if not re.fullmatch(r"[0-9a-f]{40}", base) or not base.strip("0"):
+              base = ""
+          tracked = git("ls-files", "-z").stdout.split("\0")
+          if base:
+              if git("cat-file", "-e", f"{base}^{{commit}}").returncode != 0:
+                  print(f"::error title={CHECK}::the event's base {base} is not in this clone; the check cannot tell what changed")
+                  sys.exit(2)
+              diff = git("diff", "--name-only", "-z", "--diff-filter=AMR", base, env["EVENT_SHA"], "--")
+              if diff.returncode != 0:
+                  sys.exit(f"::error title={CHECK}::git diff against {base} failed: {diff.stderr.strip()}")
+              scope = [p for p in diff.stdout.split("\0") if p]
+              scope_text = f"the files {base[:12]}..{env['EVENT_SHA'][:12]} changes"
+          else:
+              scope = [p for p in tracked if p]
+              scope_text = "every tracked file"
+          nightly = env.get("FINDINGS_FAIL") == "false"
+          reported = nightly or not base
+          label = "nightly, reported" if nightly else ("reported: no base" if not base else "blocking")
+
+          bytecode = re.compile(r"(^|/)__pycache__/|\.py[cod]$")
+          findings = [
+              (path, 1, "Python bytecode is tracked; delete it from git (git rm --cached) and let .gitignore keep it out")
+              for path in scope
+              if bytecode.search(path)
+          ]
+          applicable = True
+          not_applicable = ""
+          passed = f"no tracked bytecode in {len(scope)} file(s)"
+
+
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          if not applicable:
+              line = f"- {CHECK} ({label}): {not_applicable}"
+          elif not findings:
+              line = f"- {CHECK} ({label}): pass: {passed} ({scope_text})"
+          else:
+              line = f"- {CHECK} ({label}): findings: {len(findings)} ({scope_text})"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Finding |", "|---|---|---|"]
+          for path, number, message in findings:
+              kind = "warning" if reported else "error"
+              safe = path.replace(",", "%2C").replace(":", "%3A")
+              print(f"::{kind} file={safe},line={number},title={CHECK}::{message}")
+          for path, number, message in findings[:20]:
+              lines.append(f"| `{path}` | {number} | {message.replace('|', chr(92) + '|')} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with summary.open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("SARIF"):
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {"name": CHECK, "informationUri": "https://github.com/Quantum-L9/l9-ci-core", "rules": [{"id": CHECK, "shortDescription": {"text": RULE}}]}},
+                      "results": [{
+                          "ruleId": CHECK,
+                          "level": "error",
+                          "message": {"text": message},
+                          "locations": [{"physicalLocation": {"artifactLocation": {"uri": path}, "region": {"startLine": number}}}],
+                      } for path, number, message in findings],
+                  }],
+              }
+              target = Path(env["SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title={CHECK}::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
+  # sha-pins: every `uses:` in a workflow file or action definition is pinned
+  # by a full 40-character commit SHA (a docker:// image by @sha256: digest),
+  # or is a documented, frozen Core major tag (Quantum-L9/l9-ci-core@v1, @v2,
+  # @v2.0.0); local ./ actions have no ref.
+      # --- inlined org-ci job no-bytecode org-ci.yml: end ---
+      - name: Record the no-bytecode job result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/canary-job"
+          printf '%s\n' "${JOB_STATUS}" > "${RUNNER_TEMP}/canary-job/no-bytecode.result"
+      - name: Upload the no-bytecode job result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canary-job-head-no-bytecode-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job/no-bytecode.result
+          if-no-files-found: error
+          retention-days: 1
+
+  head__sha-pins:
+    name: Canary ${{ matrix.repository }} sha-pins job
+    needs: plan
+    if: needs.plan.outputs.applies == 'true' && needs.plan.outputs['head-current'] == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      # --- inlined org-ci job sha-pins org-ci.yml: begin ---
+      - name: Checkout (full history)
+        id: sha-pins__s0
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.revision }}
+          token: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check action pins (blocking)
+        id: sha-pins__sha_pins
+        env:
+          EVENT_NAME: push
+          PR_BASE: ''
+          MERGE_GROUP_BASE: ''
+          PUSH_BEFORE: ''
+          EVENT_SHA: ${{ matrix.revision }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to SARIF.
+          FINDINGS_FAIL: "true"
+          SARIF: ""
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          CHECK = "sha-pins"
+          RULE = "Every uses: is pinned by a full commit SHA or a documented frozen Core tag"
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+
+
+          def git(*args):
+              return subprocess.run(["git", *args], capture_output=True, text=True, check=False)
+
+
+          bases = {
+              "pull_request": "PR_BASE",
+              "pull_request_target": "PR_BASE",
+              "merge_group": "MERGE_GROUP_BASE",
+              "push": "PUSH_BEFORE",
+          }
+          base = env.get(bases.get(env.get("EVENT_NAME", ""), ""), "")
+          if not re.fullmatch(r"[0-9a-f]{40}", base) or not base.strip("0"):
+              base = ""
+          tracked = git("ls-files", "-z").stdout.split("\0")
+          if base:
+              if git("cat-file", "-e", f"{base}^{{commit}}").returncode != 0:
+                  print(f"::error title={CHECK}::the event's base {base} is not in this clone; the check cannot tell what changed")
+                  sys.exit(2)
+              diff = git("diff", "--name-only", "-z", "--diff-filter=AMR", base, env["EVENT_SHA"], "--")
+              if diff.returncode != 0:
+                  sys.exit(f"::error title={CHECK}::git diff against {base} failed: {diff.stderr.strip()}")
+              scope = [p for p in diff.stdout.split("\0") if p]
+              scope_text = f"the files {base[:12]}..{env['EVENT_SHA'][:12]} changes"
+          else:
+              scope = [p for p in tracked if p]
+              scope_text = "every tracked file"
+          nightly = env.get("FINDINGS_FAIL") == "false"
+          reported = nightly or not base
+          label = "nightly, reported" if nightly else ("reported: no base" if not base else "blocking")
+
+          # Workflow files, and action definitions (a composite action has uses: steps).
+          definition = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$")
+          files = [path for path in scope if definition.search(path) and Path(path).is_file()]
+          uses = re.compile(r"""^\s*(?:-\s+)?uses:\s*(['"]?)([^'"\s#]+)\1\s*(?:#.*)?$""")
+          sha = re.compile(r"[0-9a-f]{40}")
+          frozen = re.compile(r"v1|v2|v2\.0\.0")
+          findings, checked = [], 0
+          for path in files:
+              for number, text in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+                  match = uses.match(text)
+                  if not match:
+                      continue
+                  spec = match.group(2)
+                  if spec.startswith("./"):
+                      continue  # a local action: no ref to pin
+                  checked += 1
+                  if spec.startswith("docker://"):
+                      if "@sha256:" not in spec:
+                          findings.append((path, number, f"'{spec}' is not pinned by image digest (docker://image@sha256:...)"))
+                      continue
+                  if "@" not in spec:
+                      findings.append((path, number, f"'{spec}' names no ref; pin it by full 40-character commit SHA"))
+                      continue
+                  repository, ref = spec.rsplit("@", 1)
+                  if sha.fullmatch(ref):
+                      continue
+                  if repository.startswith("Quantum-L9/l9-ci-core") and frozen.fullmatch(ref):
+                      continue  # a documented, frozen Core major tag
+                  findings.append((path, number, f"floating ref '{ref}' on '{repository}'; pin it by full 40-character commit SHA"))
+          applicable = bool(files) or bool(base)
+          not_applicable = "not applicable: no workflow or action files"
+          if base and not files:
+              passed = "no changed workflow or action files"
+              applicable = True
+          else:
+              passed = f"{checked} uses: reference(s) in {len(files)} file(s) pinned"
+
+
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          if not applicable:
+              line = f"- {CHECK} ({label}): {not_applicable}"
+          elif not findings:
+              line = f"- {CHECK} ({label}): pass: {passed} ({scope_text})"
+          else:
+              line = f"- {CHECK} ({label}): findings: {len(findings)} ({scope_text})"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Finding |", "|---|---|---|"]
+          for path, number, message in findings:
+              kind = "warning" if reported else "error"
+              safe = path.replace(",", "%2C").replace(":", "%3A")
+              print(f"::{kind} file={safe},line={number},title={CHECK}::{message}")
+          for path, number, message in findings[:20]:
+              lines.append(f"| `{path}` | {number} | {message.replace('|', chr(92) + '|')} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with summary.open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("SARIF"):
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {"name": CHECK, "informationUri": "https://github.com/Quantum-L9/l9-ci-core", "rules": [{"id": CHECK, "shortDescription": {"text": RULE}}]}},
+                      "results": [{
+                          "ruleId": CHECK,
+                          "level": "error",
+                          "message": {"text": message},
+                          "locations": [{"physicalLocation": {"artifactLocation": {"uri": path}, "region": {"startLine": number}}}],
+                      } for path, number, message in findings],
+                  }],
+              }
+              target = Path(env["SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title={CHECK}::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
+  # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
+  # beside gitleaks, pip-audit, npm-audit and `analyze`, for every repository the organization
+  # ruleset governs, and always reports: no biome.json / biome.jsonc is a
+  # success that says "not applicable: no biome configuration"; a pull request
+  # that changes no file in Biome's scope is a success that says so. A pull
+  # request and a merge group are judged on the files they change, never on
+  # the code already there (incoming code only); a push of the default branch
+  # on the files the push changes; any other event (a dispatch, the nightly
+  # sink, the promotion canary) on the whole tree. Findings are annotated at
+  # their file and line by Biome's GitHub reporter, counted in the job summary
+  # with the first of them, and fail the job: the mode is blocking.
+      # --- inlined org-ci job sha-pins org-ci.yml: end ---
+      - name: Record the sha-pins job result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/canary-job"
+          printf '%s\n' "${JOB_STATUS}" > "${RUNNER_TEMP}/canary-job/sha-pins.result"
+      - name: Upload the sha-pins job result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canary-job-head-sha-pins-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job/sha-pins.result
           if-no-files-found: error
           retention-days: 1
 
@@ -1040,7 +1379,7 @@ jobs:
 
   head:
     name: Canary ${{ matrix.repository }}
-    needs: [plan, head__gitleaks, head__pip-audit, head__npm-audit, head__biome]
+    needs: [plan, head__gitleaks, head__pip-audit, head__npm-audit, head__no-bytecode, head__sha-pins, head__biome]
     if: ${{ !cancelled() && (needs.plan.outputs.applies == 'true' && needs.plan.outputs['head-current'] == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -1121,6 +1460,54 @@ jobs:
             *) result=failure ;;
           esac
           echo "npm-audit job: ${result}"
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
+      # --- the no-bytecode job's result for this repository (not part of org-ci.yml) ---
+      - name: Download the no-bytecode job result
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # A pattern, not a name: a missing result downloads nothing (a name
+          # would fail the step), and the next step reads nothing as failure.
+          pattern: canary-job-head-no-bytecode-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job
+          merge-multiple: true
+      - name: Result of the no-bytecode job
+        id: no-bytecode__result
+        run: |
+          set -euo pipefail
+          file="${RUNNER_TEMP}/canary-job/no-bytecode.result"
+          result=""
+          if [ -f "${file}" ]; then
+            result="$(tr -d '[:space:]' < "${file}")"
+          fi
+          case "${result}" in
+            success|failure|cancelled) ;;
+            *) result=failure ;;
+          esac
+          echo "no-bytecode job: ${result}"
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
+      # --- the sha-pins job's result for this repository (not part of org-ci.yml) ---
+      - name: Download the sha-pins job result
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # A pattern, not a name: a missing result downloads nothing (a name
+          # would fail the step), and the next step reads nothing as failure.
+          pattern: canary-job-head-sha-pins-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job
+          merge-multiple: true
+      - name: Result of the sha-pins job
+        id: sha-pins__result
+        run: |
+          set -euo pipefail
+          file="${RUNNER_TEMP}/canary-job/sha-pins.result"
+          result=""
+          if [ -f "${file}" ]; then
+            result="$(tr -d '[:space:]' < "${file}")"
+          fi
+          case "${result}" in
+            success|failure|cancelled) ;;
+            *) result=failure ;;
+          esac
+          echo "sha-pins job: ${result}"
           echo "result=${result}" >> "$GITHUB_OUTPUT"
       # --- the biome job's result for this repository (not part of org-ci.yml) ---
       - name: Download the biome job result
@@ -1557,12 +1944,12 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 4daaa63c64efb696cb82f27f0ecf9b0cee3c65d081c117bf7c4f7f1fc0e77a70
+          DIGEST: 6986a45a38ac09c2d61d182da04647eb35c0bb20ee7bb80a578c8f7fe2ca6d0c
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
           # org-ci.yml's own checks beside analyze (Biome): job=result pairs.
-          INDEPENDENT: "gitleaks=${{ steps.gitleaks__result.outputs.result }},pip-audit=${{ steps.pip-audit__result.outputs.result }},npm-audit=${{ steps.npm-audit__result.outputs.result }},biome=${{ steps.biome__result.outputs.result }}"
+          INDEPENDENT: "gitleaks=${{ steps.gitleaks__result.outputs.result }},pip-audit=${{ steps.pip-audit__result.outputs.result }},npm-audit=${{ steps.npm-audit__result.outputs.result }},no-bytecode=${{ steps.no-bytecode__result.outputs.result }},sha-pins=${{ steps.sha-pins__result.outputs.result }},biome=${{ steps.biome__result.outputs.result }}"
           MATRIX_ID: canary-head-${{ matrix.slug }}
           SLUG: ${{ matrix.slug }}
           REPOSITORY: ${{ matrix.repository }}
@@ -2247,7 +2634,7 @@ jobs:
         if: always()
         env:
           SIDE: scan
-          DIGEST: 4daaa63c64efb696cb82f27f0ecf9b0cee3c65d081c117bf7c4f7f1fc0e77a70
+          DIGEST: 6986a45a38ac09c2d61d182da04647eb35c0bb20ee7bb80a578c8f7fe2ca6d0c
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -2947,7 +3334,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 4daaa63c64efb696cb82f27f0ecf9b0cee3c65d081c117bf7c4f7f1fc0e77a70
+          DIGEST: 6986a45a38ac09c2d61d182da04647eb35c0bb20ee7bb80a578c8f7fe2ca6d0c
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -3107,34 +3494,128 @@ jobs:
               exit 2
               ;;
           esac
-          # Rules: the Core preset (presets/security/.gitleaks.toml) is
-          # gitleaks' own default rule set (`[extend] useDefault = true`). A
-          # repository's own .gitleaks.toml is honoured on top of it: its rules
-          # and allowlists apply, and when it does not already extend the
-          # defaults it is made to, so no repository config can drop the Core
-          # rules. A repository config that extends another file by `path`
-          # cannot also extend the defaults (gitleaks allows one of the two),
-          # so it is refused rather than scanned with fewer rules. Reviewed
-          # false positives belong in .gitleaksignore, which gitleaks reads
-          # from the scanned tree.
+          # Rules: gitleaks' own defaults (`[extend] useDefault = true`) plus the
+          # Core rules (presets/security/.gitleaks.toml, between its "Core
+          # rules" markers; docs/gitleaks-core-rules.md), for every repository,
+          # whatever its own configuration says. A repository's .gitleaks.toml
+          # is honoured on top: its rules and allowlists apply. A repository
+          # rule whose id is a gitleaks default or a Core rule would replace
+          # that rule silently, so the merge refuses it by name (and a rule
+          # defined twice). A config that extends another file by `path`
+          # cannot also extend the defaults, so it is refused. Reviewed false
+          # positives belong in .gitleaksignore, which gitleaks reads from the
+          # scanned tree.
+          GITLEAKS_VERSION="8.24.3"
+          GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
+          # gitleaks' default rules at that version, by id: the ids a
+          # repository rule must not reuse. Checksum-pinned like the binary.
+          GITLEAKS_DEFAULTS_SHA256="8f393899dbdc67e4eae580909e496acab9cf3a75aacfb6fac56b6eb16bb9e051"
           config="${RUNNER_TEMP:-/tmp}/l9-gitleaks.toml"
-          config_args=()
-          if [ -f ".gitleaks.toml" ]; then
-            python3 -I - ".gitleaks.toml" "${config}" <<'PY'
+          core_rules="${RUNNER_TEMP:-/tmp}/l9-gitleaks-core-rules.toml"
+          defaults="${RUNNER_TEMP:-/tmp}/l9-gitleaks-defaults.toml"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${defaults}" \
+            "https://raw.githubusercontent.com/gitleaks/gitleaks/v${GITLEAKS_VERSION}/config/gitleaks.toml"
+          actual_defaults="$(sha256sum "${defaults}" | awk '{print $1}')"
+          if [ "${actual_defaults}" != "${GITLEAKS_DEFAULTS_SHA256}" ]; then
+            echo "::error::gitleaks default rules checksum mismatch: got ${actual_defaults}"
+            exit 2
+          fi
+          cat > "${core_rules}" <<'TOML'
+          [[rules]]
+          id = "l9-openai-api-key"
+          description = "OpenAI API key without the T3BlbkFJ marker (from Enrichment.Inference.Engine)"
+          regex = '''\bsk-[a-zA-Z0-9]{20,}\b'''
+          keywords = ["sk-"]
+
+          [[rules]]
+          id = "l9-openai-project-key"
+          description = "OpenAI project or service key without the T3BlbkFJ marker (from Cognitive.Engine.Graphs)"
+          regex = '''\bsk-(?:proj|svcacct|admin)-[a-zA-Z0-9_-]{80,}'''
+          keywords = ["sk-proj-", "sk-svcacct-", "sk-admin-"]
+
+          [[rules]]
+          id = "l9-api-key-assignment"
+          description = "An API key or secret key assigned a literal of 20+ characters, at any entropy (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''(?i)(?:api[_-]?key|apikey|api[_-]?secret|secret[_-]?key)\s*[=:]\s*['"][a-zA-Z0-9_\-]{20,}['"]'''
+          keywords = ["api_key", "api-key", "apikey", "api_secret", "api-secret", "secret_key", "secret-key", "secretkey"]
+
+          [[rules]]
+          id = "l9-slack-bot-token"
+          description = "Slack bot token with any digit-group length (from Enrichment.Inference.Engine)"
+          regex = '''xoxb-[0-9]{10,}-[0-9]{10,}-[a-zA-Z0-9]{20,}'''
+          keywords = ["xoxb-"]
+
+          [[rules]]
+          id = "l9-private-key-header"
+          description = "A private key header, even without a full body (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'''
+          keywords = ["private key-----"]
+
+          [[rules]]
+          id = "l9-jwt"
+          description = "A JSON Web Token with short segments (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}'''
+          keywords = ["eyj"]
+
+          [[rules]]
+          id = "l9-perplexity-api-key"
+          description = "Perplexity API key (from Enrichment.Inference.Engine)"
+          regex = '''\bpplx-[a-zA-Z0-9]{40,}'''
+          keywords = ["pplx-"]
+
+          [[rules]]
+          id = "l9-postgres-url-password"
+          description = "PostgreSQL URL with an inline password (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''postgres(?:ql)?://[^:\s/@]+:([^@\s/]+)@[a-zA-Z0-9._-]+'''
+          secretGroup = 1
+          keywords = ["postgres://", "postgresql://"]
+
+          [[rules]]
+          id = "l9-redis-url-password"
+          description = "Redis URL with an inline password (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''rediss?://[^:\s/@]*:([^@\s/]+)@[a-zA-Z0-9._-]+'''
+          secretGroup = 1
+          keywords = ["redis://", "rediss://"]
+
+          [[rules]]
+          id = "l9-neo4j-url-password"
+          description = "Neo4j or Bolt URL with an inline password (from Cognitive.Engine.Graphs)"
+          regex = '''(?:neo4j|bolt)(?:\+s(?:sc)?)?://[a-zA-Z0-9]+:([^@\s]+)@[a-zA-Z0-9._-]+'''
+          secretGroup = 1
+          keywords = ["neo4j://", "neo4j+s://", "neo4j+ssc://", "bolt://", "bolt+s://", "bolt+ssc://"]
+
+          [[rules]]
+          id = "l9-neo4j-password-assignment"
+          description = "A Neo4j password assigned a literal (from Cognitive.Engine.Graphs)"
+          regex = '''(?i)neo4j[_-]?password\s*[=:]\s*['"]?([a-zA-Z0-9!@#$%^&*()_+=-]{8,})['"]?'''
+          secretGroup = 1
+          keywords = ["neo4j_password", "neo4j-password", "neo4jpassword"]
+          TOML
+          python3 -I - ".gitleaks.toml" "${defaults}" "${core_rules}" "${config}" <<'PY'
+          import re
           import sys
           import tomllib
           from pathlib import Path
 
-          source, target = Path(sys.argv[1]), Path(sys.argv[2])
-          text = source.read_text(encoding="utf-8")
+          source, defaults, core_path, target = (Path(arg) for arg in sys.argv[1:5])
+          core_text = core_path.read_text(encoding="utf-8")
+          core = tomllib.loads(core_text)["rules"]
+          core_by_id = {rule["id"]: rule for rule in core}
+          core_blocks = {
+              tomllib.loads(block)["rules"][0]["id"]: block
+              for block in re.split(r"(?m)^(?=\[\[rules\]\])", core_text)
+              if block.startswith("[[rules]]")
+          }
+          default_ids = {rule["id"] for rule in tomllib.loads(defaults.read_text(encoding="utf-8"))["rules"]}
+          text = source.read_text(encoding="utf-8") if source.is_file() else ""
           try:
-              extend = tomllib.loads(text).get("extend")
+              data = tomllib.loads(text)
           except tomllib.TOMLDecodeError as error:
               sys.exit(f"::error::.gitleaks.toml is not valid TOML: {error}")
+          extend = data.get("extend")
           if extend is None:
               text += (
-                  "\n\n# Added by Core security.yml: keep the Core preset rules"
-                  " (gitleaks defaults).\n[extend]\nuseDefault = true\n"
+                  "\n\n# Added by Core: keep gitleaks' default rules.\n[extend]\nuseDefault = true\n"
               )
           elif not isinstance(extend, dict) or "path" in extend:
               sys.exit(
@@ -3148,10 +3629,43 @@ jobs:
                   "::error::.gitleaks.toml [extend] must set useDefault = true"
                   " so the Core preset rules apply."
               )
+          lines = text.splitlines()
+
+
+          def line_of(rule_id):
+              pattern = re.compile(r"\s*id\s*=\s*[\"']" + re.escape(rule_id) + r"[\"']")
+              return next((n for n, line in enumerate(lines, 1) if pattern.match(line)), 1)
+
+
+          seen, present, collisions = set(), set(), []
+          for rule in data.get("rules", []):
+              rule_id = str(rule.get("id", ""))
+              if core_by_id.get(rule_id) == rule and rule_id not in present:
+                  # The stamped Core preset carries a Core rule as Core wrote it.
+                  present.add(rule_id)
+              elif rule_id in seen or rule_id in present:
+                  collisions.append((rule_id, "is defined twice in .gitleaks.toml"))
+              elif rule_id in core_by_id:
+                  collisions.append((rule_id, "is a Core rule id (Core applies that rule to every repository)"))
+              elif rule_id in default_ids:
+                  collisions.append((rule_id, "is a gitleaks default rule id"))
+              seen.add(rule_id)
+          for rule_id, why in collisions:
+              print(
+                  f"::error file=.gitleaks.toml,line={line_of(rule_id)},title=gitleaks rule id collision::"
+                  f"rule '{rule_id}' {why}; gitleaks would replace one with the other silently."
+                  " Rename the repository rule, or delete it if a Core or default rule already covers it."
+              )
+          if collisions:
+              sys.exit(f"::error::{len(collisions)} gitleaks rule id collision(s) in .gitleaks.toml; nothing was scanned")
+          missing = [core_blocks[rule["id"]] for rule in core if rule["id"] not in present]
+          if missing:
+              text += "\n\n# Added by Core: the Core rules (presets/security/.gitleaks.toml).\n" + "".join(missing)
+          tomllib.loads(text)
           target.write_text(text, encoding="utf-8")
+          print(f"gitleaks rules: defaults + {len(core)} Core rule(s) + {len(seen) - len(present)} repository rule(s)")
           PY
-            config_args=(--config "${config}")
-          fi
+          config_args=(--config "${config}")
           case "${GITLEAKS_TARGET}" in
             git) ;;
             dir) GITLEAKS_LOG_OPTS="" ;;
@@ -3173,8 +3687,6 @@ jobs:
             fi
             range_args=(--log-opts="${GITLEAKS_LOG_OPTS}")
           fi
-          GITLEAKS_VERSION="8.24.3"
-          GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
           # HTTPS only, on every redirect too (the release redirects to a CDN).
           curl --proto '=https' --tlsv1.2 -sSfL -o /tmp/gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
@@ -4391,7 +4903,7 @@ jobs:
         if: always()
         env:
           SIDE: base
-          DIGEST: 4df0b5e1fbbfcefba5b2cc972389120da74d7d9bad52b8368cb4310c593395e2
+          DIGEST: 4daaa63c64efb696cb82f27f0ecf9b0cee3c65d081c117bf7c4f7f1fc0e77a70
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -5081,7 +5593,7 @@ jobs:
         if: always()
         env:
           SIDE: scanbase
-          DIGEST: 4df0b5e1fbbfcefba5b2cc972389120da74d7d9bad52b8368cb4310c593395e2
+          DIGEST: 4daaa63c64efb696cb82f27f0ecf9b0cee3c65d081c117bf7c4f7f1fc0e77a70
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}

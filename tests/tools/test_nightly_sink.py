@@ -849,6 +849,8 @@ class WorkflowTests(unittest.TestCase):
                 "${{ !cancelled() && steps.project_sarif.outcome == 'success'"
                 " && steps.biome_check.outcome != 'failure'"
                 " && steps.gitleaks.outcome != 'failure'"
+                " && steps.no_bytecode.outcome != 'failure'"
+                " && steps.sha_pins.outcome != 'failure'"
                 " && steps.bandit.outcome != 'failure' }}",
                 "${{ !cancelled() && steps.sink_tool.outcome == 'success' }}",
                 "${{ !cancelled() && steps.sink_token.outcome == 'success' }}",
@@ -1047,6 +1049,32 @@ class WorkflowTests(unittest.TestCase):
             sink.gitleaks_steps(
                 self.org_ci.replace("\n  gitleaks:\n", "\n  secrets:\n")
             )
+
+    def test_the_hygiene_checks_run_nightly_on_every_file_and_report(self) -> None:
+        import yaml  # noqa: PLC0415
+
+        steps = self.sink_job_steps()
+        jobs = yaml.safe_load(self.org_ci)["jobs"]
+        for job, identifier in sink.HYGIENE_CHECKS:
+            with self.subTest(check=job):
+                [original] = [
+                    s for s in jobs[job]["steps"] if s.get("id") == identifier
+                ]
+                [inlined] = [s for s in steps if s.get("id") == identifier]
+                self.assertEqual(original["run"], inlined["run"], "reused verbatim")
+                self.assertEqual("${{ !cancelled() }}", inlined["if"])
+                self.assertEqual("nightly", inlined["env"]["EVENT_NAME"])
+                self.assertEqual("", inlined["env"]["PR_BASE"])
+                self.assertEqual("false", inlined["env"]["FINDINGS_FAIL"])
+                self.assertEqual(
+                    f"${{{{ runner.temp }}}}/nightly-sarif/{job}.sarif",
+                    inlined["env"]["SARIF"],
+                )
+                self.assertNotIn(job, sink.ADVISORY_CATEGORIES)
+
+    def test_a_missing_hygiene_job_is_refused(self) -> None:
+        with self.assertRaises(sink.SinkError):
+            sink.hygiene_steps(self.org_ci.replace("\n  sha-pins:\n", "\n  pins:\n"))
 
     def test_bandit_runs_nightly_only_on_the_whole_tree_advisory(self) -> None:
         steps = self.sink_job_steps()

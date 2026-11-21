@@ -111,6 +111,16 @@ check succeeds with "not applicable: npm audit is opt-in and not enabled".
 | Checkout (full history) | PLUMBING | |
 | Node dependency audit (npm audit) | BLOCKING_SECURITY | When enabled: no `package.json` is not applicable; unchanged `package.json` / `package-lock.json` passes as "dependencies unchanged"; otherwise `npm audit --audit-level=high` fails on a high or critical advisory, and a manifest without a lock fails named |
 
+## no-bytecode and sha-pins (`org-ci.yml` jobs, the `no-bytecode` and `sha-pins` checks)
+
+Blocking. Always report. What the event adds or changes ([hygiene-checks.md](hygiene-checks.md)).
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | The base must be in the clone |
+| Check for tracked Python bytecode (blocking) | BLOCKING_CORRECTNESS | A tracked `*.pyc` / `*.pyo` / `*.pyd` or `__pycache__/` file the change brings in fails, annotated; no base: reported |
+| Check action pins (blocking) | BLOCKING_SECURITY | A `uses:` in a changed workflow or action file not pinned by full SHA (or `@sha256:` for docker, or a frozen Core tag) fails, annotated at its line; no base: reported |
+
 ## bandit (nightly only)
 
 Advisory, not a pull-request check: `nightly-sink.yml` runs bandit 1.8.6 on the
