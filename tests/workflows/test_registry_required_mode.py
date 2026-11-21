@@ -8,7 +8,10 @@ blocks only in ``required`` mode.
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -225,6 +228,30 @@ class StampDriftModeTests(unittest.TestCase):
         self.assertEqual("migration", outputs["contract-mode"])
         self.assertEqual("fail", outputs["status"])
         self.assertEqual("contract", outputs["failure-kind"])
+
+    def test_a_file_merely_behind_core_warns_and_runs(self) -> None:
+        # The record holds the file's current digest: the repository has not
+        # touched it since stamping, so the difference is Core moving on.
+        # That is drift, housekeeping, and never blocks (operator 2026-11-20).
+        record_path = self.root / ".l9" / "core-stamp.json"
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        data = (self.root / "ruff.toml").read_bytes()
+        record["files"]["ruff.toml"] = "sha256:" + hashlib.sha256(data).hexdigest()
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        for repository in (BORN, "Quantum-L9/example-consumer"):
+            with (
+                self.subTest(repository=repository),
+                unittest.mock.patch.object(self.runner, "run_v2") as phases,
+                contextlib.redirect_stdout(io.StringIO()) as log,
+            ):
+                outputs = run(self.runner, self.root, repository)
+            phases.assert_called_once()
+            self.assertEqual("pass", outputs["status"])
+            self.assertIn(
+                "::warning::Core stamp behind Core (advisory): ruff.toml",
+                log.getvalue(),
+            )
+            self.assertNotIn("::error::", log.getvalue())
 
     def test_unstamped_v2_consumer_is_not_stamp_checked(self) -> None:
         # Fleet safety: no record, no stamp check, in either mode.

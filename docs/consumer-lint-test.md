@@ -62,8 +62,11 @@ copy-first preset and starter callers were retired on 2026-10-22
 declaration of a lock-owned tool as `exact_match`, `exact_drift`,
 `range_admits_lock`, `range_excludes_lock`, `range_admits_older`, `unpinned`, or
 `unparseable`. Drift (`exact_drift`, `range_excludes_lock`,
-`range_admits_older`) is annotated at `file:line`; the job never fails on a
-consumer finding. The report is `l9.toolchain-alignment/v1` JSON at
+`range_admits_older`) is a warning at `file:line` and a summary line from
+org-ci.yml's "Report toolchain alignment drift (advisory)" step; it never fails
+the required check. Toolchain drift is housekeeping (operator decision
+2026-11-20: only checks that protect working or secure code block a merge), so
+it is fixed as debt. The report is `l9.toolchain-alignment/v1` JSON at
 `.l9/runtime/toolchain-alignment.json`. Surfaces read:
 
 | Surface | Tools |
@@ -84,12 +87,12 @@ Core applies the same scanner to itself and fails on anything but
 (`tests/governance/test_core_toolchain_alignment.py`): every Core-internal pin
 of a lock-owned tool equals the lock.
 
-Both advisory steps run in the organization workflow (`org-ci.yml`, job
-`Analyze (central Core)`) for every governed repository: the alignment report
+Both steps run in the organization workflow (`org-ci.yml`, job `analyze`,
+whose check name is `entrypoint.required_check.name` in
+`.l9/org-runtime-contract.yaml`) for every governed repository: the alignment report
 right after the consumer checkout, and the Biome check (install skipped when
 the root has no `biome.json`/`biome.jsonc`) after language detection. Their
-results appear in the job summary; neither can fail the job on a consumer
-finding.
+results appear in the job summary; alignment drift never fails the job.
 
 ## Bumping a tool version
 
@@ -106,7 +109,7 @@ references, not a JSON version map or digest locks.
 
 The lock-bump path, end to end:
 
-4. The advisory alignment report in `Analyze (central Core)` then shows every
+4. The advisory alignment report in the required check then warns on every
    consumer declaration that still names the old version (`exact_drift`,
    `range_excludes_lock`) at `file:line`; owners bring those declarations to
    the lock. Changing `align.py` itself reaches consumers only through the next

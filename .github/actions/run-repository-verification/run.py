@@ -74,7 +74,7 @@ from l9_repo.contract import (  # noqa: E402
     validate_v2_contract_data,
 )
 from l9_repo.inherited_config import materialize, resolve  # noqa: E402
-from l9_repo.stamp import verify_stamp  # noqa: E402
+from l9_repo.stamp import classify_stamp  # noqa: E402
 
 POLICY_PATH = Path(__file__).resolve().parent / "contract-policy.json"
 POLICY_SCHEMA = "l9.repository-contract-enforcement/v1"
@@ -383,24 +383,30 @@ def resolve_enforcement(policy: dict[str, object], repository: str) -> str:
 
 
 def check_stamp(workspace: Path, mode: str) -> None:
-    """Fail on any Core stamp drift, in every mode; skip an unstamped repository.
+    """Fail on a locally modified Core-owned file; warn on one merely behind.
 
-    ``mode`` is reported in the failure only: a stamp record opts the
-    repository into byte-identity with Core whatever its enforcement mode.
+    Integrity blocks in every mode: a stamped file the repository edited or
+    removed. Drift is housekeeping and only warns (operator policy 2026-11-20):
+    a file still carrying the bytes it was stamped with while Core moved on.
+    ``mode`` is reported in the failure only. An unstamped repository is
+    skipped.
     """
 
-    record, findings = verify_stamp(workspace)
+    record, findings, behind = classify_stamp(workspace)
     if record is None:
         return
     revision = record["core"]["revision"]
+    for finding in behind:
+        print(f"::warning::Core stamp behind Core (advisory): {finding}")
     if not findings:
-        print(f"Core stamp: aligned ({record['profile']}; stamped from {revision})")
+        state = "aligned" if not behind else f"{len(behind)} file(s) behind Core"
+        print(f"Core stamp: {state} ({record['profile']}; stamped from {revision})")
         report_inherited(workspace)
         return
     for finding in findings:
-        print(f"::error::Core stamp drift: {finding}")
+        print(f"::error::Core stamp modified locally: {finding}")
     raise ContractError(
-        f"Core-owned files drift from this Core revision ({mode} mode); re-stamp "
+        f"Core-owned files were modified locally ({mode} mode); re-stamp "
         "with `python3 -m tools.l9_repo --workspace . stamp --profile "
         f"{record['profile']}` from the Core revision org-ci.yml pins: "
         + "; ".join(findings)

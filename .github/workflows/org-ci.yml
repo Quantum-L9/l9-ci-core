@@ -56,7 +56,7 @@ name: Organization CI (Core)
 # A title or body `edited` event is deliberately NOT skipped. A job skipped by
 # `if:` reports Success, and GitHub states that it "will not prevent a pull
 # request from merging, even if it is a required check". A skip on a title
-# edit would therefore post a passing `Analyze (central Core)` on the same
+# edit would therefore post a passing required check on the same
 # head SHA as an earlier failing run, so anyone able to edit a title could
 # clear a required failure. Every `edited` event re-evaluates the same
 # immutable head SHA. The cost is one analysis per edit, and the verdict is
@@ -182,6 +182,9 @@ jobs:
       gitleaks-scope: event
 
   analyze:
+    # The required check name. Its one source is .l9/org-runtime-contract.yaml
+    # (entrypoint.required_check.name); tests/workflows/test_required_check_name.py
+    # holds this value equal to it, and the organization ruleset must list it.
     name: Analyze (central Core)
     # `analyze` waits for `security` and runs whatever its result (!cancelled()),
     # then enforces it in its last step. GitHub skips a job whose dependency
@@ -363,10 +366,11 @@ jobs:
           git checkout --detach FETCH_HEAD
           git remote set-url origin "https://github.com/${REPOSITORY}.git"
 
-      # Advisory: reports consumer tool pins that drift from Core's
-      # toolchain-lock.json with file:line annotations. A consumer finding never
-      # fails the job; only an unreadable Core lock (a Core contract failure)
-      # does. The lock ships inside this pinned Core revision.
+      # Reports consumer declarations of Core-owned tools that drift from
+      # Core's toolchain-lock.json, with file:line annotations, into
+      # .l9/runtime/toolchain-alignment.json. Advisory: drift never fails the
+      # job (housekeeping, operator decision 2026-11-20). The lock ships inside
+      # this pinned Core revision.
       - id: toolchain
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
@@ -967,6 +971,48 @@ jobs:
       # language's gate among them. A required instance that is missing,
       # skipped or unfinished makes the aggregate incomplete (exit 6), never
       # pass; no aggregate at all is incomplete too.
+      # Toolchain drift is housekeeping (operator decision 2026-11-20: only
+      # checks that protect working or secure code block a merge). Each
+      # declaration of a Core-owned tool that differs from toolchain-lock.json
+      # is a warning at file:line and a line in the summary; it never fails
+      # the job. align.py decides what drift is (the report's own status).
+      - name: Report toolchain alignment drift (advisory)
+        if: always()
+        env:
+          REPORT: .l9/runtime/toolchain-alignment.json
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          try:
+              report = json.loads(Path(os.environ["REPORT"]).read_text(encoding="utf-8"))
+              status = report["status"]
+              findings = report["findings"]
+          except (OSError, ValueError, KeyError, TypeError) as error:
+              print(f"::warning::toolchain alignment report unavailable ({error}); drift not reported")
+          else:
+              drift = [
+                  item
+                  for item in findings
+                  if item.get("class") not in ("exact_match", "range_admits_lock")
+              ]
+              for item in drift:
+                  print(
+                      f"::warning file={item.get('path')},line={item.get('line')}::"
+                      f"{item.get('tool')} {item.get('declared') or '(no version)'} "
+                      f"is not Core's locked {item.get('lock')} ({item.get('class')})"
+                  )
+              line = f"- Toolchain drift (advisory): `{status}`, {len(drift)} declaration(s)"
+              summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as stream:
+                      stream.write(line + "\n")
+              print(line)
+          PY
+
       - name: Enforce central mode on SDK technical gate
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         env:

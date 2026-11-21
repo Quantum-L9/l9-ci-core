@@ -19,7 +19,17 @@ Exit-code classes, observed from the Biome 2.5.8 binary:
 A consumer without ``biome.json``/``biome.jsonc`` at the checkout root is
 ``not_applicable``: Core cannot require a consumer file.
 
-    python3 check_biome.py --executable PATH --mode advisory|blocking [--root .] [--output FILE]
+    python3 check_biome.py --executable PATH --mode advisory|blocking \
+        [--checks all|format|lint] [--root .] [--output FILE]
+
+``--checks`` selects what ``biome ci`` evaluates. ``all`` (the default) runs
+every tool the consumer's configuration enables. ``format`` and ``lint``
+disable the other tools for this run only (``--linter-enabled=false`` or
+``--formatter-enabled=false``, plus ``--assist-enabled=false``), never enable
+one the configuration disabled, and pass ``--no-errors-on-unmatched`` so a
+configuration that disables the selected tool is a pass, not a finding. Core
+runs formatting (housekeeping, advisory) and lint (correctness, blocking) as
+two records (operator policy 2026-11-20).
 
 Modes are a Core rollout decision (``org-ci.yml`` sets the mode; a consumer
 cannot): ``advisory`` records findings and exits ``0``; ``blocking`` records
@@ -46,6 +56,20 @@ from typing import NoReturn
 SCHEMA = "l9.biome-check/v1"
 CONFIG_FILES = ("biome.json", "biome.jsonc")
 MODES = ("advisory", "blocking")
+#: biome ci arguments per check. A check only ever disables tools.
+CHECKS: dict[str, tuple[str, ...]] = {
+    "all": (),
+    "format": (
+        "--linter-enabled=false",
+        "--assist-enabled=false",
+        "--no-errors-on-unmatched",
+    ),
+    "lint": (
+        "--formatter-enabled=false",
+        "--assist-enabled=false",
+        "--no-errors-on-unmatched",
+    ),
+}
 FINDINGS_EXIT = 1
 
 
@@ -76,12 +100,16 @@ def _write(output: pathlib.Path, record: dict[str, object]) -> None:
     output.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", "utf-8")
 
 
+def _label(record: dict[str, object]) -> str:
+    return "" if record["checks"] == "all" else f" {record['checks']}"
+
+
 def _summary(record: dict[str, object]) -> None:
     path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not path:
         return
     lines = [
-        f"### Biome (Core, {record['mode']})",
+        f"### Biome{_label(record)} (Core, {record['mode']})",
         "",
         f"- Status: `{record['status']}`",
         f"- Biome version: `{record['provider_version'] or 'unknown'}`",
@@ -95,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run Core's Biome check")
     parser.add_argument("--executable", default="")
     parser.add_argument("--mode", required=True)
+    parser.add_argument("--checks", default="all")
     parser.add_argument("--root", default=".")
     parser.add_argument("--provider-version", default="")
     parser.add_argument("--output", default=".l9/runtime/biome-check.json")
@@ -107,6 +136,13 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+    if args.checks not in CHECKS:
+        print(
+            f"run-biome-check: checks {args.checks!r} is not supported; defined "
+            f"checks: {', '.join(CHECKS)}",
+            file=sys.stderr,
+        )
+        return 2
 
     workspace = _workspace()
     root = _contained(workspace, workspace / args.root, f"root {args.root!r}")
@@ -116,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     record: dict[str, object] = {
         "schema": SCHEMA,
         "mode": args.mode,
+        "checks": args.checks,
         "provider_version": args.provider_version or None,
         "biome_exit_code": None,
     }
@@ -146,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     # not read them.
     try:
         completed = subprocess.run(  # noqa: S603 - verified absolute executable
-            [str(executable), "ci", "--reporter=github", "."],
+            [str(executable), "ci", "--reporter=github", *CHECKS[args.checks], "."],
             cwd=root,
             check=False,
         )

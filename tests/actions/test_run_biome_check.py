@@ -92,6 +92,66 @@ class RunBiomeCheckTests(unittest.TestCase):
         argv = (self.tmp / "argv").read_text(encoding="utf-8").split()
         self.assertEqual(["ci", "--reporter=github", "."], argv)
 
+    def test_format_and_lint_checks_only_disable_the_other_tools(self) -> None:
+        self._configured()
+        expected = {
+            "format": [
+                "--linter-enabled=false",
+                "--assist-enabled=false",
+                "--no-errors-on-unmatched",
+            ],
+            "lint": [
+                "--formatter-enabled=false",
+                "--assist-enabled=false",
+                "--no-errors-on-unmatched",
+            ],
+        }
+        for checks, flags in expected.items():
+            with self.subTest(checks=checks):
+                proc = self._run(
+                    "--mode",
+                    "blocking",
+                    "--checks",
+                    checks,
+                    "--executable",
+                    str(self._biome(1)),
+                )
+                self.assertEqual(1, proc.returncode, proc.stderr)
+                argv = (self.tmp / "argv").read_text(encoding="utf-8").split()
+                self.assertEqual(["ci", "--reporter=github", *flags, "."], argv)
+                self.assertFalse(any(a.endswith("=true") for a in argv))
+                self.assertEqual(checks, self._record()["checks"])
+                self.assertIn(
+                    f"### Biome {checks} (Core, blocking)",
+                    self.summary.read_text("utf-8"),
+                )
+
+    def test_formatting_findings_in_advisory_mode_never_fail(self) -> None:
+        self._configured()
+        proc = self._run(
+            "--mode",
+            "advisory",
+            "--checks",
+            "format",
+            "--executable",
+            str(self._biome(1)),
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertEqual("findings", self._record()["status"])
+
+    def test_unknown_checks_value_is_refused(self) -> None:
+        self._configured()
+        proc = self._run(
+            "--mode",
+            "blocking",
+            "--checks",
+            "style",
+            "--executable",
+            str(self._biome(0)),
+        )
+        self.assertEqual(2, proc.returncode)
+        self.assertIn("checks 'style' is not supported", proc.stderr)
+
     def test_findings_are_recorded_and_advisory_exits_zero(self) -> None:
         self._configured()
         proc = self._run(

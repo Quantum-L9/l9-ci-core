@@ -37,6 +37,7 @@ from l9_repo.stamp import (  # noqa: E402
     PROFILES,
     REQUIREMENTS_TOOLS,
     STAMP_RECORD_PATH,
+    classify_stamp,
     load_stamp_record,
     render_file,
     stamp,
@@ -262,6 +263,36 @@ class StampTests(unittest.TestCase):
 
     def test_absent_record_verifies_nothing(self) -> None:
         self.assertEqual((None, []), verify_stamp(self.root))
+        self.assertEqual((None, [], []), classify_stamp(self.root))
+
+    def test_classify_separates_local_edits_from_files_behind_core(self) -> None:
+        stamp(self.root, "python", REVISION)
+        record_path = self.root / STAMP_RECORD_PATH
+        record = json.loads(record_path.read_text())
+        # Behind: bytes unchanged since stamping (record digest matches), Core moved.
+        stale = b"# stamped by an earlier Core\n"
+        (self.root / "mypy.ini").write_bytes(stale)
+        record["files"]["mypy.ini"] = "sha256:" + hashlib.sha256(stale).hexdigest()
+        # Behind: Core added a file after this stamp.
+        del record["files"][".gitleaks.toml"]
+        (self.root / ".gitleaks.toml").unlink()
+        # Behind: the record is stale about bytes that are Core's.
+        del record["files"][".pre-commit-config.yaml"]
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        # Modified: edited after stamping; removed after stamping.
+        with (self.root / "ruff.toml").open("a", encoding="utf-8") as stream:
+            stream.write("# local edit\n")
+        (self.root / "pytest.ini").unlink()
+
+        _, modified, behind = classify_stamp(self.root)
+        self.assertEqual(
+            ["pytest.ini", "ruff.toml"], sorted(item.split(":")[0] for item in modified)
+        )
+        self.assertEqual(
+            [".gitleaks.toml", ".pre-commit-config.yaml", "mypy.ini"],
+            sorted(item.split(":")[0] for item in behind),
+        )
+        self.assertEqual(sorted(modified + behind), sorted(verify_stamp(self.root)[1]))
 
     def test_stamp_refuses_short_revision_and_symlinked_destination(self) -> None:
         with self.assertRaises(ContractError):
