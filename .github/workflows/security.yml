@@ -240,7 +240,10 @@ jobs:
           # merge group or push audits only when it changes a dependency
           # manifest or lock. Every other event audits. A range that cannot be
           # read audits too: not running needs a positive proof.
-          is_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ ]]; }
+          is_sha() {
+            local candidate="$1"
+            [[ "${candidate}" =~ ^[0-9a-f]{40}$ ]]
+          }
           base=""
           head=""
           case "${EVENT_NAME:-}" in
