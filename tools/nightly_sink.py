@@ -168,11 +168,16 @@ def retired(
         for key, value in ((runs[0].get("tool") or {}).get("driver") or {}).items()
         if key in ("name", "informationUri", "version")
     }
-    empty = {
-        "version": first.get("version", "2.1.0"),
+    version = first.get("version", "2.1.0")
+    return {name: _empty_analysis(version, driver) for name in gone}
+
+
+def _empty_analysis(version: str, driver: Mapping[str, Any]) -> dict[str, Any]:
+    """A fresh SARIF log with one run and no results (never shared)."""
+    return {
+        "version": version,
         "runs": [{"tool": {"driver": {**driver, "rules": []}}, "results": []}],
     }
-    return dict.fromkeys(gone, empty)
 
 
 def _await_processing(

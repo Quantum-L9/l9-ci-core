@@ -217,6 +217,7 @@ class RetireTests(unittest.TestCase):
         ]
         retire = sink.retired(sink.open_alerts(github, REPO), self.tonight())
         self.assertEqual(["consumer-x", "typescript"], sorted(retire))
+        self.assertIsNot(retire["typescript"], retire["consumer-x"], "no shared state")
         run = retire["typescript"]["runs"][0]
         self.assertEqual([], run["results"])
         self.assertEqual(
