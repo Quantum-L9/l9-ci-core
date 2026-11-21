@@ -34,7 +34,8 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 # The workflows whose Core self-pins run on a required path: org-ci.yml is the
-# organization's required workflow (check `Analyze (central Core)` on every
+# organization's required workflow (the required check named in
+# .l9/org-runtime-contract.yaml entrypoint.required_check.name, on every
 # governed repository); analyze-semgrep.yml and publish-analysis.yml run Core's
 # own required `Analyze (semgrep)` check through self-analysis.yml; the
 # publish and normalize reusable workflows are what that path hands off to.
