@@ -179,7 +179,15 @@ class RenderTests(unittest.TestCase):
         for name, job in jobs.items():
             with self.subTest(job=name):
                 self.assertEqual({"contents": "read"}, job["permissions"])
-        self.assertEqual("${{ !cancelled() }}", jobs["verdict"]["if"])
+        self.assertEqual("${{ always() }}", jobs["verdict"]["if"])
+        env = next(
+            s for s in jobs["verdict"]["steps"] if s.get("name") == "Judge the canary"
+        )["env"]
+        for leg in ("head", "base", "admitted"):
+            self.assertEqual(
+                f"${{{{ needs.{leg}.result }}}}",
+                env[f"L9_CANARY_{leg.upper()}_RESULT"],
+            )
         self.assertEqual("Promotion canary (Core)", jobs["verdict"]["name"])
         self.assertEqual(["plan", "head", "admitted", "base"], jobs["verdict"]["needs"])
         for leg in ("head", "admitted", "base"):
@@ -250,27 +258,110 @@ class ReusableJobTests(unittest.TestCase):
             pc.reusable_jobs(self.org_ci),
         )
 
-    def test_each_leg_runs_the_security_job_ahead_of_analyze(self) -> None:
-        for side in ("head", "base"):
-            steps = leg_steps(self.workflow, side)
-            ids = [s.get("id") for s in steps]
-            names = [s.get("name") for s in steps]
-            result = ids.index("security__result")
-            checkout = names.index("Checkout immutable event revision")
-            self.assertLess(ids.index("security__gitleaks"), result)
-            self.assertLess(result, checkout)
-            enforce = next(
-                s
-                for s in steps
-                if str(s.get("name", "")).startswith("Enforce security")
-            )
-            self.assertEqual(
-                "${{ steps.security__result.outputs.result }}",
-                enforce["env"]["SECURITY_RESULT"],
-            )
+    def test_each_leg_runs_the_security_job_as_a_sibling_ahead_of_analyze(
+        self,
+    ) -> None:
+        jobs = yaml.safe_load(self.workflow)["jobs"]
+        self.assertEqual(
+            [
+                "plan",
+                "head__security",
+                "head",
+                "admitted__security",
+                "admitted",
+                "base__security",
+                "base",
+                "verdict",
+            ],
+            list(jobs),
+        )
+        for side, condition in (
+            ("head", pc.HEAD_IF),
+            ("admitted", pc.ADMITTED_IF),
+            ("base", pc.BASE_IF),
+        ):
+            with self.subTest(side=side):
+                sibling = jobs[f"{side}__security"]
+                self.assertEqual("plan", sibling["needs"])
+                self.assertEqual(condition, sibling["if"])
+                self.assertEqual({"contents": "read"}, sibling["permissions"])
+                self.assertIs(False, sibling["strategy"]["fail-fast"])
+                upload = sibling["steps"][-1]
+                self.assertEqual("always()", upload["if"])
+                self.assertEqual(
+                    f"canary-job-{side}-security-${{{{ matrix.slug }}}}",
+                    upload["with"]["name"],
+                )
+                self.assertEqual("error", upload["with"]["if-no-files-found"])
+                self.assertIn("${{ job.status }}", yaml.safe_dump(sibling["steps"][-2]))
+                leg = jobs[side]
+                self.assertEqual(["plan", f"{side}__security"], leg["needs"])
+                self.assertEqual(f"${{{{ !cancelled() && ({condition}) }}}}", leg["if"])
+                steps = leg["steps"]
+                ids = [s.get("id") for s in steps]
+                names = [s.get("name") for s in steps]
+                download = steps[0]
+                self.assertEqual(
+                    f"canary-job-{side}-security-${{{{ matrix.slug }}}}",
+                    download["with"]["pattern"],
+                )
+                self.assertNotIn("name", download["with"])
+                result = ids.index("security__result")
+                self.assertLess(
+                    result, names.index("Checkout immutable event revision")
+                )
+                enforce = next(
+                    s
+                    for s in steps
+                    if str(s.get("name", "")).startswith("Enforce security")
+                )
+                self.assertEqual(
+                    "${{ steps.security__result.outputs.result }}",
+                    enforce["env"]["SECURITY_RESULT"],
+                )
+                self.assertNotIn("security__gitleaks", ids)
+
+    def test_a_missing_or_unknown_sibling_result_reads_as_failure(self) -> None:
+        jobs = yaml.safe_load(self.workflow)["jobs"]
+        step = next(
+            s for s in jobs["head"]["steps"] if s.get("id") == "security__result"
+        )
+        script = step["run"]
+        with tempfile.TemporaryDirectory() as directory:
+            for written, expected in (
+                (None, "failure"),
+                ("", "failure"),
+                ("success", "success"),
+                ("failure", "failure"),
+                ("cancelled", "cancelled"),
+                ("skipped", "failure"),
+            ):
+                with self.subTest(written=written):
+                    temp = Path(directory, str(written))
+                    (temp / "canary-job").mkdir(parents=True)
+                    if written is not None:
+                        (temp / "canary-job" / "security.result").write_text(
+                            written + "\n", encoding="utf-8"
+                        )
+                    output = temp / "output"
+                    subprocess.run(
+                        ["bash", "-c", script],
+                        check=True,
+                        capture_output=True,
+                        env={
+                            "RUNNER_TEMP": str(temp),
+                            "GITHUB_OUTPUT": str(output),
+                            "PATH": "/usr/bin:/bin",
+                        },
+                    )
+                    self.assertEqual(
+                        f"result={expected}\n", output.read_text(encoding="utf-8")
+                    )
 
     def test_the_inlined_job_is_retargeted_and_isolated(self) -> None:
-        by_id = {s.get("id"): s for s in self.steps}
+        jobs = yaml.safe_load(self.workflow)["jobs"]
+        steps = jobs["head__security"]["steps"]
+        by_id = {s.get("id"): s for s in steps}
         checkout = by_id["security__s0"]
         self.assertEqual("${{ matrix.repository }}", checkout["with"]["repository"])
         self.assertEqual("${{ matrix.revision }}", checkout["with"]["ref"])
@@ -279,28 +370,17 @@ class ReusableJobTests(unittest.TestCase):
         self.assertEqual("${{ matrix.revision }}", gitleaks["EVENT_SHA"])
         self.assertEqual("", gitleaks["PUSH_BEFORE"])
         self.assertEqual("event", gitleaks["GITLEAKS_SCOPE"])
-        inlined = [
-            s for s in self.steps if str(s.get("id", "")).startswith("security__s")
-        ]
-        inlined += [by_id[k] for k in ("security__detect", "security__gitleaks")]
-        for step in inlined:
-            self.assertIs(True, step["continue-on-error"])
-        security = [
-            s for s in self.steps if str(s.get("id", "")).startswith("security__")
-        ]
-        text = yaml.safe_dump(security)
+        text = yaml.safe_dump(steps)
         self.assertNotRegex(text, r"\binputs\.")
         self.assertNotIn("github.event.", text)
-        self.assertNotIn("needs.security", yaml.safe_dump(self.steps))
-        clear = next(
-            s
-            for s in self.steps
-            if str(s.get("name", "")).startswith("Clear the workspace")
-        )
-        self.assertEqual("always()", clear["if"])
-        self.assertEqual(
-            60, yaml.safe_load(self.workflow)["jobs"]["head"]["timeout-minutes"]
-        )
+        self.assertNotIn("needs.security", yaml.safe_dump(jobs["head"]["steps"]))
+        self.assertEqual(pc.SIBLING_TIMEOUT, jobs["head__security"]["timeout-minutes"])
+        self.assertEqual(pc.LEG_TIMEOUT, jobs["head"]["timeout-minutes"])
+
+    def test_no_step_or_job_is_allowed_to_fail_open(self) -> None:
+        """Core forbids continue-on-error (test_workflow_integrity_clean)."""
+        for workflow in (self.workflow, (ROOT / pc.CANARY).read_text("utf-8")):
+            self.assertNotIn("continue-on-error", workflow)
 
     def test_the_check_reads_the_inlined_job_from_the_workflow_itself(self) -> None:
         head_part = self.workflow.split(pc.BASE_BEGIN, 1)[0]
@@ -595,6 +675,11 @@ class VerdictTests(unittest.TestCase):
             "L9_CANARY_BASE_DIGEST": DIGEST_A,
             "L9_CANARY_MATRIX": json.dumps({"include": self.legs}),
             "L9_CANARY_RECORDS": str(self.records),
+            # A leg job is red exactly when its org-ci run is red; the verdict
+            # judges either from the records.
+            "L9_CANARY_HEAD_RESULT": "failure",
+            "L9_CANARY_BASE_RESULT": "success",
+            "L9_CANARY_ADMITTED_RESULT": "success",
             **extra,
         }
 
@@ -714,6 +799,49 @@ class VerdictTests(unittest.TestCase):
         passed, report = pc.judge(self.env())
         self.assertFalse(passed)
         self.assertTrue(any("other steps than the plan" in line for line in report))
+
+    def test_a_red_org_ci_run_is_a_red_leg_and_the_verdict_blocks(self) -> None:
+        """No continue-on-error: a red org-ci run fails its leg job; the record
+        says why and the verdict, the only gate, blocks the regression."""
+        canary = (ROOT / pc.CANARY).read_text(encoding="utf-8")
+        self.assertNotIn("continue-on-error", canary)
+        self.both("pass", "findings", head_blocking=("f1",))
+        passed, report = pc.judge(self.env(L9_CANARY_HEAD_RESULT="failure"))
+        self.assertFalse(passed)
+        self.assertTrue(any("regression: pass -> findings" in r for r in report))
+
+    def test_a_leg_without_a_record_blocks(self) -> None:
+        canary = (ROOT / pc.CANARY).read_text(encoding="utf-8")
+        for side in ("head", "admitted", "base"):
+            upload = next(
+                s
+                for s in yaml.safe_load(canary)["jobs"][side]["steps"]
+                if s.get("name") == "Upload the canary leg record"
+            )
+            self.assertEqual("always()", upload["if"])
+            self.assertEqual("error", upload["with"]["if-no-files-found"])
+        self.both("pass", "pass")
+        (self.records / "head-x.json").unlink()
+        passed, report = pc.judge(self.env(L9_CANARY_HEAD_RESULT="failure"))
+        self.assertFalse(passed)
+        self.assertTrue(any("no pull-request leg record" in r for r in report))
+
+    def test_a_cancelled_or_unrun_leg_is_incomplete_and_blocks(self) -> None:
+        self.both("pass", "pass")
+        for side in ("HEAD", "BASE"):
+            for result in ("cancelled", "skipped", ""):
+                with self.subTest(side=side, result=result):
+                    passed, report = pc.judge(
+                        self.env(**{f"L9_CANARY_{side}_RESULT": result})
+                    )
+                    self.assertFalse(passed)
+                    self.assertIn("incomplete", report[0])
+        # A base leg that is not planned is not required.
+        for leg in self.legs:
+            self.record("head", leg, "pass", digest=DIGEST_A)
+        self.assertTrue(
+            pc.judge(self.env(differential=False, L9_CANARY_BASE_RESULT="skipped"))[0]
+        )
 
     def test_the_leg_record_classifies_the_failure(self) -> None:
         canary = (ROOT / pc.CANARY).read_text(encoding="utf-8")
