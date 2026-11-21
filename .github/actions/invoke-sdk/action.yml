@@ -55,6 +55,20 @@ inputs:
   policy:
     description: Optional SDK policy path.
     required: false
+  waivers:
+    description: >
+      Optional central finding-waiver ledger (resolve-governance
+      `finding-waivers`) for semgrep-run and semgrep-normalize. Must be an
+      absolute file outside GITHUB_WORKSPACE. Omit to pass no ledger.
+    required: false
+  waiver-repository:
+    description: >
+      Repository <owner>/<name> whose findings are judged against the ledger.
+      Required with waivers, refused without it.
+    required: false
+  waiver-date:
+    description: Optional YYYY-MM-DD day waiver expiry is judged on.
+    required: false
   generated-at:
     description: Optional deterministic generation timestamp.
     required: false
@@ -102,6 +116,9 @@ runs:
         L9_PROVIDER_VERSION: ${{ inputs.provider-version }}
         L9_IDENTITY_MAP: ${{ inputs.identity-map }}
         L9_POLICY: ${{ inputs.policy }}
+        L9_WAIVERS: ${{ inputs.waivers }}
+        L9_WAIVER_REPOSITORY: ${{ inputs.waiver-repository }}
+        L9_WAIVER_DATE: ${{ inputs.waiver-date }}
         L9_GENERATED_AT: ${{ inputs.generated-at }}
         L9_REVISION: ${{ inputs.revision }}
         L9_STRICT: ${{ inputs.strict }}

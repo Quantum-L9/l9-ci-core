@@ -1721,3 +1721,43 @@ edges and a floating `@main`), a `workflow_dispatch` of main's copy (it needs
   forbids. Both are fixed here.
 
 Tests: `tests/workflows/test_promotion_canary.py`.
+
+## 42. Core owns the central finding-waiver ledger (2026-11-21) — step one of N1e-LEDGER
+
+Required Semgrep rules accept no inline `nosemgrep` and no consumer ignore
+(l9-ci-sdk #128). A required finding can now be waived only by an entry in
+Core's ledger, `.github/actions/resolve-governance/finding-waivers.yaml`
+(`l9.finding-waivers/v1`, l9-ci-sdk #138). The SDK owns what an entry means:
+it matches one exact finding by repository, provider, provider rule ID, path,
+`Finding.fingerprint` and `source_sha256`, never a rule or a line number. It
+applies only from `created` through `expires`, and its only effect is to turn
+a `blocking` classification into `advisory`. Core owns the file, its review,
+and getting it to the SDK.
+
+- **Resolve.** `resolve-governance` checks only the transport envelope: a JSON
+  object holding exactly `schema` and `waivers`, the right schema, and entries
+  with unique string ids. Anything else fails closed. It stages the ledger in
+  `RUNNER_TEMP`, never the workspace, because the SDK refuses a ledger inside
+  `--root` and Core scans with `--root` at the workspace. It emits the
+  absolute path as `finding-waivers`. The ledger's bytes are now part of the
+  governance digest.
+- **Invoke.** `invoke-sdk` takes `waivers`, `waiver-repository` and
+  `waiver-date` for `semgrep-run` and `semgrep-normalize`. It forwards them as
+  `--waivers`, `--repository` and `--waiver-date`, and only when a ledger is
+  set. The ledger must be an absolute regular file outside
+  `GITHUB_WORKSPACE`. A repository or a date without a ledger is refused.
+- **Inert until step two.** Core's pinned SDK has no `--waivers`, so
+  `org-ci.yml` does not pass the ledger yet. Step two (§16) advances the pins
+  to an admitted SDK revision that contains #138 and wires `waivers` into the
+  primary semgrep run and every required instance. `waiver-repository` must be
+  the analysed repository, which in a canary leg is `matrix.repository`, not
+  `GITHUB_REPOSITORY`.
+- **Entries.** Every entry has an owner, a reason and an expiry. The first
+  two entries waive the same call in `l9_ci/providers/semgrep/provider.py`:
+  once at its main location (line 153), once where l9-ci-sdk #139 moved it
+  (line 169). The rule is Django's `subprocess-injection`, applied to code
+  that is not Django. l9-ci-sdk #141 fixes it; remove both entries when Core
+  pins #141.
+
+Tests: `tests/governance/test_finding_waiver_ledger.py`,
+`tests/invocation/test_invoke_sdk_finding_waivers.py`.

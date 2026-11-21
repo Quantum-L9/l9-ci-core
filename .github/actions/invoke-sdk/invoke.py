@@ -2,7 +2,9 @@
 """Safe public-CLI adapter for l9-ci-sdk."""
 
 from __future__ import annotations
+import datetime as dt
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +22,10 @@ DIRTY_VALUES = {"true", "false", "unset"}
 # Languages the SDK-owned packaged Semgrep ruleset supports. Core selects one;
 # it never authors --config lists (the SDK owns ruleset selection).
 SEMGREP_LANGUAGES = {"python", "typescript"}
+# Repository identity the SDK keys a finding waiver on (<owner>/<name>).
+REPOSITORY_PATTERN = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$"
+)
 
 
 class InvocationError(RuntimeError):
@@ -98,6 +104,42 @@ def add_optional_path(
         )
 
 
+def add_finding_waivers(command: list[str]) -> None:
+    """Pass the central finding-waiver ledger, or nothing.
+
+    The ledger is Core's (resolve-governance `finding-waivers`), so it must be
+    an absolute regular file outside GITHUB_WORKSPACE: the SDK refuses one
+    inside --root, and a path inside the workspace would let the consumer
+    supply its own. `waiver-repository` names the repository the findings
+    belong to and is required with a ledger and refused without one.
+    """
+    ledger_value = env("L9_WAIVERS")
+    repository = env("L9_WAIVER_REPOSITORY")
+    waiver_date = env("L9_WAIVER_DATE")
+    if not ledger_value:
+        if repository or waiver_date:
+            raise InvocationError("waiver-repository and waiver-date require waivers")
+        return
+    supplied = Path(ledger_value)
+    if not supplied.is_absolute():
+        raise InvocationError("waivers must be an absolute path")
+    if supplied.is_symlink() or not supplied.is_file():
+        raise InvocationError(f"waivers must be a regular file: {supplied}")
+    ledger = supplied.resolve()
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd())).resolve()
+    if ledger.is_relative_to(workspace):
+        raise InvocationError("waivers must be outside GITHUB_WORKSPACE")
+    if not REPOSITORY_PATTERN.fullmatch(repository):
+        raise InvocationError("waiver-repository must be <owner>/<name>")
+    command.extend(["--waivers", str(ledger), "--repository", repository])
+    if waiver_date:
+        try:
+            dt.date.fromisoformat(waiver_date)
+        except ValueError as error:
+            raise InvocationError("waiver-date must be YYYY-MM-DD") from error
+        command.extend(["--waiver-date", waiver_date])
+
+
 def parse_boolean(value: str, label: str) -> bool:
     if value not in BOOLEAN_VALUES:
         raise InvocationError(f"{label} must be true or false")
@@ -174,6 +216,7 @@ def build_command(executable: Path) -> list[str]:
             env("L9_POLICY"),
             "policy",
         )
+        add_finding_waivers(command)
         generated_at = env("L9_GENERATED_AT")
         if generated_at:
             command.extend(["--generated-at", generated_at])
@@ -249,6 +292,7 @@ def build_command(executable: Path) -> list[str]:
             env("L9_POLICY"),
             "policy",
         )
+        add_finding_waivers(command)
         generated_at = env("L9_GENERATED_AT")
         if generated_at:
             command.extend(["--generated-at", generated_at])
