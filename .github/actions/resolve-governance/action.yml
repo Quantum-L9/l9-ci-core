@@ -45,6 +45,12 @@ outputs:
     value: ${{ steps.resolve.outputs.identity-map-directory }}
   waiver-ids:
     value: ${{ steps.resolve.outputs.waiver-ids }}
+  finding-waivers:
+    description: >
+      Absolute path of the central finding-waiver ledger
+      (l9.finding-waivers/v1), staged outside GITHUB_WORKSPACE because the SDK
+      refuses a ledger inside --root. Pass it to invoke-sdk `waivers`.
+    value: ${{ steps.resolve.outputs.finding-waivers }}
   governance-digest:
     value: ${{ steps.resolve.outputs.governance-digest }}
 runs:

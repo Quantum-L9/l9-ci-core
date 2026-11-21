@@ -1722,6 +1722,45 @@ edges and a floating `@main`), a `workflow_dispatch` of main's copy (it needs
 
 Tests: `tests/workflows/test_promotion_canary.py`.
 
+## 42. Core owns the central finding-waiver ledger (2026-11-21) — step one of N1e-LEDGER
+
+Required Semgrep rules accept no inline `nosemgrep` and no consumer ignore
+(l9-ci-sdk #128). A required finding can now be waived only by an entry in
+Core's ledger, `.github/actions/resolve-governance/finding-waivers.yaml`
+(`l9.finding-waivers/v1`, l9-ci-sdk #138). The SDK owns what an entry means:
+it matches one exact finding by repository, provider, provider rule ID, path,
+`Finding.fingerprint` and `source_sha256`, never a rule or a line number. It
+applies only from `created` through `expires`, and its only effect is to turn
+a `blocking` classification into `advisory`. Core owns the file, its review,
+and getting it to the SDK.
+
+- **Resolve.** `resolve-governance` checks only the transport envelope: a JSON
+  object holding exactly `schema` and `waivers`, the right schema, and entries
+  with unique string ids. Anything else fails closed. It stages the ledger in
+  `RUNNER_TEMP`, never the workspace, because the SDK refuses a ledger inside
+  `--root` and Core scans with `--root` at the workspace. It emits the
+  absolute path as `finding-waivers`. The ledger's bytes are now part of the
+  governance digest.
+- **Invoke.** `invoke-sdk` takes `waivers`, `waiver-repository` and
+  `waiver-date` for `semgrep-run` and `semgrep-normalize`. It forwards them as
+  `--waivers`, `--repository` and `--waiver-date`, and only when a ledger is
+  set. The ledger must be an absolute regular file outside
+  `GITHUB_WORKSPACE`. A repository or a date without a ledger is refused.
+- **Inert until step two.** Core's pinned SDK has no `--waivers`, so
+  `org-ci.yml` does not pass the ledger yet. Step two (§16) advances the pins
+  to an admitted SDK revision that contains #138 and wires `waivers` into the
+  primary semgrep run and every required instance. `waiver-repository` must be
+  the analysed repository, which in a canary leg is `matrix.repository`, not
+  `GITHUB_REPOSITORY`.
+- **Entries.** The ledger ships empty. Its first planned entry, Django's
+  `subprocess-injection` rule applied to code in l9-ci-sdk that is not Django,
+  was made unnecessary when l9-ci-sdk #141 merged (the SDK applies Django
+  rules only where it detects Django). Each entry needs an owner, a reason and
+  an expiry, and is removed once the fix it stands in for is pinned.
+
+Tests: `tests/governance/test_finding_waiver_ledger.py`,
+`tests/invocation/test_invoke_sdk_finding_waivers.py`.
+
 ## 43. SDK `2796d7a4` activation, and the canary runs the revision a pull request admits (2026-11-21) — amends §40, §41
 
 **Activation (PIN-ADVANCE-1, #315 and #316).** Step one (#315, merged as
@@ -1773,3 +1812,49 @@ default revision does not move what `org-ci.yml` runs.
 
 Tests: `tests/workflows/test_promotion_canary.py` (`AdmittedLegTests`,
 `AdmittedVerdictTests`).
+
+## 44. CENTRAL-DIFF: findings are judged by what a run brings in (2026-11-21) — PIN-ADVANCE-3
+
+Step one (#323, merged as `284a5eb6`) admitted l9-ci-sdk `4a887396`, and
+step two activates it. It brings #144 (CENTRAL-DIFF: `semgrep run
+--baseline-commit` classifies findings new or pre-existing, SDK ADR 0023),
+#138 (the finding-waiver ledger, §42), #136 (B3: `semgrep consumer-run`, SDK
+ADR 0021) and #134 (tests in required scope).
+
+- **Baseline (operator decision 2026-11-21, row 23).** A run judges only the
+  code it brings in, and only nightly judges the whole tree.
+  - The `baseline` step passes the evaluated revision's first parent for the
+    event classes `pull_request`, `merge` and `push`. On a pull request or
+    merge group that revision is GitHub's merge commit, whose first parent is
+    the target tip (the merge-base, or the group's base). On a push it is the
+    previous tip.
+  - `nightly`, `release` and `supply_chain` pass no baseline, so the whole
+    tree is judged by policy alone.
+  - A baseline that does not resolve blocks the job.
+  - This supersedes SDK ADR 0023's "omit the option on a push to the default
+    branch" for Core. The SDK-side amendment to that ADR belongs in
+    l9-ci-sdk.
+- **Effect.** A pre-existing blocking finding is reported as advisory. Only
+  new blocking findings and incomplete results fail. #134's pre-existing test
+  findings (row 26: SDK 104, CEG 91, EIE 19) therefore warn.
+  - The advisory step `Report CENTRAL-DIFF pre-existing findings (advisory)`
+    prints each bundle's `baseline <sha>: N new, M pre-existing …` count.
+  - The SDK fails closed on tracked changes, so the `baseline` step names any
+    tracked file that differs from HEAD before the scan.
+- **Ledger.** `resolve-governance` stages `finding-waivers.yaml` in
+  `RUNNER_TEMP`. The primary run and every instance run pass `--waivers` and
+  `--repository` with it.
+- **Consumer rulepack (B3).**
+  - The inventory runs with `--consumer-rules`.
+  - The planner executes `consumer:*` targets, and a declared consumer
+    rulepack is a required instance.
+  - The instance runner runs it as `semgrep consumer-run`, its own execution
+    and bundle. Its gate result is aggregated like a language's.
+  - The baseline is not applied to it.
+- **Canary.** The head leg is the acceptance run. #317's admitted leg would
+  have judged `4a887396` without this wiring had step one made it the default,
+  which is why it was admitted as supported but not default.
+
+Tests: `tests/workflows/test_org_ci_required_instances.py`,
+`tests/invocation/test_invoke_sdk_baseline_consumer.py`,
+`tests/actions/test_plan_required_instances.py`.

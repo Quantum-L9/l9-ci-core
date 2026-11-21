@@ -44,6 +44,7 @@ Classes:
 | Run repository verification contract | PLUMBING | Records the result; the enforce step below decides |
 | Inventory apt package archives | PLUMBING | |
 | Save apt package archives | PLUMBING | |
+| Resolve the baseline commit (CENTRAL-DIFF) | PLUMBING | Names the commit findings are classified against (SDK ADR 0023); an unresolvable baseline fails closed in the SDK, so the gate is INCOMPLETE, never PASS |
 | Set up locked Python for the central toolchain | PLUMBING | |
 | Install Semgrep (hash-locked central pin) | PLUMBING | |
 | Run + normalize Semgrep (SDK) | PLUMBING | Findings are judged by the technical gate |
@@ -51,12 +52,14 @@ Classes:
 | Evaluate SDK technical gate | PLUMBING | Records the gate status; the enforce step decides |
 | Run every planned instance (SDK) | PLUMBING | An instance that cannot conclude is reported incomplete |
 | Aggregate required instances (Core) | PLUMBING | Records pass, fail or incomplete for every required instance; the enforce step decides |
+| Report CENTRAL-DIFF pre-existing findings (advisory) | HOUSEKEEPING | Warns with the SDK's new / pre-existing counts; it changes no verdict, only new blocking findings and incomplete results fail through the gate |
 | Project agent-review payload | PLUMBING | |
 | Project SARIF (SDK-owned) | PLUMBING | |
 | Route artifacts | PLUMBING | |
 | Stage technical gate result | PLUMBING | |
 | Build artifact manifest | PLUMBING | |
 | Upload analysis artifact set | PLUMBING | |
+| Upload instance bundles | PLUMBING | Uploads every planned instance's bundle (secondary languages, the consumer rulepack) beside the central set (SDK ADR 0021) |
 | Create artifact handoff descriptor | PLUMBING | |
 | Write central CI summary | PLUMBING | |
 | Report toolchain alignment drift (advisory) | HOUSEKEEPING | One `::warning` per drifting declaration and a summary line; runs with `always()` and has no failing exit (#302) |
