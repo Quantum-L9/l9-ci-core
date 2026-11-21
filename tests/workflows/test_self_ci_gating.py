@@ -99,7 +99,6 @@ UNIT_TEST_MODULES = (
     "tests/workflows/test_container_release_action.py",
     "tests/workflows/test_org_ci_apt_archive_cache.py",
     "tests/workflows/test_org_ci_base_retarget.py",
-    "tests/workflows/test_org_ci_central_diff_baseline.py",
     "tests/workflows/test_org_ci_event_resolution.py",
     "tests/workflows/test_org_ci_runtime_environment.py",
     "tests/workflows/test_org_ci_toolchain_steps.py",

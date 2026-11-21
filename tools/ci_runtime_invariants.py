@@ -28,6 +28,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / ".l9" / "governance-contract.yaml"
 CONTRACT_FIELD = "ci_runtime_invariants"
 ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
+# Semgrep's every-instance chain left the required check for the nightly scan
+# (operator decision 2026-11-21, docs/adr/0003-semgrep-runs-nightly.md).
+SCAN = ROOT / ".github" / "workflows" / "central-semgrep.yml"
 AGGREGATE_ACTION = ROOT / ".github" / "actions" / "aggregate-required-instances"
 CORE_ACTIONS = "Quantum-L9/l9-ci-core/.github/actions/"
 
@@ -70,7 +73,7 @@ class MissingCapability(RuntimeError):
 
 
 def _schedules_every_instance(text: str) -> bool:
-    """The required job plans, runs, aggregates and enforces every instance."""
+    """The Semgrep scan plans, runs, aggregates and enforces every instance."""
     return all(
         marker in text
         for marker in (
@@ -127,12 +130,12 @@ CAPABILITIES: dict[str, Capability] = {
         Capability(
             name="required-instance-scheduling",
             detail=(
-                "org-ci.yml must inventory the snapshot, plan every SDK-selected "
-                "language and provider instance (plan-required-instances), run "
-                "each, and enforce aggregate-required-instances at a pinned Core "
-                "revision"
+                "central-semgrep.yml (the nightly Semgrep scan) must inventory "
+                "the snapshot, plan every SDK-selected language and provider "
+                "instance (plan-required-instances), run each, and enforce "
+                "aggregate-required-instances at a pinned Core revision"
             ),
-            present=lambda: _schedules_every_instance(_read(ORG_CI)),
+            present=lambda: _schedules_every_instance(_read(SCAN)),
         ),
         Capability(
             name="inherited-configuration-digest",

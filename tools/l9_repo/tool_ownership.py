@@ -102,7 +102,11 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
     "python": {
         "configs": (".python-version",),
         "runs": (
-            ("org-ci.yml", "analyze", "Set up locked Python for the central toolchain"),
+            (
+                "central-semgrep.yml",
+                "analyze",
+                "Set up locked Python for the central toolchain",
+            ),
         ),
     },
     "ruff": {
@@ -121,8 +125,12 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
     "semgrep": {
         "configs": (),
         "runs": (
-            ("org-ci.yml", "analyze", "Install Semgrep (hash-locked central pin)"),
-            ("org-ci.yml", "analyze", "Run + normalize Semgrep (SDK)"),
+            (
+                "central-semgrep.yml",
+                "analyze",
+                "Install Semgrep (hash-locked central pin)",
+            ),
+            ("central-semgrep.yml", "analyze", "Run + normalize Semgrep (SDK)"),
         ),
     },
 }

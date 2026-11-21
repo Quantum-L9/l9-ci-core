@@ -49,6 +49,9 @@ def write_admission(root: Path) -> None:
 
 
 ORG_CI_TEXT = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
+# The central Semgrep scan (docs/adr/0003-semgrep-runs-nightly.md): the scan
+# legs and the admitted leg render it.
+SCAN_TEXT = (ROOT / pc.SCAN).read_text(encoding="utf-8")
 # org-ci.yml calls security.yml at a pinned revision (#312). Tests read the pin
 # from org-ci.yml itself, not through the tool under test.
 SECURITY_SHA = re.search(
@@ -110,7 +113,9 @@ class RenderTests(unittest.TestCase):
         # This is how `render --check` reads it, without git history.
         head_part = self.canary.split(pc.BASE_BEGIN, 1)[0]
         provider = pc.embedded_provider(head_part)
-        self.assertEqual(pc.render(self.org_ci, base, provider, ADMISSION), self.canary)
+        self.assertEqual(
+            pc.render(self.org_ci, base, provider, ADMISSION, SCAN_TEXT), self.canary
+        )
         with redirect_stdout(io.StringIO()):
             self.assertEqual(0, pc.main(["--root", str(ROOT), "render", "--check"]))
 
@@ -151,7 +156,9 @@ class RenderTests(unittest.TestCase):
         block = pc.base_block(self.org_ci, security_provider)
         self.assertTrue(block.startswith(pc.BASE_BEGIN))
         self.assertTrue(block.endswith(pc.BASE_END))
-        rendered = pc.render(self.org_ci, block, security_provider, ADMISSION)
+        rendered = pc.render(
+            self.org_ci, block, security_provider, ADMISSION, SCAN_TEXT
+        )
         head = leg_steps(rendered, "head")
         base = leg_steps(rendered, "base")
         self.assertEqual(len(head), len(base))
@@ -194,6 +201,7 @@ class RenderTests(unittest.TestCase):
             root = Path(tmp)
             (root / pc.ORG_CI).parent.mkdir(parents=True)
             (root / pc.ORG_CI).write_text(self.org_ci, encoding="utf-8")
+            (root / pc.SCAN).write_text(SCAN_TEXT, encoding="utf-8")
             write_admission(root)
             (root / pc.CANARY).write_text(self.canary + "# drift\n", encoding="utf-8")
             with redirect_stderr(io.StringIO()):
@@ -209,15 +217,19 @@ class RenderTests(unittest.TestCase):
         # head and admitted from this org-ci.yml, base from the base org-ci.yml.
         own = [name for name, *_ in pc.reusable_jobs(self.org_ci)]
         base_siblings = [job for job in jobs if job.startswith("base__")]
+        scanbase_siblings = [job for job in jobs if job.startswith("scanbase__")]
         self.assertEqual(
             [
                 "plan",
                 *[f"head__{name}" for name in own],
                 "head",
-                *[f"admitted__{name}" for name in own],
+                # central-semgrep.yml has no reusable job: no scan siblings.
+                "scan",
                 "admitted",
                 *base_siblings,
                 "base",
+                *scanbase_siblings,
+                "scanbase",
                 "verdict",
             ],
             list(jobs),
@@ -229,25 +241,31 @@ class RenderTests(unittest.TestCase):
         env = next(
             s for s in jobs["verdict"]["steps"] if s.get("name") == "Judge the canary"
         )["env"]
-        for leg in ("head", "base", "admitted"):
+        for leg in ("head", "base", "admitted", "scan", "scanbase"):
             self.assertEqual(
                 f"${{{{ needs.{leg}.result }}}}",
                 env[f"L9_CANARY_{leg.upper()}_RESULT"],
             )
+        self.assertEqual("${{ needs.plan.outputs.scan }}", env["L9_CANARY_SCAN"])
         self.assertEqual(
             f"${{{{ ({pc.TEXT_EDIT}) && 'Promotion canary (text edit, no verdict)'"
             " || 'Promotion canary (Core)' }}",
             jobs["verdict"]["name"],
         )
-        self.assertEqual(["plan", "head", "admitted", "base"], jobs["verdict"]["needs"])
-        for leg in ("head", "admitted", "base"):
+        self.assertEqual(
+            ["plan", "head", "scan", "admitted", "base", "scanbase"],
+            jobs["verdict"]["needs"],
+        )
+        for leg in ("head", "scan", "admitted", "base", "scanbase"):
             self.assertIs(False, jobs[leg]["strategy"]["fail-fast"])
         # A leg with sibling jobs needs them and runs whatever they concluded
         # (org-ci.yml enforces their results inside the leg); without
         # siblings it needs only the plan.
         for leg, condition in (
             ("head", pc.HEAD_IF),
+            ("scan", pc.HEAD_IF),
             ("base", pc.BASE_IF),
+            ("scanbase", pc.BASE_IF),
             ("admitted", pc.ADMITTED_IF),
         ):
             with self.subTest(leg=leg):
@@ -347,9 +365,15 @@ class ConsumerEventTests(unittest.TestCase):
         )
 
     def test_org_ci_runs_its_own_event_and_carries_every_optional_anchor(self) -> None:
+        # The merge-group base belonged to the CENTRAL-DIFF baseline, which left
+        # with Semgrep (ADR 0003): only an older base leg carries it now.
+        retired = "${{ github.event.merge_group.base_sha }}"
         for old, _ in pc.OPTIONAL_REPLACEMENTS:
             with self.subTest(anchor=old):
-                self.assertIn(old, self.org_ci)
+                if old == retired:
+                    self.assertNotIn(old, self.org_ci + SCAN_TEXT)
+                else:
+                    self.assertIn(old, self.org_ci + SCAN_TEXT)
         data = yaml.safe_load(self.org_ci)
         step = next(
             s
@@ -368,9 +392,11 @@ class ConsumerEventTests(unittest.TestCase):
             pc.base_block(self.org_ci, security_provider),
             security_provider,
             ADMISSION,
+            SCAN_TEXT,
         )
-        cases = [(committed, "head"), (committed, "admitted")]
-        cases += [(rendered, side) for side in ("head", "admitted", "base")]
+        # Only the org-ci legs verify the consumer; the scan legs run no make.
+        cases = [(committed, "head"), (committed, "base"), (committed, "scanbase")]
+        cases += [(rendered, side) for side in ("head", "base")]
         for workflow, side in cases:
             with self.subTest(side=side):
                 inputs = self.verify_step(workflow, side)["with"]
@@ -383,14 +409,20 @@ class ConsumerEventTests(unittest.TestCase):
             pc.base_block(self.org_ci, security_provider),
             security_provider,
             ADMISSION,
+            SCAN_TEXT,
         )
-        for side in ("head", "admitted", "base"):
-            step = next(
-                s
-                for s in yaml.safe_load(rendered)["jobs"][side]["steps"]
-                if s.get("id") == "baseline"
-            )
-            self.assertEqual("", step["env"]["MERGE_GROUP_BASE"])
+        # The baseline left with Semgrep (ADR 0003); a base leg rendered from
+        # an older org-ci.yml still carries it, never with a merge-group base.
+        committed = (ROOT / pc.CANARY).read_text(encoding="utf-8")
+        for workflow in (rendered, committed):
+            jobs = yaml.safe_load(workflow)["jobs"]
+            for side, job in jobs.items():
+                for step in job.get("steps", []):
+                    if step.get("id") == "baseline":
+                        with self.subTest(side=side):
+                            self.assertEqual("", step["env"]["MERGE_GROUP_BASE"])
+            for side in ("head", "scan", "admitted"):
+                self.assertNotIn("id: baseline", yaml.safe_dump(jobs[side]))
 
 
 class ReusableJobTests(unittest.TestCase):
@@ -403,6 +435,7 @@ class ReusableJobTests(unittest.TestCase):
             pc.base_block(self.org_ci, security_provider),
             security_provider,
             ADMISSION,
+            SCAN_TEXT,
         )
         self.steps = leg_steps(self.workflow, "head")
 
@@ -428,7 +461,9 @@ class ReusableJobTests(unittest.TestCase):
                 "plan",
                 "head__security",
                 "head",
-                "admitted__security",
+                # The scan legs run central-semgrep.yml, which has no sibling
+                # job; the admitted leg is a scan leg.
+                "scan",
                 "admitted",
                 "base__security",
                 "base",
@@ -438,7 +473,6 @@ class ReusableJobTests(unittest.TestCase):
         )
         for side, condition in (
             ("head", pc.HEAD_IF),
-            ("admitted", pc.ADMITTED_IF),
             ("base", pc.BASE_IF),
         ):
             with self.subTest(side=side):
@@ -552,6 +586,7 @@ class ReusableJobTests(unittest.TestCase):
                 pc.embedded_base(self.workflow),
                 pc.embedded_provider(head_part),
                 ADMISSION,
+                SCAN_TEXT,
             ),
         )
         provide = pc.embedded_provider("")
@@ -659,13 +694,15 @@ class PlanTests(unittest.TestCase):
             (ROOT / pc.DECLARATION).read_text("utf-8"), encoding="utf-8"
         )
         (root / pc.ORG_CI).write_text(self.org_ci, encoding="utf-8")
+        (root / pc.SCAN).write_text(SCAN_TEXT, encoding="utf-8")
         write_admission(root)
         (root / pc.CANARY).write_text(
             pc.render(
                 self.org_ci,
-                pc.base_block(self.org_ci, security_provider),
+                pc.base_block(self.org_ci, security_provider, SCAN_TEXT),
                 security_provider,
                 ADMISSION,
+                SCAN_TEXT,
             ),
             encoding="utf-8",
         )
@@ -676,9 +713,10 @@ class PlanTests(unittest.TestCase):
         (root / pc.CANARY).write_text(
             pc.render(
                 head_org_ci,
-                pc.base_block(embedded_from, security_provider),
+                pc.base_block(embedded_from, security_provider, SCAN_TEXT),
                 security_provider,
                 ADMISSION,
+                SCAN_TEXT,
             ),
             encoding="utf-8",
         )
@@ -701,7 +739,8 @@ class PlanTests(unittest.TestCase):
         )
 
     def test_watched_paths_cover_org_ci_and_every_action_it_calls(self) -> None:
-        actions = pc.core_action_paths(self.org_ci)
+        actions = pc.core_action_paths(self.org_ci + SCAN_TEXT)
+        self.assertIn(str(pc.SCAN), pc.STATIC_PATHS)
         self.assertIn(".github/actions/run-repository-verification/", actions)
         self.assertIn(".github/actions/provision-sdk/", actions)
         self.assertEqual(
@@ -740,8 +779,10 @@ class PlanTests(unittest.TestCase):
         self.assertEqual("true", values["applies"])
         self.assertEqual("true", values["differential"])
         self.assertEqual("true", values["base-current"])
-        self.assertEqual(pc.steps_digest(self.org_ci), values["base-digest"])
-        self.assertEqual(pc.steps_digest(self.changed), values["head-digest"])
+        self.assertEqual(pc.steps_digest(self.org_ci, SCAN_TEXT), values["base-digest"])
+        self.assertEqual(
+            pc.steps_digest(self.changed, SCAN_TEXT), values["head-digest"]
+        )
         legs = json.loads(values["matrix"])["include"]
         self.assertEqual(5, len(legs))
 
@@ -788,6 +829,7 @@ class PlanTests(unittest.TestCase):
                 (ROOT / pc.DECLARATION).read_text("utf-8"), encoding="utf-8"
             )
             (root / pc.ORG_CI).write_text(self.org_ci, encoding="utf-8")
+            (root / pc.SCAN).write_text(SCAN_TEXT, encoding="utf-8")
             with redirect_stderr(io.StringIO()):
                 self.assertEqual(2, pc.main(["--root", tmp, "plan"]))
 
@@ -1042,7 +1084,8 @@ class VerdictTests(unittest.TestCase):
             self.assertIn(f'status = "{status}"', record)
         self.assertIn("blocking_finding_ids", record)
         self.assertIn(
-            f"DIGEST: {pc.steps_digest((ROOT / pc.ORG_CI).read_text('utf-8'))}", record
+            f"DIGEST: {pc.steps_digest((ROOT / pc.ORG_CI).read_text('utf-8'), SCAN_TEXT)}",
+            record,
         )
 
     def test_the_verdict_command_exit_codes(self) -> None:
@@ -1071,29 +1114,32 @@ class AdmittedLegTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.org_ci = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
+        # The SDK is provisioned only by the scan (ADR 0003).
+        self.scan = SCAN_TEXT
         self.canary = (ROOT / pc.CANARY).read_text(encoding="utf-8")
         self.jobs = yaml.safe_load(self.canary)["jobs"]
 
     def fallback(self) -> str:
-        return pc.SDK_FALLBACK.findall(self.org_ci)[0]
+        return pc.SDK_FALLBACK.findall(self.scan)[0]
 
-    def test_nothing_is_admitted_while_org_ci_runs_the_default(self) -> None:
+    def test_nothing_is_admitted_while_the_scan_runs_the_default(self) -> None:
         running = with_default(COMPATIBILITY, self.fallback())
-        self.assertEqual("", pc.admitted_revision(self.org_ci, running))
+        self.assertEqual("", pc.admitted_revision(self.scan, running))
+        self.assertEqual([], pc.SDK_FALLBACK.findall(self.org_ci))
 
     def test_a_new_default_is_the_admitted_revision(self) -> None:
         changed = with_default(COMPATIBILITY, ADMITTED)
-        self.assertEqual(ADMITTED, pc.admitted_revision(self.org_ci, changed))
+        self.assertEqual(ADMITTED, pc.admitted_revision(self.scan, changed))
 
     def test_an_unreadable_admission_is_refused(self) -> None:
         with self.assertRaisesRegex(pc.CanaryError, "one default revision"):
-            pc.admitted_revision(self.org_ci, "schema: x\n")
-        no_fallback = pc.SDK_FALLBACK.sub("''", self.org_ci)
+            pc.admitted_revision(self.scan, "schema: x\n")
+        no_fallback = pc.SDK_FALLBACK.sub("''", self.scan)
         with self.assertRaisesRegex(pc.CanaryError, "one sdk-revision fallback"):
             pc.admitted_revision(no_fallback, COMPATIBILITY)
 
-    def test_the_admitted_leg_is_the_head_leg_but_for_provision_sdk(self) -> None:
-        head = self.jobs["head"]["steps"]
+    def test_the_admitted_leg_is_the_scan_leg_but_for_provision_sdk(self) -> None:
+        head = self.jobs["scan"]["steps"]
         admitted = self.jobs["admitted"]["steps"]
         index = next(i for i, s in enumerate(head) if s.get("id") == "sdk")
 
@@ -1101,8 +1147,8 @@ class AdmittedLegTests(unittest.TestCase):
             # Each leg names its own artifact set; nothing else may differ.
             return (
                 yaml.safe_dump(steps)
-                .replace("canary-admitted-", "canary-head-")
-                .replace("canary-job-admitted-", "canary-job-head-")
+                .replace("canary-admitted-", "canary-scan-")
+                .replace("canary-job-admitted-", "canary-job-scan-")
             )
 
         self.assertEqual(same(head[:index]), same(admitted[:index]))
@@ -1154,7 +1200,7 @@ class AdmittedLegTests(unittest.TestCase):
         self.assertFalse(pc.ADMISSION_ARTIFACT.startswith("promotion-canary-"))
 
     def test_an_unmappable_provisioner_is_refused(self) -> None:
-        analyze = pc.analyze_steps(self.org_ci)
+        analyze = pc.analyze_steps(self.scan)
         renamed = ADMISSION.replace(
             "steps.provision.outputs.contract", "steps.other.outputs.contract"
         )
@@ -1182,6 +1228,64 @@ class AdmittedLegTests(unittest.TestCase):
                 values = planner.plan(tmp)
                 self.assertEqual("true", values["applies"])
                 self.assertEqual(expected, values["admitted"])
+
+
+class ScanVerdictTests(VerdictTests):
+    """The nightly-scan legs (central-semgrep.yml, ADR 0003) are judged too."""
+
+    def scan(self, base: str, head: str, head_blocking: tuple[str, ...] = ()) -> None:
+        for leg in self.legs:
+            self.record("scanbase", leg, base, digest=DIGEST_A)
+            self.record("scan", leg, head, head_blocking, digest=DIGEST_B)
+
+    def scan_env(self, **extra: str) -> dict[str, str]:
+        values = {
+            "L9_CANARY_SCAN": "true",
+            "L9_CANARY_SCAN_RESULT": "success",
+            "L9_CANARY_SCANBASE_RESULT": "success",
+            **extra,
+        }
+        return self.env(**values)
+
+    def test_both_families_pass_and_both_tables_print(self) -> None:
+        self.both("pass", "pass")
+        self.scan("pass", "pass")
+        passed, report = pc.judge(self.scan_env())
+        self.assertTrue(passed, report)
+        self.assertIn("Required check (org-ci.yml):", report)
+        self.assertIn("Nightly Semgrep scan (central-semgrep.yml):", report)
+
+    def test_a_scan_regression_fails_although_the_required_check_passes(self) -> None:
+        self.both("pass", "pass")
+        self.scan("pass", "findings", head_blocking=("f1",))
+        passed, report = pc.judge(self.scan_env())
+        self.assertFalse(passed)
+        self.assertTrue(any("regression: pass -> findings" in r for r in report))
+
+    def test_a_scan_that_cannot_conclude_fails(self) -> None:
+        self.both("pass", "pass")
+        self.scan("pass", "incomplete")
+        self.assertFalse(pc.judge(self.scan_env())[0])
+
+    def test_missing_or_cancelled_scan_legs_block(self) -> None:
+        self.both("pass", "pass")
+        self.assertFalse(pc.judge(self.scan_env())[0], "no scan record")
+        self.scan("pass", "pass")
+        for job in ("SCAN", "SCANBASE"):
+            with self.subTest(job=job):
+                env = self.scan_env(**{f"L9_CANARY_{job}_RESULT": "cancelled"})
+                passed, report = pc.judge(env)
+                self.assertFalse(passed)
+                self.assertIn("incomplete", report[0])
+
+    def test_the_admitted_leg_is_judged_against_the_scan(self) -> None:
+        self.both("findings", "findings", base_blocking=("f1",), head_blocking=("f1",))
+        self.scan("pass", "pass")
+        for leg in self.legs:
+            self.record("admitted", leg, "findings", ("f9",), digest=DIGEST_B)
+        passed, report = pc.judge(self.scan_env(L9_CANARY_ADMITTED=ADMITTED))
+        self.assertFalse(passed)
+        self.assertTrue(any("| pass | findings | FAIL" in r for r in report))
 
 
 class AdmittedVerdictTests(VerdictTests):

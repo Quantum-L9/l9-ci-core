@@ -11,6 +11,8 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT_PATH = ROOT / ".l9" / "org-runtime-contract.yaml"
 ENTRYPOINT_PATH = ROOT / ".github" / "workflows" / "org-ci.yml"
+# Semgrep's central chain, off the required check (docs/adr/0003-semgrep-runs-nightly.md).
+SCAN_PATH = ROOT / ".github" / "workflows" / "central-semgrep.yml"
 CONSUMER_SCHEMA_PATH = ROOT / ".l9" / "ci-consumer.schema.json"
 PROFILES_PATH = (
     ROOT
@@ -148,7 +150,10 @@ class OrgRuntimeContractTests(unittest.TestCase):
         self.assertNotIn("governance-root", text)
 
     def test_entrypoint_composes_only_full_sha_core_primitives(self) -> None:
-        text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
+        """The entrypoint and the central scan compose one Core revision."""
+        text = ENTRYPOINT_PATH.read_text(encoding="utf-8") + SCAN_PATH.read_text(
+            encoding="utf-8"
+        )
         actions = (
             "resolve-consumer-metadata",
             "resolve-governance",
@@ -179,7 +184,8 @@ class OrgRuntimeContractTests(unittest.TestCase):
         self.assertNotIn("publish-analysis.yml@", text)
 
     def test_sdk_owns_capability_detection(self) -> None:
-        text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
+        text = SCAN_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("detect-language@", ENTRYPOINT_PATH.read_text("utf-8"))
         helper = (
             ROOT / ".github" / "actions" / "detect-language" / "detect.py"
         ).read_text(encoding="utf-8")
@@ -199,11 +205,24 @@ class OrgRuntimeContractTests(unittest.TestCase):
         )
 
     def test_blocking_gate_summary_precedes_enforcement(self) -> None:
-        text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
-        summary = text.index("name: Write central CI summary")
-        enforce = text.index("name: Enforce central mode on SDK technical gate")
-        self.assertLess(summary, enforce)
-        self.assertIn("if: always()", text[summary:enforce])
+        for path, summary_name, enforce_name in (
+            (
+                ENTRYPOINT_PATH,
+                "Write central CI summary",
+                "Enforce repository verification",
+            ),
+            (
+                SCAN_PATH,
+                "Write central Semgrep summary",
+                "Enforce central mode on SDK technical gate",
+            ),
+        ):
+            with self.subTest(workflow=path.name):
+                text = path.read_text(encoding="utf-8")
+                summary = text.index(f"name: {summary_name}")
+                enforce = text.index(f"name: {enforce_name}")
+                self.assertLess(summary, enforce)
+                self.assertIn("if: always()", text[summary:enforce])
 
     def test_required_workflow_has_no_write_scopes(self) -> None:
         text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
