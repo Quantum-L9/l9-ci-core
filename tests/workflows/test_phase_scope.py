@@ -70,6 +70,10 @@ EXPECTED_WORKFLOWS = {
     # rulesets target repositories and require this workflow directly;
     # consumers do not copy an L9 workflow or governance pack.
     "org-ci.yml",
+    # Core's promotion canary: generated from org-ci.yml's analyze job by
+    # tools/promotion_canary.py; runs a Core pull request's org-ci revision
+    # against the main heads in .l9/promotion-canary.json (AGENTS.md §40).
+    "promotion-canary.yml",
     # Read-only attestation of the live GitHub control plane against
     # .l9/release-plane.yaml (organization required-workflow binding,
     # Core main protection, immutable releases). Core-only governance
