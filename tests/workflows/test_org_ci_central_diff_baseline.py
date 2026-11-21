@@ -22,11 +22,20 @@ ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
 POLICY = "/runner/temp/policy.yaml"
 
 
-def baseline_step() -> dict[str, object]:
+RESTORE = "Restore the checkout history for the baseline scan (CENTRAL-DIFF)"
+
+
+def analyze_steps() -> list[dict[str, object]]:
     data = yaml.safe_load(ORG_CI.read_text(encoding="utf-8"))
-    return next(
-        s for s in data["jobs"]["analyze"]["steps"] if s.get("id") == "baseline"
-    )
+    return data["jobs"]["analyze"]["steps"]
+
+
+def baseline_step() -> dict[str, object]:
+    return next(s for s in analyze_steps() if s.get("id") == "baseline")
+
+
+def restore_step() -> dict[str, object]:
+    return next(s for s in analyze_steps() if s.get("name") == RESTORE)
 
 
 def git(root: Path, *args: str) -> str:
@@ -80,6 +89,7 @@ class BaselineStepTests(unittest.TestCase):
             "PATH": os.environ["PATH"],
             "HOME": self._tmp.name,
             "GITHUB_OUTPUT": str(self.output),
+            "RUNNER_TEMP": self._tmp.name,
             "EVENT_CLASS": event_class,
             "POLICY": policy,
             "MERGE_GROUP_BASE": merge_group_base,
@@ -149,29 +159,70 @@ class BaselineStepTests(unittest.TestCase):
         ids = [s.get("id") for s in data["jobs"]["analyze"]["steps"]]
         self.assertLess(ids.index("baseline"), ids.index("repository_verify"))
 
+    def reshallow(self) -> None:
+        """What Cursor-Governance's make did (#328): HEAD itself marked shallow."""
+        head = git(self.work, "rev-parse", "HEAD")
+        shallow = Path(
+            git(
+                self.work,
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-path",
+                "shallow",
+            )
+        )
+        shallow.write_text(head + "\n", encoding="utf-8")
+        failed = subprocess.run(
+            ["git", "-C", str(self.work), "merge-base", "HEAD", self.commits[-2]],
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(0, failed.returncode)
+
+    def run_restore(self, baseline: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", "-c", str(restore_step()["run"])],
+            cwd=self.work,
+            env={
+                "PATH": os.environ["PATH"],
+                "HOME": self._tmp.name,
+                "RUNNER_TEMP": self._tmp.name,
+                "BASELINE": baseline,
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
     def test_the_baseline_survives_a_consumer_reshallowing_the_checkout(self) -> None:
-        """Seen on Cursor-Governance (#328): after its make ran, HEAD^1 was gone."""
         result = self.run_step("pull_request")
         self.assertEqual(0, result.returncode, result.stderr)
         baseline = self.commit()
         self.assertEqual(
             baseline, git(self.work, "rev-parse", "refs/l9/central-diff-baseline")
         )
-        # What a consumer can do to the checkout: mark HEAD itself shallow.
-        head = git(self.work, "rev-parse", "HEAD")
-        shallow = Path(git(self.work, "rev-parse", "--git-path", "shallow"))
-        if not shallow.is_absolute():
-            shallow = self.work / shallow
-        shallow.write_text(head + "\n", encoding="utf-8")
-        failed = subprocess.run(
-            ["git", "-C", str(self.work), "rev-parse", "--verify", "--quiet", "HEAD^1"],
-            capture_output=True,
-            check=False,
-        )
-        self.assertNotEqual(0, failed.returncode)
-        self.assertEqual(
-            baseline, git(self.work, "rev-parse", f"{baseline}^{{commit}}")
-        )
+        self.reshallow()
+        restored = self.run_restore(baseline)
+        self.assertEqual(0, restored.returncode, restored.stdout + restored.stderr)
+        self.assertEqual(baseline, git(self.work, "merge-base", "HEAD", baseline))
+
+    def test_a_moved_head_blocks_the_baseline_scan(self) -> None:
+        result = self.run_step("push")
+        self.assertEqual(0, result.returncode, result.stderr)
+        git(self.work, "checkout", "-q", "--detach", self.commit())
+        restored = self.run_restore(self.commit())
+        self.assertEqual(1, restored.returncode)
+        self.assertIn("moved HEAD", restored.stdout)
+
+    def test_the_restore_step_runs_only_with_a_baseline_and_before_semgrep(
+        self,
+    ) -> None:
+        steps = analyze_steps()
+        names = [s.get("name") for s in steps]
+        ids = [s.get("id") for s in steps]
+        self.assertEqual("steps.baseline.outputs.commit != ''", restore_step()["if"])
+        self.assertLess(ids.index("repository_verify"), names.index(RESTORE))
+        self.assertLess(names.index(RESTORE), ids.index("semgrep"))
 
     def test_the_merge_group_base_comes_from_the_event(self) -> None:
         env = baseline_step()["env"]

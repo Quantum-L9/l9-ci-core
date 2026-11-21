@@ -582,8 +582,19 @@ jobs:
           fi
           if [ -n "${commit}" ]; then
             # A ref keeps the baseline reachable whatever the consumer's make
-            # later does to the checkout's history.
+            # later does to the checkout's history; the shallow boundary and
+            # HEAD are recorded so the step before Semgrep can restore and
+            # check them.
             git update-ref refs/l9/central-diff-baseline "${commit}"
+            state="${RUNNER_TEMP}/l9-central-diff"
+            mkdir -p "${state}"
+            shallow="$(git rev-parse --path-format=absolute --git-path shallow)"
+            if [ -f "${shallow}" ]; then
+              cp -- "${shallow}" "${state}/shallow"
+            else
+              : > "${state}/shallow"
+            fi
+            git rev-parse HEAD > "${state}/head"
           fi
           echo "commit=${commit}" >> "$GITHUB_OUTPUT"
 
@@ -690,6 +701,37 @@ jobs:
         with:
           path: ${{ steps.apt_archive_cache_dir.outputs.path }}/*.deb
           key: ${{ steps.apt_archive_inventory.outputs.key }}
+
+      # Repository verification ran the consumer's make, which may rewrite the
+      # checkout's history: on Cursor-Governance it re-shallowed it, leaving no
+      # merge base, so Semgrep's baseline scan failed and every language run
+      # was incomplete (#328). Restore the shallow boundary recorded before any
+      # consumer code ran. The baseline is not changed here, only made
+      # reachable again: HEAD must be the evaluated revision and must reach
+      # the baseline, or the run blocks.
+      - name: Restore the checkout history for the baseline scan (CENTRAL-DIFF)
+        if: steps.baseline.outputs.commit != ''
+        env:
+          BASELINE: ${{ steps.baseline.outputs.commit }}
+        run: |
+          set -euo pipefail
+          state="${RUNNER_TEMP}/l9-central-diff"
+          shallow="$(git rev-parse --path-format=absolute --git-path shallow)"
+          if [ -s "${state}/shallow" ]; then
+            cp -- "${state}/shallow" "${shallow}"
+          else
+            rm -f -- "${shallow}"
+          fi
+          head="$(git rev-parse HEAD)"
+          if [ "${head}" != "$(cat "${state}/head")" ]; then
+            echo "::error::the consumer's make moved HEAD from $(cat "${state}/head") to ${head}; the baseline scan cannot judge this revision"
+            exit 1
+          fi
+          if ! merge_base="$(git merge-base HEAD "${BASELINE}")"; then
+            echo "::error::no baseline: ${BASELINE} has no merge base with ${head} after repository verification"
+            exit 1
+          fi
+          echo "Baseline ${BASELINE} reachable from ${head} (merge base ${merge_base})"
 
       # The provider toolchain is a locked contract, not a resolution. Core
       # selects the setup-python action by full SHA, the interpreter by exact
