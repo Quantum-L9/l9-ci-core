@@ -176,8 +176,9 @@ jobs:
       || inputs.event != ''
       || github.ref_name == github.event.repository.default_branch
     # Inherits the workflow's `contents: read`; security.yml asks for no more.
-    # CORE_ACTIONS_PIN — security.yml at #298's merge revision (AGENTS.md §16)
-    uses: Quantum-L9/l9-ci-core/.github/workflows/security.yml@14396e9deb6bc1db467fae57e7d1d7d7efd63426
+    # CORE_ACTIONS_PIN — security.yml at #326's merge revision, which carries
+    # #329's HTTPS-only gitleaks download (AGENTS.md §16)
+    uses: Quantum-L9/l9-ci-core/.github/workflows/security.yml@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
     with:
       gitleaks-scope: event
 

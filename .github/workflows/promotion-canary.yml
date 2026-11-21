@@ -11,7 +11,7 @@
 # pull request changes the analyze steps, at the base's pins (the `base` job).
 # Both are org-ci.yml's steps verbatim apart from the target identity.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 21e167a28683fefd11d5ac242bb6961fcd74c76140c43b8c7f2e2b861703064f
+# worse. Head steps digest: ee483dd69de562afa4b7ef0e002b2cd7b9a15a89859439d4faaa80bc1a83612d
 name: Promotion canary (Core)
 on:
   pull_request:
@@ -77,7 +77,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      # --- inlined org-ci job security .github/workflows/security.yml@14396e9deb6bc1db467fae57e7d1d7d7efd63426: begin ---
+      # --- inlined org-ci job security .github/workflows/security.yml@2801f661e0b2136ef8a90ab54cec2b9f67eb950f: begin ---
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         id: security__s0
         with:
@@ -198,7 +198,8 @@ jobs:
           fi
           GITLEAKS_VERSION="8.24.3"
           GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
-          curl -sSfL -o /tmp/gitleaks.tar.gz \
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o /tmp/gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           actual_sha="$(sha256sum /tmp/gitleaks.tar.gz | awk '{print $1}')"
           if [ "${actual_sha}" != "${GITLEAKS_SHA256}" ]; then
@@ -340,11 +341,12 @@ jobs:
           NPM_AUDIT_OUTCOME: ${{ steps.security__npm_audit.outputs.outcome }}
         run: |
           set -euo pipefail
-          # $1 is the step conclusion, $2 the outcome the step stated itself.
           required_outcome() {
-            if [ -n "$2" ]; then
-              echo "$2"
-            elif [ "$1" = "failure" ]; then
+            local conclusion="$1"  # the step's conclusion
+            local stated="$2"      # the outcome the step stated itself
+            if [ -n "${stated}" ]; then
+              echo "${stated}"
+            elif [ "${conclusion}" = "failure" ]; then
               echo "not_executed (the step failed before its scanner ran)"
             else
               echo "not_executed"
@@ -387,7 +389,7 @@ jobs:
             echo
             echo "Advisory, not_run, not_applicable and not_executed are not passes."
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      # --- inlined org-ci job security .github/workflows/security.yml@14396e9deb6bc1db467fae57e7d1d7d7efd63426: end ---
+      # --- inlined org-ci job security .github/workflows/security.yml@2801f661e0b2136ef8a90ab54cec2b9f67eb950f: end ---
       - name: Record the security job result
         if: always()
         env:
@@ -1485,7 +1487,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 21e167a28683fefd11d5ac242bb6961fcd74c76140c43b8c7f2e2b861703064f
+          DIGEST: ee483dd69de562afa4b7ef0e002b2cd7b9a15a89859439d4faaa80bc1a83612d
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -1571,7 +1573,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      # --- inlined org-ci job security .github/workflows/security.yml@14396e9deb6bc1db467fae57e7d1d7d7efd63426: begin ---
+      # --- inlined org-ci job security .github/workflows/security.yml@2801f661e0b2136ef8a90ab54cec2b9f67eb950f: begin ---
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         id: security__s0
         with:
@@ -1692,7 +1694,8 @@ jobs:
           fi
           GITLEAKS_VERSION="8.24.3"
           GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
-          curl -sSfL -o /tmp/gitleaks.tar.gz \
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o /tmp/gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           actual_sha="$(sha256sum /tmp/gitleaks.tar.gz | awk '{print $1}')"
           if [ "${actual_sha}" != "${GITLEAKS_SHA256}" ]; then
@@ -1834,11 +1837,12 @@ jobs:
           NPM_AUDIT_OUTCOME: ${{ steps.security__npm_audit.outputs.outcome }}
         run: |
           set -euo pipefail
-          # $1 is the step conclusion, $2 the outcome the step stated itself.
           required_outcome() {
-            if [ -n "$2" ]; then
-              echo "$2"
-            elif [ "$1" = "failure" ]; then
+            local conclusion="$1"  # the step's conclusion
+            local stated="$2"      # the outcome the step stated itself
+            if [ -n "${stated}" ]; then
+              echo "${stated}"
+            elif [ "${conclusion}" = "failure" ]; then
               echo "not_executed (the step failed before its scanner ran)"
             else
               echo "not_executed"
@@ -1881,7 +1885,7 @@ jobs:
             echo
             echo "Advisory, not_run, not_applicable and not_executed are not passes."
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      # --- inlined org-ci job security .github/workflows/security.yml@14396e9deb6bc1db467fae57e7d1d7d7efd63426: end ---
+      # --- inlined org-ci job security .github/workflows/security.yml@2801f661e0b2136ef8a90ab54cec2b9f67eb950f: end ---
       - name: Record the security job result
         if: always()
         env:
@@ -2989,7 +2993,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 21e167a28683fefd11d5ac242bb6961fcd74c76140c43b8c7f2e2b861703064f
+          DIGEST: ee483dd69de562afa4b7ef0e002b2cd7b9a15a89859439d4faaa80bc1a83612d
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
