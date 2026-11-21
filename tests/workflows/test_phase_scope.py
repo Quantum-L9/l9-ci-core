@@ -49,6 +49,10 @@ EXPECTED_WORKFLOWS = {
     "release-validation.yml",
     "self-analysis.yml",
     "self-security.yml",
+    # Core's own supply-chain lane and the dogfood of run-supply-chain:
+    # nightly, dispatch, and pull requests that change a dependency file.
+    # Not a required check (docs/supply-chain.md).
+    "self-supply-chain.yml",
     # Core-only SonarQube Cloud analysis. Not an organization gate and not a
     # required status check.
     "self-sonar.yml",

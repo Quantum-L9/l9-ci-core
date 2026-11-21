@@ -1,0 +1,11 @@
+{
+  "schema": "l9.supply-chain-core-repo-policy/v1",
+  "repository": "Quantum-L9/enrichment.inference.engine",
+  "exemptions": [
+    {
+      "purl": "pkg:pypi/constellation-node-sdk",
+      "license": "Proprietary",
+      "reason": "Quantum-L9's own node SDK; first-party, not third-party licensed."
+    }
+  ]
+}

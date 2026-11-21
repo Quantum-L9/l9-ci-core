@@ -146,7 +146,8 @@ class WiringTests(unittest.TestCase):
                 "Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@"
             )
         )
-        self.assertNotIn("(advisory)", str(report["name"]))
+        # Drift is housekeeping (operator decision 2026-11-20): the step says so.
+        self.assertTrue(str(report["name"]).endswith("(advisory)"))
 
 
 if __name__ == "__main__":

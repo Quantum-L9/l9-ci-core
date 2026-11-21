@@ -6,8 +6,43 @@ metadata:
 default:
   source: git
   repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-  revision: 9af1a202cfd83d2a277bc7d1f789192a6ad442eb
+  revision: fbe14fec1f5dc8edeae8facc76e598e9c5283170
 supported:
+  # fbe14fec (l9-ci-sdk#133 on 9af1a202, SDK main): required central Semgrep
+  # runs carry a declared analysis budget (B5) — 30 s per rule and file and
+  # --timeout-threshold 0, so Semgrep no longer drops a file's remaining rules
+  # after three 5 s timeouts and leaves a required instance incomplete (the
+  # Cursor-Governance Python instance after 9af1a202). A pair that still times
+  # out stays incomplete coverage. The scope evidence gains `analysis_budget`
+  # (semgrep-scan-scope schema 1.1.0, the SDK's own record). #132 is an ADR
+  # only. No CLI path, integration-contract or artifact-protocol change;
+  # requirements.txt is byte-identical to 9af1a202, so requirements_sha256 and
+  # the runtime lock are unchanged. 9af1a202 below is the tested rollback.
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: fbe14fec1f5dc8edeae8facc76e598e9c5283170
+    integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+      - l9.sarif-log/v1
+    required_cli_paths:
+      - providers detect
+      - providers inventory
+      - semgrep run
+      - semgrep normalize
+      - gate evaluate
+      - bundle validate
+      - bundle project-agent-payload
+      - bundle project-sarif
+      - compatibility check
+      - baseline compare-tests
+      - baseline scan-packet-envelope
+      - baseline compare-scan
+      - baseline validate-ledger
   # 9af1a202 (l9-ci-sdk#128-#131, SDK main): `providers inventory` plans a
   # Semgrep target only on files its scan reaches (#130: a language whose files
   # all sit under .semgrepignore'd or out-of-scope paths is not_applicable, so a

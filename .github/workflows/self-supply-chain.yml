@@ -1,0 +1,40 @@
+# Core's own supply-chain lane, and the dogfood of the action every governed
+# repository will run (.github/actions/run-supply-chain).
+#
+# Nightly, by dispatch, and on a pull request that changes a dependency file,
+# Core's supply-chain policy, or this lane. Not a required check: a pull
+# request that changes no dependency does not run it.
+name: Core self supply chain
+on:
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "uv.lock"
+      - "requirements*.txt"
+      - ".l9/supply-chain-policy.json"
+      - ".github/actions/run-supply-chain/**"
+      - ".github/workflows/self-supply-chain.yml"
+  schedule:
+    - cron: "43 6 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: core-self-supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  supply-chain:
+    name: Supply chain
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12.14"
+      - uses: ./.github/actions/run-supply-chain
+        with:
+          artifact-name: supply-chain-core-${{ github.run_id }}

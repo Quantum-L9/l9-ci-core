@@ -1555,3 +1555,53 @@ executed, the scan invocation with a stub gitleaks, event ranges, pip-audit
 target selection). Layering was also checked with gitleaks 8.24.3 itself: a
 consumer config alone reports only its own rule; the layered copy reports it
 and gitleaks' default `github-pat`.
+
+## 38. SDK `fbe14fec` activation (2026-11-20) — the §16 pin advance, applied; P0 step two
+
+Step one (#307) admitted l9-ci-sdk `fbe14fec` (#133 on `9af1a202`, #305): a
+required central Semgrep run carries a declared analysis budget, 30 s per rule
+and file and `--timeout-threshold 0`. Under Semgrep's default (5 s, a file's
+remaining rules dropped after three timeouts) Cursor-Governance's required
+Python instance ended `incomplete`, and with it `Analyze (central Core)` on
+every Cursor-Governance pull request.
+
+- `org-ci.yml`'s 18 Core action pins advance from `8554ce96` to `eba72ac3`
+  (#307's merge, an ancestor of `main`), and the `sdk-revision` fallback moves
+  from `dc783c64` to `fbe14fec`. `analyze-semgrep.yml`'s `install-semgrep` pin
+  moves with them (identical bytes).
+- Between `8554ce96` and `eba72ac3` the actions `org-ci.yml` uses change in two
+  places: `provision-sdk` admits `fbe14fec` (and `9af1a202`, the tested
+  rollback), and the advisory `check-toolchain-alignment` reports drift on
+  every declaration surface (#295). Nothing else that `org-ci.yml` runs
+  changes.
+- The fleet gains `9af1a202`'s scan-scope planning (#130: a language whose
+  files the scan never reaches is not applicable, not a required instance that
+  scans nothing) and its incomplete-coverage accounting (#131), plus the B5
+  budget.
+
+Tests: `tests/workflows/test_org_repository_verification.py`,
+`tests/workflows/test_workflow_toolchain_pins.py`,
+`tests/workflows/test_org_ci_required_instances.py`;
+`tools/check_core_pin_ancestry.py --main origin/main`.
+
+## 39. Core owns each repository's supply-chain exemptions (2026-11-21) — follow-up to the supply-chain lane
+
+`run-supply-chain` now reads a Core-owned data file per repository,
+`.github/actions/run-supply-chain/repositories/<owner>__<name>.json` (lower
+case), selected by `$GITHUB_REPOSITORY` (or `--repository`). Schema
+`l9.supply-chain-core-repo-policy/v1`: `repository` (must name the file's
+repository), `exemptions` (`{purl, license, reason}`) and
+`additional_allowed_licenses` (`{license, reason}`). Every entry needs a
+reason; a Core-denied licence can never be allowed; a name that is not
+`<owner>/<name>` is refused rather than resolved to a path.
+
+- This puts exemption authority in Core (§3): a consumer changes its data by a
+  Core pull request. The consumer-authored `.l9/supply-chain-policy.json` is
+  still read and merged additively; whether to retire it is an open contract
+  question, so this change only adds.
+- Data shipped: Cursor-Governance exempts `pkg:pypi/l9-graphite-memory`;
+  cognitive.engine.graphs and enrichment.inference.engine exempt
+  `pkg:pypi/constellation-node-sdk` — the three findings predicted in
+  `docs/supply-chain.md`, all first-party and Proprietary.
+
+Tests: `tests/actions/test_run_supply_chain.py`.
