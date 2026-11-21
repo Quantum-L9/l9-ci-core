@@ -19,7 +19,7 @@ nightly, blocking, with its version and checksum from Core's toolchain lock.
 | Where | What actionlint judges | Outcome |
 |---|---|---|
 | `org-ci.yml` job `actionlint` (`actionlint`), pull request / merge group / push | the workflow files (`.github/workflows/*.yml` / `*.yaml`) the event changes, against its base; a changed action definition (`action.yml` / `action.yaml` anywhere) re-judges every workflow, since actionlint checks a workflow's use of local actions through them | a finding fails the check, annotated at file, line and column |
-| … any other event | every workflow | same |
+| … any other event (dispatch, the promotion canary): no base | every workflow | reported as warnings, never fails: the event brings nothing in |
 | `nightly-sink.yml` | every workflow of the default branch | findings to code scanning (`l9-central/actionlint/`), counted by the ratchet |
 
 It always reports: no workflow files is "not applicable: no workflow files";

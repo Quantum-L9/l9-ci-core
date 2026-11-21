@@ -177,6 +177,7 @@ class ScopeTests(unittest.TestCase):
             completed, values, _ = repo.scope()
             self.assertEqual(0, completed.returncode, completed.stderr)
             self.assertEqual("true", values["applies"])
+            self.assertEqual("block", values["judge"])
             self.assertEqual([".github/workflows/b.yml"], repo.files(values))
         finally:
             repo.close()
@@ -220,6 +221,7 @@ class ScopeTests(unittest.TestCase):
         try:
             _, values, _ = repo.scope(EVENT_NAME="workflow_dispatch")
             self.assertEqual("every workflow", values["scope"])
+            self.assertEqual("report", values["judge"])
             self.assertEqual([".github/workflows/a.yml"], repo.files(values))
         finally:
             repo.close()
@@ -268,6 +270,7 @@ class CheckTests(unittest.TestCase):
                     "ACTIONLINT": str(fake),
                     "FILES": str(files),
                     "SCOPE": "the workflow files a..b changes",
+                    "JUDGE": "block",
                     "ACTIONLINT_FINDINGS_FAIL": "true",
                     "ACTIONLINT_SARIF": "",
                     **env,
@@ -285,6 +288,14 @@ class CheckTests(unittest.TestCase):
             completed.stdout,
         )
         self.assertIn("findings: 1 in 1 workflow file(s)", summary)
+
+    def test_with_no_base_findings_are_reported_and_pass(self) -> None:
+        completed, summary, _ = self.check([self.FINDING], 1, JUDGE="report")
+        self.assertEqual(0, completed.returncode)
+        self.assertIn(
+            "::warning file=.github/workflows/b.yml,line=6,", completed.stdout
+        )
+        self.assertIn("(reported: no base): findings: 1", summary)
 
     def test_a_clean_run_passes(self) -> None:
         completed, summary, _ = self.check([], 0)
@@ -344,6 +355,7 @@ class EndToEndTests(unittest.TestCase):
                     "ACTIONLINT": executable,
                     "FILES": scope["files"],
                     "SCOPE": scope["scope"],
+                    "JUDGE": scope["judge"],
                     "ACTIONLINT_FINDINGS_FAIL": "true",
                     "ACTIONLINT_SARIF": "",
                 },

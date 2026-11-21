@@ -23,7 +23,7 @@
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: a821b1e3c14e56141011e8e9988970d63be87ffe80669a09b40f4d1729e9263f
+# and issues: write. Analyze steps digest: 3c092756735b1f1524b7c13e2d4f3fb4744546612c2d66656ae98d7d055503bc
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -1250,8 +1250,10 @@ jobs:
             *) base="" ;;
           esac
           scope="every workflow"
+          judge="report"
           cp "${list}.all" "${list}"
           if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            judge="block"
             if ! changed="$(git diff --name-only --diff-filter=d "${base}" "${EVENT_SHA}" --)"; then
               echo "::error title=actionlint::the event's base ${base} is not in this clone; the check cannot tell what changed"
               exit 1
@@ -1273,6 +1275,7 @@ jobs:
             echo "applies=true"
             echo "files=${list}"
             echo "scope=${scope}"
+            echo "judge=${judge}"
           } >> "$GITHUB_OUTPUT"
           echo "actionlint: $(wc -l < "${list}") workflow file(s): ${scope}"
       - name: Install actionlint (toolchain-locked)
@@ -1301,6 +1304,7 @@ jobs:
           ACTIONLINT: ${{ steps.actionlint_install.outputs.executable }}
           FILES: ${{ steps.actionlint_scope.outputs.files }}
           SCOPE: ${{ steps.actionlint_scope.outputs.scope }}
+          JUDGE: ${{ steps.actionlint_scope.outputs.judge }}
           # The nightly sink inlines this step with findings reported rather
           # than failing, written as SARIF to ACTIONLINT_SARIF.
           ACTIONLINT_FINDINGS_FAIL: "false"
@@ -1329,8 +1333,11 @@ jobs:
               findings = json.loads(Path(env["REPORT"]).read_text(encoding="utf-8") or "[]")
           except ValueError as error:
               sys.exit(f"::error title=actionlint::unreadable report ({error})")
-          reported = env.get("ACTIONLINT_FINDINGS_FAIL") == "false"
-          label = "nightly, reported" if reported else "blocking"
+          # Findings block only what an event brings in (a base exists); with
+          # no base, and in the nightly sink, they are reported.
+          nightly = env.get("ACTIONLINT_FINDINGS_FAIL") == "false"
+          reported = nightly or env.get("JUDGE") != "block"
+          label = "nightly, reported" if nightly else ("reported: no base" if reported else "blocking")
           scope = env["SCOPE"]
           if not findings:
               line = f"- actionlint ({label}): pass: {env['COUNT']} workflow file(s), {scope}"
@@ -1343,7 +1350,7 @@ jobs:
               path = str(item.get("filepath", "")).replace(",", "%2C").replace(":", "%3A")
               message = " ".join(str(item.get("message", "")).split())
               print(
-                  f"::error file={path},line={item.get('line', 1)},col={item.get('column', 1)},"
+                  f"::{'warning' if reported else 'error'} file={path},line={item.get('line', 1)},col={item.get('column', 1)},"
                   f"title=actionlint {item.get('kind', '')}::{message}"
               )
           for item in findings[:20]:

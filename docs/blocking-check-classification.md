@@ -134,7 +134,7 @@ Blocking. Always reports. The workflow files the event changes
 | Checkout (full history) | PLUMBING | The base must be in the clone |
 | Resolve actionlint's scope | PLUMBING | The changed workflow files, every workflow when an action definition changed or there is no base; none changed is a pass that says so, no workflow files is not applicable; an unresolvable base fails as INCOMPLETE |
 | Install actionlint (toolchain-locked) | PLUMBING | |
-| Run actionlint (blocking) | BLOCKING_CORRECTNESS | A finding fails, annotated at file, line and column; an actionlint failure is never a pass |
+| Run actionlint (blocking) | BLOCKING_CORRECTNESS | A finding in a changed file fails, annotated at file, line and column; with no base (dispatch, canary) findings are warnings; an actionlint failure is never a pass |
 
 ## bandit (nightly only)
 

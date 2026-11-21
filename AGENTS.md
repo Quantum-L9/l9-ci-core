@@ -2123,3 +2123,6 @@ Operator decision. Record: [`docs/actionlint-check.md`](docs/actionlint-check.md
 Tests: `tests/workflows/test_org_ci_actionlint_job.py`,
 `tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`,
 `tests/workflows/test_workflow_toolchain_pins.py`.
+- **No base (amendment, same day).** A dispatch or a promotion-canary leg
+  has no base: actionlint judges every workflow and reports the findings as
+  warnings, never failing, as CodeQL does (§50). Changed files still block.
