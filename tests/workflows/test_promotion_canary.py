@@ -232,7 +232,11 @@ class RenderTests(unittest.TestCase):
                 f"${{{{ needs.{leg}.result }}}}",
                 env[f"L9_CANARY_{leg.upper()}_RESULT"],
             )
-        self.assertEqual("Promotion canary (Core)", jobs["verdict"]["name"])
+        self.assertEqual(
+            f"${{{{ ({pc.TEXT_EDIT}) && 'Promotion canary (text edit, no verdict)'"
+            " || 'Promotion canary (Core)' }}",
+            jobs["verdict"]["name"],
+        )
         self.assertEqual(["plan", "head", "admitted", "base"], jobs["verdict"]["needs"])
         for leg in ("head", "admitted", "base"):
             self.assertIs(False, jobs[leg]["strategy"]["fail-fast"])
@@ -289,6 +293,42 @@ class RenderTests(unittest.TestCase):
         on = yaml.safe_load(self.canary)[True]
         self.assertNotIn("paths", on["pull_request"])
         self.assertNotIn("paths-ignore", on["pull_request"])
+
+    def test_one_verdict_per_pushed_head(self) -> None:
+        """Row 22: `make pr` pushes, then edits the body. The edit must neither
+        cancel the push run nor post a `Promotion canary (Core)` check; a base
+        retarget, also `edited`, must still be judged in full."""
+        workflow = yaml.safe_load(self.canary)
+        on = workflow[True]
+        self.assertEqual(
+            ["opened", "synchronize", "reopened", "edited"],
+            on["pull_request"]["types"],
+        )
+        self.assertIn("workflow_dispatch", on)
+        concurrency = workflow["concurrency"]
+        self.assertTrue(concurrency["cancel-in-progress"])
+        self.assertTrue(
+            concurrency["group"].endswith(
+                f"${{{{ ({pc.TEXT_EDIT}) && '-text-edit' || '' }}}}"
+            )
+        )
+        jobs = workflow["jobs"]
+        self.assertEqual(f"${{{{ !({pc.TEXT_EDIT}) }}}}", jobs["plan"]["if"])
+        self.assertEqual("${{ always() }}", jobs["verdict"]["if"])
+        name = jobs["verdict"]["name"]
+        self.assertTrue(name.endswith("|| 'Promotion canary (Core)' }}"))
+        self.assertIn("'Promotion canary (text edit, no verdict)'", name)
+        env = next(
+            s for s in jobs["verdict"]["steps"] if s.get("name") == "Judge the canary"
+        )["env"]
+        self.assertEqual(f"${{{{ {pc.TEXT_EDIT} }}}}", env["L9_CANARY_TEXT_EDIT"])
+
+    def test_a_text_edit_is_identified_by_what_it_changed(self) -> None:
+        """Only a title or body change, with no base change, is a text edit."""
+        self.assertIn("github.event.action == 'edited'", pc.TEXT_EDIT)
+        self.assertIn("github.event.changes.base == null", pc.TEXT_EDIT)
+        self.assertIn("github.event.changes.title != null", pc.TEXT_EDIT)
+        self.assertIn("github.event.changes.body != null", pc.TEXT_EDIT)
 
 
 class ReusableJobTests(unittest.TestCase):
@@ -752,6 +792,23 @@ class VerdictTests(unittest.TestCase):
         for leg in self.legs:
             self.record("base", leg, base, kwargs.get("base_blocking", ()))
             self.record("head", leg, head, kwargs.get("head_blocking", ()))
+
+    def test_a_text_edit_run_judges_nothing_under_another_name(self) -> None:
+        passed, report = pc.judge(
+            {"L9_CANARY_TEXT_EDIT": "true", "L9_CANARY_PLAN_RESULT": "skipped"}
+        )
+        self.assertTrue(passed)
+        self.assertIn("no verdict", report[0])
+        for value in ("false", "", "Object"):
+            with self.subTest(value=value):
+                self.assertFalse(
+                    pc.judge(
+                        {
+                            "L9_CANARY_TEXT_EDIT": value,
+                            "L9_CANARY_PLAN_RESULT": "skipped",
+                        }
+                    )[0]
+                )
 
     def test_not_applicable_passes_and_a_bad_plan_fails(self) -> None:
         self.assertTrue(pc.judge({"L9_CANARY_PLAN_RESULT": "success"})[0])

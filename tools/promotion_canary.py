@@ -180,6 +180,15 @@ HEADER = """\
 # `Promotion canary (Core)` fails only when the pull request makes a repository
 # worse. Head steps digest: @@HEAD_DIGEST@@
 name: Promotion canary (Core)
+# One verdict per pushed head (row 22). `make pr` pushes and then edits the
+# pull request's body; that `edited` run used to cancel the push run, whose
+# verdict then posted a failing check for the same head. An edit that changes
+# only the title or body is now a text edit: its own concurrency group (it
+# never cancels the push run), no plan or legs, and a verdict job under
+# another name that judges nothing, so it never posts a `Promotion canary
+# (Core)` check, failing or skipped. Every other `edited` event, a base
+# retarget included, is judged in full: the merge commit, and with it the
+# plan, changed.
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
@@ -187,11 +196,12 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: core-promotion-canary-${{ github.event.pull_request.number || github.ref }}
+  group: core-promotion-canary-${{ github.event.pull_request.number || github.ref }}${{ (@@TEXT_EDIT@@) && '-text-edit' || '' }}
   cancel-in-progress: true
 jobs:
   plan:
     name: Plan promotion canary
+    if: ${{ !(@@TEXT_EDIT@@) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -412,7 +422,7 @@ SIBLING_RESULT = """\
 
 VERDICT = """\
   verdict:
-    name: Promotion canary (Core)
+    name: ${{ (@@TEXT_EDIT@@) && 'Promotion canary (text edit, no verdict)' || 'Promotion canary (Core)' }}
     needs: [plan, head, admitted, base]
     # Runs whatever the plan and legs concluded, a cancelled run included (a
     # job skipped by `if:` reports success on a required check, so the verdict
@@ -440,6 +450,7 @@ VERDICT = """\
       - name: Judge the canary
         env:
           L9_CANARY_PLAN_RESULT: ${{ needs.plan.result }}
+          L9_CANARY_TEXT_EDIT: ${{ @@TEXT_EDIT@@ }}
           L9_CANARY_APPLIES: ${{ needs.plan.outputs.applies }}
           L9_CANARY_DIFFERENTIAL: ${{ needs.plan.outputs.differential }}
           L9_CANARY_BASE_CURRENT: ${{ needs.plan.outputs['base-current'] }}
@@ -456,6 +467,15 @@ VERDICT = """\
           set -euo pipefail
           python3 -I tools/promotion_canary.py verdict
 """
+
+
+# An `edited` event that changed only the title or body. Identified by what
+# it changed, not by the absence of a base change alone, so an edit GitHub
+# describes in any other shape is judged in full.
+TEXT_EDIT = (
+    "github.event.action == 'edited' && github.event.changes.base == null"
+    " && (github.event.changes.title != null || github.event.changes.body != null)"
+)
 
 
 class CanaryError(Exception):
@@ -955,12 +975,13 @@ def render(org_ci: str, base: str, provider: Provider, admission: str) -> str:
             HEADER,
             HEAD_DIGEST=steps_digest(org_ci),
             ADMISSION_ARTIFACT=ADMISSION_ARTIFACT,
+            TEXT_EDIT=TEXT_EDIT,
         )
         + leg_job("head", org_ci, provider)
         + leg_job("admitted", org_ci, provider, admission)
         + base
         + "\n"
-        + VERDICT
+        + _fill(VERDICT, TEXT_EDIT=TEXT_EDIT)
     )
 
 
@@ -1367,6 +1388,11 @@ def _leg_jobs_problem(env: dict[str, str]) -> str:
 
 def judge(env: dict[str, str]) -> tuple[bool, list[str]]:
     """(passed, report lines) from the verdict job's environment."""
+    if env.get("L9_CANARY_TEXT_EDIT") == "true":
+        # Reported under another check name: the push run judges this head.
+        return True, [
+            "A title or body edit: no verdict; the push run judges this head."
+        ]
     plan_result = env.get("L9_CANARY_PLAN_RESULT", "")
     if plan_result != "success":
         return False, [f"FAIL the canary plan did not succeed ({plan_result or '?'})"]
