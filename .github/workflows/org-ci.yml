@@ -951,12 +951,17 @@ jobs:
           # 0/1/6) fails this step in every mode, exactly as it does for the primary
           # language's own steps: infrastructure failure is never advisory.
           env = os.environ
-          directory = Path(env["L9_INSTANCE_DIR"])
+          # Every path the SDK receives is absolute: the scan root is the clean
+          # tree, not the working directory, so a relative output, policy or
+          # identity-map path would resolve under the scan tree and Semgrep
+          # would write no report there.
+          directory = Path(env["L9_INSTANCE_DIR"]).resolve()
           # Every instance scans the clean tree of the evaluated commit, never
           # the work tree the verification may have changed (scan-tree step).
           scan_root = env.get("L9_SCAN_ROOT", "")
           if not scan_root:
               sys.exit("::error::no clean scan tree: the instances cannot run")
+          scan_root = str(Path(scan_root).resolve())
           plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
           results = directory / "results"
           results.mkdir(parents=True, exist_ok=True)
@@ -990,7 +995,7 @@ jobs:
 
           def shared(command):
               """The flags every instance run shares with the primary run."""
-              command += ["--policy", env["L9_POLICY"]]
+              command += ["--policy", str(Path(env["L9_POLICY"]).resolve())]
               if env.get("L9_WAIVERS"):
                   command += ["--waivers", env["L9_WAIVERS"], "--repository", env["L9_REPOSITORY"]]
               if env.get("L9_STRICT") == "true":
@@ -1044,7 +1049,7 @@ jobs:
                   "semgrep", "run", "--language", name,
                   "--root", scan_root, "--snapshot-id", plan["revision"],
                   "--revision", plan["revision"],
-                  "--identity-map", str(Path(env["L9_IDENTITY_DIR"]) / (name + ".yaml")),
+                  "--identity-map", str(Path(env["L9_IDENTITY_DIR"]).resolve() / (name + ".yaml")),
               ]
               shared(run)
               if env.get("L9_BASELINE"):
