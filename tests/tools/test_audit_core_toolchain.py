@@ -197,23 +197,16 @@ class ResolveTests(unittest.TestCase):
         )
 
     def test_a_resolution_that_drops_its_tool_is_refused(self) -> None:
+        resolver = fake_resolver(
+            {"ruff==0.16.1\n": "ruff==0.16.1\n", "bandit==1.8.6\n": "pyyaml==6\n"}
+        )
         with self.assertRaisesRegex(audit.AuditError, "did not resolve bandit"):
-            audit.resolve_all(
-                self.planned,
-                fake_resolver(
-                    {
-                        "ruff==0.16.1\n": "ruff==0.16.1\n",
-                        "bandit==1.8.6\n": "pyyaml==6\n",
-                    }
-                ),
-            )
+            audit.resolve_all(self.planned, resolver)
 
     def test_an_empty_resolution_is_refused(self) -> None:
+        resolver = fake_resolver({"ruff==0.16.1\n": "", "bandit==1.8.6\n": ""})
         with self.assertRaisesRegex(audit.AuditError, "resolved to no pinned package"):
-            audit.resolve_all(
-                self.planned,
-                fake_resolver({"ruff==0.16.1\n": "", "bandit==1.8.6\n": ""}),
-            )
+            audit.resolve_all(self.planned, resolver)
 
 
 class LayerTests(unittest.TestCase):
@@ -287,6 +280,23 @@ class MainTests(unittest.TestCase):
             "urllib3==2.8.0\n",
             (self.tmp / "out" / "layer-2.txt").read_text(encoding="utf-8"),
         )
+
+    def test_an_output_directory_outside_the_allowed_roots_is_refused(self) -> None:
+        self.fake_uv()
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = audit.main(
+                [
+                    "--root",
+                    str(self.fixture.root),
+                    "--uv",
+                    str(self.uv),
+                    "--output-dir",
+                    "/proc/self/toolchain-audit",
+                ]
+            )
+        self.assertEqual(2, code)
+        self.assertIn("outside the working and temp directories", err.getvalue())
 
     def test_an_unresolvable_toolchain_fails_without_a_set(self) -> None:
         self.fake_uv(code=1)

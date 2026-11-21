@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -224,6 +225,26 @@ def layers(union: dict[str, set[str]]) -> list[str]:
     ]
 
 
+def confined(path: Path) -> Path:
+    """``path`` resolved, refused unless it lies under an allowed directory.
+
+    The layer files are written to a CLI-named directory, which must resolve
+    inside the working directory, the runner's temp directory or the system
+    temp directory; a path that escapes them is refused, never followed.
+    """
+    resolved = Path(os.path.realpath(path))
+    roots = [Path.cwd(), Path(tempfile.gettempdir())]
+    runner_temp = os.environ.get("RUNNER_TEMP", "")
+    if runner_temp:
+        roots.append(Path(runner_temp))
+    for root in roots:
+        base = Path(os.path.realpath(root))
+        if resolved == base or resolved.is_relative_to(base):
+            return resolved
+    msg = f"{path} is outside the working and temp directories"
+    raise AuditError(msg)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="audit_core_toolchain")
     parser.add_argument("--root", type=Path, default=Path("."))
@@ -236,6 +257,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
+        output_dir = confined(args.output_dir)
         tools = python_tools(args.root)
         planned = sources(args.root, tools)
         check_coverage(tools, planned)
@@ -243,9 +265,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (AuditError, OSError, ValueError, KeyError) as error:
         print(f"::error::toolchain audit: {error}", file=sys.stderr)
         return 2
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     for number, text in enumerate(layers(union), start=1):
-        (args.output_dir / f"layer-{number}.txt").write_text(text, encoding="utf-8")
+        (output_dir / f"layer-{number}.txt").write_text(text, encoding="utf-8")
     for label, count in counts:
         print(f"toolchain audit: {label}: {count} pinned package(s)")
     total = sum(len(versions) for versions in union.values())
