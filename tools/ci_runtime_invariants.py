@@ -27,11 +27,12 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / ".l9" / "governance-contract.yaml"
 CONTRACT_FIELD = "ci_runtime_invariants"
-ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
+GITHUB_DIR = ROOT / ".github"
+ORG_CI = GITHUB_DIR / "workflows" / "org-ci.yml"
 # Semgrep's every-instance chain left the required check for the nightly scan
 # (operator decision 2026-11-21, docs/semgrep-runs-nightly.md).
-SCAN = ROOT / ".github" / "workflows" / "central-semgrep.yml"
-AGGREGATE_ACTION = ROOT / ".github" / "actions" / "aggregate-required-instances"
+SCAN = GITHUB_DIR / "workflows" / "central-semgrep.yml"
+AGGREGATE_ACTION = GITHUB_DIR / "actions" / "aggregate-required-instances"
 CORE_ACTIONS = "Quantum-L9/l9-ci-core/.github/actions/"
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
