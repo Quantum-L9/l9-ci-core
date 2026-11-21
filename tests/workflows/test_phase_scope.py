@@ -53,6 +53,10 @@ EXPECTED_WORKFLOWS = {
     # nightly, dispatch, and pull requests that change a dependency file.
     # Not a required check (docs/supply-chain.md).
     "self-supply-chain.yml",
+    # Core's pinned toolchain (install-consumer-ci/toolchain-lock.json) audited
+    # with pip-audit: on pull requests and merge groups that change it (a
+    # finding blocks), nightly and by dispatch regardless.
+    "self-toolchain-audit.yml",
     # Core-only SonarQube Cloud analysis. Not an organization gate and not a
     # required status check.
     "self-sonar.yml",

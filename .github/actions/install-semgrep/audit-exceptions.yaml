@@ -1,0 +1,265 @@
+{
+  "schema": "l9.toolchain-audit-exceptions/v1",
+  "exceptions": [
+    {
+      "id": "GHSA-pxh4-856f-4h89",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4140",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4141",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4142",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4143",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4144",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4145",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4147",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4148",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4149",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4150",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4151",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4152",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4183",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks pyjwt 2.15.1)"
+    },
+    {
+      "id": "PYSEC-2026-4146",
+      "package": "pyjwt",
+      "version": "2.13.0",
+      "reason": "PyJWT is imported but never called by `semgrep scan`: in Semgrep 1.171.0's locked closure its only callers are semgrep/mcp/utilities/token_verifier.py (bearer-token verification of the `semgrep mcp` server) and mcp/client/auth/extensions/client_credentials.py (the MCP OAuth client), so no JWT, JWK or JWKS is decoded, verified or fetched. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "upstream fix published (no fixed PyJWT release exists)"
+    },
+    {
+      "id": "PYSEC-2026-3481",
+      "package": "mcp",
+      "version": "1.23.3",
+      "reason": "The MCP SDK's server transports, session and task handling, bearer auth and client transports (OAuth, redirects, output-schema validation) run only under `semgrep mcp` (semgrep/commands/mcp.py); `semgrep scan` imports the package but starts no MCP server and connects to none. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks mcp 1.29.0)"
+    },
+    {
+      "id": "PYSEC-2026-3482",
+      "package": "mcp",
+      "version": "1.23.3",
+      "reason": "The MCP SDK's server transports, session and task handling, bearer auth and client transports (OAuth, redirects, output-schema validation) run only under `semgrep mcp` (semgrep/commands/mcp.py); `semgrep scan` imports the package but starts no MCP server and connects to none. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks mcp 1.29.0)"
+    },
+    {
+      "id": "PYSEC-2026-3483",
+      "package": "mcp",
+      "version": "1.23.3",
+      "reason": "The MCP SDK's server transports, session and task handling, bearer auth and client transports (OAuth, redirects, output-schema validation) run only under `semgrep mcp` (semgrep/commands/mcp.py); `semgrep scan` imports the package but starts no MCP server and connects to none. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep >= 1.186.0 promoted (it locks mcp 1.29.0)"
+    },
+    {
+      "id": "GHSA-5h93-6whr-6q8j",
+      "package": "mcp",
+      "version": "1.23.3",
+      "reason": "The MCP SDK's server transports, session and task handling, bearer auth and client transports (OAuth, redirects, output-schema validation) run only under `semgrep mcp` (semgrep/commands/mcp.py); `semgrep scan` imports the package but starts no MCP server and connects to none. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "upstream fix published (a Semgrep release that allows mcp >= 1.30.0)"
+    },
+    {
+      "id": "GHSA-84m7-p3x7-pcfv",
+      "package": "mcp",
+      "version": "1.23.3",
+      "reason": "The MCP SDK's server transports, session and task handling, bearer auth and client transports (OAuth, redirects, output-schema validation) run only under `semgrep mcp` (semgrep/commands/mcp.py); `semgrep scan` imports the package but starts no MCP server and connects to none. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "upstream fix published (a Semgrep release that allows mcp >= 1.30.0)"
+    },
+    {
+      "id": "GHSA-qx49-fqc8-xw99",
+      "package": "mcp",
+      "version": "1.23.3",
+      "reason": "The MCP SDK's server transports, session and task handling, bearer auth and client transports (OAuth, redirects, output-schema validation) run only under `semgrep mcp` (semgrep/commands/mcp.py); `semgrep scan` imports the package but starts no MCP server and connects to none. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "upstream fix published (a Semgrep release that allows mcp >= 1.30.0)"
+    },
+    {
+      "id": "GHSA-rwrf-2pqf-9j8j",
+      "package": "mcp",
+      "version": "1.23.3",
+      "reason": "The MCP SDK's server transports, session and task handling, bearer auth and client transports (OAuth, redirects, output-schema validation) run only under `semgrep mcp` (semgrep/commands/mcp.py); `semgrep scan` imports the package but starts no MCP server and connects to none. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "upstream fix published (a Semgrep release that allows mcp >= 1.30.0)"
+    },
+    {
+      "id": "GHSA-w4fh-qvv9-3v23",
+      "package": "mcp",
+      "version": "1.23.3",
+      "reason": "The MCP SDK's server transports, session and task handling, bearer auth and client transports (OAuth, redirects, output-schema validation) run only under `semgrep mcp` (semgrep/commands/mcp.py); `semgrep scan` imports the package but starts no MCP server and connects to none. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "upstream fix published (a Semgrep release that allows mcp >= 1.30.0)"
+    },
+    {
+      "id": "GHSA-mf5v-w3w3-f6cg",
+      "package": "opentelemetry-api",
+      "version": "1.37.0",
+      "reason": "opentelemetry-api parses a traceparent only in semgrep/telemetry.py Telemetry.configure -> extract(), which runs only when tracing is enabled (--trace) and reads its value from the _SEMGREP_TRACE_PARENT_* variables; neither is ever present, so no traceparent is parsed. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "upstream fix published (a Semgrep release that allows opentelemetry-api >= 1.45.2)"
+    },
+    {
+      "id": "GHSA-xcq7-p3pf-p88h",
+      "package": "opentelemetry-api",
+      "version": "1.37.0",
+      "reason": "TraceState.from_header parses an inbound tracestate header; `semgrep scan` serves no requests, and the only carrier Semgrep extracts (with --trace, never passed) holds a traceparent alone, so no tracestate is parsed. Core runs this Semgrep closure only as `semgrep scan` (l9-ci-sdk 4a887396 (l9_ci/providers/semgrep/provider.py)), on an ephemeral GitHub-hosted runner, with no --trace and an environment reduced to PATH, HOME, TMPDIR, TEMP and TMP; an org-wide code search (2026-11-21) finds no `semgrep mcp`, `semgrep login` or `--trace` call on this install.",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "upstream fix published (a Semgrep release that allows opentelemetry-api >= 1.45.1)"
+    },
+    {
+      "id": "GHSA-53pm-wgxf-c6qf",
+      "package": "wcmatch",
+      "version": "8.5.2",
+      "reason": "ReDoS on attacker file names; availability-only. Reachable: `semgrep scan` matches every target path, whose names a PR author controls, against rule `paths` and --exclude globs with wcmatch.glob.globmatch (semgrep/target_manager.py TargetManager._globmatch). No glob Core or l9-ci-sdk 4a887396 ships has 3 or more stars (scan-scope.yaml excludes have at most 1). Bounded twice: the SDK kills the scan after 300 s (l9_ci/commands/semgrep.py --timeout-seconds default 300) and every Core job that runs it has timeout-minutes (org-ci.yml analyze 30, analyze-semgrep.yml analyze 30, promotion-canary.yml head/base/admitted 30, nightly-sink.yml sink 60). A timeout fails closed: a timed-out scan is a fatal TIMEOUT failure with failed coverage for a required run (SDK provider.py execution_failure; tests/pipeline/test_runner.py test_execution_failures_are_failed_coverage), a timed-out job concludes cancelled, which render-publication publishes as cancelled, never success (tests/publication/test_render_publication.py test_a_timed_out_or_cancelled_analysis_never_passes), and the promotion canary judges a cancelled leg incomplete (tests/workflows/test_promotion_canary.py test_a_cancelled_or_unrun_leg_is_incomplete_and_blocks).",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep allows wcmatch>=11.2 (fixed in 11.2; Semgrep 1.171.0 to 1.186.0 require wcmatch~=8.3)"
+    }
+  ]
+}

@@ -1904,3 +1904,71 @@ through `OPTIONAL_REPLACEMENTS`, since a base leg may render an org-ci.yml
 older than them. The current org-ci.yml must carry them
 (`ConsumerEventTests`). The same change makes the merge-group baseline
 `merge_group.base_sha` (`docs/central-diff-baseline.md`).
+
+## 46. Core's pinned toolchain is audited (2026-11-21) — TOOLCHAIN-AUDIT
+
+Nothing audited the tools Core pins for every governed repository
+(`.github/actions/install-consumer-ci/toolchain-lock.json`): a consumer's lock
+export excludes them by design, and Core's own lock holds two packages.
+`tools/audit_core_toolchain.py` resolves every Python tool that
+`core-owned-tools.json` lists under `pip` (pip, pre-commit, ruff, mypy, pytest,
+semgrep, bandit, pip-audit, uv) into pinned requirements, from the installs
+Core actually performs: the consumer CI toolchain resolved together (as
+`install.sh` installs it), Semgrep's hash-locked closure as written, and every
+other tool resolved alone (as `security.yml` installs each). Each must be
+covered at the lock's version, or the audit refuses. Separate installs can pin
+one package at different versions, so the set is written as layers that each
+name a package once, and `pip-audit --disable-pip --no-deps` audits every
+layer. The log names the count. biome (npm), gitleaks (a binary) and the
+interpreter are not Python packages and are out of this audit's scope.
+
+`.github/workflows/self-toolchain-audit.yml` (`Core toolchain audit`) reports
+on every pull request and merge group. It audits when the change touches the
+lock, an audited install or the audit itself, where a known vulnerability
+blocks; otherwise it reports not applicable. It audits nightly and by dispatch
+regardless; there a finding fails the run, and the run, its summary and the
+`toolchain-audit` artifact are the report. Org-ci does not consume it, so no
+two-step activation applies. Making it a required check is a ruleset change
+(the ruleset binds contexts from real runs, `.l9/release-plane.yaml`).
+
+**Exceptions and the Semgrep re-lock (2026-11-21, addendum to §46).** The first
+audit found 30 known vulnerabilities, all in Semgrep 1.171.0's hash-locked
+closure. `locks/semgrep-1.171.0.txt` is re-locked with `lock_semgrep.py`
+(urllib3 2.8.0, certifi 2026.11.20 and other patch updates; the engine stays at
+1.171.0). Core's one exceptions file,
+`.github/actions/install-semgrep/audit-exceptions.yaml`
+(`l9.toolchain-audit-exceptions/v1`, a JSON document like the finding-waiver
+ledger, whose entries need a Semgrep finding fingerprint and so cannot name an
+advisory on a package), excepts one advisory on one `package@version`. Each
+entry carries a concrete reason that it is not reachable in Core's use (checked
+against how the pinned SDK invokes Semgrep), owner `l9-ci-core`, a creation
+date, an expiry at most 14 days later, and a removal trigger. `audit_core_toolchain.py
+judge` reads pip-audit's JSON, which is run without any ignore. The audit fails
+on any of these:
+
+- an open finding;
+- a stale entry;
+- an expired or malformed entry;
+- a pinned package that pip-audit did not audit.
+
+The log reads `<n> pinned package(s) audited, <m> finding(s) excepted, <k>
+open`. pip-audit's readable report takes each exception as `--ignore-vuln`.
+The subcommands are `resolve`, `exceptions` and `judge`. Promoting Semgrep
+1.186.0 makes the pyjwt and mcp PYSEC entries stale, and they must then be
+removed.
+
+**wcmatch exception (2026-11-21, CTO decision).** GHSA-53pm-wgxf-c6qf on wcmatch
+8.5.2 is reachable: `semgrep scan` matches the file names a PR author controls
+against globs. It is still excepted, because the effect is on availability
+only, the time it can take is bounded, and the bound fails closed:
+
+- **Bounded time.** The SDK kills a scan after 300 s, and every Core job that
+  runs Semgrep has `timeout-minutes`: 30 for each job, 60 for the nightly sink.
+- **Fails closed.** A timed-out scan is a fatal TIMEOUT failure. A cancelled job
+  publishes as `cancelled`, which
+  `test_a_timed_out_or_cancelled_analysis_never_passes` covers. A cancelled
+  canary leg is incomplete.
+- **No shipped multi-star glob.** No glob that Core or the SDK ships has 3 or
+  more stars.
+
+The exception is removed when Semgrep allows wcmatch 11.2 or later.

@@ -135,6 +135,19 @@ class RenderPublicationTests(unittest.TestCase):
             module.publication_conclusion("advisory", "failure", "pass"),
         )
 
+    def test_a_timed_out_or_cancelled_analysis_never_passes(self) -> None:
+        # A job that exceeds its timeout-minutes is cancelled (or fails); even a
+        # gate verdict of "pass" written before the stall cannot publish success.
+        for mode in ("blocking", "advisory"):
+            with self.subTest(mode=mode):
+                self.assertEqual(
+                    "cancelled",
+                    module.publication_conclusion(mode, "cancelled", "pass"),
+                )
+        self.assertEqual(
+            "failure", module.publication_conclusion("blocking", "failure", "pass")
+        )
+
     def test_malformed_gate_result_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
