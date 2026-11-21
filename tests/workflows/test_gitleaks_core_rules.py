@@ -290,7 +290,7 @@ SAMPLES = {
     "l9-slack-bot-token": "SLACK = 'xoxb-"
     + "12345678901234-12345678901234-"
     + "AbCdEfGhIjKlMnOpQrStUv'",
-    "l9-private-key-header": "-----BEGIN RSA PRIVATE KEY-----",
+    "l9-private-key-header": "-----BEGIN RSA " + "PRIVATE KEY-----",
     "l9-jwt": "t = 'eyJ"
     + "hbGciOiJIUz"
     + ".eyJ"
