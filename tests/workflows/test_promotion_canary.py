@@ -290,6 +290,17 @@ class RenderTests(unittest.TestCase):
         self.assertNotIn("paths", on["pull_request"])
         self.assertNotIn("paths-ignore", on["pull_request"])
 
+    def test_one_run_per_pushed_head(self) -> None:
+        """Row 22: a body edit must not start a second run that cancels the
+        first, whose verdict would post a failing check for the same head."""
+        on = yaml.safe_load(self.canary)[True]
+        self.assertEqual(
+            ["opened", "synchronize", "reopened"], on["pull_request"]["types"]
+        )
+        self.assertIn("workflow_dispatch", on)
+        concurrency = yaml.safe_load(self.canary)["concurrency"]
+        self.assertTrue(concurrency["cancel-in-progress"])
+
 
 class ReusableJobTests(unittest.TestCase):
     """A job org-ci.yml adds ahead of analyze is canaried with that job (#312)."""

@@ -180,9 +180,14 @@ HEADER = """\
 # `Promotion canary (Core)` fails only when the pull request makes a repository
 # worse. Head steps digest: @@HEAD_DIGEST@@
 name: Promotion canary (Core)
+# One run per pushed head (row 22). `edited` is not a trigger: `make pr`
+# pushes and then edits the pull request's body, and the second run cancelled
+# the first, whose verdict then posted a failing check for the same head. A
+# base retarget (also only `edited`) is re-judged by the next push or by
+# workflow_dispatch.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 permissions:
   contents: read
