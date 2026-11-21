@@ -563,44 +563,62 @@ def classify_stamp(
     for relative, expected in render_profile(record["profile"]).items():
         path = root / relative
         if relative in inherited:
-            # Inherited: the repository does not carry the file, so its absence
-            # and any change to Core's bytes are both fine. A local copy is
-            # accepted only when it is exactly Core's bytes at this revision.
-            if path.is_symlink():
-                modified.append(f"{relative}: inherited from Core but is a symlink")
-            elif path.exists() and not path.is_file():
-                modified.append(f"{relative}: inherited from Core but is not a file")
-            elif path.is_file() and path.read_bytes() != expected:
-                modified.append(
-                    f"{relative}: local copy overrides configuration inherited "
-                    f"from Core (central {_digest(expected)}, local "
-                    f"{_digest(path.read_bytes())}); remove it, then "
-                    "`materialize` if a local copy is needed"
-                )
+            finding = _inherited_finding(relative, path, expected)
+            if finding:
+                modified.append(finding)
             continue
-        recorded = record["files"].get(relative)
-        if path.is_symlink() or not path.is_file():
-            # Absent and never recorded: Core added it after the stamp.
-            # Recorded, or present as something other than a file: removed or
-            # replaced locally.
-            never_stamped = recorded is None and not path.is_symlink()
-            (behind if never_stamped and not path.exists() else modified).append(
-                f"{relative}: missing (Core-owned; re-stamp)"
-            )
-            continue
-        actual = path.read_bytes()
-        if actual != expected:
-            # Still the stamped bytes: Core moved on. Anything else: edited.
-            unchanged = recorded == _digest(actual)
-            (behind if unchanged else modified).append(
-                f"{relative}: differs from Core-owned bytes at this Core revision "
-                f"(stamped from {record['core']['revision']}; re-stamp, do not edit)"
-            )
-        elif recorded is None:
-            behind.append(
-                f"{relative}: Core-owned for the {record['profile']} profile but "
-                "absent from the stamp record (stamped by an earlier Core; re-stamp)"
-            )
-        elif recorded != _digest(actual):
-            behind.append(f"{relative}: stamp record digest does not match the file")
+        classified = _carried_finding(record, relative, path, expected)
+        if classified:
+            is_modified, finding = classified
+            (modified if is_modified else behind).append(finding)
     return record, modified, behind
+
+
+def _inherited_finding(
+    relative: str, path: pathlib.Path, expected: bytes
+) -> str | None:
+    """Inherited: the repository does not carry the file, so its absence and any
+    change to Core's bytes are both fine. A local copy is accepted only when it
+    is exactly Core's bytes at this revision; anything else is a local change.
+    """
+
+    if path.is_symlink():
+        return f"{relative}: inherited from Core but is a symlink"
+    if path.exists() and not path.is_file():
+        return f"{relative}: inherited from Core but is not a file"
+    if path.is_file() and path.read_bytes() != expected:
+        return (
+            f"{relative}: local copy overrides configuration inherited "
+            f"from Core (central {_digest(expected)}, local "
+            f"{_digest(path.read_bytes())}); remove it, then "
+            "`materialize` if a local copy is needed"
+        )
+    return None
+
+
+def _carried_finding(
+    record: Mapping[str, Any], relative: str, path: pathlib.Path, expected: bytes
+) -> tuple[bool, str] | None:
+    """``(modified, finding)`` for a carried Core-owned file, or ``None``."""
+
+    recorded = record["files"].get(relative)
+    if path.is_symlink() or not path.is_file():
+        # Absent and never recorded: Core added it after the stamp. Recorded,
+        # or present as something other than a file: removed or replaced.
+        added_later = recorded is None and not path.is_symlink() and not path.exists()
+        return not added_later, f"{relative}: missing (Core-owned; re-stamp)"
+    actual = path.read_bytes()
+    if actual != expected:
+        # Still the stamped bytes: Core moved on. Anything else: edited.
+        return recorded != _digest(actual), (
+            f"{relative}: differs from Core-owned bytes at this Core revision "
+            f"(stamped from {record['core']['revision']}; re-stamp, do not edit)"
+        )
+    if recorded is None:
+        return False, (
+            f"{relative}: Core-owned for the {record['profile']} profile but "
+            "absent from the stamp record (stamped by an earlier Core; re-stamp)"
+        )
+    if recorded != _digest(actual):
+        return False, f"{relative}: stamp record digest does not match the file"
+    return None

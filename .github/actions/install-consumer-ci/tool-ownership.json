@@ -13,7 +13,7 @@
     },
     {
       "path": "tools/l9_repo/stamp.py",
-      "sha256": "sha256:3ea1769a149dbf97eeaddc610bff3d2d8e62b32e475537bd2bcf9ff90228447f"
+      "sha256": "sha256:e98d2b1e15d1ed43e931ecc73591743690c742b3c15285e95f356b8ff32dc719"
     },
     {
       "path": "tools/l9_repo/tool_ownership.py",
