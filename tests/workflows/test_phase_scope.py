@@ -42,7 +42,6 @@ EXPECTED_WORKFLOWS = {
     "sdk-contract-check.yml",
     "normalize-semgrep-report.yml",
     "analyze-semgrep.yml",
-    "biome.yml",
     "governance-ci.yml",
     "profile-normalize-semgrep.yml",
     "publish-analysis.yml",
@@ -62,6 +61,8 @@ EXPECTED_WORKFLOWS = {
     # required status check.
     "self-sonar.yml",
     "security.yml",
+    # Core's Biome check as its own job, called by org-ci.yml beside security.yml.
+    "biome.yml",
     # Core-hosted release runner: releases every registry member that declares
     # .l9/release.json (daily schedule + one-repository dispatch). Never part
     # of the org-CI required workflow (docs/RELEASING.md).
