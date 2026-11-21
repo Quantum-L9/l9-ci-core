@@ -32,7 +32,7 @@ LOCK = ROOT / ".github" / "actions" / "install-consumer-ci" / "toolchain-lock.js
 
 LOCKED_SEMGREP_ACTION = (
     "Quantum-L9/l9-ci-core/.github/actions/install-semgrep@"
-    "4b4229f6f9e5fdc410b43d2deb6e82908177a2a9"
+    "2801f661e0b2136ef8a90ab54cec2b9f67eb950f"
 )
 
 

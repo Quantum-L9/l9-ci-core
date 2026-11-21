@@ -164,19 +164,42 @@ permissions:
   contents: read
 
 jobs:
+  # Secret scan (gitleaks, the consumer's .gitleaks.toml layered on the Core
+  # preset), Python dependency audit (pip-audit) and advisory bandit, scoped to
+  # what the event changed (L2-closeout item 1). Its result is enforced inside
+  # the required job below, so the one required context carries it: a secret or
+  # a vulnerable dependency blocks, bandit never does. The same ref gate as
+  # `analyze`, so a narrowed native push runs neither.
+  security:
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    # Inherits the workflow's `contents: read`; security.yml asks for no more.
+    # CORE_ACTIONS_PIN — security.yml at #298's merge revision (AGENTS.md §16)
+    uses: Quantum-L9/l9-ci-core/.github/workflows/security.yml@14396e9deb6bc1db467fae57e7d1d7d7efd63426
+    with:
+      gitleaks-scope: event
+
   analyze:
     # The required check name. Its one source is .l9/org-runtime-contract.yaml
     # (entrypoint.required_check.name); tests/workflows/test_required_check_name.py
     # holds this value equal to it, and the organization ruleset must list it.
     name: Analyze (central Core)
+    # `analyze` waits for `security` and runs whatever its result (!cancelled()),
+    # then enforces it in its last step. GitHub skips a job whose dependency
+    # failed unless its `if` says otherwise, and a skipped required check would
+    # read as passing.
+    needs: security
     # Non-push triggers are unaffected. A reusable invocation always carries the
     # required `event` input, so a caller that is itself on a push keeps its own
     # governed evaluation instead of inheriting this ref gate. Only a native push
     # is narrowed, and only to the repository's self-declared default branch.
     if: >-
-      github.event_name != 'push'
+      !cancelled()
+      && (github.event_name != 'push'
       || inputs.event != ''
-      || github.ref_name == github.event.repository.default_branch
+      || github.ref_name == github.event.repository.default_branch)
     # An explicit Ubuntu release family, never `-latest`. `ubuntu-24.04` fixes
     # the OS family so a `-latest` family jump cannot re-base the fleet's
     # evaluation; GitHub still rolls hosted image builds within that family on
@@ -351,7 +374,7 @@ jobs:
       - id: toolchain
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
 
       - name: Validate native push event context
         if: github.event_name == 'push'
@@ -387,12 +410,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -428,7 +451,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -441,7 +464,7 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
@@ -470,7 +493,7 @@ jobs:
         name: Plan required instances (Core)
         if: steps.inventory.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           inventory: ${{ steps.inventory.outputs.path }}
           repository: ${{ github.repository }}
@@ -489,12 +512,12 @@ jobs:
         name: Install Biome (digest-locked central pin)
         if: hashFiles('biome.json', 'biome.jsonc') != ''
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
 
       - id: biome_check
         name: Run Biome check (blocking)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           executable: ${{ steps.biome.outputs.executable }}
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
@@ -648,7 +671,7 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           workspace: .
           # AGENTS.md §27: held only by the registry snapshot and the composer
@@ -751,14 +774,14 @@ jobs:
         name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -783,7 +806,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -958,7 +981,7 @@ jobs:
         name: Aggregate required instances (Core)
         if: always() && steps.plan.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
           results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
@@ -1002,7 +1025,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -1013,7 +1036,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -1025,7 +1048,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -1047,7 +1070,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -1096,7 +1119,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@4b4229f6f9e5fdc410b43d2deb6e82908177a2a9
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@2801f661e0b2136ef8a90ab54cec2b9f67eb950f
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}
@@ -1224,4 +1247,19 @@ jobs:
           if [ "${status}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
             echo "Blocking mode: failing job on required instances '${status}'" >&2
             exit "${exit_code}"
+          fi
+
+      # The security job's result, enforced in the required context. Anything
+      # but success fails, skipped and cancelled included: an INCOMPLETE scan
+      # never passes.
+      - name: Enforce security scan (secrets, dependency audit)
+        if: always()
+        env:
+          SECURITY_RESULT: ${{ needs.security.result }}
+        run: |
+          set -euo pipefail
+          echo "Security scan (gitleaks, pip-audit; bandit advisory): ${SECURITY_RESULT:-unavailable}"
+          if [ "${SECURITY_RESULT}" != "success" ]; then
+            echo "::error title=Security scan::the security job concluded '${SECURITY_RESULT:-unavailable}'; a secret or a vulnerable dependency blocks the merge (see the security job)"
+            exit 1
           fi
