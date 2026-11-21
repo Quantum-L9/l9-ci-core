@@ -14,7 +14,7 @@
 # apart from the target identity; the scan legs are the nightly sink's scan
 # without its publication, so a Semgrep change is proven before promotion.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 4df0b5e1fbbfcefba5b2cc972389120da74d7d9bad52b8368cb4310c593395e2
+# worse. Head steps digest: 4daaa63c64efb696cb82f27f0ecf9b0cee3c65d081c117bf7c4f7f1fc0e77a70
 name: Promotion canary (Core)
 # One verdict per pushed head (row 22). `make pr` pushes and then edits the
 # pull request's body; that `edited` run used to cancel the push run, whose
@@ -148,34 +148,128 @@ jobs:
               exit 2
               ;;
           esac
-          # Rules: the Core preset (presets/security/.gitleaks.toml) is
-          # gitleaks' own default rule set (`[extend] useDefault = true`). A
-          # repository's own .gitleaks.toml is honoured on top of it: its rules
-          # and allowlists apply, and when it does not already extend the
-          # defaults it is made to, so no repository config can drop the Core
-          # rules. A repository config that extends another file by `path`
-          # cannot also extend the defaults (gitleaks allows one of the two),
-          # so it is refused rather than scanned with fewer rules. Reviewed
-          # false positives belong in .gitleaksignore, which gitleaks reads
-          # from the scanned tree.
+          # Rules: gitleaks' own defaults (`[extend] useDefault = true`) plus the
+          # Core rules (presets/security/.gitleaks.toml, between its "Core
+          # rules" markers; docs/gitleaks-core-rules.md), for every repository,
+          # whatever its own configuration says. A repository's .gitleaks.toml
+          # is honoured on top: its rules and allowlists apply. A repository
+          # rule whose id is a gitleaks default or a Core rule would replace
+          # that rule silently, so the merge refuses it by name (and a rule
+          # defined twice). A config that extends another file by `path`
+          # cannot also extend the defaults, so it is refused. Reviewed false
+          # positives belong in .gitleaksignore, which gitleaks reads from the
+          # scanned tree.
+          GITLEAKS_VERSION="8.24.3"
+          GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
+          # gitleaks' default rules at that version, by id: the ids a
+          # repository rule must not reuse. Checksum-pinned like the binary.
+          GITLEAKS_DEFAULTS_SHA256="8f393899dbdc67e4eae580909e496acab9cf3a75aacfb6fac56b6eb16bb9e051"
           config="${RUNNER_TEMP:-/tmp}/l9-gitleaks.toml"
-          config_args=()
-          if [ -f ".gitleaks.toml" ]; then
-            python3 -I - ".gitleaks.toml" "${config}" <<'PY'
+          core_rules="${RUNNER_TEMP:-/tmp}/l9-gitleaks-core-rules.toml"
+          defaults="${RUNNER_TEMP:-/tmp}/l9-gitleaks-defaults.toml"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${defaults}" \
+            "https://raw.githubusercontent.com/gitleaks/gitleaks/v${GITLEAKS_VERSION}/config/gitleaks.toml"
+          actual_defaults="$(sha256sum "${defaults}" | awk '{print $1}')"
+          if [ "${actual_defaults}" != "${GITLEAKS_DEFAULTS_SHA256}" ]; then
+            echo "::error::gitleaks default rules checksum mismatch: got ${actual_defaults}"
+            exit 2
+          fi
+          cat > "${core_rules}" <<'TOML'
+          [[rules]]
+          id = "l9-openai-api-key"
+          description = "OpenAI API key without the T3BlbkFJ marker (from Enrichment.Inference.Engine)"
+          regex = '''\bsk-[a-zA-Z0-9]{20,}\b'''
+          keywords = ["sk-"]
+
+          [[rules]]
+          id = "l9-openai-project-key"
+          description = "OpenAI project or service key without the T3BlbkFJ marker (from Cognitive.Engine.Graphs)"
+          regex = '''\bsk-(?:proj|svcacct|admin)-[a-zA-Z0-9_-]{80,}'''
+          keywords = ["sk-proj-", "sk-svcacct-", "sk-admin-"]
+
+          [[rules]]
+          id = "l9-api-key-assignment"
+          description = "An API key or secret key assigned a literal of 20+ characters, at any entropy (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''(?i)(?:api[_-]?key|apikey|api[_-]?secret|secret[_-]?key)\s*[=:]\s*['"][a-zA-Z0-9_\-]{20,}['"]'''
+          keywords = ["api_key", "api-key", "apikey", "api_secret", "api-secret", "secret_key", "secret-key", "secretkey"]
+
+          [[rules]]
+          id = "l9-slack-bot-token"
+          description = "Slack bot token with any digit-group length (from Enrichment.Inference.Engine)"
+          regex = '''xoxb-[0-9]{10,}-[0-9]{10,}-[a-zA-Z0-9]{20,}'''
+          keywords = ["xoxb-"]
+
+          [[rules]]
+          id = "l9-private-key-header"
+          description = "A private key header, even without a full body (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'''
+          keywords = ["private key-----"]
+
+          [[rules]]
+          id = "l9-jwt"
+          description = "A JSON Web Token with short segments (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}'''
+          keywords = ["eyj"]
+
+          [[rules]]
+          id = "l9-perplexity-api-key"
+          description = "Perplexity API key (from Enrichment.Inference.Engine)"
+          regex = '''\bpplx-[a-zA-Z0-9]{40,}'''
+          keywords = ["pplx-"]
+
+          [[rules]]
+          id = "l9-postgres-url-password"
+          description = "PostgreSQL URL with an inline password (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''postgres(?:ql)?://[^:\s/@]+:([^@\s/]+)@[a-zA-Z0-9._-]+'''
+          secretGroup = 1
+          keywords = ["postgres://", "postgresql://"]
+
+          [[rules]]
+          id = "l9-redis-url-password"
+          description = "Redis URL with an inline password (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''rediss?://[^:\s/@]*:([^@\s/]+)@[a-zA-Z0-9._-]+'''
+          secretGroup = 1
+          keywords = ["redis://", "rediss://"]
+
+          [[rules]]
+          id = "l9-neo4j-url-password"
+          description = "Neo4j or Bolt URL with an inline password (from Cognitive.Engine.Graphs)"
+          regex = '''(?:neo4j|bolt)(?:\+s(?:sc)?)?://[a-zA-Z0-9]+:([^@\s]+)@[a-zA-Z0-9._-]+'''
+          secretGroup = 1
+          keywords = ["neo4j://", "neo4j+s://", "neo4j+ssc://", "bolt://", "bolt+s://", "bolt+ssc://"]
+
+          [[rules]]
+          id = "l9-neo4j-password-assignment"
+          description = "A Neo4j password assigned a literal (from Cognitive.Engine.Graphs)"
+          regex = '''(?i)neo4j[_-]?password\s*[=:]\s*['"]?([a-zA-Z0-9!@#$%^&*()_+=-]{8,})['"]?'''
+          secretGroup = 1
+          keywords = ["neo4j_password", "neo4j-password", "neo4jpassword"]
+          TOML
+          python3 -I - ".gitleaks.toml" "${defaults}" "${core_rules}" "${config}" <<'PY'
+          import re
           import sys
           import tomllib
           from pathlib import Path
 
-          source, target = Path(sys.argv[1]), Path(sys.argv[2])
-          text = source.read_text(encoding="utf-8")
+          source, defaults, core_path, target = (Path(arg) for arg in sys.argv[1:5])
+          core_text = core_path.read_text(encoding="utf-8")
+          core = tomllib.loads(core_text)["rules"]
+          core_by_id = {rule["id"]: rule for rule in core}
+          core_blocks = {
+              tomllib.loads(block)["rules"][0]["id"]: block
+              for block in re.split(r"(?m)^(?=\[\[rules\]\])", core_text)
+              if block.startswith("[[rules]]")
+          }
+          default_ids = {rule["id"] for rule in tomllib.loads(defaults.read_text(encoding="utf-8"))["rules"]}
+          text = source.read_text(encoding="utf-8") if source.is_file() else ""
           try:
-              extend = tomllib.loads(text).get("extend")
+              data = tomllib.loads(text)
           except tomllib.TOMLDecodeError as error:
               sys.exit(f"::error::.gitleaks.toml is not valid TOML: {error}")
+          extend = data.get("extend")
           if extend is None:
               text += (
-                  "\n\n# Added by Core security.yml: keep the Core preset rules"
-                  " (gitleaks defaults).\n[extend]\nuseDefault = true\n"
+                  "\n\n# Added by Core: keep gitleaks' default rules.\n[extend]\nuseDefault = true\n"
               )
           elif not isinstance(extend, dict) or "path" in extend:
               sys.exit(
@@ -189,10 +283,43 @@ jobs:
                   "::error::.gitleaks.toml [extend] must set useDefault = true"
                   " so the Core preset rules apply."
               )
+          lines = text.splitlines()
+
+
+          def line_of(rule_id):
+              pattern = re.compile(r"\s*id\s*=\s*[\"']" + re.escape(rule_id) + r"[\"']")
+              return next((n for n, line in enumerate(lines, 1) if pattern.match(line)), 1)
+
+
+          seen, present, collisions = set(), set(), []
+          for rule in data.get("rules", []):
+              rule_id = str(rule.get("id", ""))
+              if core_by_id.get(rule_id) == rule and rule_id not in present:
+                  # The stamped Core preset carries a Core rule as Core wrote it.
+                  present.add(rule_id)
+              elif rule_id in seen or rule_id in present:
+                  collisions.append((rule_id, "is defined twice in .gitleaks.toml"))
+              elif rule_id in core_by_id:
+                  collisions.append((rule_id, "is a Core rule id (Core applies that rule to every repository)"))
+              elif rule_id in default_ids:
+                  collisions.append((rule_id, "is a gitleaks default rule id"))
+              seen.add(rule_id)
+          for rule_id, why in collisions:
+              print(
+                  f"::error file=.gitleaks.toml,line={line_of(rule_id)},title=gitleaks rule id collision::"
+                  f"rule '{rule_id}' {why}; gitleaks would replace one with the other silently."
+                  " Rename the repository rule, or delete it if a Core or default rule already covers it."
+              )
+          if collisions:
+              sys.exit(f"::error::{len(collisions)} gitleaks rule id collision(s) in .gitleaks.toml; nothing was scanned")
+          missing = [core_blocks[rule["id"]] for rule in core if rule["id"] not in present]
+          if missing:
+              text += "\n\n# Added by Core: the Core rules (presets/security/.gitleaks.toml).\n" + "".join(missing)
+          tomllib.loads(text)
           target.write_text(text, encoding="utf-8")
+          print(f"gitleaks rules: defaults + {len(core)} Core rule(s) + {len(seen) - len(present)} repository rule(s)")
           PY
-            config_args=(--config "${config}")
-          fi
+          config_args=(--config "${config}")
           case "${GITLEAKS_TARGET}" in
             git) ;;
             dir) GITLEAKS_LOG_OPTS="" ;;
@@ -214,8 +341,6 @@ jobs:
             fi
             range_args=(--log-opts="${GITLEAKS_LOG_OPTS}")
           fi
-          GITLEAKS_VERSION="8.24.3"
-          GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
           # HTTPS only, on every redirect too (the release redirects to a CDN).
           curl --proto '=https' --tlsv1.2 -sSfL -o /tmp/gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
@@ -1432,7 +1557,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 4df0b5e1fbbfcefba5b2cc972389120da74d7d9bad52b8368cb4310c593395e2
+          DIGEST: 4daaa63c64efb696cb82f27f0ecf9b0cee3c65d081c117bf7c4f7f1fc0e77a70
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -2122,7 +2247,7 @@ jobs:
         if: always()
         env:
           SIDE: scan
-          DIGEST: 4df0b5e1fbbfcefba5b2cc972389120da74d7d9bad52b8368cb4310c593395e2
+          DIGEST: 4daaa63c64efb696cb82f27f0ecf9b0cee3c65d081c117bf7c4f7f1fc0e77a70
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -2822,7 +2947,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 4df0b5e1fbbfcefba5b2cc972389120da74d7d9bad52b8368cb4310c593395e2
+          DIGEST: 4daaa63c64efb696cb82f27f0ecf9b0cee3c65d081c117bf7c4f7f1fc0e77a70
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}

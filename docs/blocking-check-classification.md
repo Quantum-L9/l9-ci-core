@@ -87,7 +87,7 @@ Blocking. Always reports. Incoming code only: the commits the event adds.
 | Step | Class | Why |
 |---|---|---|
 | Checkout (full history) | PLUMBING | The commit range must resolve in the clone |
-| Secret scan (gitleaks) | BLOCKING_SECURITY | gitleaks 8.24.3 (checksum-pinned) over `base..head` of a pull request or merge group, `before..after` of a push, the whole history otherwise; the Core preset plus the repository's `.gitleaks.toml`; each finding annotated at file and line by rule and commit, its value never printed; an unresolvable range or a scanner error fails as INCOMPLETE |
+| Secret scan (gitleaks) | BLOCKING_SECURITY | gitleaks 8.24.3 (checksum-pinned) over `base..head` of a pull request or merge group, `before..after` of a push, the whole history otherwise; gitleaks' defaults plus the Core rules plus the repository's `.gitleaks.toml`, a repository rule reusing a default or Core rule id refused by name ([gitleaks-core-rules.md](gitleaks-core-rules.md)); each finding annotated at file and line by rule and commit, its value never printed; an unresolvable range or a scanner error fails as INCOMPLETE |
 
 ## pip-audit (`org-ci.yml` job `pip-audit`, the `pip-audit` check)
 

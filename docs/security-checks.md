@@ -34,6 +34,13 @@ with `contents: read` only, no secrets, and the same event and ref gate as
 `analyze`. `security.yml` stays as the v1 compatibility kernel for its own
 callers (`self-security.yml`); `org-ci.yml` no longer calls it.
 
+### Rules
+
+gitleaks' defaults, the Core rules and the repository's own `.gitleaks.toml`
+apply in every repository; a repository rule that reuses a default or Core
+rule id fails the check by name instead of silently replacing that rule
+([gitleaks-core-rules.md](gitleaks-core-rules.md)).
+
 ### Signal
 
 - **gitleaks** annotates each finding at its file and line with the rule and

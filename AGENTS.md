@@ -2075,3 +2075,23 @@ Operator decisions ("same approach for all tools"; bandit option A). Record:
 
 Tests: `tests/workflows/test_org_ci_security_checks.py`,
 `tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`.
+
+## 52. Core gitleaks rules for every repository; rule-id collisions fail (2026-11-21) — amends §49
+
+Operator-directed correction. Record:
+[`docs/gitleaks-core-rules.md`](docs/gitleaks-core-rules.md).
+
+- **Collisions.** gitleaks keeps one rule per id, so a repository rule reusing
+  a default id was silently replaced (EIE lost four rules). The merge in the
+  gitleaks step (org-ci.yml and security.yml, the same script) refuses a
+  repository rule whose id is a gitleaks default (gitleaks' own config at the
+  pinned version, checksum-pinned), a Core rule, or a duplicate: one
+  `::error file=.gitleaks.toml,line=<n>` per id; nothing is scanned.
+- **Core rules.** Consumer rules that caught what the defaults miss are Core
+  rules (`l9-*`) in `presets/security/.gitleaks.toml`; the step embeds the
+  same block (test-bound) and applies it in every repository.
+- **Coordinate.** EIE and CEG fail `gitleaks` by name until they delete their
+  four colliding rules (now Core rules or defaults).
+
+Tests: `tests/workflows/test_gitleaks_core_rules.py`,
+`tests/workflows/test_security_consumer_scope.py`.
