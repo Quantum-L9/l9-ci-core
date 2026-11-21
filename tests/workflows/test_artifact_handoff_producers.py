@@ -17,6 +17,10 @@ PRODUCERS = (
 # tools/promotion_canary.py), so it creates a descriptor too. It is a test lane:
 # it is never called as a reusable workflow and exports nothing to publication.
 CANARY_COPY = "promotion-canary.yml"
+# The nightly findings sink is generated the same way (tools/nightly_sink.py)
+# and is not a reusable workflow either: its evidence goes to code scanning in
+# each scanned repository, never through a handoff consumer.
+NIGHTLY_COPY = "nightly-sink.yml"
 HANDOFF_ACTION = re.compile(
     r"uses:\s*Quantum-L9/l9-ci-core/\.github/actions/"
     r"create-artifact-handoff@[0-9a-f]{40}"
@@ -73,7 +77,7 @@ class ArtifactHandoffProducerWorkflowTests(unittest.TestCase):
         self.assertIn("evidence-ready=true", text[ready:enforce])
 
     def test_no_other_workflow_produces_a_handoff_descriptor(self) -> None:
-        expected = {*PRODUCERS, CANARY_COPY}
+        expected = {*PRODUCERS, CANARY_COPY, NIGHTLY_COPY}
         actual = {
             path.name
             for path in WORKFLOWS.glob("*.yml")

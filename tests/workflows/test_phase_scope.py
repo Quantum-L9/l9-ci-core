@@ -74,6 +74,10 @@ EXPECTED_WORKFLOWS = {
     # tools/promotion_canary.py; runs a Core pull request's org-ci revision
     # against the main heads in .l9/promotion-canary.json (AGENTS.md §40).
     "promotion-canary.yml",
+    # The nightly findings sink (X4): generated from org-ci.yml's analyze job
+    # by tools/nightly_sink.py; scans each declared repository's main as a
+    # nightly event and publishes to its code scanning and one rolling issue.
+    "nightly-sink.yml",
     # Read-only attestation of the live GitHub control plane against
     # .l9/release-plane.yaml (organization required-workflow binding,
     # Core main protection, immutable releases). Core-only governance
