@@ -2,13 +2,16 @@
 """Safe public-CLI adapter for l9-ci-sdk."""
 
 from __future__ import annotations
+import datetime as dt
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 OPERATIONS = {
     "semgrep-run",
+    "semgrep-consumer-run",
     "semgrep-normalize",
     "bundle-validate",
     "bundle-project-agent-payload",
@@ -20,6 +23,11 @@ DIRTY_VALUES = {"true", "false", "unset"}
 # Languages the SDK-owned packaged Semgrep ruleset supports. Core selects one;
 # it never authors --config lists (the SDK owns ruleset selection).
 SEMGREP_LANGUAGES = {"python", "typescript"}
+# Repository identity the SDK keys a finding waiver on (<owner>/<name>).
+FULL_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+REPOSITORY_PATTERN = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$"
+)
 
 
 class InvocationError(RuntimeError):
@@ -98,6 +106,115 @@ def add_optional_path(
         )
 
 
+def add_finding_waivers(command: list[str]) -> None:
+    """Pass the central finding-waiver ledger, or nothing.
+
+    The ledger is Core's (resolve-governance `finding-waivers`), so it must be
+    an absolute regular file outside GITHUB_WORKSPACE: the SDK refuses one
+    inside --root, and a path inside the workspace would let the consumer
+    supply its own. `waiver-repository` names the repository the findings
+    belong to and is required with a ledger and refused without one.
+    """
+    ledger_value = env("L9_WAIVERS")
+    repository = env("L9_WAIVER_REPOSITORY")
+    waiver_date = env("L9_WAIVER_DATE")
+    if not ledger_value:
+        if repository or waiver_date:
+            raise InvocationError("waiver-repository and waiver-date require waivers")
+        return
+    supplied = Path(ledger_value)
+    if not supplied.is_absolute():
+        raise InvocationError("waivers must be an absolute path")
+    if supplied.is_symlink() or not supplied.is_file():
+        raise InvocationError(f"waivers must be a regular file: {supplied}")
+    ledger = supplied.resolve()
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE", Path.cwd())).resolve()
+    if ledger.is_relative_to(workspace):
+        raise InvocationError("waivers must be outside GITHUB_WORKSPACE")
+    if not REPOSITORY_PATTERN.fullmatch(repository):
+        raise InvocationError("waiver-repository must be <owner>/<name>")
+    command.extend(["--waivers", str(ledger), "--repository", repository])
+    if waiver_date:
+        try:
+            dt.date.fromisoformat(waiver_date)
+        except ValueError as error:
+            raise InvocationError("waiver-date must be YYYY-MM-DD") from error
+        command.extend(["--waiver-date", waiver_date])
+
+
+def add_baseline_commit(command: list[str]) -> None:
+    """Pass the baseline commit findings are classified against, or nothing.
+
+    ``semgrep run --baseline-commit`` (SDK ADR 0023) classifies each finding
+    ``new`` or ``pre_existing`` against that commit; a pre-existing blocking
+    finding is reported as advisory, and an unresolvable baseline fails
+    closed. The SDK requires ``--policy`` with it, so Core refuses it without
+    one rather than letting the SDK reject the run.
+    """
+    baseline = env("L9_BASELINE_COMMIT")
+    if not baseline:
+        return
+    if not FULL_COMMIT.fullmatch(baseline):
+        raise InvocationError("baseline-commit must be a full 40-character commit")
+    if not env("L9_POLICY"):
+        raise InvocationError("baseline-commit requires policy")
+    command.extend(["--baseline-commit", baseline])
+
+
+def add_run_flags(
+    command: list[str], *, strict: bool, required: bool, dirty: str
+) -> list[str]:
+    """The flags every Semgrep execution shares, after its own options."""
+    generated_at = env("L9_GENERATED_AT")
+    if generated_at:
+        command.extend(["--generated-at", generated_at])
+    revision = env("L9_REVISION")
+    if revision:
+        command.extend(["--revision", revision])
+    if strict:
+        command.append("--strict")
+    if required:
+        command.append("--required")
+    if dirty == "true":
+        command.append("--dirty")
+    elif dirty == "false":
+        command.append("--no-dirty")
+    return command
+
+
+def build_consumer_run(
+    executable: Path, *, strict: bool, required: bool, dirty: str
+) -> list[str]:
+    """``semgrep consumer-run``: the repository's declared rulepack (ADR 0021).
+
+    A separate execution with its own bundle; the SDK validates the
+    declaration and refuses anything that could touch central evidence.
+    """
+    output_path = resolve_workspace_path(env("L9_OUTPUT"), "output", must_exist=False)
+    root = resolve_workspace_path(env("L9_ROOT", "."), "root", must_exist=True)
+    snapshot_id = require(env("L9_SNAPSHOT_ID"), "snapshot-id")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        str(executable),
+        "semgrep",
+        "consumer-run",
+        "--output",
+        str(output_path),
+        "--root",
+        str(root),
+        "--snapshot-id",
+        snapshot_id,
+    ]
+    raw_output = env("L9_RAW_OUTPUT")
+    if raw_output:
+        raw_path = resolve_workspace_path(raw_output, "raw-output", must_exist=False)
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        command.extend(["--raw-output", str(raw_path)])
+    add_optional_path(command, "--policy", env("L9_POLICY"), "policy")
+    add_finding_waivers(command)
+    return add_run_flags(command, strict=strict, required=required, dirty=dirty)
+
+
 def parse_boolean(value: str, label: str) -> bool:
     if value not in BOOLEAN_VALUES:
         raise InvocationError(f"{label} must be true or false")
@@ -174,21 +291,13 @@ def build_command(executable: Path) -> list[str]:
             env("L9_POLICY"),
             "policy",
         )
-        generated_at = env("L9_GENERATED_AT")
-        if generated_at:
-            command.extend(["--generated-at", generated_at])
-        revision = env("L9_REVISION")
-        if revision:
-            command.extend(["--revision", revision])
-        if strict:
-            command.append("--strict")
-        if required:
-            command.append("--required")
-        if dirty == "true":
-            command.append("--dirty")
-        elif dirty == "false":
-            command.append("--no-dirty")
-        return command
+        add_finding_waivers(command)
+        add_baseline_commit(command)
+        return add_run_flags(command, strict=strict, required=required, dirty=dirty)
+    if operation == "semgrep-consumer-run":
+        return build_consumer_run(
+            executable, strict=strict, required=required, dirty=dirty
+        )
     if operation == "semgrep-normalize":
         input_path = resolve_workspace_path(
             input_value,
@@ -249,6 +358,7 @@ def build_command(executable: Path) -> list[str]:
             env("L9_POLICY"),
             "policy",
         )
+        add_finding_waivers(command)
         generated_at = env("L9_GENERATED_AT")
         if generated_at:
             command.extend(["--generated-at", generated_at])
@@ -346,7 +456,7 @@ def main() -> int:
         operation = env("L9_OPERATION")
         provider = (
             validate_provider_executable(env("L9_PROVIDER_EXECUTABLE"))
-            if operation == "semgrep-run"
+            if operation in ("semgrep-run", "semgrep-consumer-run")
             else None
         )
     except InvocationError as error:
