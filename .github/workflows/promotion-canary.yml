@@ -14,7 +14,7 @@
 # apart from the target identity; the scan legs are the nightly sink's scan
 # without its publication, so a Semgrep change is proven before promotion.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 6986a45a38ac09c2d61d182da04647eb35c0bb20ee7bb80a578c8f7fe2ca6d0c
+# worse. Head steps digest: 442863a51c8c8f1f3ddb0eb132aeb6432cd0fd145a285fd241ae6e60ec5019e7
 name: Promotion canary (Core)
 # One verdict per pushed head (row 22). `make pr` pushes and then edits the
 # pull request's body; that `edited` run used to cancel the push run, whose
@@ -328,6 +328,13 @@ jobs:
               exit 2
               ;;
           esac
+          # With no range, scan the evaluated revision's own history (HEAD),
+          # never every ref in the clone: gitleaks' default is `git log --all`,
+          # and a fetch-depth 0 checkout holds every branch, so an unrelated
+          # branch would decide this revision's verdict.
+          if [ "${GITLEAKS_TARGET:-git}" = git ] && [ -z "${GITLEAKS_LOG_OPTS}" ]; then
+            GITLEAKS_LOG_OPTS="HEAD"
+          fi
           range_args=()
           if [ -n "${GITLEAKS_LOG_OPTS}" ]; then
             # The range must resolve in this clone before gitleaks runs:
@@ -368,6 +375,7 @@ jobs:
           # match fields are not read).
           scope_text="${GITLEAKS_LOG_OPTS:-the whole history}"
           [ "${GITLEAKS_TARGET}" = dir ] && scope_text="the whole tree"
+          [ "${GITLEAKS_LOG_OPTS}" = HEAD ] && scope_text="the evaluated revision's history"
           SCOPE_TEXT="${scope_text}" STATUS="${status}" REPORT="${report}" \
             python3 -I - <<'PY'
           import json
@@ -1944,7 +1952,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 6986a45a38ac09c2d61d182da04647eb35c0bb20ee7bb80a578c8f7fe2ca6d0c
+          DIGEST: 442863a51c8c8f1f3ddb0eb132aeb6432cd0fd145a285fd241ae6e60ec5019e7
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -2634,7 +2642,7 @@ jobs:
         if: always()
         env:
           SIDE: scan
-          DIGEST: 6986a45a38ac09c2d61d182da04647eb35c0bb20ee7bb80a578c8f7fe2ca6d0c
+          DIGEST: 442863a51c8c8f1f3ddb0eb132aeb6432cd0fd145a285fd241ae6e60ec5019e7
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -3334,7 +3342,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 6986a45a38ac09c2d61d182da04647eb35c0bb20ee7bb80a578c8f7fe2ca6d0c
+          DIGEST: 442863a51c8c8f1f3ddb0eb132aeb6432cd0fd145a285fd241ae6e60ec5019e7
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -3674,6 +3682,13 @@ jobs:
               exit 2
               ;;
           esac
+          # With no range, scan the evaluated revision's own history (HEAD),
+          # never every ref in the clone: gitleaks' default is `git log --all`,
+          # and a fetch-depth 0 checkout holds every branch, so an unrelated
+          # branch would decide this revision's verdict.
+          if [ "${GITLEAKS_TARGET:-git}" = git ] && [ -z "${GITLEAKS_LOG_OPTS}" ]; then
+            GITLEAKS_LOG_OPTS="HEAD"
+          fi
           range_args=()
           if [ -n "${GITLEAKS_LOG_OPTS}" ]; then
             # The range must resolve in this clone before gitleaks runs:
@@ -3714,6 +3729,7 @@ jobs:
           # match fields are not read).
           scope_text="${GITLEAKS_LOG_OPTS:-the whole history}"
           [ "${GITLEAKS_TARGET}" = dir ] && scope_text="the whole tree"
+          [ "${GITLEAKS_LOG_OPTS}" = HEAD ] && scope_text="the evaluated revision's history"
           SCOPE_TEXT="${scope_text}" STATUS="${status}" REPORT="${report}" \
             python3 -I - <<'PY'
           import json
@@ -4903,7 +4919,7 @@ jobs:
         if: always()
         env:
           SIDE: base
-          DIGEST: 4daaa63c64efb696cb82f27f0ecf9b0cee3c65d081c117bf7c4f7f1fc0e77a70
+          DIGEST: 960f5ad2161ce8917fd9d3dc83ec4e3df9ef0e2fddfc41dafa96a02e137b3906
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -5593,7 +5609,7 @@ jobs:
         if: always()
         env:
           SIDE: scanbase
-          DIGEST: 4daaa63c64efb696cb82f27f0ecf9b0cee3c65d081c117bf7c4f7f1fc0e77a70
+          DIGEST: 960f5ad2161ce8917fd9d3dc83ec4e3df9ef0e2fddfc41dafa96a02e137b3906
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}

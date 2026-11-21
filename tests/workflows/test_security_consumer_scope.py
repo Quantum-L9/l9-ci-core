@@ -323,18 +323,20 @@ class GitleaksInvocationTests(unittest.TestCase):
         self.assertTrue(config.endswith("l9-gitleaks.toml"), config)
         self.assertIn("outcome=executed_pass", output)
 
-    def test_no_range_and_no_config_scan_everything_with_the_core_rules(
+    def test_no_range_and_no_config_scan_the_revisions_history_with_core_rules(
         self,
     ) -> None:
         # A repository without a .gitleaks.toml still gets the Core rules
         # (docs/gitleaks-core-rules.md): the composed config is always passed.
+        # With no range the scan is the evaluated revision's own history
+        # (HEAD), never gitleaks' default `git log --all`: a fetch-depth 0
+        # checkout holds every branch, and an unrelated one must not decide
+        # this revision's verdict.
         code, argv, output = self.scan({}, "")
         self.assertEqual(0, code, output)
         lines = argv.splitlines()
         self.assertTrue(lines[lines.index("--config") + 1].endswith("l9-gitleaks.toml"))
-        self.assertFalse(
-            any(line.startswith("--log-opts") for line in argv.splitlines())
-        )
+        self.assertIn("--log-opts=HEAD", lines)
 
     def log_opts(self, **event: str) -> str:
         code, argv, output = self.scan({}, "", GITLEAKS_SCOPE="event", **event)
@@ -359,7 +361,7 @@ class GitleaksInvocationTests(unittest.TestCase):
             EVENT_NAME="push", PUSH_BEFORE="0" * 40, EVENT_SHA="SECOND"
         )
         self.assertRegex(new_branch, r"^-1 [0-9a-f]{40}$")
-        self.assertEqual("", self.log_opts(EVENT_NAME="workflow_dispatch"))
+        self.assertEqual("HEAD", self.log_opts(EVENT_NAME="workflow_dispatch"))
 
     def test_an_unknown_scope_is_refused(self) -> None:
         code, argv, output = self.scan({}, "", GITLEAKS_SCOPE="everything")

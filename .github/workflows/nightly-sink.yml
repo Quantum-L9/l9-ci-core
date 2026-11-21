@@ -23,7 +23,7 @@
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: 0cbf340b8c06dfe6976c04654f9286ce31300df6dc419d49b5dd6fba26de3a24
+# and issues: write. Analyze steps digest: 586548814f14837fbdffb2ba87702b03f21f15d1f73c2e7527437031467e1f42
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -1124,6 +1124,13 @@ jobs:
               exit 2
               ;;
           esac
+          # With no range, scan the evaluated revision's own history (HEAD),
+          # never every ref in the clone: gitleaks' default is `git log --all`,
+          # and a fetch-depth 0 checkout holds every branch, so an unrelated
+          # branch would decide this revision's verdict.
+          if [ "${GITLEAKS_TARGET:-git}" = git ] && [ -z "${GITLEAKS_LOG_OPTS}" ]; then
+            GITLEAKS_LOG_OPTS="HEAD"
+          fi
           range_args=()
           if [ -n "${GITLEAKS_LOG_OPTS}" ]; then
             # The range must resolve in this clone before gitleaks runs:
@@ -1164,6 +1171,7 @@ jobs:
           # match fields are not read).
           scope_text="${GITLEAKS_LOG_OPTS:-the whole history}"
           [ "${GITLEAKS_TARGET}" = dir ] && scope_text="the whole tree"
+          [ "${GITLEAKS_LOG_OPTS}" = HEAD ] && scope_text="the evaluated revision's history"
           SCOPE_TEXT="${scope_text}" STATUS="${status}" REPORT="${report}" \
             python3 -I - <<'PY'
           import json
