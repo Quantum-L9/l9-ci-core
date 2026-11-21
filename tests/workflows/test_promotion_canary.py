@@ -317,6 +317,36 @@ class VerdictTests(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn("incomplete", report[0])
 
+    def test_an_infrastructure_error_is_never_masked_and_is_named(self) -> None:
+        leg = self.leg("a", known_red="findings")
+        self.record(leg, "error")
+        passed, report = self.judge([leg])
+        self.assertFalse(passed)
+        self.assertIn("infrastructure error", report[0])
+        self.record(leg, "bogus")
+        self.assertFalse(self.judge([leg])[0])
+
+    def test_a_real_failure_is_named_as_one(self) -> None:
+        for status in ("findings", "verification"):
+            with self.subTest(status=status):
+                leg = self.leg("a")
+                self.record(leg, status)
+                passed, report = self.judge([leg])
+                self.assertFalse(passed)
+                self.assertIn("a real failure of this repository", report[0])
+
+    def test_the_leg_record_classifies_the_failure(self) -> None:
+        canary = (ROOT / pc.CANARY).read_text(encoding="utf-8")
+        record = canary[canary.index("name: Record the canary leg") :]
+        for status in (
+            '"pass"',
+            '"incomplete"',
+            '"verification"',
+            '"findings"',
+            '"error"',
+        ):
+            self.assertIn(f"status = {status}", record)
+
     def test_a_missing_or_foreign_record_fails(self) -> None:
         a, b = self.leg("a"), self.leg("b")
         self.record(a, "pass")
@@ -328,8 +358,8 @@ class VerdictTests(unittest.TestCase):
 
     def test_red_fails_unless_declared_and_declared_red_is_announced(self) -> None:
         plain, red = self.leg("a"), self.leg("b", known_red="findings")
-        self.record(plain, "fail")
-        self.record(red, "fail")
+        self.record(plain, "findings")
+        self.record(red, "findings")
         passed, report = self.judge([plain, red])
         self.assertFalse(passed)
         self.assertTrue(self.judge([red])[0])
@@ -344,7 +374,7 @@ class VerdictTests(unittest.TestCase):
 
     def test_the_verdict_command_exit_codes(self) -> None:
         leg = self.leg("a")
-        self.record(leg, "fail")
+        self.record(leg, "findings")
         args = [
             "verdict",
             "--plan-result",

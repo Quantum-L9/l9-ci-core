@@ -1634,15 +1634,19 @@ no longer turn a green repository red unannounced.
 - **Two-step pins (§16):** a step-one pull request that changes only action
   code leaves `org-ci.yml`'s pins unchanged, so its canary re-runs today's
   behaviour; the change is judged on the step-two pin advance, the #308 case.
-- **Verdict:** a missing or incomplete leg fails. A red leg fails unless the
+- **Verdict:** a missing leg, an incomplete leg and an infrastructure error
+  (the job failed before any verdict) always fail. A real failure of the
+  repository (findings, or repository verification) fails unless the
   declaration names that repository `known_red` with a reason; then it is
-  announced in the run summary. Central Core runs on pull requests only, so a
+  announced in the run summary. The leg record names which kind it was. Central Core runs on pull requests only, so a
   consumer's main head carries no verdict to compare with: "red today" is a
   reviewed declaration, and a `known_red` repository that comes out green is
   reported so the declaration is removed. Today: Cursor-Governance (29 Semgrep
-  findings, CG-CUTOVER) and l9-ci-sdk (one high `subprocess-injection` finding
-  at `l9_ci/providers/semgrep/provider.py:153`, first surfaced by this
-  canary's own run on #311).
+  findings, CG-CUTOVER). l9-ci-sdk is deliberately not declared: its main head
+  is red at Core `eba72ac3` (one high `subprocess-injection` finding at
+  `l9_ci/providers/semgrep/provider.py:153`, first surfaced by this canary's
+  own run on #311), and the canary reports that as a real failure until L1's
+  policy-application fix lands.
 - **One artifact set per leg:** org-ci.yml names its artifacts after the
   matrix id; the canary sets it to `canary-<repository slug>`, the only
   difference from the target identity.

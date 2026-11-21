@@ -850,8 +850,14 @@ jobs:
               status = "pass"
           elif env.get("AGGREGATE_STATUS", "") == "incomplete":
               status = "incomplete"
+          elif env.get("REPOSITORY_VERIFY", "") not in ("", "pass", "not_applicable"):
+              status = "verification"
+          elif env.get("AGGREGATE_STATUS", "") == "fail":
+              status = "findings"
           else:
-              status = "fail"
+              # The job failed before any verdict: infrastructure, not the
+              # repository. Never masked by a known_red declaration.
+              status = "error"
           record = {
               "schema": "l9.promotion-canary-leg/v1",
               "repository": env["REPOSITORY"],

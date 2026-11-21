@@ -27,9 +27,10 @@ Subcommands (stdlib only; run with ``python3 -I``):
     ``$GITHUB_OUTPUT``.
 
 ``verdict --matrix JSON --records DIR --plan-result R --applies A``
-    Judge every planned leg. A missing or incomplete leg fails. A red leg fails
-    unless the declaration names that repository ``known_red`` with a reason:
-    then it is announced. A ``known_red`` repository that comes out green is
+    Judge every planned leg. A missing leg, an incomplete leg and an
+    infrastructure error (no verdict reached) always fail. A real failure
+    (findings, or repository verification) fails unless the declaration names
+    that repository ``known_red`` with a reason: then it is announced. A ``known_red`` repository that comes out green is
     reported so its declaration can be removed. Required central Core runs on
     pull requests only, so a consumer's main head carries no verdict to compare
     with; "red today" is therefore a reviewed declaration, never a guess.
@@ -189,8 +190,14 @@ FOOTER = """\
               status = "pass"
           elif env.get("AGGREGATE_STATUS", "") == "incomplete":
               status = "incomplete"
+          elif env.get("REPOSITORY_VERIFY", "") not in ("", "pass", "not_applicable"):
+              status = "verification"
+          elif env.get("AGGREGATE_STATUS", "") == "fail":
+              status = "findings"
           else:
-              status = "fail"
+              # The job failed before any verdict: infrastructure, not the
+              # repository. Never masked by a known_red declaration.
+              status = "error"
           record = {
               "schema": "l9.promotion-canary-leg/v1",
               "repository": env["REPOSITORY"],
@@ -507,11 +514,15 @@ def judge_leg(leg: dict[str, Any], records: Path) -> tuple[bool, list[str]]:
     if status == "pass":
         stale = f"stale-known-red {name}: green; remove its known_red declaration"
         return True, [f"pass {name}", *([stale] if red else [])]
-    if status == "incomplete":
-        return False, [f"FAIL {name}: incomplete"]
-    if red:
-        return True, [f"known-red {name}: {status}, announced ({red})"]
-    return False, [f"FAIL {name}: {status}"]
+    if status in ("findings", "verification"):
+        if red:
+            return True, [f"known-red {name}: {status}, announced ({red})"]
+        return False, [f"FAIL {name}: {status} (a real failure of this repository)"]
+    detail = {
+        "incomplete": "incomplete (a required instance did not conclude)",
+        "error": "infrastructure error (no verdict was reached)",
+    }.get(status, f"unrecognised leg status {status!r}")
+    return False, [f"FAIL {name}: {detail}"]
 
 
 def _cmd_verdict(args: argparse.Namespace) -> int:

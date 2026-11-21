@@ -22,10 +22,7 @@
     {
       "repository": "Quantum-L9/l9-ci-sdk",
       "branch": "main",
-      "private": true,
-      "known_red": {
-        "reason": "1 high Semgrep finding on main 0fa99e8 at Core eba72ac3 (subprocess-injection, l9_ci/providers/semgrep/provider.py:153), first surfaced by this canary (l9-ci-core#311, run 44848185909); the finding #308 missed. Remove when its central Core run is green."
-      }
+      "private": true
     },
     {
       "repository": "Quantum-L9/l9-ci-core",
