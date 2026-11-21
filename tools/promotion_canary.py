@@ -160,6 +160,18 @@ REPLACEMENTS = (
         "TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}",
     ),
 )
+# Applied where org-ci.yml carries them. A base leg renders an older org-ci.yml
+# that may predate them; the current org-ci.yml must carry every one
+# (tests/workflows/test_promotion_canary.py), so a head leg never lacks them.
+OPTIONAL_REPLACEMENTS = (
+    # Row 27: a leg checks out a consumer's main head inside a Core
+    # pull_request run, so the consumer's make runs as a push of that head,
+    # never under the Core PR's event (AGENTS.md §45).
+    ("event-name: ''", "event-name: push"),
+    ("event-ref: ''", "event-ref: refs/heads/${{ matrix.branch }}"),
+    # A leg is never a merge group; its baseline is the first parent.
+    ("${{ github.event.merge_group.base_sha }}", "''"),
+)
 TARGET_SHAPED = re.compile(
     r"github\.(repository|sha|ref|head_ref|base_ref|event\.(?!_)[a-z_.]+)\b"
 )
@@ -777,6 +789,8 @@ def retarget(steps: str, side: str = "head") -> str:
         if old not in steps:
             raise CanaryError(f"org-ci.yml no longer contains {old!r}; update the tool")
         steps = steps.replace(old, new.replace("@@SIDE@@", side))
+    for old, new in OPTIONAL_REPLACEMENTS:
+        steps = steps.replace(old, new)
     left = [
         f"{number}: {line.strip()}"
         for number, line in enumerate(steps.splitlines(), 1)

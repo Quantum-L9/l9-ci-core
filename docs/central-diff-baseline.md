@@ -63,6 +63,17 @@ the run; it never falls back to full-tree judgement.
   `github.event.merge_group.base_sha` explicitly and blocking when it does not
   resolve, is part of the row-27 step-two change (AGENTS.md §45), which edits
   org-ci's baseline step anyway.
+- `merge` (`merge_group`), corrected in row-27 step two: the step reads
+  `github.event.merge_group.base_sha`, fetches that commit with the run's
+  read token, and judges against it. A malformed or unfetchable base blocks.
+  The `merge` class without a group base (an explicit `event: merge` input
+  on another trigger) keeps `HEAD^1`. Tests:
+  `tests/workflows/test_org_ci_central_diff_baseline.py`.
+- The baseline is resolved before repository verification runs any consumer
+  code, and is held by `refs/l9/central-diff-baseline`. On #328's canary,
+  Cursor-Governance's full `make test` left its checkout without `HEAD^1`,
+  and a baseline resolved afterwards blocked the run. Consumer code is
+  untrusted and must not be able to move the baseline.
 
 ## Consequences
 

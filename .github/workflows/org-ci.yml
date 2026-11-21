@@ -176,8 +176,9 @@ jobs:
       || inputs.event != ''
       || github.ref_name == github.event.repository.default_branch
     # Inherits the workflow's `contents: read`; security.yml asks for no more.
-    # CORE_ACTIONS_PIN — security.yml at #298's merge revision (AGENTS.md §16)
-    uses: Quantum-L9/l9-ci-core/.github/workflows/security.yml@14396e9deb6bc1db467fae57e7d1d7d7efd63426
+    # CORE_ACTIONS_PIN — security.yml at #330's merge revision, which carries
+    # #329's HTTPS-only gitleaks download and #330's full-lock pip-audit (AGENTS.md §16)
+    uses: Quantum-L9/l9-ci-core/.github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d
     with:
       gitleaks-scope: event
 
@@ -374,7 +375,7 @@ jobs:
       - id: toolchain
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@da01ee359ee18c59ff98b119e5aa5ee609754b5d
 
       - name: Validate native push event context
         if: github.event_name == 'push'
@@ -410,12 +411,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@da01ee359ee18c59ff98b119e5aa5ee609754b5d
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -451,7 +452,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -464,7 +465,7 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
@@ -493,7 +494,7 @@ jobs:
         name: Plan required instances (Core)
         if: steps.inventory.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           inventory: ${{ steps.inventory.outputs.path }}
           repository: ${{ github.repository }}
@@ -512,16 +513,114 @@ jobs:
         name: Install Biome (digest-locked central pin)
         if: hashFiles('biome.json', 'biome.jsonc') != ''
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@da01ee359ee18c59ff98b119e5aa5ee609754b5d
 
       - id: biome_check
         name: Run Biome check (blocking)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.biome.outputs.executable }}
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
           mode: blocking
+
+      # SDK ADR 0023 (CENTRAL-DIFF): findings are classified new or
+      # pre-existing against a baseline commit; only new blocking findings and
+      # incomplete results fail, pre-existing ones are reported as advisory
+      # with counts (docs/central-diff-baseline.md). pull_request and push
+      # judge against the evaluated revision's first parent (on a pull
+      # request GitHub's merge commit, so the target tip; on a push the
+      # previous tip; fetched at depth 2 above), a merge group against
+      # merge_group.base_sha; nightly, release and supply_chain pass none, so
+      # the whole tree is judged by policy alone. It is resolved here, before
+      # repository verification runs any consumer code, and held by a ref:
+      # a consumer's make can rewrite .git (a re-shallowed checkout has no
+      # HEAD^1), and nothing it does may move the baseline. A baseline that
+      # does not resolve blocks; tracked changes or an incomplete baseline
+      # scan make the SDK fail closed.
+      - id: baseline
+        name: Resolve the baseline commit (CENTRAL-DIFF)
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        env:
+          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
+          POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
+          # A merge group's base (docs/central-diff-baseline.md): HEAD^1 is
+          # that base only for the first group in the queue.
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          REPOSITORY: ${{ github.repository }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commit=""
+          case "${EVENT_CLASS}" in
+            merge)
+              if [ -z "${POLICY}" ]; then
+                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
+              elif [ -n "${MERGE_GROUP_BASE}" ]; then
+                if ! printf '%s' "${MERGE_GROUP_BASE}" | grep -Eq '^[0-9a-f]{40}$'; then
+                  echo "::error::no baseline: merge group base '${MERGE_GROUP_BASE}' is not a full commit id"
+                  exit 1
+                fi
+                auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+                if ! git -c protocol.version=2 \
+                    -c "http.https://github.com/.extraheader=${auth_header}" \
+                    fetch --depth=1 --no-tags "https://github.com/${REPOSITORY}.git" "${MERGE_GROUP_BASE}"; then
+                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} could not be fetched"
+                  exit 1
+                fi
+                commit="$(git rev-parse --verify --quiet "${MERGE_GROUP_BASE}^{commit}")"
+                if [ "${commit}" != "${MERGE_GROUP_BASE}" ]; then
+                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} does not resolve"
+                  exit 1
+                fi
+                echo "Baseline commit: ${commit} (merge group base of $(git rev-parse HEAD))"
+              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
+                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
+              else
+                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
+                exit 1
+              fi
+              ;;
+            pull_request|push)
+              if [ -z "${POLICY}" ]; then
+                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
+              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
+                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
+              else
+                # Operator decision 2026-11-21 (row 23): a run judges only the
+                # code it brings in, so a baseline it cannot resolve blocks.
+                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Event class ${EVENT_CLASS}: no baseline, findings are judged by policy alone"
+              ;;
+          esac
+          # The SDK refuses a baseline over tracked changes (ADR 0023); name
+          # them here so a fail-closed baseline is explainable.
+          changed="$(git status --porcelain --untracked-files=no)"
+          if [ -n "${commit}" ] && [ -n "${changed}" ]; then
+            echo "::warning::tracked files differ from HEAD before the Semgrep scan; the baseline will fail closed:"
+            printf '%s\n' "${changed}"
+          fi
+          if [ -n "${commit}" ]; then
+            # A ref keeps the baseline reachable whatever the consumer's make
+            # later does to the checkout's history; the shallow boundary and
+            # HEAD are recorded so the step before Semgrep can restore and
+            # check them.
+            git update-ref refs/l9/central-diff-baseline "${commit}"
+            state="${RUNNER_TEMP}/l9-central-diff"
+            mkdir -p "${state}"
+            shallow="$(git rev-parse --path-format=absolute --git-path shallow)"
+            if [ -f "${shallow}" ]; then
+              cp -- "${shallow}" "${state}/shallow"
+            else
+              : > "${state}/shallow"
+            fi
+            git rev-parse HEAD > "${state}/head"
+          fi
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
 
       # Repository verification runs the consumer's `make setup`, which may
       # install OS packages with apt (e.g. Playwright's Chromium libraries and
@@ -573,13 +672,19 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           workspace: .
           # AGENTS.md §27: held only by the registry snapshot and the composer
           # prefetch. Both run before and apart from the consumer's make
           # targets. The verify step does not receive the token.
           github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
+          # Empty: the consumer's make runs under this run's own event. The
+          # promotion canary sets push and the leg's branch, since its legs
+          # check out a consumer's main head inside a Core pull_request run
+          # (AGENTS.md §45, row 27).
+          event-name: ''
+          event-ref: ''
 
       # Keep only archives of package versions installed in this evaluation, so
       # superseded versions and packages a repository stopped installing drop
@@ -621,6 +726,37 @@ jobs:
           path: ${{ steps.apt_archive_cache_dir.outputs.path }}/*.deb
           key: ${{ steps.apt_archive_inventory.outputs.key }}
 
+      # Repository verification ran the consumer's make, which may rewrite the
+      # checkout's history: on Cursor-Governance it re-shallowed it, leaving no
+      # merge base, so Semgrep's baseline scan failed and every language run
+      # was incomplete (#328). Restore the shallow boundary recorded before any
+      # consumer code ran. The baseline is not changed here, only made
+      # reachable again: HEAD must be the evaluated revision and must reach
+      # the baseline, or the run blocks.
+      - name: Restore the checkout history for the baseline scan (CENTRAL-DIFF)
+        if: steps.baseline.outputs.commit != ''
+        env:
+          BASELINE: ${{ steps.baseline.outputs.commit }}
+        run: |
+          set -euo pipefail
+          state="${RUNNER_TEMP}/l9-central-diff"
+          shallow="$(git rev-parse --path-format=absolute --git-path shallow)"
+          if [ -s "${state}/shallow" ]; then
+            cp -- "${state}/shallow" "${shallow}"
+          else
+            rm -f -- "${shallow}"
+          fi
+          head="$(git rev-parse HEAD)"
+          if [ "${head}" != "$(cat "${state}/head")" ]; then
+            echo "::error::the consumer's make moved HEAD from $(cat "${state}/head") to ${head}; the baseline scan cannot judge this revision"
+            exit 1
+          fi
+          if ! merge_base="$(git merge-base HEAD "${BASELINE}")"; then
+            echo "::error::no baseline: ${BASELINE} has no merge base with ${head} after repository verification"
+            exit 1
+          fi
+          echo "Baseline ${BASELINE} reachable from ${head} (merge base ${merge_base})"
+
       # The provider toolchain is a locked contract, not a resolution. Core
       # selects the setup-python action by full SHA, the interpreter by exact
       # version (major.minor.patch, so a patch release cannot float in), the
@@ -629,53 +765,6 @@ jobs:
       # Core revision; the hosted runner image underneath them is GitHub's,
       # not Core's (workflow audit 2026-09-13, F-005). The SDK venv provisioned
       # above is untouched; only the provider install rides this interpreter.
-      # SDK ADR 0023 (CENTRAL-DIFF): findings are classified new or
-      # pre-existing against a baseline commit; only new blocking findings and
-      # incomplete results fail, pre-existing ones are reported as advisory
-      # with counts. The baseline is the evaluated revision's first parent:
-      # on a pull request or merge group GitHub's merge commit, so its first
-      # parent is the target tip (the merge-base); on a push, the previous
-      # tip (operator decision 2026-11-21, row 23: a run judges only the code
-      # it brings in; this supersedes ADR 0023's "omit on push"). It is
-      # fetched (depth 2 above). nightly, release and supply_chain pass none,
-      # so the whole tree is judged by policy alone. A baseline that does not
-      # resolve blocks here; tracked changes or an incomplete baseline scan
-      # make the SDK fail closed.
-      - id: baseline
-        name: Resolve the baseline commit (CENTRAL-DIFF)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
-          POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
-        run: |
-          set -euo pipefail
-          commit=""
-          case "${EVENT_CLASS}" in
-            pull_request|merge|push)
-              if [ -z "${POLICY}" ]; then
-                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
-              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
-                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
-              else
-                # Operator decision 2026-11-21 (row 23): a run judges only the
-                # code it brings in, so a baseline it cannot resolve blocks.
-                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
-                exit 1
-              fi
-              ;;
-            *)
-              echo "Event class ${EVENT_CLASS}: no baseline, findings are judged by policy alone"
-              ;;
-          esac
-          # The SDK refuses a baseline over tracked changes (ADR 0023); name
-          # them here so a fail-closed baseline is explainable.
-          changed="$(git status --porcelain --untracked-files=no)"
-          if [ -n "${commit}" ] && [ -n "${changed}" ]; then
-            echo "::warning::tracked files differ from HEAD before the Semgrep scan; the baseline will fail closed:"
-            printf '%s\n' "${changed}"
-          fi
-          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
-
       - name: Set up locked Python for the central toolchain
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -686,14 +775,14 @@ jobs:
         name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -718,7 +807,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -893,7 +982,7 @@ jobs:
         name: Aggregate required instances (Core)
         if: always() && steps.plan.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
           results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
@@ -937,7 +1026,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -948,7 +1037,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -960,7 +1049,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -982,7 +1071,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -1031,7 +1120,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}

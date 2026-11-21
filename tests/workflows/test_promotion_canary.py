@@ -120,6 +120,8 @@ class RenderTests(unittest.TestCase):
         steps = pc.analyze_steps(self.org_ci)
         for old, new in pc.REPLACEMENTS:
             steps = steps.replace(old, new.replace("@@SIDE@@", "head"))
+        for old, new in pc.OPTIONAL_REPLACEMENTS:
+            steps = steps.replace(old, new)
         # A reusable job's result is the only other rewrite: analyze reads it
         # from the inlined job's result step instead of `needs`.
         for name, _path, _sha, _values in pc.reusable_jobs(self.org_ci):
@@ -329,6 +331,66 @@ class RenderTests(unittest.TestCase):
         self.assertIn("github.event.changes.base == null", pc.TEXT_EDIT)
         self.assertIn("github.event.changes.title != null", pc.TEXT_EDIT)
         self.assertIn("github.event.changes.body != null", pc.TEXT_EDIT)
+
+
+class ConsumerEventTests(unittest.TestCase):
+    """Row 27: a consumer leg's make never runs under the Core PR's event."""
+
+    def setUp(self) -> None:
+        self.org_ci = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
+
+    def verify_step(self, workflow: str, job: str) -> dict[str, object]:
+        return next(
+            s
+            for s in yaml.safe_load(workflow)["jobs"][job]["steps"]
+            if s.get("id") == "repository_verify"
+        )
+
+    def test_org_ci_runs_its_own_event_and_carries_every_optional_anchor(self) -> None:
+        for old, _ in pc.OPTIONAL_REPLACEMENTS:
+            with self.subTest(anchor=old):
+                self.assertIn(old, self.org_ci)
+        data = yaml.safe_load(self.org_ci)
+        step = next(
+            s
+            for s in data["jobs"]["analyze"]["steps"]
+            if s.get("id") == "repository_verify"
+        )
+        self.assertEqual("", step["with"]["event-name"])
+        self.assertEqual("", step["with"]["event-ref"])
+
+    def test_every_leg_verifies_its_consumer_as_a_push_of_the_checked_out_branch(
+        self,
+    ) -> None:
+        committed = (ROOT / pc.CANARY).read_text(encoding="utf-8")
+        rendered = pc.render(
+            self.org_ci,
+            pc.base_block(self.org_ci, security_provider),
+            security_provider,
+            ADMISSION,
+        )
+        cases = [(committed, "head"), (committed, "admitted")]
+        cases += [(rendered, side) for side in ("head", "admitted", "base")]
+        for workflow, side in cases:
+            with self.subTest(side=side):
+                inputs = self.verify_step(workflow, side)["with"]
+                self.assertEqual("push", inputs["event-name"])
+                self.assertEqual("refs/heads/${{ matrix.branch }}", inputs["event-ref"])
+
+    def test_no_leg_resolves_a_merge_group_base(self) -> None:
+        rendered = pc.render(
+            self.org_ci,
+            pc.base_block(self.org_ci, security_provider),
+            security_provider,
+            ADMISSION,
+        )
+        for side in ("head", "admitted", "base"):
+            step = next(
+                s
+                for s in yaml.safe_load(rendered)["jobs"][side]["steps"]
+                if s.get("id") == "baseline"
+            )
+            self.assertEqual("", step["env"]["MERGE_GROUP_BASE"])
 
 
 class ReusableJobTests(unittest.TestCase):
