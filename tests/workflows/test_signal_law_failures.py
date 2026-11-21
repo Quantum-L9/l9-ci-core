@@ -98,7 +98,10 @@ class PhaseFailureTests(unittest.TestCase):
         self.assertEqual(("validate", 2), (error.phase, error.returncode))
         self.assertEqual(["make", "validate"], error.cmd)
         self.assertEqual(40, len(error.tail))
-        self.assertIn("FAILED tests/test_x.py::test_y", error.tail[-2])
+        # make may add "Entering/Leaving directory" lines when nested.
+        self.assertTrue(
+            any("FAILED tests/test_x.py::test_y" in line for line in error.tail)
+        )
         self.assertNotIn("validate line 1\n", error.tail)
 
     def test_the_failure_is_named_in_an_error_and_a_sidecar(self) -> None:
@@ -108,7 +111,7 @@ class PhaseFailureTests(unittest.TestCase):
             unittest.mock.patch.dict(os.environ, {"RUNNER_TEMP": str(self.temp)}),
             redirect_stdout(out),
         ):
-            runner.report_phase_failure(error)
+            runner.report_phase_failure(error, self.dir)
         text = out.getvalue()
         self.assertIn(
             "::error title=Repository verification::phase validate: `make validate` exited 2",
@@ -117,7 +120,13 @@ class PhaseFailureTests(unittest.TestCase):
         self.assertIn("FAILED tests/test_x.py::test_y", text)
         sidecar = json.loads((self.temp / runner.FAILURE_SIDECAR).read_text())
         self.assertEqual(
-            {"phase": "validate", "command": "make validate", "exit": 2}, sidecar
+            {
+                "phase": "validate",
+                "command": "make validate",
+                "exit": 2,
+                "workspace": str(self.dir.resolve()),
+            },
+            sidecar,
         )
         self.assertIn("assert 1 == 2", (self.temp / runner.FAILURE_TAIL).read_text())
 
@@ -131,7 +140,14 @@ class EnforcementNamesTheCommandTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             temp = Path(tmp)
             (temp / runner.FAILURE_SIDECAR).write_text(
-                json.dumps({"phase": "test", "command": "make test", "exit": 2})
+                json.dumps(
+                    {
+                        "phase": "test",
+                        "command": "make test",
+                        "exit": 2,
+                        "workspace": str(temp.resolve()),
+                    }
+                )
             )
             (temp / runner.FAILURE_TAIL).write_text("E   AssertionError: boom\n")
             summary = temp / "summary"
@@ -140,6 +156,7 @@ class EnforcementNamesTheCommandTests(unittest.TestCase):
                 temp,
                 {
                     "RUNNER_TEMP": str(temp),
+                    "GITHUB_WORKSPACE": str(temp),
                     "GITHUB_STEP_SUMMARY": str(summary),
                     "REPOSITORY_VERIFY_STATUS": "fail",
                     "REPOSITORY_VERIFY_MODE": "required",
@@ -152,6 +169,49 @@ class EnforcementNamesTheCommandTests(unittest.TestCase):
             completed.stdout,
         )
         self.assertIn("E   AssertionError: boom", completed.stdout)
+
+    def test_a_sidecar_for_another_workspace_is_never_trusted(self) -> None:
+        """Core's own tests run the verifier on temporary trees inside its
+        verification; their sidecar must not name the wrong command."""
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as other,
+        ):
+            temp = Path(tmp)
+            (temp / runner.FAILURE_SIDECAR).write_text(
+                json.dumps(
+                    {
+                        "phase": "",
+                        "command": "python3 -c raise SystemExit(1)",
+                        "exit": 1,
+                        "workspace": other,
+                    }
+                )
+            )
+            (temp / runner.FAILURE_TAIL).write_text("from a test\n")
+            completed = _bash(
+                _step("Enforce repository verification")["run"],
+                temp,
+                {
+                    "RUNNER_TEMP": tmp,
+                    "GITHUB_WORKSPACE": tmp,
+                    "REPOSITORY_VERIFY_STATUS": "fail",
+                    "REPOSITORY_VERIFY_MODE": "required",
+                    "REPOSITORY_VERIFY_FAILURE": "command",
+                },
+            )
+        self.assertEqual(1, completed.returncode)
+        self.assertNotIn("SystemExit", completed.stdout)
+        self.assertNotIn("from a test", completed.stdout)
+        self.assertIn("Run repository verification contract", completed.stdout)
+
+    def test_a_new_verification_clears_a_stale_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in (runner.FAILURE_SIDECAR, runner.FAILURE_TAIL):
+                Path(tmp, name).write_text("stale")
+            with unittest.mock.patch.dict(os.environ, {"RUNNER_TEMP": tmp}):
+                runner.clear_failure_sidecar()
+            self.assertEqual([], list(Path(tmp).iterdir()))
 
     def test_without_a_sidecar_the_error_still_points_at_the_cause(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1272,13 +1272,18 @@ jobs:
               sidecar="${RUNNER_TEMP}/l9-repository-verification-failure.json"
               tail_file="${RUNNER_TEMP}/l9-repository-verification-tail.txt"
               subject="mode ${REPOSITORY_VERIFY_MODE:-unavailable}; status ${REPOSITORY_VERIFY_STATUS:-unavailable}; failure ${REPOSITORY_VERIFY_FAILURE:-unavailable}"
+              # The sidecar names this workspace's own failure, never one a
+              # test wrote while running the verifier on a temporary tree.
+              named=""
               if [ -s "${sidecar}" ]; then
-                named="$(python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("phase %s: `%s` exited %s" % (d["phase"] or "unknown", d["command"], d["exit"]))' "${sidecar}")"
+                named="$(python3 -I -c 'import json,os,sys; d=json.load(open(sys.argv[1])); ok=os.path.realpath(d.get("workspace","")) == os.path.realpath(sys.argv[2]); print("phase %s: `%s` exited %s" % (d["phase"] or "unknown", d["command"], d["exit"]) if ok else "")' "${sidecar}" "${GITHUB_WORKSPACE:-${PWD}}")"
+              fi
+              if [ -n "${named}" ]; then
                 subject="${named} (${subject})"
               else
                 subject="${subject}; the cause is named in the 'Run repository verification contract' step log"
               fi
-              if [ -s "${tail_file}" ]; then
+              if [ -n "${named}" ] && [ -s "${tail_file}" ]; then
                 echo "Last lines of the failed command:"
                 cat -- "${tail_file}"
                 {

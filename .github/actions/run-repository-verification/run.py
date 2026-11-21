@@ -683,8 +683,22 @@ def run_phase(phase: str, argv: list[str], workspace: Path) -> None:
         raise PhaseError(phase, argv, failure.returncode, list(tail)) from failure
 
 
-def report_phase_failure(error: subprocess.CalledProcessError) -> None:
-    """Name the failed command, its phase, exit code and output tail."""
+def clear_failure_sidecar() -> None:
+    """Remove a sidecar a previous run (or a test inside this one) left."""
+    temp = os.environ.get("RUNNER_TEMP", "").strip()
+    if temp:
+        for name in (FAILURE_SIDECAR, FAILURE_TAIL):
+            Path(temp, name).unlink(missing_ok=True)
+
+
+def report_phase_failure(error: subprocess.CalledProcessError, workspace: Path) -> None:
+    """Name the failed command, its phase, exit code and output tail.
+
+    The sidecar records the workspace it describes; the enforcement step
+    trusts it only for its own GITHUB_WORKSPACE, so a sidecar written by a
+    test that runs this script on a temporary workspace (Core's own suite
+    runs inside its verification) can never name the wrong command.
+    """
     command = (
         " ".join(str(part) for part in error.cmd)
         if isinstance(error.cmd, list)
@@ -707,7 +721,14 @@ def report_phase_failure(error: subprocess.CalledProcessError) -> None:
     if temp:
         Path(temp, FAILURE_TAIL).write_text("".join(tail), encoding="utf-8")
         Path(temp, FAILURE_SIDECAR).write_text(
-            json.dumps({"phase": phase, "command": command, "exit": error.returncode})
+            json.dumps(
+                {
+                    "phase": phase,
+                    "command": command,
+                    "exit": error.returncode,
+                    "workspace": str(workspace.resolve()),
+                }
+            )
             + "\n",
             encoding="utf-8",
         )
@@ -1073,6 +1094,7 @@ def main() -> int:
         return 0
 
     version = CONTRACT_INVALID
+    clear_failure_sidecar()
     try:
         version = classify_contract(load_contract(contract))
         if version == CONTRACT_V2:
@@ -1088,7 +1110,7 @@ def main() -> int:
     except subprocess.CalledProcessError as exc:
         failure = FAILURE_COMMAND
         detail: object = exc
-        report_phase_failure(exc)
+        report_phase_failure(exc, workspace)
     except (ContractError, WorkflowError) as exc:
         failure = FAILURE_CONTRACT
         detail = exc
