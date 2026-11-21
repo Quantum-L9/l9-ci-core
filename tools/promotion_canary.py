@@ -119,12 +119,13 @@ PROVISION_ACTION = Path(".github/actions/provision-sdk/action.yml")
 SDK_COMPATIBILITY = Path(".l9/sdk-compatibility.yaml")
 ADMISSION_ARTIFACT = "canary-admitted-core"
 ADMITTED_CORE = "${{ runner.temp }}/canary-admitted-core"
-SDK_STEP = re.compile(r"^      - id: sdk\n(?:(?!      - )[^\n]*\n)*", re.MULTILINE)
+SDK_STEP = re.compile(r"^ {6}- id: sdk\n(?:(?! {6}- )[^\n]*\n)*", re.MULTILINE)
 SDK_FALLBACK = re.compile(
     r"steps\.runtime\.outputs\['sdk-revision'\] \|\| '([0-9a-f]{40})'"
 )
 DEFAULT_REVISION = re.compile(
-    r"^default:\n(?:  [^\n]*\n)*?  revision: ([0-9a-f]{40})$", re.MULTILINE
+    r"^default:\n(?: {2}(?!revision:)[^\n]*\n)* {2}revision: ([0-9a-f]{40})$",
+    re.MULTILINE,
 )
 
 # Paths whose change alters what the required check (org-ci.yml) runs, or the
@@ -722,27 +723,74 @@ def retarget(steps: str, side: str = "head") -> str:
 
 def _action_inputs(action: str) -> dict[str, str]:
     """The provision-sdk action's inputs and their defaults ("" when none)."""
-    section = re.search(r"^inputs:\n((?:(?:  [^\n]*)?\n)*?)(?=^\S)", action, re.M)
+    section = re.search(r"^inputs:\n((?:(?: {2}[^\n]*)?\n)*)", action, re.M)
     if not section:
         raise CanaryError(f"{PROVISION_ACTION} declares no inputs")
     inputs: dict[str, str] = {}
     name = ""
     for line in section.group(1).splitlines():
-        if match := re.fullmatch(r"  ([a-z][a-z0-9-]*):", line):
+        if match := re.fullmatch(r" {2}([a-z][a-z0-9-]*):", line):
             name = match.group(1)
             inputs[name] = ""
-        elif name and (match := re.fullmatch(r"    default: (.*)", line)):
+        elif name and (match := re.fullmatch(r" {4}default: (.*)", line)):
             inputs[name] = match.group(1).strip().strip('"')
     return inputs
 
 
 def _composite_steps(action: str) -> list[str]:
     """The provision-sdk action's composite steps, each as its own text."""
-    if not re.search(r"^runs:\n  using: composite\n  steps:\n", action, re.M):
+    if not re.search(r"^runs:\n {2}using: composite\n {2}steps:\n", action, re.M):
         raise CanaryError(f"{PROVISION_ACTION} is not a composite action")
     body = action.split("  steps:\n", 1)[1]
-    steps = re.split(r"^(?=    - )", body, flags=re.M)
+    steps = re.split(r"^(?= {4}- )", body, flags=re.M)
     return [step for step in steps if step.strip()]
+
+
+def _sdk_step(analyze: str) -> tuple[str, str, dict[str, str]]:
+    """org-ci.yml's provision-sdk step: its text, its `if:` and its `with:`."""
+    found = SDK_STEP.findall(analyze)
+    if len(found) != 1:
+        raise CanaryError("org-ci.yml analyze must hold exactly one `id: sdk` step")
+    step = found[0]
+    if "/.github/actions/provision-sdk@" not in step:
+        raise CanaryError("org-ci.yml's `id: sdk` step no longer runs provision-sdk")
+    condition = re.search(r"^ {8}if: (.+)$", step, re.M)
+    values = re.findall(
+        r"^ {10}([a-z][a-z0-9-]*): (.+)$", step.split("with:\n", 1)[1], re.M
+    )
+    return step, condition.group(1) if condition else "", dict(values)
+
+
+def _check_outputs(action: str) -> None:
+    """Refuse a provision-sdk whose outputs are not its `provision` step's."""
+    section = re.search(r"^outputs:\n((?: {2}[^\n]*\n)*)", action, re.M)
+    outputs = re.findall(
+        r"^ {2}([a-z][a-z0-9-]*):\n(?: {4}(?!value:)[^\n]*\n)* {4}value: (.+)$",
+        section.group(1) if section else "",
+        re.M,
+    )
+    if not outputs or any(
+        value != f"${{{{ steps.provision.outputs.{name} }}}}" for name, value in outputs
+    ):
+        raise CanaryError(
+            "provision-sdk's outputs must map one-to-one onto its `provision` step"
+        )
+
+
+def _inline_composite(item: str, inputs: dict[str, str], guard: str) -> str:
+    """One composite step as a job step of the admitted leg."""
+    text = item.replace(
+        "${{ github.action_path }}", f"{ADMITTED_CORE}/.github/actions/provision-sdk"
+    )
+    for name, value in inputs.items():
+        text = text.replace(f"${{{{ inputs.{name} }}}}", value)
+    if re.search(r"\binputs\.", text):
+        raise CanaryError("provision-sdk reads an input the canary cannot map")
+    text = re.sub(r"^ {4}- id: provision$", "    - id: sdk", text, flags=re.M)
+    lines = ["  " + line if line else line for line in text.splitlines()]
+    if guard:
+        lines.insert(1, guard)
+    return "\n".join(lines).rstrip("\n") + "\n"
 
 
 def admit(analyze: str, action: str) -> str:
@@ -754,60 +802,26 @@ def admit(analyze: str, action: str) -> str:
     workspace and runs its composite steps inline, with `sdk-revision` set to
     the revision the pull request admits. Everything else is the head leg.
     """
-    found = SDK_STEP.findall(analyze)
-    if len(found) != 1:
-        raise CanaryError("org-ci.yml analyze must hold exactly one `id: sdk` step")
-    step = found[0]
-    if "/.github/actions/provision-sdk@" not in step:
-        raise CanaryError("org-ci.yml's `id: sdk` step no longer runs provision-sdk")
-    condition = re.search(r"^        if: (.+)$", step, re.M)
-    values = dict(
-        re.findall(
-            r"^          ([a-z][a-z0-9-]*): (.+)$", step.split("with:\n", 1)[1], re.M
-        )
-    )
+    step, condition, values = _sdk_step(analyze)
     inputs = _action_inputs(action)
     unknown = sorted(set(values) - set(inputs))
     if unknown:
         raise CanaryError(f"provision-sdk has no input(s) {unknown}")
     inputs.update(values)
     inputs["sdk-revision"] = "${{ needs.plan.outputs.admitted }}"
-    section = re.search(r"^outputs:\n((?:  [^\n]*\n)*)", action, re.M)
-    outputs = re.findall(
-        r"^  ([a-z][a-z0-9-]*):\n(?:    (?!value:)[^\n]*\n)*    value: (.+)$",
-        section.group(1) if section else "",
-        re.M,
-    )
-    if not outputs or any(
-        value != f"${{{{ steps.provision.outputs.{name} }}}}" for name, value in outputs
-    ):
-        raise CanaryError(
-            "provision-sdk's outputs must map one-to-one onto its `provision` step"
-        )
-    guard = f"        if: {condition.group(1)}\n" if condition else ""
+    _check_outputs(action)
+    guard = f"        if: {condition}" if condition else ""
     replaced = (
         "      # --- admitted SDK revision: provision-sdk from the pull request ---\n"
         "      - name: Download the pull request's SDK provisioner\n"
-        + guard
+        + (guard + "\n" if guard else "")
         + "        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n"
         "        with:\n"
         f"          name: {ADMISSION_ARTIFACT}\n"
         f"          path: {ADMITTED_CORE}\n"
     )
     for item in _composite_steps(action):
-        text = item.replace(
-            "${{ github.action_path }}",
-            f"{ADMITTED_CORE}/.github/actions/provision-sdk",
-        )
-        for name, value in inputs.items():
-            text = text.replace(f"${{{{ inputs.{name} }}}}", value)
-        if re.search(r"\binputs\.", text):
-            raise CanaryError("provision-sdk reads an input the canary cannot map")
-        text = re.sub(r"^    - id: provision$", "    - id: sdk", text, flags=re.M)
-        lines = ["  " + line if line else line for line in text.splitlines()]
-        if guard:
-            lines.insert(1, guard.rstrip("\n"))
-        replaced += "\n".join(lines).rstrip("\n") + "\n"
+        replaced += _inline_composite(item, inputs, guard)
     if "      - id: sdk\n" not in replaced:
         raise CanaryError("provision-sdk has no `provision` step")
     return analyze.replace(step, replaced + "\n")
@@ -1188,34 +1202,29 @@ def _plan_problem(env: dict[str, str]) -> str:
     return ""
 
 
-def judge(env: dict[str, str]) -> tuple[bool, list[str]]:
-    """(passed, report lines) from the verdict job's environment."""
-    plan_result = env.get("L9_CANARY_PLAN_RESULT", "")
-    if plan_result != "success":
-        return False, [f"FAIL the canary plan did not succeed ({plan_result or '?'})"]
-    if env.get("L9_CANARY_APPLIES") != "true":
-        return True, ["No canary path changed: not applicable."]
+def _planned_legs(env: dict[str, str]) -> tuple[list[dict[str, Any]], str]:
+    """The planned legs, or why the verdict cannot judge them ("" when it can)."""
     try:
         legs = json.loads(env.get("L9_CANARY_MATRIX", ""))["include"]
     except (ValueError, KeyError, TypeError) as error:
-        return False, [f"FAIL the canary plan is unreadable: {error}"]
+        return [], f"the canary plan is unreadable: {error}"
     problem = _plan_problem(env) if legs else "the canary applies but planned no leg"
-    if problem:
-        return False, [f"FAIL {problem}"]
+    return legs, problem
+
+
+def _judge_pins(
+    legs: list[dict[str, Any]], records: Path, env: dict[str, str]
+) -> tuple[bool, list[str], list[dict[str, Any]]]:
+    """Each repository at the base pins and the pull request's: rows and heads."""
     head_digest = env["L9_CANARY_HEAD_DIGEST"]
     base_digest = env["L9_CANARY_BASE_DIGEST"]
     differential = env.get("L9_CANARY_DIFFERENTIAL") == "true"
-    records = Path(env.get("L9_CANARY_RECORDS", ""))
-    admitted = env.get("L9_CANARY_ADMITTED", "")
     passed = True
     rows = [
         "| Repository | Head | Base pins | Pull request pins | Verdict |",
         "|---|---|---|---|---|",
     ]
-    admitted_rows = [
-        "| Repository | Pull request pins | Admitted SDK | Verdict |",
-        "|---|---|---|---|",
-    ]
+    heads = []
     for leg in legs:
         head = read_record(records, "head", leg)
         if differential:
@@ -1224,33 +1233,65 @@ def judge(env: dict[str, str]) -> tuple[bool, list[str]]:
             base = {**head, "digest": base_digest}
         ok, reason = compare(base, head, (base_digest, head_digest))
         passed = passed and ok
+        heads.append(head)
         rows.append(
             f"| {leg['repository']} | `{leg['revision'][:12]}` | {base['status']} "
             f"| {head['status']} | {'pass' if ok else 'FAIL'}: {reason} |"
         )
-        if admitted:
-            # Judged against the pull request's pins, which run the current SDK.
-            after = read_record(records, "admitted", leg)
-            ok, reason = compare(head, after, (head_digest, head_digest))
-            passed = passed and ok
-            admitted_rows.append(
-                f"| {leg['repository']} | {head['status']} | {after['status']} "
-                f"| {'pass' if ok else 'FAIL'}: {reason} |"
-            )
+    return passed, rows, heads
+
+
+def _judge_admitted(
+    legs: list[dict[str, Any]],
+    heads: list[dict[str, Any]],
+    records: Path,
+    env: dict[str, str],
+) -> tuple[bool, list[str]]:
+    """Each repository at the admitted SDK, against the pull request's pins."""
+    admitted = env["L9_CANARY_ADMITTED"]
+    head_digest = env["L9_CANARY_HEAD_DIGEST"]
+    passed = True
+    rows = [
+        "",
+        f"The pull request admits SDK `{admitted[:12]}` that org-ci.yml does not "
+        "run yet: judged against the pull request's pins.",
+        "",
+        "| Repository | Pull request pins | Admitted SDK | Verdict |",
+        "|---|---|---|---|",
+    ]
+    for leg, head in zip(legs, heads, strict=True):
+        after = read_record(records, "admitted", leg)
+        ok, reason = compare(head, after, (head_digest, head_digest))
+        passed = passed and ok
+        rows.append(
+            f"| {leg['repository']} | {head['status']} | {after['status']} "
+            f"| {'pass' if ok else 'FAIL'}: {reason} |"
+        )
+    return passed, rows
+
+
+def judge(env: dict[str, str]) -> tuple[bool, list[str]]:
+    """(passed, report lines) from the verdict job's environment."""
+    plan_result = env.get("L9_CANARY_PLAN_RESULT", "")
+    if plan_result != "success":
+        return False, [f"FAIL the canary plan did not succeed ({plan_result or '?'})"]
+    if env.get("L9_CANARY_APPLIES") != "true":
+        return True, ["No canary path changed: not applicable."]
+    legs, problem = _planned_legs(env)
+    if problem:
+        return False, [f"FAIL {problem}"]
+    records = Path(env.get("L9_CANARY_RECORDS", ""))
+    passed, rows, heads = _judge_pins(legs, records, env)
     mode = (
         "The pull request changes the analyze steps: judged against the base pins."
-        if differential
+        if env.get("L9_CANARY_DIFFERENTIAL") == "true"
         else "The analyze steps are unchanged: the base result is the pull request's."
     )
     report = [mode, "", *rows]
-    if admitted:
-        report += [
-            "",
-            f"The pull request admits SDK `{admitted[:12]}` that org-ci.yml does not "
-            "run yet: judged against the pull request's pins.",
-            "",
-            *admitted_rows,
-        ]
+    if env.get("L9_CANARY_ADMITTED", ""):
+        admitted_passed, admitted_rows = _judge_admitted(legs, heads, records, env)
+        passed = passed and admitted_passed
+        report += admitted_rows
     return passed, report
 
 
