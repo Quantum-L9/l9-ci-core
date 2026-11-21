@@ -6,7 +6,7 @@
 #
 # Core's promotion canary (AGENTS.md §40). On a Core pull request that changes
 # what the required check (org-ci.yml's `analyze` job) or the nightly Semgrep
-# scan (central-semgrep.yml, docs/adr/0003-semgrep-runs-nightly.md) runs, every
+# scan (central-semgrep.yml, docs/semgrep-runs-nightly.md) runs, every
 # repository declared in .l9/promotion-canary.json is checked out at its
 # current main head and judged at the pull request's pins (the `head` and
 # `scan` jobs) and, when the pull request changes those steps, at the base's
@@ -14,7 +14,7 @@
 # apart from the target identity; the scan legs are the nightly sink's scan
 # without its publication, so a Semgrep change is proven before promotion.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 0a88f0823935c15d927e28e0a2f47ada0dc13eb315e9922cf06f1314c7a93b41
+# worse. Head steps digest: c437c2999a8385d854e1ddcd33d71563b3dfd12943dfe400ab755e065fd401f8
 name: Promotion canary (Core)
 # One verdict per pushed head (row 22). `make pr` pushes and then edits the
 # pull request's body; that `edited` run used to cancel the push run, whose
@@ -919,7 +919,7 @@ jobs:
             echo "- Repository verification: \`${REPOSITORY_VERIFY:-unavailable}\`"
             echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
             echo "- Biome (blocking): \`${BIOME_STATUS:-unavailable}\`"
-            echo "- Semgrep: not run on pull requests; central-semgrep.yml runs it nightly (docs/adr/0003-semgrep-runs-nightly.md)"
+            echo "- Semgrep: not run on pull requests; central-semgrep.yml runs it nightly (docs/semgrep-runs-nightly.md)"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce repository verification
@@ -1008,7 +1008,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 0a88f0823935c15d927e28e0a2f47ada0dc13eb315e9922cf06f1314c7a93b41
+          DIGEST: c437c2999a8385d854e1ddcd33d71563b3dfd12943dfe400ab755e065fd401f8
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -1682,7 +1682,7 @@ jobs:
         if: always()
         env:
           SIDE: scan
-          DIGEST: 0a88f0823935c15d927e28e0a2f47ada0dc13eb315e9922cf06f1314c7a93b41
+          DIGEST: c437c2999a8385d854e1ddcd33d71563b3dfd12943dfe400ab755e065fd401f8
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -2366,7 +2366,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 0a88f0823935c15d927e28e0a2f47ada0dc13eb315e9922cf06f1314c7a93b41
+          DIGEST: c437c2999a8385d854e1ddcd33d71563b3dfd12943dfe400ab755e065fd401f8
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}

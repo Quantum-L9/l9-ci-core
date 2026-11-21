@@ -84,7 +84,7 @@ class ToolchainActivationTests(unittest.TestCase):
 
     def test_biome_install_immediately_precedes_its_run(self) -> None:
         """Biome needs no SDK step: org-ci provisions none since Semgrep left
-        the required check (docs/adr/0003-semgrep-runs-nightly.md)."""
+        the required check (docs/semgrep-runs-nightly.md)."""
         install = step_index(self.steps, "install-biome")
         run = step_index(self.steps, "run-biome-check")
         self.assertEqual(install + 1, run)

@@ -353,7 +353,7 @@ class PushTargetProvenanceTests(unittest.TestCase):
             )
 
     def test_the_analysis_snapshot_is_the_event_sha(self) -> None:
-        """The central Semgrep scan (ADR 0003) analyses the revision it runs on."""
+        """The central Semgrep scan (docs/semgrep-runs-nightly.md) analyses the revision it runs on."""
         scan = ENTRYPOINT_PATH.parent / "central-semgrep.yml"
         invoke = None
         for step in yaml.safe_load(scan.read_text(encoding="utf-8"))["jobs"]["analyze"][

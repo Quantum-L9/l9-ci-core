@@ -884,7 +884,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_the_sink_runs_the_semgrep_scan_on_a_clean_checkout_only(self) -> None:
         """No repository verification, Biome, scan tree or baseline: the
-        pull-request gate's own steps are not the sink's (ADR 0003)."""
+        pull-request gate's own steps are not the sink's (docs/semgrep-runs-nightly.md)."""
         steps = sink.sink_steps(self.scan)
         for absent in (
             "id: repository_verify",

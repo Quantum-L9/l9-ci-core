@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github/workflows"
 PRODUCERS = (
     # Semgrep's central chain; org-ci.yml hands off nothing since Semgrep left
-    # the required check (docs/adr/0003-semgrep-runs-nightly.md).
+    # the required check (docs/semgrep-runs-nightly.md).
     "central-semgrep.yml",
     "analyze-semgrep.yml",
     "normalize-semgrep-report.yml",

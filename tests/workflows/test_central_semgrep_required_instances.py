@@ -1,7 +1,7 @@
 """The central Semgrep scan plans, runs and aggregates every instance (L9-CI-CORE-003).
 
 Semgrep left the required check (operator decision 2026-11-21,
-docs/adr/0003-semgrep-runs-nightly.md); its chain lives in central-semgrep.yml,
+docs/semgrep-runs-nightly.md); its chain lives in central-semgrep.yml,
 which the nightly sink and the promotion canary's scan legs render. The scan
 inventories the snapshot with the SDK, plans every applicable provider/language
 instance with ``plan-required-instances``, runs each one, and enforces the

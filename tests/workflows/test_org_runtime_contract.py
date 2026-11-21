@@ -11,7 +11,7 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT_PATH = ROOT / ".l9" / "org-runtime-contract.yaml"
 ENTRYPOINT_PATH = ROOT / ".github" / "workflows" / "org-ci.yml"
-# Semgrep's central chain, off the required check (docs/adr/0003-semgrep-runs-nightly.md).
+# Semgrep's central chain, off the required check (docs/semgrep-runs-nightly.md).
 SCAN_PATH = ROOT / ".github" / "workflows" / "central-semgrep.yml"
 CONSUMER_SCHEMA_PATH = ROOT / ".l9" / "ci-consumer.schema.json"
 PROFILES_PATH = (

@@ -6,7 +6,7 @@ logic it names and nothing about admission, rollout or a hosted run.
 
 The scheduling half of ``L9-CI-CORE-003`` is witnessed against
 central-semgrep.yml, the Semgrep chain the nightly scan runs since it left the
-required check (docs/adr/0003-semgrep-runs-nightly.md; AGENTS.md §35), with a
+required check (docs/semgrep-runs-nightly.md; AGENTS.md §35), with a
 known-bad single-language variant.
 ``L9-CI-CORE-004`` and ``L9-CI-CORE-006`` prove gate logic only; no live canary, ruleset read or
 hosted run observation has been made by these tests.

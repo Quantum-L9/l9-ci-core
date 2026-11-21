@@ -305,7 +305,11 @@ class SemgrepInstallPathTests(unittest.TestCase):
             if "install-semgrep@" in path.read_text(encoding="utf-8")
         }
         self.assertIn("central-semgrep.yml", referencing)
-        self.assertNotIn("org-ci.yml", referencing, "Semgrep runs nightly (ADR 0003)")
+        self.assertNotIn(
+            "org-ci.yml",
+            referencing,
+            "Semgrep runs nightly (docs/semgrep-runs-nightly.md)",
+        )
         self.assertIn("analyze-semgrep.yml", referencing)
         for name in sorted(referencing):
             with self.subTest(workflow=name):

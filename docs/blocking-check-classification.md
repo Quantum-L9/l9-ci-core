@@ -10,7 +10,7 @@ below with its class. `tests/workflows/test_blocking_check_classification.py`
 fails when a step is added, renamed or removed without a row here.
 
 Semgrep is not among them. Operator decision 2026-11-21
-([ADR 0003](adr/0003-semgrep-runs-nightly.md), superseding row 23 for
+([decision record](semgrep-runs-nightly.md), superseding row 23 for
 Semgrep): Semgrep no longer judges pull requests, merge groups or pushes. Its
 chain, with every planned instance, the SDK technical gate and its artifacts,
 moved to `central-semgrep.yml`, which the nightly findings sink runs on each

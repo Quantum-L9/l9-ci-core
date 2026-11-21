@@ -196,7 +196,7 @@ jobs:
     # its own schedule, which Core does not control. What Core does control is
     # the toolchain below: pinned action SHAs and the exact Biome binary.
     # Semgrep's locked toolchain moved with it to central-semgrep.yml
-    # (docs/adr/0003-semgrep-runs-nightly.md).
+    # (docs/semgrep-runs-nightly.md).
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -568,7 +568,7 @@ jobs:
             echo "- Repository verification: \`${REPOSITORY_VERIFY:-unavailable}\`"
             echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
             echo "- Biome (blocking): \`${BIOME_STATUS:-unavailable}\`"
-            echo "- Semgrep: not run on pull requests; central-semgrep.yml runs it nightly (docs/adr/0003-semgrep-runs-nightly.md)"
+            echo "- Semgrep: not run on pull requests; central-semgrep.yml runs it nightly (docs/semgrep-runs-nightly.md)"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce repository verification

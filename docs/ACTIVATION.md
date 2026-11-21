@@ -18,7 +18,7 @@ What the organization workflow does to a repository, in order:
 | Biome | Core | `biome ci` against the root `biome.json` / `biome.jsonc` | yes once `org-ci.yml` sets `mode: blocking` (`AGENTS.md` §16) |
 | repository verification | Core | `.l9/repo-workflow.json` → `make setup → validate → check → test` | yes (every profile; a contract or infrastructure failure is fatal) |
 | Core stamp | Core | stamped Core-owned files byte-identical to Core (`.l9/core-stamp.json`) | yes in `required` mode, warning in `migration` |
-| Semgrep | SDK | provider run, canonical findings, technical gate | yes: every finding is blocking unless the central policy classifies its rule advisory |
+| Semgrep | SDK | not on pull requests: `central-semgrep.yml` scans the default branch every night, every planned instance, findings to code scanning and the "Nightly findings" issue ([decision](semgrep-runs-nightly.md)) | no merge verdict; the nightly ratchet fails the night when open findings rise |
 
 ## 1. Stamp every Core-owned file (one command)
 

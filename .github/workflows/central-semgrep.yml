@@ -1,6 +1,6 @@
 # Central Semgrep (Core): the Semgrep chain, off the pull-request path.
 #
-# Operator decision 2026-11-21 (docs/adr/0003-semgrep-runs-nightly.md): Semgrep
+# Operator decision 2026-11-21 (docs/semgrep-runs-nightly.md): Semgrep
 # no longer judges pull requests. The required check, org-ci.yml's `analyze`
 # job, runs repository verification, Biome and the security scan only; the
 # Semgrep chain it used to run lives here, unchanged in substance, and runs

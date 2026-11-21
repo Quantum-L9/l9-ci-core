@@ -49,7 +49,7 @@ def write_admission(root: Path) -> None:
 
 
 ORG_CI_TEXT = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
-# The central Semgrep scan (docs/adr/0003-semgrep-runs-nightly.md): the scan
+# The central Semgrep scan (docs/semgrep-runs-nightly.md): the scan
 # legs and the admitted leg render it.
 SCAN_TEXT = (ROOT / pc.SCAN).read_text(encoding="utf-8")
 # org-ci.yml calls security.yml at a pinned revision (#312). Tests read the pin
@@ -366,7 +366,7 @@ class ConsumerEventTests(unittest.TestCase):
 
     def test_org_ci_runs_its_own_event_and_carries_every_optional_anchor(self) -> None:
         # The merge-group base belonged to the CENTRAL-DIFF baseline, which left
-        # with Semgrep (ADR 0003): only an older base leg carries it now.
+        # with Semgrep (docs/semgrep-runs-nightly.md): only an older base leg carries it now.
         retired = "${{ github.event.merge_group.base_sha }}"
         for old, _ in pc.OPTIONAL_REPLACEMENTS:
             with self.subTest(anchor=old):
@@ -411,7 +411,7 @@ class ConsumerEventTests(unittest.TestCase):
             ADMISSION,
             SCAN_TEXT,
         )
-        # The baseline left with Semgrep (ADR 0003); a base leg rendered from
+        # The baseline left with Semgrep (docs/semgrep-runs-nightly.md); a base leg rendered from
         # an older org-ci.yml still carries it, never with a merge-group base.
         committed = (ROOT / pc.CANARY).read_text(encoding="utf-8")
         for workflow in (rendered, committed):
@@ -1114,7 +1114,7 @@ class AdmittedLegTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.org_ci = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
-        # The SDK is provisioned only by the scan (ADR 0003).
+        # The SDK is provisioned only by the scan (docs/semgrep-runs-nightly.md).
         self.scan = SCAN_TEXT
         self.canary = (ROOT / pc.CANARY).read_text(encoding="utf-8")
         self.jobs = yaml.safe_load(self.canary)["jobs"]
@@ -1231,7 +1231,7 @@ class AdmittedLegTests(unittest.TestCase):
 
 
 class ScanVerdictTests(VerdictTests):
-    """The nightly-scan legs (central-semgrep.yml, ADR 0003) are judged too."""
+    """The nightly-scan legs (central-semgrep.yml, docs/semgrep-runs-nightly.md) are judged too."""
 
     def scan(self, base: str, head: str, head_blocking: tuple[str, ...] = ()) -> None:
         for leg in self.legs:

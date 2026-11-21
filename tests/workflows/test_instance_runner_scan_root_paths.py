@@ -11,7 +11,7 @@ Semgrep against a scan root, for the typescript and consumer instances while
 the primary language (absolute paths through invoke-sdk) passed.
 
 The runner now lives in central-semgrep.yml (Semgrep runs nightly, operator
-decision 2026-11-21, docs/adr/0003-semgrep-runs-nightly.md). These tests run
+decision 2026-11-21, docs/semgrep-runs-nightly.md). These tests run
 every copy of it (central-semgrep.yml, nightly-sink.yml rendered from it, and
 the promotion canary's nightly-scan legs) against a fake SDK that reproduces
 that chdir, with a scan root that is not the working directory, and prove the

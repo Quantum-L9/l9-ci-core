@@ -27,7 +27,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
-# Semgrep's locked toolchain moved with it (docs/adr/0003-semgrep-runs-nightly.md).
+# Semgrep's locked toolchain moved with it (docs/semgrep-runs-nightly.md).
 SCAN = ROOT / ".github" / "workflows" / "central-semgrep.yml"
 LOCKS = ROOT / ".github" / "actions" / "install-semgrep" / "locks"
 

@@ -109,7 +109,7 @@ claims:
       Core asks the pinned SDK to detect repository capabilities and treats
       repo_class metadata only as a consistency assertion. Ambiguous or
       conflicting language classification fails closed. Since Semgrep left the
-      required check (docs/adr/0003-semgrep-runs-nightly.md) the SDK runs in
+      required check (docs/semgrep-runs-nightly.md) the SDK runs in
       the central Semgrep scan, not in the entrypoint.
     evidence:
       - .github/workflows/central-semgrep.yml

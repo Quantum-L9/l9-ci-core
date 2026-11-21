@@ -798,7 +798,7 @@ HEADER = """\
 # this file and central-semgrep.yml disagree.
 #
 # The nightly findings sink (X4), and since the operator decision of 2026-11-21
-# the only place Semgrep runs (docs/adr/0003-semgrep-runs-nightly.md). Each
+# the only place Semgrep runs (docs/semgrep-runs-nightly.md). Each
 # night every repository declared in .l9/promotion-canary.json (nightly not
 # false) is checked out at its main head and scanned by central-semgrep.yml's
 # steps, verbatim apart from the target identity, as a `nightly` event: a clean

@@ -1992,3 +1992,28 @@ The exception is removed when Semgrep allows wcmatch 11.2 or later.
   `origin/main` and so carries main's version during a version change.
 
 `locks/semgrep-1.171.0.txt` stays for rollback.
+
+## 47. Semgrep runs nightly, not on pull requests (2026-11-21) — amends §35, §40, §44
+
+Operator decision: "the semgrep scan inside analyze must be removed and the
+semgrep check moved to nightly". It supersedes row 23 for Semgrep. Record:
+[`docs/semgrep-runs-nightly.md`](docs/semgrep-runs-nightly.md).
+
+- **Required check.** `org-ci.yml` `Analyze (central Core)` runs repository
+  verification, Biome, toolchain alignment and the security scan. It does not
+  provision the SDK or run Semgrep, so no Semgrep result reaches a merge
+  verdict. The scan tree and the CENTRAL-DIFF baseline (§44) left with it.
+- **One Semgrep source.** `.github/workflows/central-semgrep.yml`
+  (`workflow_call`, called by nothing) holds the whole chain: every planned
+  instance (§35, L9-CI-CORE-003), the SDK gate, SARIF and artifacts.
+- **Nightly.** `nightly-sink.yml` renders its scan from `central-semgrep.yml`
+  (`python3 tools/nightly_sink.py render`): default branch, clean checkout,
+  whole tree, findings to code scanning and the rolling issue.
+- **Canary (§40).** `promotion-canary.yml` keeps the org-ci head and base legs
+  and adds the nightly-scan legs `scan` and `scanbase`; the admitted-SDK leg
+  (§43) is a scan leg. The verdict prints and judges both tables.
+
+Tests: `tests/workflows/test_central_semgrep_required_instances.py`,
+`tests/workflows/test_instance_runner_scan_root_paths.py`,
+`tests/workflows/test_promotion_canary.py` (`ScanVerdictTests`),
+`tests/tools/test_nightly_sink.py`.

@@ -94,7 +94,7 @@ from typing import Any
 
 ORG_CI = Path(".github/workflows/org-ci.yml")
 # The Semgrep chain, off the pull-request path since the operator decision of
-# 2026-11-21 (docs/adr/0003-semgrep-runs-nightly.md). The nightly sink runs it;
+# 2026-11-21 (docs/semgrep-runs-nightly.md). The nightly sink runs it;
 # the canary's nightly-scan legs prove a change to it before promotion.
 SCAN = Path(".github/workflows/central-semgrep.yml")
 CANARY = Path(".github/workflows/promotion-canary.yml")
@@ -197,7 +197,7 @@ HEADER = """\
 #
 # Core's promotion canary (AGENTS.md §40). On a Core pull request that changes
 # what the required check (org-ci.yml's `analyze` job) or the nightly Semgrep
-# scan (central-semgrep.yml, docs/adr/0003-semgrep-runs-nightly.md) runs, every
+# scan (central-semgrep.yml, docs/semgrep-runs-nightly.md) runs, every
 # repository declared in .l9/promotion-canary.json is checked out at its
 # current main head and judged at the pull request's pins (the `head` and
 # `scan` jobs) and, when the pull request changes those steps, at the base's

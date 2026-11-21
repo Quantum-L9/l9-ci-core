@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
 DEFAULTS_ROOT = ROOT / ".github" / "actions" / "resolve-governance" / "defaults"
 ANALYZE = ROOT / ".github" / "workflows" / "analyze-semgrep.yml"
-# Semgrep's central chain (docs/adr/0003-semgrep-runs-nightly.md).
+# Semgrep's central chain (docs/semgrep-runs-nightly.md).
 SCAN = ROOT / ".github" / "workflows" / "central-semgrep.yml"
 
 spec = importlib.util.spec_from_file_location("resolve_governance", MODULE_PATH)
