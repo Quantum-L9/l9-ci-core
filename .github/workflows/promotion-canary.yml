@@ -9,7 +9,7 @@
 # pull request's own `analyze` steps (org-ci.yml's, verbatim apart from the
 # target identity) run against it. `Promotion canary (Core)` judges the result
 # against the base pins and fails only when the pull request makes a
-# repository worse. Steps digest of this render: 692bf3c0bc66e97ed840b2a79beeb50d5806aef83978a6655b5a76925971c673
+# repository worse. Steps digest of this render: c71edefef3dc75287813fb36265851e381636913dfc6fbba0eaab6f6e56bfd3f
 name: Promotion canary (Core)
 on:
   pull_request:
@@ -203,10 +203,11 @@ jobs:
           git checkout --detach FETCH_HEAD
           git remote set-url origin "https://github.com/${REPOSITORY}.git"
 
-      # Advisory: reports consumer tool pins that drift from Core's
-      # toolchain-lock.json with file:line annotations. A consumer finding never
-      # fails the job; only an unreadable Core lock (a Core contract failure)
-      # does. The lock ships inside this pinned Core revision.
+      # Reports consumer declarations of Core-owned tools that drift from
+      # Core's toolchain-lock.json, with file:line annotations, into
+      # .l9/runtime/toolchain-alignment.json. Advisory: drift never fails the
+      # job (housekeeping, operator decision 2026-11-20). The lock ships inside
+      # this pinned Core revision.
       - id: toolchain
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
@@ -807,6 +808,48 @@ jobs:
       # language's gate among them. A required instance that is missing,
       # skipped or unfinished makes the aggregate incomplete (exit 6), never
       # pass; no aggregate at all is incomplete too.
+      # Toolchain drift is housekeeping (operator decision 2026-11-20: only
+      # checks that protect working or secure code block a merge). Each
+      # declaration of a Core-owned tool that differs from toolchain-lock.json
+      # is a warning at file:line and a line in the summary; it never fails
+      # the job. align.py decides what drift is (the report's own status).
+      - name: Report toolchain alignment drift (advisory)
+        if: always()
+        env:
+          REPORT: .l9/runtime/toolchain-alignment.json
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          try:
+              report = json.loads(Path(os.environ["REPORT"]).read_text(encoding="utf-8"))
+              status = report["status"]
+              findings = report["findings"]
+          except (OSError, ValueError, KeyError, TypeError) as error:
+              print(f"::warning::toolchain alignment report unavailable ({error}); drift not reported")
+          else:
+              drift = [
+                  item
+                  for item in findings
+                  if item.get("class") not in ("exact_match", "range_admits_lock")
+              ]
+              for item in drift:
+                  print(
+                      f"::warning file={item.get('path')},line={item.get('line')}::"
+                      f"{item.get('tool')} {item.get('declared') or '(no version)'} "
+                      f"is not Core's locked {item.get('lock')} ({item.get('class')})"
+                  )
+              line = f"- Toolchain drift (advisory): `{status}`, {len(drift)} declaration(s)"
+              summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as stream:
+                      stream.write(line + "\n")
+              print(line)
+          PY
+
       - name: Enforce central mode on SDK technical gate
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         env:
@@ -826,12 +869,27 @@ jobs:
             exit "${exit_code}"
           fi
 
+      # The security job's result, enforced in the required context. Anything
+      # but success fails, skipped and cancelled included: an INCOMPLETE scan
+      # never passes.
+      - name: Enforce security scan (secrets, dependency audit)
+        if: always()
+        env:
+          SECURITY_RESULT: ${{ needs.security.result }}
+        run: |
+          set -euo pipefail
+          echo "Security scan (gitleaks, pip-audit; bandit advisory): ${SECURITY_RESULT:-unavailable}"
+          if [ "${SECURITY_RESULT}" != "success" ]; then
+            echo "::error title=Security scan::the security job concluded '${SECURITY_RESULT:-unavailable}'; a secret or a vulnerable dependency blocks the merge (see the security job)"
+            exit 1
+          fi
+
       # --- canary record (not part of org-ci.yml) ---
       - name: Record the canary leg
         if: always()
         env:
           SIDE: head
-          DIGEST: 692bf3c0bc66e97ed840b2a79beeb50d5806aef83978a6655b5a76925971c673
+          DIGEST: c71edefef3dc75287813fb36265851e381636913dfc6fbba0eaab6f6e56bfd3f
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
