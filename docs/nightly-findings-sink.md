@@ -17,9 +17,11 @@ and where every Semgrep finding a repository carries goes.
 1. **Scan.** central-semgrep.yml's steps run verbatim apart from the target
    identity, as a `nightly` event on a clean checkout: the whole tree, no
    baseline, every planned instance (languages and the consumer rulepack). No
-   repository verification or Biome runs, and the scan's own enforcement step
-   is not run, so a repository that is already red is still scanned and
-   published.
+   repository verification runs, and the scan's own enforcement step is not
+   run, so a repository that is already red is still scanned and published.
+   org-ci.yml's `Biome` check then runs on the whole tree, advisory
+   ([biome-check.md](biome-check.md)); its SARIF is one more category,
+   `l9-central/biome/`.
 2. **Project.** The primary language's SARIF comes from the analyze steps; every
    other instance bundle (secondary languages, the declared consumer rulepack)
    is projected by the same SDK (`bundle project-sarif`). One file per instance.
