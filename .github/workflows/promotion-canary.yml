@@ -13,6 +13,15 @@
 # `Promotion canary (Core)` fails only when the pull request makes a repository
 # worse. Head steps digest: b6b40b71a8b3abb88fc7539a897f6f281f74368ee1eaf79756050ff89a1ce4c0
 name: Promotion canary (Core)
+# One verdict per pushed head (row 22). `make pr` pushes and then edits the
+# pull request's body; that `edited` run used to cancel the push run, whose
+# verdict then posted a failing check for the same head. An edit that changes
+# only the title or body is now a text edit: its own concurrency group (it
+# never cancels the push run), no plan or legs, and a verdict job under
+# another name that judges nothing, so it never posts a `Promotion canary
+# (Core)` check, failing or skipped. Every other `edited` event, a base
+# retarget included, is judged in full: the merge commit, and with it the
+# plan, changed.
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
@@ -20,11 +29,12 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: core-promotion-canary-${{ github.event.pull_request.number || github.ref }}
+  group: core-promotion-canary-${{ github.event.pull_request.number || github.ref }}${{ (github.event.action == 'edited' && github.event.changes.base == null && (github.event.changes.title != null || github.event.changes.body != null)) && '-text-edit' || '' }}
   cancel-in-progress: true
 jobs:
   plan:
     name: Plan promotion canary
+    if: ${{ !(github.event.action == 'edited' && github.event.changes.base == null && (github.event.changes.title != null || github.event.changes.body != null)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -4651,7 +4661,7 @@ jobs:
   # --- base pins leg: end ---
 
   verdict:
-    name: Promotion canary (Core)
+    name: ${{ (github.event.action == 'edited' && github.event.changes.base == null && (github.event.changes.title != null || github.event.changes.body != null)) && 'Promotion canary (text edit, no verdict)' || 'Promotion canary (Core)' }}
     needs: [plan, head, admitted, base]
     # Runs whatever the plan and legs concluded, a cancelled run included (a
     # job skipped by `if:` reports success on a required check, so the verdict
@@ -4679,6 +4689,7 @@ jobs:
       - name: Judge the canary
         env:
           L9_CANARY_PLAN_RESULT: ${{ needs.plan.result }}
+          L9_CANARY_TEXT_EDIT: ${{ github.event.action == 'edited' && github.event.changes.base == null && (github.event.changes.title != null || github.event.changes.body != null) }}
           L9_CANARY_APPLIES: ${{ needs.plan.outputs.applies }}
           L9_CANARY_DIFFERENTIAL: ${{ needs.plan.outputs.differential }}
           L9_CANARY_BASE_CURRENT: ${{ needs.plan.outputs['base-current'] }}
