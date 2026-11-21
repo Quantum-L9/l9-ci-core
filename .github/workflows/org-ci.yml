@@ -987,6 +987,23 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
 
+      # Every planned instance's own bundle beside the central artifact set
+      # (SDK ADR 0021, Core change 2): secondary languages and the declared
+      # consumer rulepack, whose bundle names the consumer rule files and the
+      # rules evaluated. A separate artifact, so the central set, its manifest
+      # and its handoff are unchanged. .l9/runtime is untracked workspace
+      # state written by this job only.
+      - name: Upload instance bundles
+        if: always() && steps.plan.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: l9-instance-bundles-${{ steps.runtime.outputs['matrix-id'] }}-${{ github.run_attempt }}
+          path: |
+            .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
+
       - id: handoff
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'

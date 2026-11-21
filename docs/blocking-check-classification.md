@@ -59,6 +59,7 @@ Classes:
 | Stage technical gate result | PLUMBING | |
 | Build artifact manifest | PLUMBING | |
 | Upload analysis artifact set | PLUMBING | |
+| Upload instance bundles | PLUMBING | Uploads every planned instance's bundle (secondary languages, the consumer rulepack) beside the central set (SDK ADR 0021) |
 | Create artifact handoff descriptor | PLUMBING | |
 | Write central CI summary | PLUMBING | |
 | Report toolchain alignment drift (advisory) | HOUSEKEEPING | One `::warning` per drifting declaration and a summary line; runs with `always()` and has no failing exit (#302) |
