@@ -1858,3 +1858,38 @@ ADR 0021) and #134 (tests in required scope).
 Tests: `tests/workflows/test_org_ci_required_instances.py`,
 `tests/invocation/test_invoke_sdk_baseline_consumer.py`,
 `tests/actions/test_plan_required_instances.py`.
+
+## 45. Consumer verification runs under the event it checks out (2026-11-21) — row 27, CANARY-EVENT
+
+The promotion canary checks out a consumer's main SHA inside a Core
+`pull_request` run, so the consumer's `make` inherited the Core PR's
+`GITHUB_EVENT_NAME=pull_request` (and its `GITHUB_SHA`, refs and event file).
+Cursor-Governance's `ops/scripts/lib/ci_pr_scope.sh` correctly refuses a
+`pull_request` whose HEAD is not a two-parent merge commit
+(`PR_SCOPE_UNKNOWN`), so its leg failed repository verification at both pins
+and "kept: already red at base pins" masked every later CG regression.
+
+Decision: **push semantics**, not a synthesized merge commit. A consumer's main
+SHA is the state that consumer actually runs after a push to main; it has no
+pull request, so a synthesized merge would need an invented base and PR head,
+and CG's scope would then test a change set that never exists. Push states
+only facts about the checked-out commit.
+
+Mechanism: a workflow `env:` cannot overwrite `GITHUB_*` (GitHub "Variables"
+reference: "You can't overwrite the value of the default environment
+variables named `GITHUB_*` and `RUNNER_*`"), so `run-repository-verification`
+gains inputs `event-name` (empty or `push`) and `event-ref`
+(`refs/heads/<branch>`). With `push`, `run.py` sets, before any consumer
+command, `GITHUB_EVENT_NAME=push`, `GITHUB_SHA` = workspace HEAD,
+`GITHUB_REF`/`GITHUB_REF_NAME`/`GITHUB_REF_TYPE` from the ref,
+`GITHUB_REPOSITORY` from the verified identity, clears `GITHUB_BASE_REF` and
+`GITHUB_HEAD_REF`, and points `GITHUB_EVENT_PATH` at a push payload written for
+that commit. Any other value, or a ref without an event, fails verification as
+`infrastructure` before a consumer command runs. Empty changes nothing, so
+org-ci's own runs keep their native context.
+
+Step one (this change) ships the inputs. Step two moves org-ci's Core pins to
+step one's merge, has org-ci pass `event-name: ''` / `event-ref: ''`, and the
+canary retargets those to `push` / `refs/heads/${{ matrix.branch }}` for every
+consumer leg, with a canary test that no leg's verification runs under the
+Core PR's event.

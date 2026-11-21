@@ -64,6 +64,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import MutableMapping
 from pathlib import Path
 
 CORE_ROOT = Path(__file__).resolve().parents[3]
@@ -124,6 +125,20 @@ REGISTRY_SNAPSHOT_ENV = "L9_REGISTRY_SNAPSHOT"
 READ_TOKEN_ENV = "L9_GITHUB_READ_TOKEN"
 _REGISTRY_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 _YAML_SCALAR = re.compile(r"^(\s*)(- )?([A-Za-z_][A-Za-z0-9_]*):(?:\s+(.*?))?\s*$")
+
+# Event context for the consumer's make (row 27). Empty: the consumer runs
+# under this run's own GitHub context. ``push``: the consumer runs as a push of
+# the commit checked out in the workspace to EVENT_REF_ENV. The promotion
+# canary checks out a consumer's main SHA inside a Core pull_request run; the
+# runner's GITHUB_* describe the Core PR, and a workflow ``env:`` cannot
+# overwrite GITHUB_* (GitHub "Variables" reference). So the context is set
+# here, in the process that starts the consumer's commands, before any of them.
+EVENT_NAME_ENV = "L9_VERIFICATION_EVENT"
+EVENT_REF_ENV = "L9_VERIFICATION_REF"
+EVENT_PUSH = "push"
+_BRANCH_REF = re.compile(r"^refs/heads/[A-Za-z0-9._/-]+$")
+_FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+ZERO_SHA = "0" * 40
 
 
 class PolicyError(RuntimeError):
@@ -477,6 +492,91 @@ def classify_contract(data: dict[str, object]) -> str:
         f"schema_version == {V1_SCHEMA_VERSION} or an exact "
         "l9.repo-execution/v2 contract"
     )
+
+
+class EventContextError(RuntimeError):
+    """The requested event context cannot be established for the workspace."""
+
+
+def _rev(workspace: Path, revision: str) -> str:
+    completed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(workspace),
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            f"{revision}^{{commit}}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    value = completed.stdout.strip()
+    return value if completed.returncode == 0 and _FULL_SHA.match(value) else ""
+
+
+def apply_event_context(
+    workspace: Path, repository: str, environ: MutableMapping[str, str]
+) -> str:
+    """Set the GitHub context the consumer's commands inherit; return the event.
+
+    Nothing changes when EVENT_NAME_ENV is empty. ``push`` is the only event
+    that can be stated honestly for a checked-out commit: GITHUB_SHA is the
+    workspace HEAD, GITHUB_REF the declared branch, the pull_request-only
+    GITHUB_BASE_REF / GITHUB_HEAD_REF are cleared, and GITHUB_EVENT_PATH names
+    a push payload written for that commit, not the caller's event file.
+    """
+
+    event = environ.get(EVENT_NAME_ENV, "").strip()
+    environ.pop(EVENT_NAME_ENV, None)
+    ref = environ.pop(EVENT_REF_ENV, "").strip()
+    if not event:
+        if ref:
+            raise EventContextError(f"{EVENT_REF_ENV} is set without an event")
+        return ""
+    if event != EVENT_PUSH:
+        raise EventContextError(
+            f"unsupported verification event {event!r}; only {EVENT_PUSH!r}"
+        )
+    if not _BRANCH_REF.match(ref) or ".." in ref:
+        raise EventContextError(f"{EVENT_REF_ENV} must be refs/heads/<branch>: {ref!r}")
+    if not _REPOSITORY_NAME.match(repository):
+        raise EventContextError(
+            f"repository identity is not owner/name: {repository!r}"
+        )
+    head = _rev(workspace, "HEAD")
+    if not head:
+        raise EventContextError("the workspace HEAD is not a resolvable commit")
+    before = _rev(workspace, "HEAD^1") or ZERO_SHA
+    payload = {
+        "ref": ref,
+        "before": before,
+        "after": head,
+        "repository": {"full_name": repository},
+    }
+    handle, path = tempfile.mkstemp(
+        prefix="l9-push-event-", suffix=".json", dir=environ.get("RUNNER_TEMP") or None
+    )
+    with os.fdopen(handle, "w", encoding="utf-8") as stream:
+        json.dump(payload, stream, sort_keys=True)
+    branch = ref.removeprefix("refs/heads/")
+    environ.update(
+        {
+            "GITHUB_EVENT_NAME": EVENT_PUSH,
+            "GITHUB_EVENT_PATH": path,
+            "GITHUB_SHA": head,
+            "GITHUB_REF": ref,
+            "GITHUB_REF_NAME": branch,
+            "GITHUB_REF_TYPE": "branch",
+            "GITHUB_BASE_REF": "",
+            "GITHUB_HEAD_REF": "",
+            "GITHUB_REPOSITORY": repository,
+        }
+    )
+    print(f"repository verification: event context push {branch}@{head[:12]}")
+    return EVENT_PUSH
 
 
 def run_v1(workspace: Path) -> None:
@@ -845,6 +945,19 @@ def main() -> int:
                 ".l9/repo-workflow.json absent)",
                 file=sys.stderr,
             )
+        return 0
+
+    try:
+        apply_event_context(workspace, repository, os.environ)
+    except (EventContextError, OSError) as exc:
+        _record(
+            present=True,
+            status="fail",
+            mode=mode,
+            version="unknown",
+            failure=FAILURE_INFRASTRUCTURE,
+        )
+        print(f"repository verification: FAIL (infrastructure; {exc})", file=sys.stderr)
         return 0
 
     version = CONTRACT_INVALID
