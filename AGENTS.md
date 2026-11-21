@@ -1812,3 +1812,49 @@ default revision does not move what `org-ci.yml` runs.
 
 Tests: `tests/workflows/test_promotion_canary.py` (`AdmittedLegTests`,
 `AdmittedVerdictTests`).
+
+## 44. CENTRAL-DIFF: findings are judged by what a run brings in (2026-11-21) — PIN-ADVANCE-3
+
+Step one (#323, merged as `284a5eb6`) admitted l9-ci-sdk `4a887396`, and
+step two activates it. It brings #144 (CENTRAL-DIFF: `semgrep run
+--baseline-commit` classifies findings new or pre-existing, SDK ADR 0023),
+#138 (the finding-waiver ledger, §42), #136 (B3: `semgrep consumer-run`, SDK
+ADR 0021) and #134 (tests in required scope).
+
+- **Baseline (operator decision 2026-11-21, row 23).** A run judges only the
+  code it brings in, and only nightly judges the whole tree.
+  - The `baseline` step passes the evaluated revision's first parent for the
+    event classes `pull_request`, `merge` and `push`. On a pull request or
+    merge group that revision is GitHub's merge commit, whose first parent is
+    the target tip (the merge-base, or the group's base). On a push it is the
+    previous tip.
+  - `nightly`, `release` and `supply_chain` pass no baseline, so the whole
+    tree is judged by policy alone.
+  - A baseline that does not resolve blocks the job.
+  - This supersedes SDK ADR 0023's "omit the option on a push to the default
+    branch" for Core. The SDK-side amendment to that ADR belongs in
+    l9-ci-sdk.
+- **Effect.** A pre-existing blocking finding is reported as advisory. Only
+  new blocking findings and incomplete results fail. #134's pre-existing test
+  findings (row 26: SDK 104, CEG 91, EIE 19) therefore warn.
+  - The advisory step `Report CENTRAL-DIFF pre-existing findings (advisory)`
+    prints each bundle's `baseline <sha>: N new, M pre-existing …` count.
+  - The SDK fails closed on tracked changes, so the `baseline` step names any
+    tracked file that differs from HEAD before the scan.
+- **Ledger.** `resolve-governance` stages `finding-waivers.yaml` in
+  `RUNNER_TEMP`. The primary run and every instance run pass `--waivers` and
+  `--repository` with it.
+- **Consumer rulepack (B3).**
+  - The inventory runs with `--consumer-rules`.
+  - The planner executes `consumer:*` targets, and a declared consumer
+    rulepack is a required instance.
+  - The instance runner runs it as `semgrep consumer-run`, its own execution
+    and bundle. Its gate result is aggregated like a language's.
+  - The baseline is not applied to it.
+- **Canary.** The head leg is the acceptance run. #317's admitted leg would
+  have judged `4a887396` without this wiring had step one made it the default,
+  which is why it was admitted as supported but not default.
+
+Tests: `tests/workflows/test_org_ci_required_instances.py`,
+`tests/invocation/test_invoke_sdk_baseline_consumer.py`,
+`tests/actions/test_plan_required_instances.py`.

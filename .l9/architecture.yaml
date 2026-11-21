@@ -42,7 +42,7 @@ production_channel:
 
 sdk:
   repository: Quantum-L9/l9-ci-sdk
-  revision: 47ae3ac5bc8c1a14cc33e4985ce392996cd27ccc
+  revision: 4a887396990a59ffb4a7108790b2fa1005c7865d
   integration_contract: l9.integration-contract/v1
 
 owned_by_core:
