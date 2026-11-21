@@ -200,15 +200,15 @@ class ConsumerCommandsSeeTheContextTests(unittest.TestCase):
             with (
                 unittest.mock.patch.dict(os.environ, env, clear=False),
                 unittest.mock.patch.object(
-                    runner, "resolve_enforcement", lambda *_: "migration"
+                    runner, "resolve_enforcement", return_value="migration"
                 ),
                 unittest.mock.patch.object(
-                    runner, "classify_contract", lambda _: runner.CONTRACT_V2
+                    runner, "classify_contract", return_value=runner.CONTRACT_V2
                 ),
-                unittest.mock.patch.object(runner, "load_contract", lambda _: {}),
-                unittest.mock.patch.object(runner, "verify_v2", lambda *_: None),
+                unittest.mock.patch.object(runner, "load_contract", return_value={}),
+                unittest.mock.patch.object(runner, "verify_v2", return_value=None),
                 unittest.mock.patch.object(
-                    runner, "materialize_inherited", lambda _: None
+                    runner, "materialize_inherited", return_value=None
                 ),
                 unittest.mock.patch.object(runner.subprocess, "run", fake_run),
             ):
@@ -244,7 +244,7 @@ class ConsumerCommandsSeeTheContextTests(unittest.TestCase):
             with (
                 unittest.mock.patch.dict(os.environ, env, clear=False),
                 unittest.mock.patch.object(
-                    runner, "resolve_enforcement", lambda *_: "migration"
+                    runner, "resolve_enforcement", return_value="migration"
                 ),
                 unittest.mock.patch.object(runner, "run_v2", ran),
                 unittest.mock.patch.object(runner, "run_v1", ran),
