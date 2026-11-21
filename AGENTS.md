@@ -1752,12 +1752,11 @@ and getting it to the SDK.
   primary semgrep run and every required instance. `waiver-repository` must be
   the analysed repository, which in a canary leg is `matrix.repository`, not
   `GITHUB_REPOSITORY`.
-- **Entries.** Every entry has an owner, a reason and an expiry. The first
-  two entries waive the same call in `l9_ci/providers/semgrep/provider.py`:
-  once at its main location (line 153), once where l9-ci-sdk #139 moved it
-  (line 169). The rule is Django's `subprocess-injection`, applied to code
-  that is not Django. l9-ci-sdk #141 fixes it; remove both entries when Core
-  pins #141.
+- **Entries.** The ledger ships empty. Its first planned entry, Django's
+  `subprocess-injection` rule applied to code in l9-ci-sdk that is not Django,
+  was made unnecessary when l9-ci-sdk #141 merged (the SDK applies Django
+  rules only where it detects Django). Each entry needs an owner, a reason and
+  an expiry, and is removed once the fix it stands in for is pinned.
 
 Tests: `tests/governance/test_finding_waiver_ledger.py`,
 `tests/invocation/test_invoke_sdk_finding_waivers.py`.

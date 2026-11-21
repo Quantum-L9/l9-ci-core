@@ -1,35 +1,4 @@
 {
   "schema": "l9.finding-waivers/v1",
-  "waivers": [
-    {
-      "id": "SDK-SEMGREP-PROVIDER-SUBPROCESS-L153",
-      "owner": "L1",
-      "reason": "Django rule applied to non-Django code; fixed by l9-ci-sdk#141, remove when Core pins it. Site on l9-ci-sdk main: l9_ci/providers/semgrep/provider.py:153.",
-      "created": "2026-11-21",
-      "expires": "2027-02-21",
-      "scope": {
-        "repository": "Quantum-L9/l9-ci-sdk",
-        "provider_id": "semgrep",
-        "provider_rule_id": "python.django.security.injection.command.subprocess-injection.subprocess-injection",
-        "path": "l9_ci/providers/semgrep/provider.py"
-      },
-      "fingerprint": "f65ae3b056b2c34fdec05fa7b48591263a961da1b449dc86bd31491a14329b40",
-      "source_sha256": "fa9045c80efeb3d4f6ff6a47d0c3414bbaa02ddbc456adc2c6bd619330f1b11a"
-    },
-    {
-      "id": "SDK-SEMGREP-PROVIDER-SUBPROCESS-L169",
-      "owner": "L1",
-      "reason": "Django rule applied to non-Django code; fixed by l9-ci-sdk#141, remove when Core pins it. Same call after l9-ci-sdk#139 moved it to l9_ci/providers/semgrep/provider.py:169 (run 44854485677).",
-      "created": "2026-11-21",
-      "expires": "2027-02-21",
-      "scope": {
-        "repository": "Quantum-L9/l9-ci-sdk",
-        "provider_id": "semgrep",
-        "provider_rule_id": "python.django.security.injection.command.subprocess-injection.subprocess-injection",
-        "path": "l9_ci/providers/semgrep/provider.py"
-      },
-      "fingerprint": "835cdd821604810ff83ae9d3d0a268a6ed44dd918a7a3bdf0005be3981f30131",
-      "source_sha256": "fa9045c80efeb3d4f6ff6a47d0c3414bbaa02ddbc456adc2c6bd619330f1b11a"
-    }
-  ]
+  "waivers": []
 }

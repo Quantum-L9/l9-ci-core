@@ -84,6 +84,23 @@ class ShippedLedgerTests(unittest.TestCase):
         )
 
 
+SAMPLE_ENTRY = {
+    "id": "SAMPLE-ENTRY",
+    "owner": "L1",
+    "reason": "sample",
+    "created": "2026-11-21",
+    "expires": "2027-02-21",
+    "scope": {
+        "repository": "Quantum-L9/l9-ci-sdk",
+        "provider_id": "semgrep",
+        "provider_rule_id": "python.example.rule",
+        "path": "l9_ci/example.py",
+    },
+    "fingerprint": "0" * 64,
+    "source_sha256": "1" * 64,
+}
+
+
 class EnvelopeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -96,6 +113,13 @@ class EnvelopeTests(unittest.TestCase):
         self.path.write_text(json.dumps(document), encoding="utf-8")
         with self.assertRaises(module.GovernanceError):
             module.validated_finding_waivers(self.path)
+
+    def test_well_formed_ledger_with_an_entry_is_accepted(self) -> None:
+        document = {"schema": "l9.finding-waivers/v1", "waivers": [SAMPLE_ENTRY]}
+        self.path.write_text(json.dumps(document), encoding="utf-8")
+        self.assertEqual(
+            self.path.read_bytes(), module.validated_finding_waivers(self.path)
+        )
 
     def test_malformed_ledgers_fail_closed(self) -> None:
         schema = "l9.finding-waivers/v1"
