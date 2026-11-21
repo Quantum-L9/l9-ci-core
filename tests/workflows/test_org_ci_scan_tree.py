@@ -65,15 +65,21 @@ class ScanTreeScriptTests(unittest.TestCase):
         git(self.root, "commit", "--quiet", "-m", "base")
         self.revision = git(self.root, "rev-parse", "HEAD")
         self.output = Path(tmp.name) / "output"
+        self.summary = Path(tmp.name) / "summary"
+        self.temp = Path(tmp.name) / "runner-temp"
+        self.temp.mkdir()
 
     def run_step(self, revision: str | None = None) -> tuple[int, str, dict[str, str]]:
         self.output.write_text("", encoding="utf-8")
+        self.summary.write_text("", encoding="utf-8")
         completed = subprocess.run(
             ["bash", "-c", _step("id", STEP)["run"]],
             cwd=self.root,
             env={
                 "PATH": os.environ["PATH"],
                 "GITHUB_OUTPUT": str(self.output),
+                "GITHUB_STEP_SUMMARY": str(self.summary),
+                "RUNNER_TEMP": str(self.temp),
                 "L9_MATRIX_ID": "m",
                 "REVISION": revision or self.revision,
             },
@@ -117,6 +123,31 @@ class ScanTreeScriptTests(unittest.TestCase):
         self.assertEqual("", git(tree, "status", "--porcelain", "--untracked-files=no"))
         self.assertEqual("v1\n", (tree / "docs" / "generated.md").read_text())
         self.assertTrue((tree / "src" / "app.py").is_file(), "the committed code")
+
+    def test_the_change_itself_is_named_for_the_consumer(self) -> None:
+        """Signal law: producer, paths, diff stat and the diff, not a count."""
+        lines = "".join(f"line {n}\n" for n in range(100))
+        (self.root / "docs" / "generated.md").write_text(lines, encoding="utf-8")
+        code, text, _ = self.run_step()
+        self.assertEqual(0, code, text)
+        self.assertIn(
+            "Repository verification (make setup/validate/check/test) changed 1", text
+        )
+        self.assertIn("docs/generated.md", text)
+        summary = self.summary.read_text(encoding="utf-8")
+        self.assertIn(
+            "Producer: repository verification (make setup/validate/check/test)",
+            summary,
+        )
+        self.assertIn("1 file changed", summary)
+        self.assertIn("<code>docs/generated.md</code>", summary)
+        self.assertIn("+line 0", summary)
+        self.assertNotIn("+line 90", summary, "capped at 40 lines per file")
+
+    def test_a_clean_checkout_writes_no_change_section(self) -> None:
+        code, _, _ = self.run_step()
+        self.assertEqual(0, code)
+        self.assertNotIn("Tracked files changed", self.summary.read_text())
 
     def test_a_scan_tree_that_is_not_the_evaluated_revision_fails(self) -> None:
         (self.root / "src" / "app.py").write_text("print(2)\n", encoding="utf-8")

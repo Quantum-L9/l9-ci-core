@@ -19,7 +19,7 @@
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: 7ccd5f414bb6132ce5de368d1f05b30dbad54c0d63c06292c3b4b2bcafe05e61
+# and issues: write. Analyze steps digest: 2f20456129b20b29bd345f326f805c6c5c159ced281657b4b43fdda825ecc50b
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -625,10 +625,37 @@ jobs:
           while IFS= read -r -d '' entry; do
             path="${entry:3}"
             mutated+=("${path}")
-            echo "::warning file=${path}::repository verification changed this tracked file; the scan uses a clean tree of ${REVISION} (advisory, not a finding)"
+            echo "::warning file=${path}::repository verification (make setup/validate/check/test) changed this tracked file; the scan uses a clean tree of ${REVISION} (advisory, not a finding)"
           done < <(git status --porcelain=v1 -z --untracked-files=no --no-renames)
           if [ "${#mutated[@]}" -gt 0 ]; then
-            echo "Verification mutated ${#mutated[@]} tracked file(s): ${mutated[*]}"
+            # Signal law (L9-SIGNAL-001): name the producer, the paths and the
+            # change itself, so the consumer can fix its test hygiene without
+            # re-running: the diff stat, then the first 40 lines per file.
+            diffs="${RUNNER_TEMP:-/tmp}/l9-verification-diff"
+            mkdir -p "${diffs}"
+            git diff --stat -- "${mutated[@]}" > "${diffs}/stat"
+            echo "Repository verification (make setup/validate/check/test) changed ${#mutated[@]} tracked file(s):"
+            cat "${diffs}/stat"
+            {
+              echo "### Tracked files changed by repository verification (advisory)"
+              echo
+              echo "Producer: repository verification (make setup/validate/check/test)."
+              echo "The scan used a clean tree of \`${REVISION}\`, so these changes are not judged."
+              echo
+              echo "~~~~"
+              cat "${diffs}/stat"
+              echo "~~~~"
+              for path in "${mutated[@]}"; do
+                git diff -- "${path}" > "${diffs}/one"
+                echo
+                echo "<details><summary><code>${path}</code> (first 40 lines of the diff)</summary>"
+                echo
+                echo "~~~~diff"
+                head -n 40 "${diffs}/one"
+                echo "~~~~"
+                echo "</details>"
+              done
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
           fi
           tree=".l9/runtime/${L9_MATRIX_ID}/scan-tree"
           git worktree add --detach --force "${tree}" "${REVISION}"
