@@ -29,6 +29,8 @@ CONSTELLATION_RULES_FILENAME = "constellation-node-rules.json"
 CONSTELLATION_RULES_SCHEMA = "l9.constellation-node-rules/v1"
 SCOPE_NODE = "node"
 SCOPE_NON_NODE = "non-node"
+FINDING_WAIVERS_FILENAME = "finding-waivers.yaml"
+FINDING_WAIVERS_SCHEMA = "l9.finding-waivers/v1"
 
 
 class GovernanceError(RuntimeError):
@@ -379,6 +381,78 @@ def _stage_sdk_policy(source: Path, payload: bytes, workspace: Path) -> str:
     return target.relative_to(workspace).as_posix()
 
 
+def finding_waivers_path() -> Path:
+    """The central finding-waiver ledger shipped with this pinned action."""
+    return Path(__file__).resolve().with_name(FINDING_WAIVERS_FILENAME)
+
+
+def validated_finding_waivers(path: Path) -> bytes:
+    """Validate the ledger's transport envelope; the SDK owns its semantics.
+
+    Core checks only what it must to hand the SDK one well-formed, central
+    document: a JSON object naming ``l9.finding-waivers/v1`` whose ``waivers``
+    is a list of objects with unique string ids. Matching, expiry and the
+    blocking-to-advisory effect are the SDK's (``l9_ci.policy.waivers``), and a
+    malformed entry fails the SDK run closed.
+    """
+    try:
+        payload = path.read_bytes()
+    except OSError as error:
+        raise GovernanceError(f"finding-waiver ledger unreadable: {error}") from error
+    try:
+        document = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise GovernanceError(
+            f"invalid finding-waiver ledger JSON {path}: {error}"
+        ) from error
+    if not isinstance(document, dict) or set(document) != {"schema", "waivers"}:
+        raise GovernanceError(
+            "finding-waiver ledger must hold exactly schema and waivers"
+        )
+    if document["schema"] != FINDING_WAIVERS_SCHEMA:
+        raise GovernanceError(
+            f"finding-waiver ledger has unsupported schema {document['schema']!r}"
+        )
+    entries = document["waivers"]
+    if not isinstance(entries, list):
+        raise GovernanceError("finding-waiver ledger waivers must be a list")
+    seen: set[str] = set()
+    for index, entry in enumerate(entries):
+        waiver_id = entry.get("id") if isinstance(entry, dict) else None
+        if not isinstance(waiver_id, str) or not waiver_id:
+            raise GovernanceError(f"finding waiver {index} has no id")
+        if waiver_id in seen:
+            raise GovernanceError(f"duplicate finding waiver id: {waiver_id}")
+        seen.add(waiver_id)
+    return payload
+
+
+def stage_finding_waivers(payload: bytes) -> str:
+    """Write the ledger outside the workspace and return its absolute path.
+
+    The SDK refuses a ledger inside ``--root`` so that a consumer cannot waive
+    its own findings, and Core scans with ``--root`` at the workspace, so the
+    ledger is staged in the runner's temporary directory, never the workspace.
+    """
+    temporary_root = os.environ.get("RUNNER_TEMP", "").strip() or None
+    directory = Path(
+        tempfile.mkdtemp(prefix="l9-finding-waivers-", dir=temporary_root)
+    ).resolve()
+    workspace_raw = os.environ.get("GITHUB_WORKSPACE", "").strip()
+    if workspace_raw and directory.is_relative_to(Path(workspace_raw).resolve()):
+        raise GovernanceError(
+            "finding-waiver ledger must be staged outside GITHUB_WORKSPACE"
+        )
+    target = directory / FINDING_WAIVERS_FILENAME
+    try:
+        target.write_bytes(payload)
+    except OSError as error:
+        raise GovernanceError(
+            f"could not stage finding-waiver ledger: {error}"
+        ) from error
+    return target.as_posix()
+
+
 def select_policy(
     documents: dict[str, Any], profile_name: str, governance_root: Path
 ) -> tuple[str, bytes] | None:
@@ -567,6 +641,7 @@ def canonical_digest(
     root: Path,
     selected_policy: tuple[str, bytes] | None,
     identity_maps_root: Path | None = None,
+    finding_waivers: bytes | None = None,
 ) -> str:
     digest = hashlib.sha256()
     for filename in sorted(EXPECTED_SCHEMAS):
@@ -593,6 +668,11 @@ def canonical_digest(
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
+    digest.update(f"{FINDING_WAIVERS_FILENAME}\0".encode("utf-8"))
+    if finding_waivers is None:
+        finding_waivers = validated_finding_waivers(finding_waivers_path())
+    digest.update(finding_waivers)
+    digest.update(b"\0")
     return digest.hexdigest()
 
 
@@ -627,6 +707,8 @@ def main() -> int:
         )
         policy = stage_selected_policy(selected_policy, governance_root)
         identity_map_directory = stage_identity_maps()
+        ledger = validated_finding_waivers(finding_waivers_path())
+        finding_waivers = stage_finding_waivers(ledger)
         waivers = applicable_waivers(
             documents,
             profile=profile_name,
@@ -647,9 +729,10 @@ def main() -> int:
         emit("constellation-scope", scope)
         emit("identity-map-directory", identity_map_directory)
         emit("waiver-ids", ",".join(waivers))
+        emit("finding-waivers", finding_waivers)
         emit(
             "governance-digest",
-            canonical_digest(governance_root, selected_policy),
+            canonical_digest(governance_root, selected_policy, finding_waivers=ledger),
         )
         return 0
     except GovernanceError as error:

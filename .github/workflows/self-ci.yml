@@ -122,6 +122,7 @@ jobs:
             tests/artifacts/test_route_artifacts.py
             tests/governance/test_constellation_scope.py
             tests/governance/test_consumer_metadata.py
+            tests/governance/test_finding_waiver_ledger.py
             tests/governance/test_governance_boundary.py
             tests/governance/test_org_governance_defaults.py
             tests/governance/test_release_profile_strict.py
@@ -130,6 +131,8 @@ jobs:
             tests/governance/test_semgrep_policy_file_permissions.py
             tests/governance/test_semgrep_policy_logging.py
             tests/invocation/test_invoke_sdk.py
+            tests/invocation/test_invoke_sdk_baseline_consumer.py
+            tests/invocation/test_invoke_sdk_finding_waivers.py
             tests/invocation/test_validate_bundle.py
             tests/provisioning/test_compatibility_manifest.py
             tests/provisioning/test_external_checkout.py

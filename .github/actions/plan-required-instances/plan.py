@@ -42,7 +42,11 @@ TARGETS_PATH = Path(__file__).resolve().parent / "executable-targets.json"
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SAFE_COMPONENT = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-SAFE_TARGET = re.compile(r"^(language|framework):[a-z0-9][a-z0-9._+-]{0,63}$")
+SAFE_TARGET = re.compile(r"^(language|framework|consumer):[a-z0-9][a-z0-9._+-]{0,63}$")
+# A consumer rulepack target is named after its owner (SDK ADR 0021,
+# ``consumer:<owner>``), so Core cannot list every one. ``consumer:*`` in the
+# executable targets means Core executes any declared consumer rulepack.
+WILDCARD_TARGET = re.compile(r"^consumer:\*$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}/[A-Za-z0-9._-]{1,100}$")
 MAX_INVENTORY_BYTES = 1048576
 MAX_REASONS = 32
@@ -73,10 +77,18 @@ def load_executable_targets(path: Path = TARGETS_PATH) -> dict[str, frozenset[st
         if not SAFE_COMPONENT.fullmatch(str(provider)) or not isinstance(targets, list):
             raise PlanningError("executable targets entry is malformed")
         for target in targets:
-            if not isinstance(target, str) or not SAFE_TARGET.fullmatch(target):
+            if not isinstance(target, str) or not (
+                SAFE_TARGET.fullmatch(target) or WILDCARD_TARGET.fullmatch(target)
+            ):
                 raise PlanningError(f"executable target {target!r} is malformed")
         result[str(provider)] = frozenset(targets)
     return result
+
+
+def is_executable(target: str, executable: frozenset[str]) -> bool:
+    """Whether Core executes ``target``: listed exactly, or by its kind's ``*``."""
+    kind = target.partition(":")[0]
+    return target in executable or f"{kind}:*" in executable
 
 
 def unwrap(payload: object) -> dict[str, Any]:
@@ -171,7 +183,9 @@ def build_plan(
         if state == "not_applicable":
             not_planned.append({"id": identifier, "reason": why.strip()})
             continue
-        executable = target in executable_targets.get(provider, frozenset())
+        executable = is_executable(
+            target, executable_targets.get(provider, frozenset())
+        )
         required = provider in required_providers and executable
         if provider in required_providers and not executable:
             requiredness = "not required: Core does not execute this target"
