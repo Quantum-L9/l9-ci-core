@@ -115,6 +115,7 @@ JOB_NAME = re.compile(r"^ {2}([a-z][a-z0-9_-]*):\n$")
 INLINE_BEGIN = "      # --- inlined org-ci job {key}: begin ---\n"
 INLINE_END = "      # --- inlined org-ci job {key}: end ---\n"
 LEG_TIMEOUT = 30
+SIBLING_TIMEOUT = 30
 PROVISION_ACTION = Path(".github/actions/provision-sdk/action.yml")
 SDK_COMPATIBILITY = Path(".l9/sdk-compatibility.yaml")
 ADMISSION_ARTIFACT = "canary-admitted-core"
@@ -248,7 +249,7 @@ jobs:
 LEG = """\
   @@SIDE@@:
     name: Canary ${{ matrix.repository }}@@TITLE@@
-    needs: plan
+    needs: @@NEEDS@@
     if: @@IF@@
     runs-on: ubuntu-24.04
     timeout-minutes: @@TIMEOUT@@
@@ -333,7 +334,9 @@ LEG = """\
         with:
           name: promotion-canary-@@SIDE@@-${{ matrix.slug }}
           path: ${{ runner.temp }}/promotion-canary/@@SIDE@@-${{ matrix.slug }}.json
-          if-no-files-found: ignore
+          # A leg that cannot write its record fails its job, and the verdict
+          # then finds no record and blocks.
+          if-no-files-found: error
           retention-days: 14
 
 """
@@ -351,16 +354,86 @@ BASE_IF = (
     "'true' && needs.plan.outputs['base-current'] == 'true'"
 )
 
+# A reusable job org-ci.yml runs ahead of `analyze` is a sibling job of each
+# leg, as it is a sibling of `analyze` in org-ci.yml: its own steps fail its own
+# job, never the leg's, and nothing in the canary sets continue-on-error. A
+# matrix job's `needs.<job>.result` folds every repository's leg into one, so
+# each sibling hands its own leg its result as an artifact named by side, job
+# and slug. The leg reads it as `steps.<job>__result.outputs.result`, which
+# stands for org-ci.yml's `needs.<job>.result`; a missing result reads as
+# failure, never as success.
+SIBLING = """\
+  @@JOB@@:
+    name: Canary ${{ matrix.repository }} @@NAME@@ job@@TITLE@@
+    needs: plan
+    if: @@IF@@
+    runs-on: ubuntu-24.04
+    timeout-minutes: @@TIMEOUT@@
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+@@STEPS@@
+      - name: Record the @@NAME@@ job result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/canary-job"
+          printf '%s\\n' "${JOB_STATUS}" > "${RUNNER_TEMP}/canary-job/@@NAME@@.result"
+      - name: Upload the @@NAME@@ job result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canary-job-@@SIDE@@-@@NAME@@-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job/@@NAME@@.result
+          if-no-files-found: error
+          retention-days: 1
+
+"""
+
+SIBLING_RESULT = """\
+      # --- the @@NAME@@ job's result for this repository (not part of org-ci.yml) ---
+      - name: Download the @@NAME@@ job result
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # A pattern, not a name: a missing result downloads nothing (a name
+          # would fail the step), and the next step reads nothing as failure.
+          pattern: canary-job-@@SIDE@@-@@NAME@@-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job
+          merge-multiple: true
+      - name: Result of the @@NAME@@ job
+        id: @@NAME@@__result
+        run: |
+          set -euo pipefail
+          file="${RUNNER_TEMP}/canary-job/@@NAME@@.result"
+          result=""
+          if [ -f "${file}" ]; then
+            result="$(tr -d '[:space:]' < "${file}")"
+          fi
+          case "${result}" in
+            success|failure|cancelled) ;;
+            *) result=failure ;;
+          esac
+          echo "@@NAME@@ job: ${result}"
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
+"""
+
 VERDICT = """\
   verdict:
     name: Promotion canary (Core)
     needs: [plan, head, admitted, base]
-    # Runs whatever the plan and legs concluded (a job skipped by `if:` reports
-    # success on a required check, so the verdict decides itself, including
-    # when no leg was needed). Only a run superseded by a newer one on the same
-    # pull request is cancelled; its verdict is skipped and the newer run's
-    # verdict, which always follows, is the check that counts.
-    if: ${{ !cancelled() }}
+    # Runs whatever the plan and legs concluded, a cancelled run included (a
+    # job skipped by `if:` reports success on a required check, so the verdict
+    # decides itself). It is the only gate: a leg is red exactly when its own
+    # org-ci run is red, and the verdict judges that against the base pins. A
+    # leg job that was cancelled or did not run when planned is incomplete
+    # and blocks. A superseded run's verdict fails; the newer run's verdict,
+    # which always follows, is the check that counts.
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -388,6 +461,9 @@ VERDICT = """\
           L9_CANARY_MATRIX: ${{ needs.plan.outputs.matrix }}
           L9_CANARY_ADMITTED: ${{ needs.plan.outputs.admitted }}
           L9_CANARY_RECORDS: ${{ runner.temp }}/promotion-canary
+          L9_CANARY_HEAD_RESULT: ${{ needs.head.result }}
+          L9_CANARY_BASE_RESULT: ${{ needs.base.result }}
+          L9_CANARY_ADMITTED_RESULT: ${{ needs.admitted.result }}
         run: |
           set -euo pipefail
           python3 -I tools/promotion_canary.py verdict
@@ -597,15 +673,15 @@ def _substitute(text: str, inputs: dict[str, str], what: str) -> str:
 
 
 def _isolate_step(item: str, name: str, number: int, directory: str) -> tuple[str, str]:
-    """(step text, step id): prefixed id, continue-on-error, working directory,
-    and a checkout retargeted to the evaluated repository."""
+    """(step text, step id): prefixed id, working directory, and a checkout
+    retargeted to the evaluated repository. No continue-on-error: the step runs
+    in the job's own sibling job, so a failure fails that job only."""
     own = re.search(r"(?m)^ {8}id: ([A-Za-z0-9_-]+)$", item)
     step_id = f"{name}__{own.group(1) if own else f's{number}'}"
     if own:
         item = item.replace(own.group(0), f"        id: {step_id}")
     first, _, rest = item.partition("\n")
     extra = "" if own else f"        id: {step_id}\n"
-    extra += "        continue-on-error: true\n"
     runs_here = re.search(r"(?m)^ {8}run:", item) and not re.search(
         r"(?m)^ {8}working-directory:", item
     )
@@ -627,37 +703,9 @@ def _isolate_step(item: str, name: str, number: int, directory: str) -> tuple[st
     return (item if item.endswith("\n") else item + "\n"), step_id
 
 
-def _result_steps(name: str, ids: list[str]) -> str:
-    """The job result ``analyze`` reads, and the workspace clear before it."""
-    variables = [step.upper().replace("-", "_") for step in ids]
-    outcomes = "".join(
-        f"          {variable}: ${{{{ steps.{step}.outcome }}}}\n"
-        for variable, step in zip(variables, ids, strict=True)
-    )
-    loop = " ".join('"${' + variable + '}"' for variable in variables)
-    return (
-        f"      - name: Result of the inlined {name} job\n"
-        f"        id: {name}__result\n"
-        "        if: always()\n"
-        "        env:\n" + outcomes + "        run: |\n"
-        "          set -euo pipefail\n"
-        "          result=success\n"
-        f"          for outcome in {loop}; do\n"
-        '            case "${outcome}" in failure|cancelled) result=failure ;; esac\n'
-        "          done\n"
-        f'          echo "{name} job: ${{result}}"\n'
-        '          echo "result=${result}" >> "$GITHUB_OUTPUT"\n'
-        f"      - name: Clear the workspace after the inlined {name} job\n"
-        "        if: always()\n"
-        "        run: |\n"
-        "          set -euo pipefail\n"
-        '          test -n "${GITHUB_WORKSPACE:-}" && test "${GITHUB_WORKSPACE}" != "/"\n'
-        '          find "${GITHUB_WORKSPACE}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +\n'
-    )
-
-
 def inline_job(name: str, workflow: str, values: dict[str, str], what: str) -> str:
-    """A reusable workflow's job as canary leg steps, retargeted and isolated."""
+    """A reusable workflow's job as the steps of its canary sibling job,
+    retargeted and isolated."""
     steps, directory, _ = _single_job(workflow, what)
     inputs = {**_inputs(workflow), **values}
     directory = _substitute(directory, inputs, what)
@@ -680,7 +728,7 @@ def inline_job(name: str, workflow: str, values: dict[str, str], what: str) -> s
     ]
     if left:
         raise CanaryError(f"{what}: references the canary cannot retarget: {left}")
-    return body + _result_steps(name, ids)
+    return body
 
 
 Provider = Any  # Callable[[str, str, str, dict[str, str]], str]
@@ -842,16 +890,34 @@ def admit(analyze: str, action: str) -> str:
 
 
 def leg_job(side: str, org_ci: str, provider: Provider, admission: str = "") -> str:
-    """One leg: every org-ci.yml job for ``side`` (reusable ones inlined ahead
-    of ``analyze``), plus the record."""
-    inlined = ""
-    timeout = LEG_TIMEOUT
+    """One leg: a sibling job per reusable org-ci.yml job, then ``analyze`` (which
+    reads each sibling's result for its repository), plus the record."""
+    titles = {"base": " (base pins)", "admitted": " (admitted SDK)"}
+    conditions = {"base": BASE_IF, "admitted": ADMITTED_IF}
+    title = titles.get(side, "")
+    condition = conditions.get(side, HEAD_IF)
+    siblings = ""
+    results = ""
+    needs = ["plan"]
     analyze = retarget(analyze_steps(org_ci), side)
     for name, path, sha, values in reusable_jobs(org_ci):
         key = f"{name} {path}@{sha}"
         block = provider(name, path, sha, values)
-        inlined += INLINE_BEGIN.format(key=key) + block + INLINE_END.format(key=key)
-        timeout += 30
+        job = f"{side}__{name}"
+        needs.append(job)
+        siblings += _fill(
+            SIBLING,
+            JOB=job,
+            NAME=name,
+            SIDE=side,
+            TITLE=title,
+            IF=condition,
+            TIMEOUT=str(SIBLING_TIMEOUT),
+            STEPS=(
+                INLINE_BEGIN.format(key=key) + block + INLINE_END.format(key=key)
+            ).rstrip("\n"),
+        )
+        results += _fill(SIBLING_RESULT, NAME=name, SIDE=side)
         pattern = rf"\$\{{\{{\s*needs\.{re.escape(name)}\.result\s*\}}\}}"
         analyze = re.sub(
             pattern, f"${{{{ steps.{name}__result.outputs.result }}}}", analyze
@@ -862,15 +928,21 @@ def leg_job(side: str, org_ci: str, provider: Provider, admission: str = "") -> 
         )
     if side == "admitted":
         analyze = admit(analyze, admission)
-    titles = {"base": " (base pins)", "admitted": " (admitted SDK)"}
-    conditions = {"base": BASE_IF, "admitted": ADMITTED_IF}
-    return _fill(
+    if len(needs) > 1:
+        # org-ci.yml runs analyze whatever its sibling jobs concluded, then
+        # enforces their results; a skipped leg would read as passing.
+        needs_text = "[" + ", ".join(needs) + "]"
+        condition = f"${{{{ !cancelled() && ({condition}) }}}}"
+    else:
+        needs_text = "plan"
+    return siblings + _fill(
         LEG,
         SIDE=side,
-        TITLE=titles.get(side, ""),
-        IF=conditions.get(side, HEAD_IF),
-        TIMEOUT=str(timeout),
-        STEPS=(inlined + analyze).rstrip("\n"),
+        TITLE=title,
+        NEEDS=needs_text,
+        IF=condition,
+        TIMEOUT=str(LEG_TIMEOUT),
+        STEPS=(results + analyze).rstrip("\n"),
         DIGEST=steps_digest(org_ci),
     )
 
@@ -1284,6 +1356,29 @@ def _judge_admitted(
     return passed, rows
 
 
+# A leg job concludes success when its repository's org-ci run is green and
+# failure when it is red; either is judged from the leg records. Any other
+# result (cancelled, skipped, unknown) means planned legs did not finish.
+LEG_JOB_RESULTS = ("success", "failure")
+
+
+def _leg_jobs_problem(env: dict[str, str]) -> str:
+    """Why the planned leg jobs cannot be judged, or "" when they can."""
+    sides = ["head"]
+    if env.get("L9_CANARY_DIFFERENTIAL") == "true":
+        sides.append("base")
+    if env.get("L9_CANARY_ADMITTED", ""):
+        sides.append("admitted")
+    for side in sides:
+        result = env.get(f"L9_CANARY_{side.upper()}_RESULT", "")
+        if result not in LEG_JOB_RESULTS:
+            return (
+                f"incomplete: the {side} legs concluded {result or 'nothing'}, "
+                "not a judged run"
+            )
+    return ""
+
+
 def judge(env: dict[str, str]) -> tuple[bool, list[str]]:
     """(passed, report lines) from the verdict job's environment."""
     plan_result = env.get("L9_CANARY_PLAN_RESULT", "")
@@ -1292,6 +1387,9 @@ def judge(env: dict[str, str]) -> tuple[bool, list[str]]:
     if env.get("L9_CANARY_APPLIES") != "true":
         return True, ["No canary path changed: not applicable."]
     legs, problem = _planned_legs(env)
+    if problem:
+        return False, [f"FAIL {problem}"]
+    problem = _leg_jobs_problem(env)
     if problem:
         return False, [f"FAIL {problem}"]
     records = Path(env.get("L9_CANARY_RECORDS", ""))

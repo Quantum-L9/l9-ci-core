@@ -1133,7 +1133,9 @@ jobs:
         with:
           name: promotion-canary-head-${{ matrix.slug }}
           path: ${{ runner.temp }}/promotion-canary/head-${{ matrix.slug }}.json
-          if-no-files-found: ignore
+          # A leg that cannot write its record fails its job, and the verdict
+          # then finds no record and blocks.
+          if-no-files-found: error
           retention-days: 14
 
   admitted:
@@ -2214,7 +2216,9 @@ jobs:
         with:
           name: promotion-canary-admitted-${{ matrix.slug }}
           path: ${{ runner.temp }}/promotion-canary/admitted-${{ matrix.slug }}.json
-          if-no-files-found: ignore
+          # A leg that cannot write its record fails its job, and the verdict
+          # then finds no record and blocks.
+          if-no-files-found: error
           retention-days: 14
 
   # --- base pins leg: begin (rendered from origin/main's org-ci.yml) ---
@@ -3240,7 +3244,9 @@ jobs:
         with:
           name: promotion-canary-base-${{ matrix.slug }}
           path: ${{ runner.temp }}/promotion-canary/base-${{ matrix.slug }}.json
-          if-no-files-found: ignore
+          # A leg that cannot write its record fails its job, and the verdict
+          # then finds no record and blocks.
+          if-no-files-found: error
           retention-days: 14
 
   # --- base pins leg: end ---
@@ -3248,12 +3254,14 @@ jobs:
   verdict:
     name: Promotion canary (Core)
     needs: [plan, head, admitted, base]
-    # Runs whatever the plan and legs concluded (a job skipped by `if:` reports
-    # success on a required check, so the verdict decides itself, including
-    # when no leg was needed). Only a run superseded by a newer one on the same
-    # pull request is cancelled; its verdict is skipped and the newer run's
-    # verdict, which always follows, is the check that counts.
-    if: ${{ !cancelled() }}
+    # Runs whatever the plan and legs concluded, a cancelled run included (a
+    # job skipped by `if:` reports success on a required check, so the verdict
+    # decides itself). It is the only gate: a leg is red exactly when its own
+    # org-ci run is red, and the verdict judges that against the base pins. A
+    # leg job that was cancelled or did not run when planned is incomplete
+    # and blocks. A superseded run's verdict fails; the newer run's verdict,
+    # which always follows, is the check that counts.
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -3281,6 +3289,9 @@ jobs:
           L9_CANARY_MATRIX: ${{ needs.plan.outputs.matrix }}
           L9_CANARY_ADMITTED: ${{ needs.plan.outputs.admitted }}
           L9_CANARY_RECORDS: ${{ runner.temp }}/promotion-canary
+          L9_CANARY_HEAD_RESULT: ${{ needs.head.result }}
+          L9_CANARY_BASE_RESULT: ${{ needs.base.result }}
+          L9_CANARY_ADMITTED_RESULT: ${{ needs.admitted.result }}
         run: |
           set -euo pipefail
           python3 -I tools/promotion_canary.py verdict
