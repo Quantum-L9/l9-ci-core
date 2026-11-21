@@ -4,10 +4,7 @@
     {
       "repository": "Quantum-L9/Cursor-Governance",
       "branch": "main",
-      "private": false,
-      "known_red": {
-        "reason": "29 Semgrep findings on main surfaced by SDK fbe14fec (l9-ci-core#308 canary, Cursor-Governance#1103); owned by CG-CUTOVER. Remove when its central Core run is green."
-      }
+      "private": false
     },
     {
       "repository": "Quantum-L9/Cognitive.Engine.Graphs",

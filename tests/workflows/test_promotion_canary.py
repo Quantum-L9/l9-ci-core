@@ -51,14 +51,14 @@ class RenderTests(unittest.TestCase):
             steps = steps.replace(old, new)
         self.assertIn(steps, self.canary)
         org = yaml.safe_load(self.org_ci)["jobs"]["analyze"]["steps"]
-        canary = yaml.safe_load(self.canary)["jobs"]["canary"]["steps"]
+        canary = yaml.safe_load(self.canary)["jobs"]["head"]["steps"]
         self.assertEqual(
             [s.get("uses") or s.get("name") for s in org],
             [s.get("uses") or s.get("name") for s in canary[: len(org)]],
         )
 
     def test_no_target_reference_survives(self) -> None:
-        canary = yaml.safe_load(self.canary)["jobs"]["canary"]
+        canary = yaml.safe_load(self.canary)["jobs"]["head"]
         text = yaml.safe_dump(canary["steps"])
         self.assertNotRegex(text, r"github\.(repository|sha|ref)\b")
         self.assertIn("matrix.repository", text)
@@ -94,8 +94,8 @@ class RenderTests(unittest.TestCase):
         jobs = yaml.safe_load(self.canary)["jobs"]
         self.assertEqual("${{ !cancelled() }}", jobs["verdict"]["if"])
         self.assertEqual("Promotion canary (Core)", jobs["verdict"]["name"])
-        self.assertEqual(["plan", "canary"], jobs["verdict"]["needs"])
-        self.assertIs(False, jobs["canary"]["strategy"]["fail-fast"])
+        self.assertEqual(["plan", "head"], jobs["verdict"]["needs"])
+        self.assertIs(False, jobs["head"]["strategy"]["fail-fast"])
         for job in jobs.values():
             self.assertEqual({"contents": "read"}, job["permissions"])
 
@@ -131,8 +131,7 @@ class DeclarationTests(unittest.TestCase):
             [{**good, "branch": "../x"}],
             [{**good, "private": "no"}],
             [{**good, "extra": 1}],
-            [{**good, "known_red": {"reason": " "}}],
-            [{**good, "known_red": "red"}],
+            [{**good, "known_red": {"reason": "retired"}}],
             [good, {**good, "repository": "quantum-l9/A"}],
         ):
             with (
@@ -251,11 +250,30 @@ class PlanTests(unittest.TestCase):
             }
             self.assertEqual("private", tokens["Quantum-L9/l9-ci-sdk"])
             self.assertEqual("public", tokens["Quantum-L9/l9-ci-core"])
-            self.assertTrue(
-                next(leg for leg in legs if "Cursor-Governance" in leg["repository"])[
-                    "known_red"
-                ]
+            self.assertEqual("true", values["differential"])
+            self.assertNotEqual(values["head-digest"], values["base-digest"])
+
+    def test_a_change_outside_the_analyze_steps_is_not_differential(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self._repo(tmp)
+            org = Path(tmp) / pc.ORG_CI
+            org.write_text("# header comment\n" + org.read_text("utf-8"), "utf-8")
+            subprocess.run(["git", "-C", tmp, "commit", "-qam", "org"], check=True)
+            out = io.StringIO()
+            with (
+                redirect_stdout(out),
+                mock.patch.dict("os.environ", {"GITHUB_OUTPUT": ""}),
+                mock.patch.object(pc, "_get", lambda url, token: {"sha": "a" * 40}),
+            ):
+                self.assertEqual(0, pc.main(["--root", tmp, "plan"]))
+            values = dict(
+                line.split("=", 1)
+                for line in out.getvalue().splitlines()
+                if "=" in line
             )
+            self.assertEqual("true", values["applies"])
+            self.assertEqual("false", values["differential"])
+            self.assertEqual(values["head-digest"], values["base-digest"])
 
     def test_an_unreadable_change_set_is_invalid_not_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -273,131 +291,178 @@ class PlanTests(unittest.TestCase):
             self.assertEqual(2, code)
 
 
+DIGEST_A = "a" * 64
+DIGEST_B = "b" * 64
+
+
 class VerdictTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.records = Path(self._tmp.name)
+        self.legs = [
+            {"repository": "Quantum-L9/x", "revision": "1" * 40, "slug": "x"},
+            {"repository": "Quantum-L9/y", "revision": "2" * 40, "slug": "y"},
+        ]
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def leg(self, slug: str, known_red: str = "") -> dict[str, str]:
-        return {
-            "repository": "Quantum-L9/" + slug,
-            "revision": slug[0] * 40,
-            "slug": slug,
-            "known_red": known_red,
-        }
-
-    def record(self, leg: dict[str, str], status: str) -> None:
-        (self.records / f"{leg['slug']}.json").write_text(
-            json.dumps({"revision": leg["revision"], "status": status}),
+    def record(
+        self,
+        side: str,
+        leg: dict[str, str],
+        status: str,
+        blocking: tuple[str, ...] = (),
+        digest: str | None = None,
+    ) -> None:
+        if digest is None:
+            digest = DIGEST_B if side == "head" else DIGEST_A
+        (self.records / f"{side}-{leg['slug']}.json").write_text(
+            json.dumps(
+                {
+                    "side": side,
+                    "digest": digest,
+                    "revision": leg["revision"],
+                    "status": status,
+                    "blocking_finding_ids": list(blocking),
+                }
+            ),
             encoding="utf-8",
         )
 
-    def judge(self, legs: list[dict[str, str]]) -> tuple[bool, list[str]]:
-        return pc.judge("success", "true", json.dumps({"include": legs}), self.records)
+    def env(self, differential: bool = True, **extra: str) -> dict[str, str]:
+        return {
+            "L9_CANARY_PLAN_RESULT": "success",
+            "L9_CANARY_APPLIES": "true",
+            "L9_CANARY_DIFFERENTIAL": "true" if differential else "false",
+            "L9_CANARY_HEAD_DIGEST": DIGEST_B if differential else DIGEST_A,
+            "L9_CANARY_BASE_DIGEST": DIGEST_A,
+            "L9_CANARY_MATRIX": json.dumps({"include": self.legs}),
+            "L9_CANARY_RECORDS": str(self.records),
+            **extra,
+        }
 
-    def test_not_applicable_passes_and_a_failed_plan_fails(self) -> None:
-        self.assertTrue(pc.judge("success", "false", "", self.records)[0])
-        self.assertFalse(pc.judge("failure", "", "", self.records)[0])
-        self.assertFalse(pc.judge("success", "true", "{bad", self.records)[0])
-        self.assertFalse(self.judge([])[0])
+    def both(self, base: str, head: str, **kwargs: tuple[str, ...]) -> None:
+        for leg in self.legs:
+            self.record("base", leg, base, kwargs.get("base_blocking", ()))
+            self.record("head", leg, head, kwargs.get("head_blocking", ()))
 
-    def test_green_legs_pass(self) -> None:
-        legs = [self.leg("a"), self.leg("b")]
-        for leg in legs:
-            self.record(leg, "pass")
-        self.assertTrue(self.judge(legs)[0])
+    def test_not_applicable_passes_and_a_bad_plan_fails(self) -> None:
+        self.assertTrue(pc.judge({"L9_CANARY_PLAN_RESULT": "success"})[0])
+        self.assertFalse(pc.judge({"L9_CANARY_PLAN_RESULT": "failure"})[0])
+        self.assertFalse(pc.judge(self.env(L9_CANARY_MATRIX="{bad"))[0])
+        self.assertFalse(pc.judge(self.env(L9_CANARY_HEAD_DIGEST="nope"))[0])
+        contradicting = self.env(L9_CANARY_HEAD_DIGEST=DIGEST_A)
+        self.assertFalse(pc.judge(contradicting)[0])
 
-    def test_incomplete_fails_even_where_red_is_declared(self) -> None:
-        leg = self.leg("a", known_red="findings")
-        self.record(leg, "incomplete")
-        passed, report = self.judge([leg])
+    def test_kept_green_and_kept_red_pass_and_print_the_table(self) -> None:
+        self.both("pass", "pass")
+        passed, report = pc.judge(self.env())
+        self.assertTrue(passed)
+        self.assertIn(
+            "| Repository | Head | Base pins | Pull request pins | Verdict |", report
+        )
+        self.both("findings", "findings", base_blocking=("f1",), head_blocking=("f1",))
+        passed, report = pc.judge(self.env())
+        self.assertTrue(passed)
+        self.assertTrue(any("kept: already red" in line for line in report))
+
+    def test_an_improvement_passes(self) -> None:
+        self.both("findings", "pass", base_blocking=("f1",))
+        passed, report = pc.judge(self.env())
+        self.assertTrue(passed)
+        self.assertTrue(any("improved" in line for line in report))
+
+    def test_a_regression_fails(self) -> None:
+        self.both("pass", "findings", head_blocking=("f1",))
+        passed, report = pc.judge(self.env())
         self.assertFalse(passed)
-        self.assertIn("incomplete", report[0])
+        self.assertTrue(any("regression: pass -> findings" in line for line in report))
 
-    def test_an_infrastructure_error_is_never_masked_and_is_named(self) -> None:
-        leg = self.leg("a", known_red="findings")
-        self.record(leg, "error")
-        passed, report = self.judge([leg])
+    def test_a_new_blocking_finding_fails_even_when_both_are_red(self) -> None:
+        self.both(
+            "findings", "findings", base_blocking=("f1",), head_blocking=("f1", "f2")
+        )
+        passed, report = pc.judge(self.env())
         self.assertFalse(passed)
-        self.assertIn("infrastructure error", report[0])
-        self.record(leg, "cancelled")
-        passed, report = self.judge([leg])
-        self.assertFalse(passed)
-        self.assertIn("cancelled or timed out", report[0])
-        self.record(leg, "bogus")
-        self.assertFalse(self.judge([leg])[0])
+        self.assertTrue(any("1 new blocking finding(s): f2" in line for line in report))
 
-    def test_a_real_failure_is_named_as_one(self) -> None:
-        for status in ("findings", "verification"):
+    def test_a_new_verification_failure_fails(self) -> None:
+        self.both("findings", "verification", base_blocking=("f1",))
+        self.assertFalse(pc.judge(self.env())[0])
+
+    def test_no_verdict_at_the_pull_request_pins_always_fails(self) -> None:
+        for status in ("incomplete", "cancelled", "error"):
             with self.subTest(status=status):
-                leg = self.leg("a")
-                self.record(leg, status)
-                passed, report = self.judge([leg])
+                self.both("findings", status)
+                passed, report = pc.judge(self.env())
                 self.assertFalse(passed)
-                self.assertIn("a real failure of this repository", report[0])
+                self.assertTrue(
+                    any(f"{status} at the pull request's pins" in r for r in report)
+                )
+                self.both(status, status)
+                self.assertFalse(pc.judge(self.env(differential=False))[0])
+
+    def test_no_baseline_fails_closed(self) -> None:
+        for leg in self.legs:
+            self.record("head", leg, "pass")
+        passed, report = pc.judge(self.env())
+        self.assertFalse(passed)
+        self.assertTrue(any("no base-pins leg record" in line for line in report))
+        for leg in self.legs:
+            self.record("base", leg, "pass", digest=DIGEST_B)
+        passed, report = pc.judge(self.env())
+        self.assertFalse(passed)
+        self.assertTrue(any("did not run the base's steps" in r for r in report))
+        for leg in self.legs:
+            self.record("base", leg, "incomplete")
+        self.assertFalse(pc.judge(self.env())[0])
+
+    def test_unchanged_steps_reuse_the_pull_request_result_as_the_base(self) -> None:
+        for leg in self.legs:
+            self.record("head", leg, "findings", ("f1",), digest=DIGEST_A)
+        passed, report = pc.judge(self.env(differential=False))
+        self.assertTrue(passed)
+        self.assertTrue(any("unchanged" in line for line in report))
+
+    def test_a_missing_or_foreign_record_fails(self) -> None:
+        self.both("pass", "pass")
+        (self.records / "head-y.json").unlink()
+        self.assertFalse(pc.judge(self.env())[0])
+        self.record("head", self.legs[1], "pass")
+        self.record("head", {**self.legs[1], "revision": "f" * 40}, "pass")
+        self.assertFalse(pc.judge(self.env())[0])
+        self.record("head", self.legs[1], "pass", digest=DIGEST_A)
+        passed, report = pc.judge(self.env())
+        self.assertFalse(passed)
+        self.assertTrue(any("other steps than the plan" in line for line in report))
 
     def test_the_leg_record_classifies_the_failure(self) -> None:
         canary = (ROOT / pc.CANARY).read_text(encoding="utf-8")
         record = canary[canary.index("name: Record the canary leg") :]
         for status in (
-            '"pass"',
-            '"cancelled"',
-            '"incomplete"',
-            '"verification"',
-            '"findings"',
-            '"error"',
+            "pass",
+            "cancelled",
+            "incomplete",
+            "verification",
+            "findings",
+            "error",
         ):
-            self.assertIn(f"status = {status}", record)
-
-    def test_a_missing_or_foreign_record_fails(self) -> None:
-        a, b = self.leg("a"), self.leg("b")
-        self.record(a, "pass")
-        self.assertFalse(self.judge([a, b])[0])
-        (self.records / "b.json").write_text(
-            json.dumps({"revision": "f" * 40, "status": "pass"}), encoding="utf-8"
+            self.assertIn(f'status = "{status}"', record)
+        self.assertIn("blocking_finding_ids", record)
+        self.assertIn(
+            f"DIGEST: {pc.steps_digest((ROOT / pc.ORG_CI).read_text('utf-8'))}", record
         )
-        self.assertFalse(self.judge([a, b])[0])
-
-    def test_red_fails_unless_declared_and_declared_red_is_announced(self) -> None:
-        plain, red = self.leg("a"), self.leg("b", known_red="findings")
-        self.record(plain, "findings")
-        self.record(red, "findings")
-        passed, report = self.judge([plain, red])
-        self.assertFalse(passed)
-        self.assertTrue(self.judge([red])[0])
-        self.assertTrue(any(line.startswith("known-red") for line in report))
-
-    def test_a_declared_red_repository_that_turns_green_is_reported(self) -> None:
-        red = self.leg("a", known_red="findings")
-        self.record(red, "pass")
-        passed, report = self.judge([red])
-        self.assertTrue(passed)
-        self.assertTrue(any(line.startswith("stale-known-red") for line in report))
 
     def test_the_verdict_command_exit_codes(self) -> None:
-        leg = self.leg("a")
-        self.record(leg, "findings")
-        args = [
-            "verdict",
-            "--plan-result",
-            "success",
-            "--applies",
-            "true",
-            "--matrix",
-            json.dumps({"include": [leg]}),
-            "--records",
-            str(self.records),
-        ]
+        self.both("pass", "findings", head_blocking=("f1",))
         with (
             redirect_stdout(io.StringIO()),
-            mock.patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": ""}),
+            mock.patch.dict("os.environ", {**self.env(), "GITHUB_STEP_SUMMARY": ""}),
         ):
-            self.assertEqual(1, pc.main(args))
-            self.record(leg, "pass")
-            self.assertEqual(0, pc.main(args))
+            self.assertEqual(1, pc.main(["verdict"]))
+            self.both("pass", "pass")
+            self.assertEqual(0, pc.main(["verdict"]))
 
 
 if __name__ == "__main__":

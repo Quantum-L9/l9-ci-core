@@ -1,41 +1,46 @@
 #!/usr/bin/env python3
-"""Core's promotion canary: run ``Analyze (central Core)`` as a Core pull
-request would ship it, against the current main heads of declared repositories.
+"""Core's promotion canary: judge a Core pull request by what it changes in
+``Analyze (central Core)`` for declared repositories, before it merges.
 
 A Core pull request that changes what the required job runs (``org-ci.yml``,
-the SDK pin or compatibility manifest, an action ``org-ci.yml`` calls) is
-judged before merge against the repositories it would govern, so merging it
-cannot turn a green repository red unannounced (AGENTS.md §40).
+the SDK pin or compatibility manifest, an action ``org-ci.yml`` calls) runs the
+job against the current main head of every repository declared in
+``.l9/promotion-canary.json`` and is judged differentially (AGENTS.md §40): it
+fails only when it makes a repository worse than the base pins do. A
+repository already red for its own reasons does not block the Core change, so
+the pin advance that fixes it is never deadlocked.
 
 ``org-ci.yml`` targets ``github.repository`` at ``github.sha`` and no caller can
-redirect it. The canary therefore does not call it. ``render`` derives the
-canary's per-repository job from the ``analyze`` job's steps, byte for byte,
-replacing only the target identity (repository, revision, ref and the checkout
-token) with the matrix entry. A pull request runs its own workflow files, so
-the canary always runs the pull request's ``org-ci.yml`` revision; ``render
---check`` and ``tests/workflows/test_promotion_canary.py`` (self-ci) fail while
-the two disagree.
+redirect it, so the canary never calls it. ``render`` derives the canary's
+per-repository leg from the ``analyze`` job's steps, verbatim apart from the
+target identity, into ``.github/workflows/promotion-canary.yml``. A pull
+request runs its own workflow files, so that leg always runs the pull
+request's ``org-ci.yml``; it carries the digest of the steps it was rendered
+from.
+
+When the pull request leaves the ``analyze`` steps byte-identical to its base,
+the base pins would run the same steps against the same heads, so the base
+result *is* the pull request's (one run per repository). When it changes them,
+the verdict needs a base-pins leg record per repository whose digest is the
+base's; without one it fails closed.
 
 Subcommands (stdlib only; run with ``python3 -I``):
 
 ``render [--check]``
-    Write (or verify) ``.github/workflows/promotion-canary.yml``.
+    Write (or verify) the workflow.
 
 ``plan [--force]``
     Decide whether the checked-out change (``HEAD`` against its first parent:
-    a pull request's merge commit against its base) touches a canary path;
-    when it does, resolve each
-    declared repository's main head. Writes ``applies`` and ``matrix`` to
-    ``$GITHUB_OUTPUT``.
+    a pull request's merge commit against its base) touches a canary path and
+    whether it changes the ``analyze`` steps; resolve each declared
+    repository's main head. Writes ``applies``, ``differential``,
+    ``head-digest``, ``base-digest`` and ``matrix`` to ``$GITHUB_OUTPUT``.
 
-``verdict --matrix JSON --records DIR --plan-result R --applies A``
-    Judge every planned leg. A missing leg, an incomplete leg and an
-    infrastructure error (no verdict reached) always fail. A real failure
-    (findings, or repository verification) fails unless the declaration names
-    that repository ``known_red`` with a reason: then it is announced. A ``known_red`` repository that comes out green is
-    reported so its declaration can be removed. Required central Core runs on
-    pull requests only, so a consumer's main head carries no verdict to compare
-    with; "red today" is therefore a reviewed declaration, never a guess.
+``verdict``
+    Judge every repository before and after, and print the table. A
+    pull-request leg that is incomplete, cancelled or errored always fails; so
+    do pass -> fail, a new blocking finding, a new verification failure, and a
+    missing or mismatched leg. Keeping or improving a result passes.
 
 Exit codes: 0 pass, 1 fail, 2 invalid input.
 """
@@ -43,6 +48,7 @@ Exit codes: 0 pass, 1 fail, 2 invalid input.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -55,7 +61,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
 ORG_CI = Path(".github/workflows/org-ci.yml")
 CANARY = Path(".github/workflows/promotion-canary.yml")
 DECLARATION = Path(".l9/promotion-canary.json")
@@ -63,9 +68,11 @@ SCHEMA = "l9.promotion-canary/v1"
 REPOSITORY = re.compile(r"^Quantum-L9/[A-Za-z0-9_.-]+$")
 BRANCH = re.compile(r"^[A-Za-z0-9._/-]+$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
+DIGEST = re.compile(r"^[0-9a-f]{64}$")
 CORE_ACTION = re.compile(
     r"uses:\s*Quantum-L9/l9-ci-core/\.github/actions/([A-Za-z0-9._-]+)@"
 )
+NO_VERDICT = ("incomplete", "cancelled", "error")
 
 # Paths whose change alters what `Analyze (central Core)` runs, or the canary
 # itself. Core actions are added from org-ci.yml's own `uses:` lines.
@@ -77,8 +84,9 @@ STATIC_PATHS = (
     "tools/promotion_canary.py",
 )
 
-# Target identity in the analyze job, and what the canary uses instead. Each
-# must occur at least once; anything target-shaped that is left is refused.
+# Target identity in the analyze job, and what the leg uses instead. Each must
+# occur at least once; anything target-shaped that is left is refused. The
+# matrix id names the leg's artifact set, so every leg has its own.
 REPLACEMENTS = (
     (
         "${{ github.event.pull_request.head.sha || github.sha }}",
@@ -87,11 +95,9 @@ REPLACEMENTS = (
     ("${{ github.repository }}", "${{ matrix.repository }}"),
     ("${{ github.sha }}", "${{ matrix.revision }}"),
     ("${{ github.ref }}", "refs/heads/${{ matrix.branch }}"),
-    # One artifact set per leg: org-ci.yml names its artifacts after the
-    # matrix id, which a reusable caller sets and the canary does not.
     (
         "INPUT_MATRIX_ID: ${{ inputs.matrix-id || 'org-semgrep' }}",
-        "INPUT_MATRIX_ID: canary-${{ matrix.slug }}",
+        "INPUT_MATRIX_ID: canary-head-${{ matrix.slug }}",
     ),
     (
         "TOKEN: ${{ github.token }}",
@@ -111,10 +117,10 @@ HEADER = """\
 # Core's promotion canary (AGENTS.md §40). On a Core pull request that changes
 # what `Analyze (central Core)` runs, every repository declared in
 # .l9/promotion-canary.json is checked out at its current main head and the
-# pull request's own `analyze` steps run against it. The steps below the
-# `canary` job's marker are org-ci.yml's, with only the target identity
-# replaced. `Promotion canary (Core)` is the blocking verdict; a pull request
-# that touches no canary path passes it without running a leg.
+# pull request's own `analyze` steps (org-ci.yml's, verbatim apart from the
+# target identity) run against it. `Promotion canary (Core)` judges the result
+# against the base pins and fails only when the pull request makes a
+# repository worse. Steps digest of this render: {digest}
 name: Promotion canary (Core)
 on:
   pull_request:
@@ -123,7 +129,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: core-promotion-canary-${{ github.event.pull_request.number || github.ref }}
+  group: core-promotion-canary-${{{{ github.event.pull_request.number || github.ref }}}}
   cancel-in-progress: true
 jobs:
   plan:
@@ -133,8 +139,11 @@ jobs:
     permissions:
       contents: read
     outputs:
-      applies: ${{ steps.plan.outputs.applies }}
-      matrix: ${{ steps.plan.outputs.matrix }}
+      applies: ${{{{ steps.plan.outputs.applies }}}}
+      differential: ${{{{ steps.plan.outputs.differential }}}}
+      head-digest: ${{{{ steps.plan.outputs['head-digest'] }}}}
+      base-digest: ${{{{ steps.plan.outputs['base-digest'] }}}}
+      matrix: ${{{{ steps.plan.outputs.matrix }}}}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         with:
@@ -143,16 +152,16 @@ jobs:
       - id: plan
         name: Plan the canary legs
         env:
-          FORCE: ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
-          L9_CANARY_TOKEN: ${{ github.token }}
-          L9_CANARY_PRIVATE_TOKEN: ${{ secrets.L9_GITHUB_READ_TOKEN }}
+          FORCE: ${{{{ github.event_name == 'workflow_dispatch' && '--force' || '' }}}}
+          L9_CANARY_TOKEN: ${{{{ github.token }}}}
+          L9_CANARY_PRIVATE_TOKEN: ${{{{ secrets.L9_GITHUB_READ_TOKEN }}}}
         run: |
           set -euo pipefail
           # shellcheck disable=SC2086
-          python3 -I tools/promotion_canary.py plan ${FORCE}
+          python3 -I tools/promotion_canary.py plan ${{FORCE}}
 
-  canary:
-    name: Canary ${{ matrix.repository }}
+  head:
+    name: Canary ${{{{ matrix.repository }}}}
     needs: plan
     if: needs.plan.outputs.applies == 'true'
     runs-on: ubuntu-24.04
@@ -161,30 +170,42 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix: ${{{{ fromJSON(needs.plan.outputs.matrix) }}}}
+    steps:
 """
 
-FOOTER = """\
+RECORD = """\
       # --- canary record (not part of org-ci.yml) ---
       - name: Record the canary leg
         if: always()
         env:
-          JOB_STATUS: ${{ job.status }}
-          AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
-          REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
-          GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
-          SLUG: ${{ matrix.slug }}
-          REPOSITORY: ${{ matrix.repository }}
-          REVISION: ${{ matrix.revision }}
+          SIDE: head
+          DIGEST: {digest}
+          JOB_STATUS: ${{{{ job.status }}}}
+          AGGREGATE_STATUS: ${{{{ steps.aggregate.outputs.status }}}}
+          REPOSITORY_VERIFY: ${{{{ steps.repository_verify.outputs.status }}}}
+          MATRIX_ID: canary-head-${{{{ matrix.slug }}}}
+          SLUG: ${{{{ matrix.slug }}}}
+          REPOSITORY: ${{{{ matrix.repository }}}}
+          REVISION: ${{{{ matrix.revision }}}}
         run: |
           set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/promotion-canary"
+          mkdir -p "${{RUNNER_TEMP}}/promotion-canary"
           python3 -I - <<'PY'
           import json
           import os
           from pathlib import Path
 
           env = os.environ
+          blocking = set()
+          runtime = Path(".l9/runtime", env["MATRIX_ID"])
+          for path in sorted(runtime.rglob("gate-result.json")):
+              try:
+                  result = json.loads(path.read_text(encoding="utf-8"))
+                  blocking.update(result["blocking_finding_ids"])
+              except (OSError, ValueError, KeyError, TypeError):
+                  pass
+          verify = env.get("REPOSITORY_VERIFY", "")
           if env["JOB_STATUS"] == "success":
               status = "pass"
           elif env["JOB_STATUS"] == "cancelled":
@@ -192,25 +213,28 @@ FOOTER = """\
               status = "cancelled"
           elif env.get("AGGREGATE_STATUS", "") == "incomplete":
               status = "incomplete"
-          elif env.get("REPOSITORY_VERIFY", "") not in ("", "pass", "not_applicable"):
+          elif verify not in ("", "pass", "not_applicable"):
               status = "verification"
           elif env.get("AGGREGATE_STATUS", "") == "fail":
               status = "findings"
           else:
               # The job failed before any verdict: infrastructure, not the
-              # repository. Never masked by a known_red declaration.
+              # repository.
               status = "error"
-          record = {
-              "schema": "l9.promotion-canary-leg/v1",
+          record = {{
+              "schema": "l9.promotion-canary-leg/v2",
+              "side": env["SIDE"],
+              "digest": env["DIGEST"],
               "repository": env["REPOSITORY"],
               "revision": env["REVISION"],
               "status": status,
               "job_status": env["JOB_STATUS"],
               "aggregate": env.get("AGGREGATE_STATUS", ""),
-              "repository_verification": env.get("REPOSITORY_VERIFY", ""),
-              "gate": env.get("GATE_STATUS", ""),
-          }
-          path = Path(env["RUNNER_TEMP"], "promotion-canary", env["SLUG"] + ".json")
+              "repository_verification": verify,
+              "blocking_finding_ids": sorted(blocking),
+          }}
+          name = env["SIDE"] + "-" + env["SLUG"] + ".json"
+          path = Path(env["RUNNER_TEMP"], "promotion-canary", name)
           path.write_text(json.dumps(record, indent=2) + "\\n", encoding="utf-8")
           print(json.dumps(record))
           PY
@@ -219,20 +243,20 @@ FOOTER = """\
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: promotion-canary-${{ matrix.slug }}
-          path: ${{ runner.temp }}/promotion-canary/${{ matrix.slug }}.json
+          name: promotion-canary-head-${{{{ matrix.slug }}}}
+          path: ${{{{ runner.temp }}}}/promotion-canary/head-${{{{ matrix.slug }}}}.json
           if-no-files-found: ignore
           retention-days: 14
 
   verdict:
     name: Promotion canary (Core)
-    needs: [plan, canary]
+    needs: [plan, head]
     # Runs whatever the plan and legs concluded (a job skipped by `if:` reports
     # success on a required check, so the verdict decides itself, including
     # when no leg was needed). Only a run superseded by a newer one on the same
     # pull request is cancelled; its verdict is skipped and the newer run's
     # verdict, which always follows, is the check that counts.
-    if: ${{ !cancelled() }}
+    if: ${{{{ !cancelled() }}}}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -246,19 +270,20 @@ FOOTER = """\
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: promotion-canary-*
-          path: ${{ runner.temp }}/promotion-canary
+          path: ${{{{ runner.temp }}}}/promotion-canary
           merge-multiple: true
       - name: Judge the canary
         env:
-          PLAN_RESULT: ${{ needs.plan.result }}
-          APPLIES: ${{ needs.plan.outputs.applies }}
-          MATRIX: ${{ needs.plan.outputs.matrix }}
-          RECORDS: ${{ runner.temp }}/promotion-canary
+          L9_CANARY_PLAN_RESULT: ${{{{ needs.plan.result }}}}
+          L9_CANARY_APPLIES: ${{{{ needs.plan.outputs.applies }}}}
+          L9_CANARY_DIFFERENTIAL: ${{{{ needs.plan.outputs.differential }}}}
+          L9_CANARY_HEAD_DIGEST: ${{{{ needs.plan.outputs['head-digest'] }}}}
+          L9_CANARY_BASE_DIGEST: ${{{{ needs.plan.outputs['base-digest'] }}}}
+          L9_CANARY_MATRIX: ${{{{ needs.plan.outputs.matrix }}}}
+          L9_CANARY_RECORDS: ${{{{ runner.temp }}}}/promotion-canary
         run: |
           set -euo pipefail
-          python3 -I tools/promotion_canary.py verdict \\
-            --plan-result "${PLAN_RESULT}" --applies "${APPLIES}" \\
-            --matrix "${MATRIX}" --records "${RECORDS}"
+          python3 -I tools/promotion_canary.py verdict
 """
 
 
@@ -290,6 +315,11 @@ def analyze_steps(text: str) -> str:
     return body
 
 
+def steps_digest(org_ci: str) -> str:
+    """sha256 of the ``analyze`` steps: what decides what the job runs."""
+    return hashlib.sha256(analyze_steps(org_ci).encode("utf-8")).hexdigest()
+
+
 def retarget(steps: str) -> str:
     """Replace the target identity; refuse anything target-shaped that is left."""
     for old, new in REPLACEMENTS:
@@ -309,7 +339,13 @@ def retarget(steps: str) -> str:
 
 
 def render(org_ci: str) -> str:
-    return HEADER + "    steps:\n" + retarget(analyze_steps(org_ci)) + "\n" + FOOTER
+    digest = steps_digest(org_ci)
+    return (
+        HEADER.format(digest=digest)
+        + retarget(analyze_steps(org_ci))
+        + "\n"
+        + RECORD.format(digest=digest)
+    )
 
 
 def core_action_paths(org_ci: str) -> list[str]:
@@ -355,8 +391,7 @@ def load_declaration(root: Path) -> list[dict[str, Any]]:
     for entry in entries:
         if (
             not isinstance(entry, dict)
-            or not {"repository", "branch", "private"} <= set(entry)
-            or set(entry) - {"repository", "branch", "private", "known_red"}
+            or set(entry) != {"repository", "branch", "private"}
             or not isinstance(entry["repository"], str)
             or not REPOSITORY.match(entry["repository"])
             or not isinstance(entry["branch"], str)
@@ -365,22 +400,22 @@ def load_declaration(root: Path) -> list[dict[str, Any]]:
             or not isinstance(entry["private"], bool)
         ):
             raise CanaryError(f"{DECLARATION} has an invalid entry: {entry!r}")
-        red = entry.get("known_red")
-        if red is not None and (
-            not isinstance(red, dict)
-            or set(red) != {"reason"}
-            or not isinstance(red["reason"], str)
-            or not red["reason"].strip()
-        ):
-            raise CanaryError(
-                f"{DECLARATION}: known_red for {entry['repository']} needs a reason"
-            )
         key = entry["repository"].lower()
         if key in seen:
             raise CanaryError(f"{DECLARATION} lists {entry['repository']} twice")
         seen.add(key)
         out.append(dict(entry))
     return out
+
+
+def _git(root: Path, *args: str) -> str:
+    """Run git with a constant, Core-authored argument list."""
+    result = subprocess.run(
+        ["git", *args], cwd=root, capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        raise CanaryError(f"git {args[0]} failed: {result.stderr.strip()}")
+    return result.stdout
 
 
 def changed_paths(root: Path) -> list[str]:
@@ -390,16 +425,13 @@ def changed_paths(root: Path) -> list[str]:
     is the base tip, so this is exactly what merging would change. No revision
     is taken from outside: the command line is constant.
     """
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "HEAD^1", "HEAD", "--"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise CanaryError(f"cannot read the change set: {result.stderr.strip()}")
-    return [line for line in result.stdout.splitlines() if line]
+    out = _git(root, "diff", "--name-only", "HEAD^1", "HEAD", "--")
+    return [line for line in out.splitlines() if line]
+
+
+def base_org_ci(root: Path) -> str:
+    """org-ci.yml as the base tip (``HEAD^1``) has it."""
+    return _git(root, "show", "HEAD^1:.github/workflows/org-ci.yml")
 
 
 def touched(paths: Sequence[str], watched: Sequence[str]) -> list[str]:
@@ -444,7 +476,6 @@ def resolve(entry: dict[str, Any], env: dict[str, str]) -> dict[str, Any]:
         "private": entry["private"],
         "revision": revision,
         "slug": slug,
-        "known_red": (entry.get("known_red") or {}).get("reason", ""),
     }
 
 
@@ -461,93 +492,138 @@ def _write_output(values: dict[str, str]) -> None:
 def _cmd_plan(args: argparse.Namespace) -> None:
     entries = load_declaration(args.root)
     org_ci = (args.root / ORG_CI).read_text(encoding="utf-8")
+    head_digest = steps_digest(org_ci)
+    base_digest = steps_digest(base_org_ci(args.root))
+    differential = head_digest != base_digest
     watched = [*STATIC_PATHS, *core_action_paths(org_ci)]
-    if args.force:
-        reasons = ["dispatch"]
-    else:
-        reasons = touched(changed_paths(args.root), watched)
+    reasons = ["dispatch"] if args.force else touched(changed_paths(args.root), watched)
+    outputs = {
+        "applies": "false",
+        "differential": "true" if differential else "false",
+        "head-digest": head_digest,
+        "base-digest": base_digest,
+        "matrix": json.dumps({"include": []}),
+    }
     if not reasons:
         print("No canary path changed; the canary does not apply.")
-        _write_output({"applies": "false", "matrix": json.dumps({"include": []})})
+        _write_output(outputs)
         return
     print("Canary paths changed: " + ", ".join(reasons[:20]))
+    print(
+        "The analyze steps change: the base pins must be judged too."
+        if differential
+        else "The analyze steps are unchanged: the base result is the pull request's."
+    )
     include = [resolve(entry, dict(os.environ)) for entry in entries]
     for leg in include:
-        red = f" (known red: {leg['known_red']})" if leg["known_red"] else ""
-        print(f"{leg['repository']}@{leg['revision']}{red}")
-    _write_output(
-        {
-            "applies": "true",
-            "matrix": json.dumps({"include": include}, separators=(",", ":")),
-        }
-    )
+        print(f"{leg['repository']}@{leg['revision']}")
+    outputs["applies"] = "true"
+    outputs["matrix"] = json.dumps({"include": include}, separators=(",", ":"))
+    _write_output(outputs)
 
 
 # --- verdict --------------------------------------------------------------
 
 
-def judge(
-    plan_result: str, applies: str, matrix: str, records: Path
-) -> tuple[bool, list[str]]:
-    """(passed, report lines)."""
-    if plan_result != "success":
-        return False, [f"the canary plan did not succeed ({plan_result or 'unknown'})"]
-    if applies != "true":
-        return True, ["no canary path changed: not applicable"]
+def read_record(records: Path, side: str, leg: dict[str, Any]) -> dict[str, Any]:
+    """A leg record, or a synthetic ``missing`` one saying why."""
     try:
-        legs = json.loads(matrix)["include"]
-    except (ValueError, KeyError, TypeError) as error:
-        return False, [f"the canary plan is unreadable: {error}"]
-    if not legs:
-        return False, ["the canary applies but planned no leg"]
-    passed = True
-    report: list[str] = []
-    for leg in legs:
-        ok, lines = judge_leg(leg, records)
-        passed = passed and ok
-        report.extend(lines)
-    return passed, report
-
-
-def judge_leg(leg: dict[str, Any], records: Path) -> tuple[bool, list[str]]:
-    """(passed, report lines) for one planned leg."""
-    name = f"{leg['repository']}@{leg['revision'][:12]}"
-    try:
-        record = json.loads((records / f"{leg['slug']}.json").read_text("utf-8"))
-        status = record["status"]
-        if record.get("revision") != leg["revision"]:
+        record = json.loads((records / f"{side}-{leg['slug']}.json").read_text("utf-8"))
+        if not isinstance(record, dict) or record.get("revision") != leg["revision"]:
             raise ValueError("revision mismatch")
+        record["status"] = str(record["status"])
+        record["blocking_finding_ids"] = list(record.get("blocking_finding_ids", []))
+        return record
     except (OSError, ValueError, KeyError, TypeError) as error:
-        return False, [f"FAIL {name}: no leg record ({error})"]
-    red = leg.get("known_red", "")
-    if status == "pass":
-        stale = f"stale-known-red {name}: green; remove its known_red declaration"
-        return True, [f"pass {name}", *([stale] if red else [])]
-    if status in ("findings", "verification"):
-        if red:
-            return True, [f"known-red {name}: {status}, announced ({red})"]
-        return False, [f"FAIL {name}: {status} (a real failure of this repository)"]
-    detail = {
-        "incomplete": "incomplete (a required instance did not conclude)",
-        "error": "infrastructure error (no verdict was reached)",
-        "cancelled": "cancelled or timed out (no verdict was reached)",
-    }.get(status, f"unrecognised leg status {status!r}")
-    return False, [f"FAIL {name}: {detail}"]
+        return {"status": "missing", "detail": str(error), "blocking_finding_ids": []}
 
 
-def _cmd_verdict(args: argparse.Namespace) -> int:
-    passed, report = judge(args.plan_result, args.applies, args.matrix, args.records)
+def compare(
+    base: dict[str, Any], head: dict[str, Any], digests: tuple[str, str]
+) -> tuple[bool, str]:
+    """(passed, reason) for one repository at the base pins and the PR's."""
+    base_digest, head_digest = digests
+    after = head["status"]
+    if after == "missing":
+        return False, f"no pull-request leg record ({head.get('detail', '')})"
+    if head.get("digest") != head_digest:
+        return False, "the pull-request leg ran other steps than the plan"
+    if after in NO_VERDICT:
+        return False, f"{after} at the pull request's pins"
+    before = base["status"]
+    if before == "missing":
+        return False, f"no base-pins leg record ({base.get('detail', '')})"
+    if base.get("digest") != base_digest:
+        return False, "the base-pins leg did not run the base's steps"
+    if before in NO_VERDICT:
+        return False, f"no baseline: {before} at the base pins"
+    if after == "pass":
+        return True, "improved" if before != "pass" else "kept green"
+    if before == "pass":
+        return False, f"regression: pass -> {after}"
+    if after == "verification" and before != "verification":
+        return False, "regression: repository verification now fails"
+    new = sorted(set(head["blocking_finding_ids"]) - set(base["blocking_finding_ids"]))
+    if new:
+        return False, f"{len(new)} new blocking finding(s): {', '.join(new[:5])}"
+    return True, "kept: already red at the base pins, nothing new"
+
+
+def judge(env: dict[str, str]) -> tuple[bool, list[str]]:
+    """(passed, report lines) from the verdict job's environment."""
+    plan_result = env.get("L9_CANARY_PLAN_RESULT", "")
+    if plan_result != "success":
+        return False, [f"FAIL the canary plan did not succeed ({plan_result or '?'})"]
+    if env.get("L9_CANARY_APPLIES") != "true":
+        return True, ["No canary path changed: not applicable."]
+    try:
+        legs = json.loads(env.get("L9_CANARY_MATRIX", ""))["include"]
+    except (ValueError, KeyError, TypeError) as error:
+        return False, [f"FAIL the canary plan is unreadable: {error}"]
+    head_digest = env.get("L9_CANARY_HEAD_DIGEST", "")
+    base_digest = env.get("L9_CANARY_BASE_DIGEST", "")
+    if not legs or not DIGEST.match(head_digest) or not DIGEST.match(base_digest):
+        return False, ["FAIL the canary applies but its plan is incomplete"]
+    differential = env.get("L9_CANARY_DIFFERENTIAL") == "true"
+    if differential == (head_digest == base_digest):
+        return False, ["FAIL the plan's differential flag contradicts its digests"]
+    records = Path(env.get("L9_CANARY_RECORDS", ""))
+    passed = True
+    rows = [
+        "| Repository | Head | Base pins | Pull request pins | Verdict |",
+        "|---|---|---|---|---|",
+    ]
+    for leg in legs:
+        head = read_record(records, "head", leg)
+        if differential:
+            base = read_record(records, "base", leg)
+        else:
+            base = {**head, "digest": base_digest}
+        ok, reason = compare(base, head, (base_digest, head_digest))
+        passed = passed and ok
+        rows.append(
+            f"| {leg['repository']} | `{leg['revision'][:12]}` | {base['status']} "
+            f"| {head['status']} | {'pass' if ok else 'FAIL'}: {reason} |"
+        )
+    mode = (
+        "The pull request changes the analyze steps: judged against base-pins legs."
+        if differential
+        else "The analyze steps are unchanged: the base result is the pull request's."
+    )
+    return passed, [mode, "", *rows]
+
+
+def _cmd_verdict(_args: argparse.Namespace) -> int:
+    passed, report = judge(dict(os.environ))
+    text = "\n".join(report)
+    print(text)
     for line in report:
-        print(line)
-        if line.startswith("FAIL"):
+        if "FAIL" in line:
             print("::error::" + line)
-        elif line.startswith(("known-red", "stale-known-red")):
-            print("::warning::" + line)
     summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
     if summary:
         with open(summary, "a", encoding="utf-8") as stream:
-            stream.write("### Promotion canary (Core)\n\n")
-            stream.write("".join(f"- {line}\n" for line in report))
+            stream.write("### Promotion canary (Core)\n\n" + text + "\n")
             stream.write(f"\nVerdict: {'pass' if passed else 'fail'}\n")
     return 0 if passed else 1
 
@@ -560,11 +636,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     render_parser.add_argument("--check", action="store_true")
     plan_parser = sub.add_parser("plan")
     plan_parser.add_argument("--force", action="store_true")
-    verdict_parser = sub.add_parser("verdict")
-    verdict_parser.add_argument("--plan-result", default="")
-    verdict_parser.add_argument("--applies", default="")
-    verdict_parser.add_argument("--matrix", default="")
-    verdict_parser.add_argument("--records", type=Path, required=True)
+    sub.add_parser("verdict")
     args = parser.parse_args(list(argv) if argv is not None else None)
     try:
         if args.command == "plan":

@@ -6,10 +6,10 @@
 # Core's promotion canary (AGENTS.md §40). On a Core pull request that changes
 # what `Analyze (central Core)` runs, every repository declared in
 # .l9/promotion-canary.json is checked out at its current main head and the
-# pull request's own `analyze` steps run against it. The steps below the
-# `canary` job's marker are org-ci.yml's, with only the target identity
-# replaced. `Promotion canary (Core)` is the blocking verdict; a pull request
-# that touches no canary path passes it without running a leg.
+# pull request's own `analyze` steps (org-ci.yml's, verbatim apart from the
+# target identity) run against it. `Promotion canary (Core)` judges the result
+# against the base pins and fails only when the pull request makes a
+# repository worse. Steps digest of this render: 692bf3c0bc66e97ed840b2a79beeb50d5806aef83978a6655b5a76925971c673
 name: Promotion canary (Core)
 on:
   pull_request:
@@ -29,6 +29,9 @@ jobs:
       contents: read
     outputs:
       applies: ${{ steps.plan.outputs.applies }}
+      differential: ${{ steps.plan.outputs.differential }}
+      head-digest: ${{ steps.plan.outputs['head-digest'] }}
+      base-digest: ${{ steps.plan.outputs['base-digest'] }}
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
@@ -46,7 +49,7 @@ jobs:
           # shellcheck disable=SC2086
           python3 -I tools/promotion_canary.py plan ${FORCE}
 
-  canary:
+  head:
     name: Canary ${{ matrix.repository }}
     needs: plan
     if: needs.plan.outputs.applies == 'true'
@@ -64,7 +67,7 @@ jobs:
           GH_EVENT: ${{ github.event_name }}
           INPUT_EVENT: ${{ inputs.event || '' }}
           INPUT_PROFILE: ${{ inputs.profile || '' }}
-          INPUT_MATRIX_ID: canary-${{ matrix.slug }}
+          INPUT_MATRIX_ID: canary-head-${{ matrix.slug }}
           INPUT_SDK_REVISION: ${{ inputs.sdk-revision || '' }}
           INPUT_SEMGREP_VERSION: ${{ inputs.semgrep-version || '1.171.0' }}
           INPUT_RETENTION: ${{ inputs.artifact-retention-days || 14 }}
@@ -827,10 +830,12 @@ jobs:
       - name: Record the canary leg
         if: always()
         env:
+          SIDE: head
+          DIGEST: 692bf3c0bc66e97ed840b2a79beeb50d5806aef83978a6655b5a76925971c673
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
-          GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
+          MATRIX_ID: canary-head-${{ matrix.slug }}
           SLUG: ${{ matrix.slug }}
           REPOSITORY: ${{ matrix.repository }}
           REVISION: ${{ matrix.revision }}
@@ -843,6 +848,15 @@ jobs:
           from pathlib import Path
 
           env = os.environ
+          blocking = set()
+          runtime = Path(".l9/runtime", env["MATRIX_ID"])
+          for path in sorted(runtime.rglob("gate-result.json")):
+              try:
+                  result = json.loads(path.read_text(encoding="utf-8"))
+                  blocking.update(result["blocking_finding_ids"])
+              except (OSError, ValueError, KeyError, TypeError):
+                  pass
+          verify = env.get("REPOSITORY_VERIFY", "")
           if env["JOB_STATUS"] == "success":
               status = "pass"
           elif env["JOB_STATUS"] == "cancelled":
@@ -850,25 +864,28 @@ jobs:
               status = "cancelled"
           elif env.get("AGGREGATE_STATUS", "") == "incomplete":
               status = "incomplete"
-          elif env.get("REPOSITORY_VERIFY", "") not in ("", "pass", "not_applicable"):
+          elif verify not in ("", "pass", "not_applicable"):
               status = "verification"
           elif env.get("AGGREGATE_STATUS", "") == "fail":
               status = "findings"
           else:
               # The job failed before any verdict: infrastructure, not the
-              # repository. Never masked by a known_red declaration.
+              # repository.
               status = "error"
           record = {
-              "schema": "l9.promotion-canary-leg/v1",
+              "schema": "l9.promotion-canary-leg/v2",
+              "side": env["SIDE"],
+              "digest": env["DIGEST"],
               "repository": env["REPOSITORY"],
               "revision": env["REVISION"],
               "status": status,
               "job_status": env["JOB_STATUS"],
               "aggregate": env.get("AGGREGATE_STATUS", ""),
-              "repository_verification": env.get("REPOSITORY_VERIFY", ""),
-              "gate": env.get("GATE_STATUS", ""),
+              "repository_verification": verify,
+              "blocking_finding_ids": sorted(blocking),
           }
-          path = Path(env["RUNNER_TEMP"], "promotion-canary", env["SLUG"] + ".json")
+          name = env["SIDE"] + "-" + env["SLUG"] + ".json"
+          path = Path(env["RUNNER_TEMP"], "promotion-canary", name)
           path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
           print(json.dumps(record))
           PY
@@ -877,14 +894,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: promotion-canary-${{ matrix.slug }}
-          path: ${{ runner.temp }}/promotion-canary/${{ matrix.slug }}.json
+          name: promotion-canary-head-${{ matrix.slug }}
+          path: ${{ runner.temp }}/promotion-canary/head-${{ matrix.slug }}.json
           if-no-files-found: ignore
           retention-days: 14
 
   verdict:
     name: Promotion canary (Core)
-    needs: [plan, canary]
+    needs: [plan, head]
     # Runs whatever the plan and legs concluded (a job skipped by `if:` reports
     # success on a required check, so the verdict decides itself, including
     # when no leg was needed). Only a run superseded by a newer one on the same
@@ -908,12 +925,13 @@ jobs:
           merge-multiple: true
       - name: Judge the canary
         env:
-          PLAN_RESULT: ${{ needs.plan.result }}
-          APPLIES: ${{ needs.plan.outputs.applies }}
-          MATRIX: ${{ needs.plan.outputs.matrix }}
-          RECORDS: ${{ runner.temp }}/promotion-canary
+          L9_CANARY_PLAN_RESULT: ${{ needs.plan.result }}
+          L9_CANARY_APPLIES: ${{ needs.plan.outputs.applies }}
+          L9_CANARY_DIFFERENTIAL: ${{ needs.plan.outputs.differential }}
+          L9_CANARY_HEAD_DIGEST: ${{ needs.plan.outputs['head-digest'] }}
+          L9_CANARY_BASE_DIGEST: ${{ needs.plan.outputs['base-digest'] }}
+          L9_CANARY_MATRIX: ${{ needs.plan.outputs.matrix }}
+          L9_CANARY_RECORDS: ${{ runner.temp }}/promotion-canary
         run: |
           set -euo pipefail
-          python3 -I tools/promotion_canary.py verdict \
-            --plan-result "${PLAN_RESULT}" --applies "${APPLIES}" \
-            --matrix "${MATRIX}" --records "${RECORDS}"
+          python3 -I tools/promotion_canary.py verdict
