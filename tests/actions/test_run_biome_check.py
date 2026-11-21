@@ -288,7 +288,8 @@ class NoReportParsingTests(unittest.TestCase):
 
 def _load_module():  # type: ignore[no-untyped-def]
     spec = importlib.util.spec_from_file_location("check_biome", RUN)
-    assert spec and spec.loader
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {RUN}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
