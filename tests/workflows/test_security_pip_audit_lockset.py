@@ -178,6 +178,40 @@ class LocksetTests(unittest.TestCase):
         self.assertIn("pip-audit: auditing 3 pinned package(s) from", text)
         self.assertIn("pip-audit: 3 pinned package(s) audited in all", text)
 
+    def test_the_audited_count_is_a_step_output(self) -> None:
+        project = self.project({"pyproject.toml": "[project]\n", "uv.lock": "x\n"})
+        code, text, _ = project.run({"EVENT_NAME": "workflow_dispatch"})
+        self.assertEqual(0, code, text)
+        self.assertIn("packages=3", project.output.read_text(encoding="utf-8"))
+
+    def test_a_report_path_writes_pip_audits_json_report(self) -> None:
+        """The nightly sink's flag: the same audit, with a JSON report."""
+        for files in (
+            {"pyproject.toml": "[project]\n", "uv.lock": "x\n"},
+            {"requirements.txt": "a==1\n"},
+        ):
+            with (
+                self.subTest(files=sorted(files)),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
+                project = Project(Path(tmp), files)
+                for tool in ("python", "pip", "pip-audit"):
+                    project.stub(tool)
+                exporting_uv(project)
+                report = str(project.root.parent / "audit.json")
+                code, text, calls = project.run(
+                    {"EVENT_NAME": "schedule", "PIP_AUDIT_REPORT": report}
+                )
+                self.assertEqual(0, code, text)
+                [audit] = _audits(calls)
+                self.assertIn(f"--format json --output {report}", audit)
+
+    def test_no_report_path_keeps_the_table(self) -> None:
+        project = self.project({"pyproject.toml": "[project]\n", "uv.lock": "x\n"})
+        _, _, calls = project.run({"EVENT_NAME": "schedule", "PIP_AUDIT_REPORT": ""})
+        [audit] = _audits(calls)
+        self.assertNotIn("--format", audit)
+
     def test_an_export_that_writes_nothing_is_incomplete(self) -> None:
         project = self.project({"pyproject.toml": "[project]\n", "uv.lock": "x\n"})
         project.stub("uv")
@@ -269,6 +303,34 @@ class LocksetTests(unittest.TestCase):
         code, text, _ = project.run({"EVENT_NAME": "workflow_dispatch"})
         self.assertEqual(1, code)
         self.assertIn("outcome=executed_fail", text)
+
+    def test_with_a_report_the_caller_judges_known_vulnerabilities(self) -> None:
+        """Report mode (the nightly sink): exit 1 means vulnerabilities found."""
+        project = self.project({"pyproject.toml": "[project]\n", "uv.lock": "x\n"})
+        project.stub("pip-audit", 1)
+        report = str(project.root.parent / "audit.json")
+        code, text, _ = project.run(
+            {"EVENT_NAME": "schedule", "PIP_AUDIT_REPORT": report}
+        )
+        self.assertEqual(0, code, text)
+        self.assertIn("outcome=executed_fail", text)
+        self.assertIn("the caller judges them", text)
+
+    def test_with_a_report_any_other_failure_still_fails(self) -> None:
+        project = self.project({"pyproject.toml": "[project]\n", "uv.lock": "x\n"})
+        project.stub("pip-audit", 2)
+        report = str(project.root.parent / "audit.json")
+        code, _, _ = project.run({"EVENT_NAME": "schedule", "PIP_AUDIT_REPORT": report})
+        self.assertEqual(2, code)
+        with tempfile.TemporaryDirectory() as tmp:
+            bare = Project(Path(tmp), {"pyproject.toml": "[project]\n"})
+            for tool in ("python", "pip", "pip-audit"):
+                bare.stub(tool)
+            code, text, _ = bare.run(
+                {"EVENT_NAME": "schedule", "PIP_AUDIT_REPORT": report}
+            )
+        self.assertEqual(1, code, "no lock is incomplete in report mode too")
+        self.assertIn("outcome=not_executed (no lock file)", text)
 
 
 class ScopeTests(unittest.TestCase):

@@ -346,6 +346,140 @@ def alert_key(alert: Mapping[str, str]) -> tuple[str, str, str, str]:
     return (alert["category"], alert["rule"], alert["path"], alert["line"])
 
 
+# --- dependency audit (pip-audit) ---------------------------------------------
+
+DEPENDENCY_PROVIDER = "pip-audit"
+ADVISORY_URL = "https://osv.dev/vulnerability/"
+AUDITED = ("executed_pass", "executed_fail")
+
+
+def dependency_fingerprint(name: str, version: str, vulnerability: str) -> str:
+    """The ledger fingerprint of one known vulnerability in one locked package."""
+    text = "\n".join((DEPENDENCY_PROVIDER, name.lower(), version, vulnerability))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def dependency_audit(
+    python: str, outcome: str, packages: str, report: Path, lock_dir: Path
+) -> dict[str, Any]:
+    """security.yml's pip-audit step, read back: what it audited and found.
+
+    A repository without a Python project is not applicable. Any other outcome
+    than an executed audit with a readable JSON report is incomplete, and an
+    incomplete audit fails the night: an unknown set is not an empty one.
+    """
+    if python != "true":
+        return {"status": "not_applicable", "packages": 0, "lock": "", "vulns": {}}
+    lock = "uv.lock" if (lock_dir / "uv.lock").is_file() else "requirements.txt"
+    audit: dict[str, Any] = {"lock": lock, "packages": 0, "vulns": {}}
+    if outcome not in AUDITED or not packages.isdigit():
+        return {**audit, "status": "incomplete", "reason": outcome or "no outcome"}
+    audit["packages"] = int(packages)
+    try:
+        data = json.loads(report.read_text(encoding="utf-8"))
+        dependencies = data["dependencies"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return {**audit, "status": "incomplete", "reason": f"no JSON report ({error})"}
+    for dependency in dependencies:
+        for vuln in dependency.get("vulns") or []:
+            name = str(dependency["name"]).lower()
+            version = str(dependency["version"])
+            key = f"{name}=={version} {vuln['id']}"
+            audit["vulns"][key] = {
+                "name": name,
+                "version": version,
+                "id": str(vuln["id"]),
+                "aliases": [str(a) for a in vuln.get("aliases") or []],
+                "fix_versions": [str(v) for v in vuln.get("fix_versions") or []],
+            }
+    if outcome == "executed_fail" and not audit["vulns"]:
+        reason = "pip-audit failed without reporting a vulnerability"
+        return {**audit, "status": "incomplete", "reason": reason}
+    return {**audit, "status": "executed"}
+
+
+def waived_dependencies(
+    audit: Mapping[str, Any], entries: Sequence[Mapping[str, Any]]
+) -> dict[str, str]:
+    """Waiver ids by vulnerability key, from the same central ledger.
+
+    A ledger entry waives a known vulnerability when its scope names provider
+    ``pip-audit``, the vulnerability id as the rule, the audited lock as the
+    path, and :func:`dependency_fingerprint` of the package, version and id.
+    """
+    waived: dict[str, str] = {}
+    for key, vuln in audit["vulns"].items():
+        fingerprint = dependency_fingerprint(vuln["name"], vuln["version"], vuln["id"])
+        for entry in entries:
+            scope = entry["scope"]
+            if (
+                scope["provider_id"] == DEPENDENCY_PROVIDER
+                and scope["provider_rule_id"] == vuln["id"]
+                and scope["path"] == audit["lock"]
+                and entry["fingerprint"] == fingerprint
+            ):
+                waived[key] = str(entry["id"])
+                break
+    return waived
+
+
+def judge_dependencies(
+    previous: Mapping[str, Any] | None,
+    audit: Mapping[str, Any],
+    waived: Mapping[str, str],
+) -> dict[str, Any]:
+    """The known-vulnerability count night over night; a rise fails.
+
+    A snapshot without a dependency record (the first night, or a repository
+    that had no Python project) sets the baseline.
+    """
+    recorded = previous.get("dependencies") if previous else None
+    before = set(recorded) if isinstance(recorded, list) else None
+    verdict: dict[str, Any] = {
+        "status": audit["status"],
+        "reason": audit.get("reason", ""),
+        "packages": audit["packages"],
+        "lock": audit["lock"],
+        "previous_open": None if before is None else len(before),
+        "waived": dict(sorted(waived.items())),
+    }
+    if audit["status"] == "not_applicable":
+        return {
+            **verdict,
+            "new": [],
+            "fixed": [],
+            "open": [],
+            "accepted": None,
+            "rose": False,
+            "ratchet": "pass",
+        }
+    if audit["status"] == "incomplete":
+        kept = sorted(before) if before is not None else None
+        return {
+            **verdict,
+            "new": [],
+            "fixed": [],
+            "open": [],
+            "accepted": kept,
+            "rose": False,
+            "ratchet": "fail",
+        }
+    now = set(audit["vulns"]) - set(waived)
+    rose = before is not None and len(now) > len(before)
+    return {
+        **verdict,
+        "new": sorted(now - before) if before is not None else [],
+        "fixed": sorted(before - now) if before is not None else [],
+        "open": sorted(now),
+        "accepted": sorted(before) if rose and before is not None else sorted(now),
+        "rose": rose,
+        "ratchet": "fail" if rose else "pass",
+    }
+
+
+NOT_AUDITED = {"status": "not_applicable", "packages": 0, "lock": "", "vulns": {}}
+
+
 def snapshot_of(body: str) -> dict[str, Any] | None:
     match = SNAPSHOT.search(body or "")
     if not match:
@@ -391,6 +525,7 @@ def render(
     verdict: Mapping[str, Any],
     night: str,
     run_url: str,
+    audit: Mapping[str, Any] = NOT_AUDITED,
 ) -> str:
     owner = " ".join(owners) if owners else "no CODEOWNERS owner for `*`"
     previous = verdict["previous_open"]
@@ -401,7 +536,7 @@ def render(
         "",
         f"- Owner: {owner}",
         f"- Night: {night}, commit `{commit[:12]}`, run {run_url or 'n/a'}",
-        f"- Open: **{len(verdict['open'])}**"
+        f"- Semgrep, open in code scanning: **{len(verdict['open'])}**"
         + ("" if previous is None else f" (previous night {previous})"),
         f"- New: {len(verdict['new'])} · Fixed: {len(verdict['fixed'])}",
         f"- Waived (central finding-waiver ledger, not counted): {len(verdict['waived'])}",
@@ -409,6 +544,17 @@ def render(
         + (" (first night sets the baseline)" if previous is None else ""),
         "",
     ]
+    dependencies = verdict.get("dependencies")
+    if dependencies and dependencies["status"] != "not_applicable":
+        lines[7:7] = [
+            f"- pip-audit, known vulnerabilities: **{len(dependencies['open'])}**"
+            f" in {dependencies['packages']} audited packages"
+            + (
+                ""
+                if dependencies["previous_open"] is None
+                else f" (previous night {dependencies['previous_open']})"
+            )
+        ]
     if verdict["new"]:
         lines += ["### New", ""]
         lines += [_alert_line(n, alerts[n]) for n in verdict["new"]]
@@ -427,14 +573,64 @@ def render(
             for n, waiver in verdict["waived"].items()
         ]
         lines.append("")
+    if dependencies and dependencies["status"] != "not_applicable":
+        lines += _dependency_section(dependencies, audit)
     snapshot = {
         "schema": SNAPSHOT_SCHEMA,
         "night": night,
         "commit": commit,
         "alerts": verdict["accepted"],
     }
+    if dependencies and dependencies["accepted"] is not None:
+        snapshot["dependencies"] = dependencies["accepted"]
     lines.append(f"<!-- l9-nightly-snapshot {json.dumps(snapshot, sort_keys=True)} -->")
     return "\n".join(lines) + "\n"
+
+
+def _dependency_section(
+    verdict: Mapping[str, Any], audit: Mapping[str, Any]
+) -> list[str]:
+    lines = ["## pip-audit (full resolved lock)", ""]
+    if verdict["status"] == "incomplete":
+        return lines + [
+            f"- **Incomplete**: {verdict['reason']}. The locked set is unknown, so "
+            "the ratchet fails until a night audits it.",
+            "",
+        ]
+    previous = verdict["previous_open"]
+    lines += [
+        f"- Packages audited: {verdict['packages']} from `{verdict['lock']}`",
+        f"- Known vulnerabilities: **{len(verdict['open'])}**"
+        + ("" if previous is None else f" (previous night {previous})")
+        + f" · New: {len(verdict['new'])} · Fixed: {len(verdict['fixed'])}"
+        + f" · Waived: {len(verdict['waived'])}",
+        f"- Ratchet: **{verdict['ratchet']}**"
+        + (" (first night sets the baseline)" if previous is None else ""),
+        "",
+    ]
+    vulns = audit["vulns"]
+    if verdict["open"]:
+        lines += ["### Known vulnerabilities", ""]
+        lines += [_vuln_line(vulns[key]) for key in verdict["open"]] + [""]
+    if verdict["fixed"]:
+        lines += ["### Fixed since the previous night", ""]
+        lines += [f"- `{key}`" for key in verdict["fixed"]] + [""]
+    if verdict["waived"]:
+        lines += ["### Waived (central finding-waiver ledger)", ""]
+        lines += [
+            _vuln_line(vulns[key]) + f" — waiver `{waiver}`"
+            for key, waiver in verdict["waived"].items()
+        ] + [""]
+    return lines
+
+
+def _vuln_line(vuln: Mapping[str, Any]) -> str:
+    aliases = f" ({', '.join(vuln['aliases'])})" if vuln["aliases"] else ""
+    fixes = ", ".join(vuln["fix_versions"]) or "none published"
+    return (
+        f"- `{vuln['name']}=={vuln['version']}` "
+        f"[{vuln['id']}]({ADVISORY_URL}{vuln['id']}){aliases}; fixed in: {fixes}"
+    )
 
 
 def _alert_line(number: int, alert: Mapping[str, str]) -> str:
@@ -481,6 +677,7 @@ def report(
     bundles: Mapping[str, Mapping[str, Any]],
     night: str,
     run_url: str,
+    audit: Mapping[str, Any] = NOT_AUDITED,
 ) -> dict[str, Any]:
     alerts = open_alerts(transport, repository)
     by_key = waived_findings(bundles, ledger)
@@ -493,7 +690,13 @@ def report(
     issue = find_issue(transport, repository, creator)
     previous = snapshot_of(str(issue.get("body") or "")) if issue else None
     verdict = judge(previous, alerts, waived)
-    body = render(repository, commit, owners, alerts, verdict, night, run_url)
+    dependencies = judge_dependencies(
+        previous, audit, waived_dependencies(audit, ledger)
+    )
+    verdict["dependencies"] = dependencies
+    if dependencies["ratchet"] == "fail":
+        verdict["ratchet"] = "fail"
+    body = render(repository, commit, owners, alerts, verdict, night, run_url, audit)
     if issue is None:
         status, response = transport(
             "POST", f"/repos/{repository}/issues", {"title": ISSUE_TITLE, "body": body}
@@ -510,11 +713,24 @@ def report(
         )
         if status != 200:
             raise SinkError(f"cannot update issue #{number} (HTTP {status})")
+    notes = []
     if verdict["rose"]:
+        notes.append(
+            f"open Semgrep alerts rose from {verdict['previous_open']} to "
+            f"{len(verdict['open'])}"
+        )
+    if dependencies["rose"]:
+        notes.append(
+            f"known vulnerabilities (pip-audit) rose from "
+            f"{dependencies['previous_open']} to {len(dependencies['open'])}"
+        )
+    if dependencies["status"] == "incomplete":
+        notes.append(f"the dependency audit is incomplete ({dependencies['reason']})")
+    if notes:
         note = (
-            f"Ratchet failed on {night}: open alerts rose from "
-            f"{verdict['previous_open']} to {len(verdict['open'])}, and no live "
-            "entry of the central finding-waiver ledger covers the difference. "
+            f"Ratchet failed on {night}: "
+            + "; ".join(notes)
+            + ". No live entry of the central finding-waiver ledger covers it. "
             f"Run: {run_url or 'n/a'}"
         )
         status, _ = transport(
@@ -539,6 +755,15 @@ MATRIX_ID_LINE = "          INPUT_MATRIX_ID: canary-nightly-${{ matrix.slug }}\n
 MATRIX_ID = "nightly-${{ matrix.slug }}"
 LEFT_OVER = re.compile(r"\bneeds\.|\bsecrets\.(?!L9_GITHUB_READ_TOKEN\b)")
 TIMEOUT = 60
+SECURITY = Path(".github/workflows/security.yml")
+AUDIT_STEPS = (
+    "Detect project languages",
+    "Set up Python",
+    "Python dependency audit (pip-audit)",
+)
+AUDIT_REPORT = "${{ runner.temp }}/nightly-pip-audit.json"
+AUDIT_ID = "        id: pip_audit\n"
+AUDIT_LEFT_OVER = re.compile(r"\b(inputs|needs)\.|github\.(event|sha|repository)\b")
 
 HEADER = """\
 # GENERATED by tools/nightly_sink.py render from org-ci.yml. Do not edit:
@@ -554,7 +779,10 @@ HEADER = """\
 # the repository's pull-request gate. Every instance bundle is projected to
 # SARIF by the SDK and uploaded to that repository's code scanning (one
 # category per instance), and one rolling "Nightly findings" issue is updated
-# with the new, fixed and still-open alerts. An open count that rises fails
+# with the new, fixed and still-open alerts. security.yml's own pip-audit step
+# (inlined from security.yml, not copied) audits each repository's full
+# resolved lock, and its known vulnerabilities go to the same issue. An open
+# count (either tool) that rises, or an incomplete audit, fails
 # the run; findings a live entry of Core's central finding-waiver ledger
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
@@ -615,7 +843,8 @@ jobs:
 
 SINK = """\
       # --- nightly sink (not part of org-ci.yml) ---
-      - name: Project every instance bundle to SARIF (SDK)
+      - id: project_sarif
+        name: Project every instance bundle to SARIF (SDK)
         env:
           L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
           L9_STRICT: ${{ steps.gov.outputs.strict }}
@@ -670,7 +899,22 @@ SINK = """\
           sys.exit(1 if errors else 0)
           PY
 
+@@AUDIT@@
+      - name: Summarize the dependency audit
+        if: ${{ !cancelled() }}
+        env:
+          REPOSITORY: ${{ matrix.repository }}
+          PYTHON_PROJECT: ${{ steps.detect.outputs.python }}
+          OUTCOME: ${{ steps.pip_audit.outputs.outcome }}
+          PACKAGES: ${{ steps.pip_audit.outputs.packages }}
+        run: |
+          set -euo pipefail
+          line="pip-audit ${REPOSITORY}: python=${PYTHON_PROJECT:-?} outcome=${OUTCOME:-none} packages=${PACKAGES:-0}"
+          echo "${line}"
+          echo "- ${line}" >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Fetch the sink tool (Core, this run's revision)
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
@@ -692,6 +936,7 @@ SINK = """\
       # permission or the repository, so a missing grant stops here.
       - id: sink_token
         name: Mint the sink token for this repository (GitHub App)
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' }}
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ vars.L9_NIGHTLY_APP_ID }}
@@ -703,6 +948,7 @@ SINK = """\
           permission-contents: read
 
       - name: Upload SARIF to code scanning
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' }}
         env:
           L9_NIGHTLY_SINK_TOKEN: ${{ steps.sink_token.outputs.token }}
           GITHUB_TOKEN: ""
@@ -719,6 +965,7 @@ SINK = """\
             --sarif-dir "${RUNNER_TEMP}/nightly-sarif"
 
       - name: Update the nightly findings issue and apply the ratchet
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' }}
         env:
           L9_NIGHTLY_SINK_TOKEN: ${{ steps.sink_token.outputs.token }}
           GITHUB_TOKEN: ""
@@ -729,6 +976,9 @@ SINK = """\
           CREATOR: ${{ steps.sink_token.outputs.app-slug }}[bot]
           # The central ledger the scan above was given (resolve-governance).
           L9_FINDING_WAIVERS: ${{ steps.gov.outputs['finding-waivers'] }}
+          PYTHON_PROJECT: ${{ steps.detect.outputs.python }}
+          PIP_AUDIT_OUTCOME: ${{ steps.pip_audit.outputs.outcome }}
+          PIP_AUDIT_PACKAGES: ${{ steps.pip_audit.outputs.packages }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -740,6 +990,11 @@ SINK = """\
             --creator "${CREATOR}" \\
             --ledger "${L9_FINDING_WAIVERS}" \\
             --bundle-dir "${RUNNER_TEMP}/nightly-bundles" \\
+            --python-project "${PYTHON_PROJECT}" \\
+            --pip-audit-outcome "${PIP_AUDIT_OUTCOME}" \\
+            --pip-audit-packages "${PIP_AUDIT_PACKAGES}" \\
+            --pip-audit-report "${RUNNER_TEMP}/nightly-pip-audit.json" \\
+            --lock-dir "${GITHUB_WORKSPACE}" \\
             --run-url "${RUN_URL}"
 """
 
@@ -808,11 +1063,73 @@ def sink_steps(org_ci: str) -> str:
     return kept
 
 
-def render_workflow(org_ci: str) -> str:
+def audit_steps(security: str) -> str:
+    """security.yml's dependency audit, as the nightly runs it.
+
+    The detection, Python and pip-audit steps of security.yml's job are taken
+    verbatim, never copied by hand, so the nightly audits exactly what the
+    pull-request gate audits. Only the event identity is resolved: the nightly
+    is not a pull request, merge group or push, so the step audits the full
+    resolved lock (row 23), and the ``pip-audit-report`` input asks it for a
+    JSON report. With a report path the step ends cleanly on pip-audit's
+    "vulnerabilities found" exit, so a vulnerable lock reaches the ratchet;
+    any other failure (no lock, an export that fails) fails the step, and the
+    sink steps after it still run, so the issue records the incomplete audit
+    and the report step fails the night.
+    """
+    pc = _canary()
+    try:
+        steps, _, _ = pc._single_job(security, "security.yml")
+    except pc.CanaryError as error:
+        raise SinkError(str(error)) from error
+    items = re.split(r"(?m)^(?= {6}- )", steps)
+    chosen = []
+    for name in AUDIT_STEPS:
+        found = [
+            i
+            for i in items
+            if re.search(rf"(?m)^ {{6,8}}(- )?name: {re.escape(name)}$", i)
+        ]
+        if len(found) != 1:
+            raise SinkError(f"security.yml no longer has one {name!r} step")
+        chosen.append(found[0].rstrip("\n") + "\n")
+    text = "".join(chosen)
+    defaults = {**pc._inputs(security), "pip-audit-report": AUDIT_REPORT}
+
+    def value(match: re.Match[str]) -> str:
+        key = match.group(1)
+        if key not in defaults:
+            raise SinkError(f"security.yml input {key!r} has no value")
+        return json.dumps(defaults[key])
+
+    text = re.sub(r"\$\{\{\s*inputs\.([a-z0-9-]+)\s*\}\}", value, text)
+    text = text.replace("${{ github.event_name }}", "nightly")
+    text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", '""', text)
+    text = text.replace("${{ github.sha }}", "${{ matrix.revision }}")
+    if text.count(AUDIT_ID) != 1:
+        raise SinkError("security.yml's pip-audit step no longer has id pip_audit")
+    left = [
+        line.strip()
+        for line in text.splitlines()
+        if not line.lstrip().startswith("#") and AUDIT_LEFT_OVER.search(line)
+    ]
+    if left:
+        raise SinkError(
+            "security.yml references the sink cannot satisfy: " + "; ".join(left)
+        )
+    return (
+        "      # --- security.yml's dependency audit (generated, not copied) ---\n"
+        + text
+    )
+
+
+def render_workflow(org_ci: str, security: str) -> str:
     steps = sink_steps(org_ci)
-    digest = hashlib.sha256(steps.encode("utf-8")).hexdigest()
+    audit = audit_steps(security)
+    digest = hashlib.sha256((steps + audit).encode("utf-8")).hexdigest()
     header = HEADER.replace("@@DIGEST@@", digest).replace("@@TIMEOUT@@", str(TIMEOUT))
-    return header + steps + "\n" + SINK.replace("@@MATRIX_ID@@", MATRIX_ID)
+    sink = SINK.replace("@@MATRIX_ID@@", MATRIX_ID).replace("@@AUDIT@@\n", audit + "\n")
+    return header + steps + "\n" + sink
 
 
 def plan_matrix(root: Path, only: str, env: Mapping[str, str]) -> dict[str, Any]:
@@ -891,6 +1208,17 @@ def _cmd_report(args: argparse.Namespace) -> int:
         bundles[path.stem] = json.loads(path.read_text(encoding="utf-8"))
     if not bundles:
         raise SinkError(f"no finding bundles in {args.bundle_dir}")
+    audit = dependency_audit(
+        args.python_project,
+        args.pip_audit_outcome,
+        args.pip_audit_packages,
+        Path(args.pip_audit_report),
+        Path(args.lock_dir),
+    )
+    print(
+        f"pip-audit: {audit['status']}, {audit['packages']} packages, "
+        f"{len(audit['vulns'])} known vulnerabilities"
+    )
     result = report(
         _transport(args.repository),
         args.repository,
@@ -901,13 +1229,14 @@ def _cmd_report(args: argparse.Namespace) -> int:
         bundles,
         today.isoformat(),
         args.run_url,
+        audit,
     )
     print(json.dumps({"repository": args.repository, **result}))
     if result["ratchet"] == "fail":
         print(
-            f"::error::ratchet: open alerts rose from {result['previous_open']} "
-            f"to {len(result['open'])}, not covered by the central finding-waiver "
-            f"ledger (issue #{result['issue']})"
+            "::error::ratchet failed: a tool's open count rose, or the "
+            "dependency audit is incomplete, and the central finding-waiver "
+            f"ledger does not cover it (issue #{result['issue']})"
         )
         return 1
     return 0
@@ -915,7 +1244,8 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 def _cmd_render(args: argparse.Namespace) -> int:
     org_ci = (ROOT / ".github/workflows/org-ci.yml").read_text(encoding="utf-8")
-    rendered = render_workflow(org_ci)
+    security = (ROOT / SECURITY).read_text(encoding="utf-8")
+    rendered = render_workflow(org_ci, security)
     target = ROOT / WORKFLOW
     if args.check:
         current = target.read_text(encoding="utf-8") if target.is_file() else ""
@@ -962,6 +1292,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub.choices["report"].add_argument("--creator", required=True)
     sub.choices["report"].add_argument("--ledger", required=True)
     sub.choices["report"].add_argument("--bundle-dir", required=True)
+    for flag in (
+        "--python-project",
+        "--pip-audit-outcome",
+        "--pip-audit-packages",
+        "--pip-audit-report",
+        "--lock-dir",
+    ):
+        sub.choices["report"].add_argument(flag, required=True)
     sub.choices["report"].add_argument("--run-url", default="")
     args = parser.parse_args(argv)
     try:

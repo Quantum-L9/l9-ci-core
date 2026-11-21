@@ -31,14 +31,32 @@ The findings a repository already carries go to the nightly sink.
    scan)", is created once and updated in place. It names the CODEOWNERS owner
    and lists new, fixed and still-open alerts against the previous night, with
    links. The previous night is the snapshot the issue carries.
-5. **Ratchet.** The open count may not rise night over night. Findings that a
-   live entry of the central finding-waiver ledger matches by repository,
-   provider, rule, path and fingerprint are listed as waived and not counted;
-   this is the same ledger pull-request gating reads, and there is no second
-   one. An entry past its expiry stops excluding its finding, so the count
-   rises. A rise is commented on the issue and fails the run, and the issue
-   keeps the last accepted night as the bar, so a re-run cannot clear it. The
-   first night sets the baseline.
+5. **Dependency audit.** security.yml's own detection, Python and pip-audit
+   steps are inlined into the sink job by the renderer (not copied by hand;
+   `render --check` fails when they drift). As a nightly event the step audits
+   the full resolved lock: `uv export --frozen --all-packages
+   --no-emit-workspace --no-hashes --all-groups --all-extras` (each selection
+   on its own when `[tool.uv].conflicts` is declared), else `requirements.txt`,
+   with Core's pinned pip-audit, and writes a JSON report through
+   security.yml's `pip-audit-report` input. The issue gets a pip-audit section:
+   packages audited, known vulnerabilities with advisory links and fixed
+   versions, new and fixed against the previous night. A job-summary line per
+   repository records the outcome and the package count.
+6. **Ratchet.** Per tool, the open count may not rise night over night:
+   Semgrep alerts in code scanning, and known vulnerabilities from pip-audit.
+   An incomplete audit (no lock, an export that fails, no report) also fails
+   the night; an unknown set is not an empty one. Findings that a live entry
+   of the central finding-waiver ledger matches are listed as waived and not
+   counted; this is the same ledger pull-request gating reads, and there is no
+   second one. A Semgrep finding matches by repository, provider, rule, path
+   and fingerprint; a known vulnerability by provider `pip-audit`, the
+   vulnerability id as the rule, the audited lock (`uv.lock` or
+   `requirements.txt`) as the path, and the fingerprint
+   `sha256("pip-audit\n<package>\n<version>\n<id>")`
+   (`tools/nightly_sink.py dependency_fingerprint`). An entry past its expiry
+   stops excluding its finding, so the count rises. A rise is commented on the
+   issue and fails the run, and the issue keeps the last accepted night as the
+   bar, so a re-run cannot clear it. The first night sets the baseline.
 
 ## Token
 
