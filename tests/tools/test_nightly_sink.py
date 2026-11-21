@@ -802,13 +802,21 @@ class WorkflowTests(unittest.TestCase):
             "${{ steps.pip_audit.outputs.packages }}", summary["env"]["PACKAGES"]
         )
 
-    def test_the_sink_steps_still_run_after_a_failed_audit(self) -> None:
-        """An incomplete audit fails its step; the issue still records it."""
-        gate = "${{ !cancelled() && steps.project_sarif.outcome == 'success' }}"
+    def test_each_sink_step_waits_on_the_one_before_it(self) -> None:
+        """A failed audit still reaches the issue; a failed upload never does."""
         steps = self.sink_job_steps()
         names = [s.get("name") for s in steps]
         start = names.index("Fetch the sink tool (Core, this run's revision)")
-        self.assertEqual([gate] * 4, [s.get("if") for s in steps[start:]])
+        self.assertEqual(
+            [
+                "${{ !cancelled() && steps.project_sarif.outcome == 'success' }}",
+                "${{ !cancelled() && steps.sink_tool.outcome == 'success' }}",
+                "${{ !cancelled() && steps.sink_token.outcome == 'success' }}",
+                "${{ !cancelled() && steps.upload_sarif.outcome == 'success' }}",
+            ],
+            [s.get("if") for s in steps[start:]],
+        )
+        self.assertNotIn("pip_audit", " ".join(str(s.get("if")) for s in steps[start:]))
 
     def test_the_report_step_receives_the_audit(self) -> None:
         [step] = [

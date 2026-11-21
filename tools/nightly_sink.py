@@ -913,7 +913,11 @@ SINK = """\
           echo "${line}"
           echo "- ${line}" >> "${GITHUB_STEP_SUMMARY}"
 
-      - name: Fetch the sink tool (Core, this run's revision)
+      # Each sink step runs only when the one it depends on succeeded, so a
+      # failed dependency audit still reaches the issue, while a failed or
+      # partial upload never writes a stale state into its snapshot.
+      - id: sink_tool
+        name: Fetch the sink tool (Core, this run's revision)
         if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' }}
         env:
           REVISION: ${{ github.sha }}
@@ -936,7 +940,7 @@ SINK = """\
       # permission or the repository, so a missing grant stops here.
       - id: sink_token
         name: Mint the sink token for this repository (GitHub App)
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.sink_tool.outcome == 'success' }}
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ vars.L9_NIGHTLY_APP_ID }}
@@ -947,8 +951,9 @@ SINK = """\
           permission-issues: write
           permission-contents: read
 
-      - name: Upload SARIF to code scanning
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' }}
+      - id: upload_sarif
+        name: Upload SARIF to code scanning
+        if: ${{ !cancelled() && steps.sink_token.outcome == 'success' }}
         env:
           L9_NIGHTLY_SINK_TOKEN: ${{ steps.sink_token.outputs.token }}
           GITHUB_TOKEN: ""
@@ -965,7 +970,7 @@ SINK = """\
             --sarif-dir "${RUNNER_TEMP}/nightly-sarif"
 
       - name: Update the nightly findings issue and apply the ratchet
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.upload_sarif.outcome == 'success' }}
         env:
           L9_NIGHTLY_SINK_TOKEN: ${{ steps.sink_token.outputs.token }}
           GITHUB_TOKEN: ""
