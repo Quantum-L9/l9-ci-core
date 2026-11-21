@@ -28,7 +28,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 ACTIONS = ROOT / ".github" / "actions"
-TOKEN = "ghs_exampleexampleexampleexample0000"
+TOKEN = "example-read-token-not-a-real-secret"
 
 
 def _load(name: str, path: Path):
