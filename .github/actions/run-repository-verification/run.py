@@ -1118,7 +1118,7 @@ def run_contract(workspace: Path, contract: Path, mode: str) -> tuple[str, str, 
         return version, FAILURE_COMMAND, exc
     except (ContractError, WorkflowError) as exc:
         return version, FAILURE_CONTRACT, exc
-    except Exception as exc:  # noqa: BLE001 — typed as infrastructure, never passed
+    except Exception as exc:  # typed as infrastructure, never passed
         return version, FAILURE_INFRASTRUCTURE, exc
     return version, FAILURE_NONE, ""
 
