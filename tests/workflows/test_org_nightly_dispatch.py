@@ -665,7 +665,7 @@ class WorkflowContractTests(unittest.TestCase):
         scripts = [
             extract_python(str(step["run"]))
             for job in nightly_workflow["jobs"].values()
-            for step in job["steps"]
+            for step in job.get("steps", [])
             if "<<'PY'" in str(step.get("run", ""))
         ]
         self.assertEqual(2, len(scripts))
@@ -675,7 +675,7 @@ class WorkflowContractTests(unittest.TestCase):
         guards = [
             extract_python(str(step["run"]))
             for job in org["jobs"].values()
-            for step in job["steps"]
+            for step in job.get("steps", [])
             if step.get("name") == "Refuse a pull-request full-suite fallback"
         ]
         self.assertEqual([nightly.PR_GUARD_PYTHON], guards)
@@ -721,7 +721,7 @@ class WorkflowContractTests(unittest.TestCase):
         guard = next(
             step
             for job in load(ORG_CI)["jobs"].values()
-            for step in job["steps"]
+            for step in job.get("steps", [])
             if step.get("name") == "Refuse a pull-request full-suite fallback"
         )
         self.assertEqual(
@@ -772,7 +772,7 @@ class WorkflowContractTests(unittest.TestCase):
                 self.assertEqual("steps.receipt.outputs.run == 'true'", str(step["if"]))
         gate = next(
             step
-            for step in job["steps"]
+            for step in job.get("steps", [])
             if step["name"] == "Gate on a successful deep receipt"
         )
         self.assertEqual("receipt", gate["id"])
