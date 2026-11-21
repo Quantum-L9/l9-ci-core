@@ -46,6 +46,7 @@ Classes:
 | Save apt package archives | PLUMBING | |
 | Resolve the baseline commit (CENTRAL-DIFF) | PLUMBING | Names the commit findings are classified against (SDK ADR 0023); an unresolvable baseline fails closed in the SDK, so the gate is INCOMPLETE, never PASS |
 | Restore the checkout history for the baseline scan (CENTRAL-DIFF) | PLUMBING | Restores the shallow boundary recorded before the consumer's make ran, so Semgrep's baseline scan can reach the baseline; a moved HEAD or a baseline with no merge base fails the step, never passes it |
+| Check out a clean scan tree of the evaluated commit | PLUMBING | Gives Semgrep, its CENTRAL-DIFF baseline and every instance a clean worktree of the evaluated commit, so the consumer's make cannot break or bias the scan; tracked files the verification changed are named as an advisory warning, never a finding; a scan tree at the wrong revision or not clean fails the step |
 | Set up locked Python for the central toolchain | PLUMBING | |
 | Install Semgrep (hash-locked central pin) | PLUMBING | |
 | Run + normalize Semgrep (SDK) | PLUMBING | Findings are judged by the technical gate |

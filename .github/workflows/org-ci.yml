@@ -602,11 +602,12 @@ jobs:
               echo "Event class ${EVENT_CLASS}: no baseline, findings are judged by policy alone"
               ;;
           esac
-          # The SDK refuses a baseline over tracked changes (ADR 0023); name
-          # them here so a fail-closed baseline is explainable.
+          # No consumer code has run yet, so the checkout should be clean. The
+          # scan itself uses a clean tree of the evaluated commit (the
+          # scan-tree step), so a change here is named but cannot bias it.
           changed="$(git status --porcelain --untracked-files=no)"
           if [ -n "${commit}" ] && [ -n "${changed}" ]; then
-            echo "::warning::tracked files differ from HEAD before the Semgrep scan; the baseline will fail closed:"
+            echo "::warning::tracked files differ from HEAD before repository verification:"
             printf '%s\n' "${changed}"
           fi
           if [ -n "${commit}" ]; then
@@ -762,6 +763,75 @@ jobs:
           fi
           echo "Baseline ${BASELINE} reachable from ${head} (merge base ${merge_base})"
 
+      # The scan judges the committed code under review, never the work tree
+      # the consumer's make left behind (operator decision 2026-11-21: the
+      # check fails only when the repository does). Semgrep, its CENTRAL-DIFF
+      # baseline and every planned instance run in a clean worktree of the
+      # evaluated commit, inside .l9/runtime (untracked runtime state), so a
+      # make that rewrites a tracked file can neither break nor bias the scan.
+      # Each tracked file the verification changed is still named, as an
+      # advisory warning and in the summary, so the consumer can fix its
+      # test hygiene; it is not a finding and does not block.
+      - id: scan_tree
+        name: Check out a clean scan tree of the evaluated commit
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        env:
+          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
+          REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mutated=()
+          while IFS= read -r -d '' entry; do
+            path="${entry:3}"
+            mutated+=("${path}")
+            echo "::warning file=${path}::repository verification (make setup/validate/check/test) changed this tracked file; the scan uses a clean tree of ${REVISION} (advisory, not a finding)"
+          done < <(git status --porcelain=v1 -z --untracked-files=no --no-renames)
+          if [ "${#mutated[@]}" -gt 0 ]; then
+            # Signal law (L9-SIGNAL-001): name the producer, the paths and the
+            # change itself, so the consumer can fix its test hygiene without
+            # re-running: the diff stat, then the first 40 lines per file.
+            diffs="${RUNNER_TEMP:-/tmp}/l9-verification-diff"
+            mkdir -p "${diffs}"
+            git diff --stat -- "${mutated[@]}" > "${diffs}/stat"
+            echo "Repository verification (make setup/validate/check/test) changed ${#mutated[@]} tracked file(s):"
+            cat "${diffs}/stat"
+            {
+              echo "### Tracked files changed by repository verification (advisory)"
+              echo
+              echo "Producer: repository verification (make setup/validate/check/test)."
+              echo "The scan used a clean tree of \`${REVISION}\`, so these changes are not judged."
+              echo
+              echo "~~~~"
+              cat "${diffs}/stat"
+              echo "~~~~"
+              for path in "${mutated[@]}"; do
+                git diff -- "${path}" > "${diffs}/one"
+                echo
+                echo "<details><summary><code>${path}</code> (first 40 lines of the diff)</summary>"
+                echo
+                echo "~~~~diff"
+                head -n 40 "${diffs}/one"
+                echo "~~~~"
+                echo "</details>"
+              done
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          fi
+          tree=".l9/runtime/${L9_MATRIX_ID}/scan-tree"
+          git worktree add --detach --force "${tree}" "${REVISION}"
+          if [ "$(git -C "${tree}" rev-parse HEAD)" != "${REVISION}" ]; then
+            echo "::error::the scan tree is not at the evaluated revision ${REVISION}"
+            exit 1
+          fi
+          if [ -n "$(git -C "${tree}" status --porcelain --untracked-files=no)" ]; then
+            echo "::error::the scan tree of ${REVISION} is not clean"
+            exit 1
+          fi
+          {
+            echo "root=${tree}"
+            echo "mutated-count=${#mutated[@]}"
+            echo "mutated-files=$(IFS=,; echo "${mutated[*]}")"
+          } >> "$GITHUB_OUTPUT"
+
       # The provider toolchain is a locked contract, not a resolution. Core
       # selects the setup-python action by full SHA, the interpreter by exact
       # version (major.minor.patch, so a patch release cannot float in), the
@@ -794,7 +864,8 @@ jobs:
           language: ${{ steps.language.outputs.language }}
           raw-output: artifacts/raw/semgrep/${{ steps.runtime.outputs['matrix-id'] }}/report.json
           output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
-          root: .
+          # The clean tree of the evaluated commit (scan-tree step).
+          root: ${{ steps.scan_tree.outputs.root }}
           snapshot-id: ${{ github.sha }}
           revision: ${{ github.sha }}
           provider-executable: ${{ steps.semgrep.outputs.executable }}
@@ -855,6 +926,7 @@ jobs:
         if: steps.plan.outcome == 'success'
         env:
           L9_INSTANCE_DIR: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances
+          L9_SCAN_ROOT: ${{ steps.scan_tree.outputs.root }}
           L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
           L9_PROVIDER_EXECUTABLE: ${{ steps.semgrep.outputs.executable }}
           L9_PRIMARY_LANGUAGE: ${{ steps.language.outputs.language }}
@@ -884,6 +956,11 @@ jobs:
           # language's own steps: infrastructure failure is never advisory.
           env = os.environ
           directory = Path(env["L9_INSTANCE_DIR"])
+          # Every instance scans the clean tree of the evaluated commit, never
+          # the work tree the verification may have changed (scan-tree step).
+          scan_root = env.get("L9_SCAN_ROOT", "")
+          if not scan_root:
+              sys.exit("::error::no clean scan tree: the instances cannot run")
           plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
           results = directory / "results"
           results.mkdir(parents=True, exist_ok=True)
@@ -954,7 +1031,7 @@ jobs:
               if kind == "consumer":
                   # The repository's declared consumer rulepack (SDK ADR 0021):
                   # its own execution and bundle; central evidence is untouched.
-                  run = ["semgrep", "consumer-run", "--root", ".",
+                  run = ["semgrep", "consumer-run", "--root", scan_root,
                          "--snapshot-id", plan["revision"], "--revision", plan["revision"]]
                   conclude(target, directory / ("consumer-" + name), shared(run))
                   continue
@@ -969,7 +1046,7 @@ jobs:
                   continue
               run = [
                   "semgrep", "run", "--language", name,
-                  "--root", ".", "--snapshot-id", plan["revision"],
+                  "--root", scan_root, "--snapshot-id", plan["revision"],
                   "--revision", plan["revision"],
                   "--identity-map", str(Path(env["L9_IDENTITY_DIR"]) / (name + ".yaml")),
               ]
@@ -1152,6 +1229,8 @@ jobs:
           ARTIFACT_NAME: ${{ steps.names.outputs['artifact-name'] }}
           TOOLCHAIN_ALIGNMENT: ${{ steps.toolchain.outcome }}
           BIOME_STATUS: ${{ steps.biome_check.outputs.status || steps.biome_check.outcome }}
+          MUTATED_COUNT: ${{ steps.scan_tree.outputs['mutated-count'] }}
+          MUTATED_FILES: ${{ steps.scan_tree.outputs['mutated-files'] }}
         run: |
           {
             echo "### L9 central CI"
@@ -1167,6 +1246,7 @@ jobs:
             echo "- Artifact set: \`${ARTIFACT_NAME:-unavailable}\`"
             echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
             echo "- Biome (blocking): \`${BIOME_STATUS:-unavailable}\`"
+            echo "- Tracked files changed by verification (advisory; the scan used a clean tree): \`${MUTATED_COUNT:-unavailable}\`${MUTATED_FILES:+ (${MUTATED_FILES})}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce repository verification
