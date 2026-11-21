@@ -105,9 +105,12 @@ class RenderTests(unittest.TestCase):
 
     def test_the_committed_canary_is_the_render_of_org_ci(self) -> None:
         base = pc.embedded_base(self.canary)
-        self.assertEqual(
-            pc.render(self.org_ci, base, security_provider, ADMISSION), self.canary
-        )
+        # The inlined security.yml is the one at org-ci.yml's pin, which the
+        # committed canary carries; the working tree's may already be newer.
+        # This is how `render --check` reads it, without git history.
+        head_part = self.canary.split(pc.BASE_BEGIN, 1)[0]
+        provider = pc.embedded_provider(head_part)
+        self.assertEqual(pc.render(self.org_ci, base, provider, ADMISSION), self.canary)
         with redirect_stdout(io.StringIO()):
             self.assertEqual(0, pc.main(["--root", str(ROOT), "render", "--check"]))
 
