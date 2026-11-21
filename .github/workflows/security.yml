@@ -317,6 +317,13 @@ jobs:
           print(f"gitleaks rules: defaults + {len(core)} Core rule(s) + {len(seen) - len(present)} repository rule(s)")
           PY
           config_args=(--config "${config}")
+          # With no range, scan the evaluated revision's own history (HEAD),
+          # never every ref in the clone: gitleaks' default is `git log --all`,
+          # and a fetch-depth 0 checkout holds every branch, so an unrelated
+          # branch would decide this revision's verdict.
+          if [ "${GITLEAKS_TARGET:-git}" = git ] && [ -z "${GITLEAKS_LOG_OPTS}" ]; then
+            GITLEAKS_LOG_OPTS="HEAD"
+          fi
           range_args=()
           if [ -n "${GITLEAKS_LOG_OPTS}" ]; then
             # The range must resolve in this clone before gitleaks runs:
