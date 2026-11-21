@@ -11,7 +11,7 @@
 # pull request changes the analyze steps, at the base's pins (the `base` job).
 # Both are org-ci.yml's steps verbatim apart from the target identity.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: b6b40b71a8b3abb88fc7539a897f6f281f74368ee1eaf79756050ff89a1ce4c0
+# worse. Head steps digest: 7468f9ffc85123ecccf00f232a5a09cbe8ec5eafdf6c0ecb8e398b4a410e2c1d
 name: Promotion canary (Core)
 # One verdict per pushed head (row 22). `make pr` pushes and then edits the
 # pull request's body; that `edited` run used to cancel the push run, whose
@@ -87,7 +87,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      # --- inlined org-ci job security .github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d: begin ---
+      # --- inlined org-ci job security .github/workflows/security.yml@802ffda7da59892cce9107f865d9d9afb99f7739: begin ---
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         id: security__s0
         with:
@@ -297,6 +297,7 @@ jobs:
             export_lock() {
               local name="$1"
               shift
+              echo "pip-audit: uv export --frozen --all-packages --no-emit-workspace --no-hashes --format requirements.txt $* (${name})"
               uv export --frozen --all-packages --no-emit-workspace --no-hashes \
                 --format requirements.txt --output-file "${out}/${name}.txt" "$@" > /dev/null
             }
@@ -337,6 +338,21 @@ jobs:
             echo "outcome=not_executed (no lock file)" >> "$GITHUB_OUTPUT"
             exit 1
           fi
+          # The audited set, named in the log: each file's pinned packages
+          # and the total. A file the export did not write is not an empty
+          # set; the audit is incomplete.
+          total=0
+          for file in "${locked[@]}"; do
+            if [ ! -f "${file}" ]; then
+              echo "::error::pip-audit: ${file} was not written; the audit is incomplete"
+              echo "outcome=not_executed (the locked set was not written)" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            count="$(awk '/^[A-Za-z0-9][A-Za-z0-9._-]*(\[[^]]*\])?[[:space:]]*==/ { n++ } END { print n + 0 }' "${file}")"
+            echo "pip-audit: auditing ${count} pinned package(s) from ${file}"
+            total=$((total + count))
+          done
+          echo "pip-audit: ${total} pinned package(s) audited in all"
           # Acquisition and the lock are settled; from here pip-audit runs.
           status=0
           # `--desc` takes an optional value; it is given explicitly so the
@@ -486,7 +502,7 @@ jobs:
             echo
             echo "Advisory, not_run, not_applicable and not_executed are not passes."
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      # --- inlined org-ci job security .github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d: end ---
+      # --- inlined org-ci job security .github/workflows/security.yml@802ffda7da59892cce9107f865d9d9afb99f7739: end ---
       - name: Record the security job result
         if: always()
         env:
@@ -1584,7 +1600,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: b6b40b71a8b3abb88fc7539a897f6f281f74368ee1eaf79756050ff89a1ce4c0
+          DIGEST: 7468f9ffc85123ecccf00f232a5a09cbe8ec5eafdf6c0ecb8e398b4a410e2c1d
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -1670,7 +1686,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      # --- inlined org-ci job security .github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d: begin ---
+      # --- inlined org-ci job security .github/workflows/security.yml@802ffda7da59892cce9107f865d9d9afb99f7739: begin ---
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         id: security__s0
         with:
@@ -1880,6 +1896,7 @@ jobs:
             export_lock() {
               local name="$1"
               shift
+              echo "pip-audit: uv export --frozen --all-packages --no-emit-workspace --no-hashes --format requirements.txt $* (${name})"
               uv export --frozen --all-packages --no-emit-workspace --no-hashes \
                 --format requirements.txt --output-file "${out}/${name}.txt" "$@" > /dev/null
             }
@@ -1920,6 +1937,21 @@ jobs:
             echo "outcome=not_executed (no lock file)" >> "$GITHUB_OUTPUT"
             exit 1
           fi
+          # The audited set, named in the log: each file's pinned packages
+          # and the total. A file the export did not write is not an empty
+          # set; the audit is incomplete.
+          total=0
+          for file in "${locked[@]}"; do
+            if [ ! -f "${file}" ]; then
+              echo "::error::pip-audit: ${file} was not written; the audit is incomplete"
+              echo "outcome=not_executed (the locked set was not written)" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            count="$(awk '/^[A-Za-z0-9][A-Za-z0-9._-]*(\[[^]]*\])?[[:space:]]*==/ { n++ } END { print n + 0 }' "${file}")"
+            echo "pip-audit: auditing ${count} pinned package(s) from ${file}"
+            total=$((total + count))
+          done
+          echo "pip-audit: ${total} pinned package(s) audited in all"
           # Acquisition and the lock are settled; from here pip-audit runs.
           status=0
           # `--desc` takes an optional value; it is given explicitly so the
@@ -2069,7 +2101,7 @@ jobs:
             echo
             echo "Advisory, not_run, not_applicable and not_executed are not passes."
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      # --- inlined org-ci job security .github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d: end ---
+      # --- inlined org-ci job security .github/workflows/security.yml@802ffda7da59892cce9107f865d9d9afb99f7739: end ---
       - name: Record the security job result
         if: always()
         env:
@@ -3177,7 +3209,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: b6b40b71a8b3abb88fc7539a897f6f281f74368ee1eaf79756050ff89a1ce4c0
+          DIGEST: 7468f9ffc85123ecccf00f232a5a09cbe8ec5eafdf6c0ecb8e398b4a410e2c1d
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -3264,7 +3296,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      # --- inlined org-ci job security .github/workflows/security.yml@14396e9deb6bc1db467fae57e7d1d7d7efd63426: begin ---
+      # --- inlined org-ci job security .github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d: begin ---
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         id: security__s0
         with:
@@ -3385,7 +3417,8 @@ jobs:
           fi
           GITLEAKS_VERSION="8.24.3"
           GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
-          curl -sSfL -o /tmp/gitleaks.tar.gz \
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o /tmp/gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           actual_sha="$(sha256sum /tmp/gitleaks.tar.gz | awk '{print $1}')"
           if [ "${actual_sha}" != "${GITLEAKS_SHA256}" ]; then
@@ -3416,30 +3449,117 @@ jobs:
         if: steps.security__detect.outputs.python == 'true'
         env:
           L9_CI_INSTALL_COMMAND: ''
+          EVENT_NAME: push
+          PR_BASE: ''
+          PR_HEAD: ''
+          MERGE_GROUP_BASE: ''
+          MERGE_GROUP_HEAD: ''
+          PUSH_BEFORE: ''
+          EVENT_SHA: ${{ matrix.revision }}
         run: |
           set -euo pipefail
+          # Scope (operator decision 2026-11-21, row 23): a pull request,
+          # merge group or push audits only when it changes a dependency
+          # manifest or lock. Every other event audits. A range that cannot be
+          # read audits too: not running needs a positive proof.
+          is_sha() {
+            local candidate="$1"
+            [[ "${candidate}" =~ ^[0-9a-f]{40}$ ]]
+          }
+          base=""
+          head=""
+          case "${EVENT_NAME:-}" in
+            pull_request|pull_request_target) base="${PR_BASE:-}"; head="${PR_HEAD:-}" ;;
+            merge_group) base="${MERGE_GROUP_BASE:-}"; head="${MERGE_GROUP_HEAD:-}" ;;
+            push) base="${PUSH_BEFORE:-}"; head="${EVENT_SHA:-}" ;;
+            *) ;;
+          esac
+          if is_sha "${base}" && is_sha "${head}" \
+            && [ "${base}" != "0000000000000000000000000000000000000000" ]; then
+            # --no-renames: a renamed or deleted lock shows its old path too.
+            if changed="$(git diff --no-renames --name-only "${base}" "${head}" --)"; then
+              manifests='(^|/)(pyproject\.toml|uv\.lock|setup\.py|setup\.cfg|requirements[^/]*\.txt|constraints[^/]*\.txt|Pipfile(\.lock)?|poetry\.lock|pdm\.lock)$'
+              if ! grep -Eq "${manifests}" <<< "${changed}"; then
+                echo "pip-audit: no dependency manifest or lock changed in ${base}..${head}; nothing new to audit"
+                echo "outcome=not_applicable (no dependency manifest or lock changed)" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            else
+              echo "::warning::pip-audit: the change range ${base}..${head} cannot be read; auditing"
+            fi
+          fi
           python -m pip install --upgrade --only-binary :all: "pip==26.2.1"
           pip install --only-binary :all: "pip-audit==2.9.0"
           if [ -n "$L9_CI_INSTALL_COMMAND" ]; then
             bash -c "$L9_CI_INSTALL_COMMAND" || echo "::notice::l9-ci install command failed; continuing"
           fi
-          # Installation above is acquisition; a failure there leaves no
-          # outcome. From here pip-audit itself runs.
-          # Audit the project, not the runner: plain `pip-audit` audits the
-          # current environment, which on a fresh runner is the toolchain
-          # itself. requirements.txt is audited when present, else the
-          # pyproject.toml project; a setup.py-only project is installed by the
-          # caller's install command and audited in the environment.
+          # The full resolved lock, not the runner's environment: uv.lock
+          # exported with every dependency group, extra and workspace package
+          # (the project's own workspace members are local code, not
+          # packages, and are left out), else requirements.txt. uv is Core's
+          # locked version (install-consumer-ci/toolchain-lock.json).
+          locked=()
+          if [ -f "uv.lock" ]; then
+            pip install --only-binary :all: "uv==0.13.8"
+            out="${RUNNER_TEMP:-/tmp}/l9-locked"
+            mkdir -p "${out}"
+            export_lock() {
+              local name="$1"
+              shift
+              uv export --frozen --all-packages --no-emit-workspace --no-hashes \
+                --format requirements.txt --output-file "${out}/${name}.txt" "$@" > /dev/null
+            }
+            if export_lock all --all-groups --all-extras; then
+              locked+=("${out}/all.txt")
+            elif python3 -I -c 'import sys, tomllib; sys.exit(0 if tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("uv", {}).get("conflicts") else 1)' 2> /dev/null; then
+              # Declared conflicts ([tool.uv].conflicts) make the union of
+              # every extra and group unresolvable by design. Each selection
+              # is exported and audited on its own: the base set, then every
+              # extra and every group. Any selection that cannot be exported
+              # leaves the locked set unknown.
+              echo "pip-audit: uv.lock declares conflicting extras or groups; auditing each selection"
+              selections="$(python3 -I -c 'import tomllib; d = tomllib.load(open("pyproject.toml", "rb")); [print("extra", n) for n in d.get("project", {}).get("optional-dependencies", {})]; [print("group", n) for n in d.get("dependency-groups", {})]')"
+              if ! export_lock base --no-default-groups; then
+                echo "::error::pip-audit: the base set of uv.lock cannot be exported; the audit is incomplete"
+                echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+              locked+=("${out}/base.txt")
+              while read -r kind name; do
+                [ -n "${kind}" ] || continue
+                if ! export_lock "${kind}-${name}" --no-default-groups "--${kind}" "${name}"; then
+                  echo "::error::pip-audit: the ${kind} ${name} of uv.lock cannot be exported; the audit is incomplete"
+                  echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+                  exit 1
+                fi
+                locked+=("${out}/${kind}-${name}.txt")
+              done <<< "${selections}"
+            else
+              echo "::error::pip-audit: uv.lock cannot be exported; the locked set is unknown, so the audit is incomplete"
+              echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          elif [ -f "requirements.txt" ]; then
+            locked=("requirements.txt")
+          else
+            echo "::error::pip-audit: a Python project with no uv.lock or requirements.txt has no locked set to audit; the audit is incomplete"
+            echo "outcome=not_executed (no lock file)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          # Acquisition and the lock are settled; from here pip-audit runs.
           status=0
           # `--desc` takes an optional value; it is given explicitly so the
           # next argument is never read as that value (`--desc .` is a usage
-          # error, exit 2, and audits nothing).
-          if [ -f "requirements.txt" ]; then
+          # error, exit 2, and audits nothing). An exported lock is fully
+          # pinned, so it is audited as written (--no-deps).
+          if [ "${locked[0]}" = "requirements.txt" ]; then
             pip-audit --desc on -r requirements.txt || status=$?
-          elif [ -f "pyproject.toml" ]; then
-            pip-audit --desc on . || status=$?
           else
-            pip-audit --desc on || status=$?
+            requirements=()
+            for file in "${locked[@]}"; do
+              requirements+=(-r "${file}")
+            done
+            pip-audit --desc on --no-deps "${requirements[@]}" || status=$?
           fi
           if [ "${status}" -eq 0 ]; then
             echo "outcome=executed_pass" >> "$GITHUB_OUTPUT"
@@ -3527,11 +3647,12 @@ jobs:
           NPM_AUDIT_OUTCOME: ${{ steps.security__npm_audit.outputs.outcome }}
         run: |
           set -euo pipefail
-          # $1 is the step conclusion, $2 the outcome the step stated itself.
           required_outcome() {
-            if [ -n "$2" ]; then
-              echo "$2"
-            elif [ "$1" = "failure" ]; then
+            local conclusion="$1"  # the step's conclusion
+            local stated="$2"      # the outcome the step stated itself
+            if [ -n "${stated}" ]; then
+              echo "${stated}"
+            elif [ "${conclusion}" = "failure" ]; then
               echo "not_executed (the step failed before its scanner ran)"
             else
               echo "not_executed"
@@ -3574,7 +3695,7 @@ jobs:
             echo
             echo "Advisory, not_run, not_applicable and not_executed are not passes."
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      # --- inlined org-ci job security .github/workflows/security.yml@14396e9deb6bc1db467fae57e7d1d7d7efd63426: end ---
+      # --- inlined org-ci job security .github/workflows/security.yml@da01ee359ee18c59ff98b119e5aa5ee609754b5d: end ---
       - name: Record the security job result
         if: always()
         env:
@@ -3778,7 +3899,7 @@ jobs:
       - id: toolchain
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@da01ee359ee18c59ff98b119e5aa5ee609754b5d
 
       - name: Validate native push event context
         if: github.event_name == 'push'
@@ -3814,12 +3935,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@da01ee359ee18c59ff98b119e5aa5ee609754b5d
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -3855,7 +3976,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -3868,7 +3989,7 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
@@ -3897,7 +4018,7 @@ jobs:
         name: Plan required instances (Core)
         if: steps.inventory.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           inventory: ${{ steps.inventory.outputs.path }}
           repository: ${{ matrix.repository }}
@@ -3916,16 +4037,114 @@ jobs:
         name: Install Biome (digest-locked central pin)
         if: hashFiles('biome.json', 'biome.jsonc') != ''
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@da01ee359ee18c59ff98b119e5aa5ee609754b5d
 
       - id: biome_check
         name: Run Biome check (blocking)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.biome.outputs.executable }}
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
           mode: blocking
+
+      # SDK ADR 0023 (CENTRAL-DIFF): findings are classified new or
+      # pre-existing against a baseline commit; only new blocking findings and
+      # incomplete results fail, pre-existing ones are reported as advisory
+      # with counts (docs/central-diff-baseline.md). pull_request and push
+      # judge against the evaluated revision's first parent (on a pull
+      # request GitHub's merge commit, so the target tip; on a push the
+      # previous tip; fetched at depth 2 above), a merge group against
+      # merge_group.base_sha; nightly, release and supply_chain pass none, so
+      # the whole tree is judged by policy alone. It is resolved here, before
+      # repository verification runs any consumer code, and held by a ref:
+      # a consumer's make can rewrite .git (a re-shallowed checkout has no
+      # HEAD^1), and nothing it does may move the baseline. A baseline that
+      # does not resolve blocks; tracked changes or an incomplete baseline
+      # scan make the SDK fail closed.
+      - id: baseline
+        name: Resolve the baseline commit (CENTRAL-DIFF)
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        env:
+          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
+          POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
+          # A merge group's base (docs/central-diff-baseline.md): HEAD^1 is
+          # that base only for the first group in the queue.
+          MERGE_GROUP_BASE: ''
+          REPOSITORY: ${{ matrix.repository }}
+          TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          commit=""
+          case "${EVENT_CLASS}" in
+            merge)
+              if [ -z "${POLICY}" ]; then
+                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
+              elif [ -n "${MERGE_GROUP_BASE}" ]; then
+                if ! printf '%s' "${MERGE_GROUP_BASE}" | grep -Eq '^[0-9a-f]{40}$'; then
+                  echo "::error::no baseline: merge group base '${MERGE_GROUP_BASE}' is not a full commit id"
+                  exit 1
+                fi
+                auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+                if ! git -c protocol.version=2 \
+                    -c "http.https://github.com/.extraheader=${auth_header}" \
+                    fetch --depth=1 --no-tags "https://github.com/${REPOSITORY}.git" "${MERGE_GROUP_BASE}"; then
+                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} could not be fetched"
+                  exit 1
+                fi
+                commit="$(git rev-parse --verify --quiet "${MERGE_GROUP_BASE}^{commit}")"
+                if [ "${commit}" != "${MERGE_GROUP_BASE}" ]; then
+                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} does not resolve"
+                  exit 1
+                fi
+                echo "Baseline commit: ${commit} (merge group base of $(git rev-parse HEAD))"
+              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
+                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
+              else
+                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
+                exit 1
+              fi
+              ;;
+            pull_request|push)
+              if [ -z "${POLICY}" ]; then
+                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
+              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
+                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
+              else
+                # Operator decision 2026-11-21 (row 23): a run judges only the
+                # code it brings in, so a baseline it cannot resolve blocks.
+                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Event class ${EVENT_CLASS}: no baseline, findings are judged by policy alone"
+              ;;
+          esac
+          # The SDK refuses a baseline over tracked changes (ADR 0023); name
+          # them here so a fail-closed baseline is explainable.
+          changed="$(git status --porcelain --untracked-files=no)"
+          if [ -n "${commit}" ] && [ -n "${changed}" ]; then
+            echo "::warning::tracked files differ from HEAD before the Semgrep scan; the baseline will fail closed:"
+            printf '%s\n' "${changed}"
+          fi
+          if [ -n "${commit}" ]; then
+            # A ref keeps the baseline reachable whatever the consumer's make
+            # later does to the checkout's history; the shallow boundary and
+            # HEAD are recorded so the step before Semgrep can restore and
+            # check them.
+            git update-ref refs/l9/central-diff-baseline "${commit}"
+            state="${RUNNER_TEMP}/l9-central-diff"
+            mkdir -p "${state}"
+            shallow="$(git rev-parse --path-format=absolute --git-path shallow)"
+            if [ -f "${shallow}" ]; then
+              cp -- "${shallow}" "${state}/shallow"
+            else
+              : > "${state}/shallow"
+            fi
+            git rev-parse HEAD > "${state}/head"
+          fi
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
 
       # Repository verification runs the consumer's `make setup`, which may
       # install OS packages with apt (e.g. Playwright's Chromium libraries and
@@ -3977,13 +4196,19 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           workspace: .
           # AGENTS.md §27: held only by the registry snapshot and the composer
           # prefetch. Both run before and apart from the consumer's make
           # targets. The verify step does not receive the token.
           github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
+          # Empty: the consumer's make runs under this run's own event. The
+          # promotion canary sets push and the leg's branch, since its legs
+          # check out a consumer's main head inside a Core pull_request run
+          # (AGENTS.md §45, row 27).
+          event-name: push
+          event-ref: refs/heads/${{ matrix.branch }}
 
       # Keep only archives of package versions installed in this evaluation, so
       # superseded versions and packages a repository stopped installing drop
@@ -4025,6 +4250,37 @@ jobs:
           path: ${{ steps.apt_archive_cache_dir.outputs.path }}/*.deb
           key: ${{ steps.apt_archive_inventory.outputs.key }}
 
+      # Repository verification ran the consumer's make, which may rewrite the
+      # checkout's history: on Cursor-Governance it re-shallowed it, leaving no
+      # merge base, so Semgrep's baseline scan failed and every language run
+      # was incomplete (#328). Restore the shallow boundary recorded before any
+      # consumer code ran. The baseline is not changed here, only made
+      # reachable again: HEAD must be the evaluated revision and must reach
+      # the baseline, or the run blocks.
+      - name: Restore the checkout history for the baseline scan (CENTRAL-DIFF)
+        if: steps.baseline.outputs.commit != ''
+        env:
+          BASELINE: ${{ steps.baseline.outputs.commit }}
+        run: |
+          set -euo pipefail
+          state="${RUNNER_TEMP}/l9-central-diff"
+          shallow="$(git rev-parse --path-format=absolute --git-path shallow)"
+          if [ -s "${state}/shallow" ]; then
+            cp -- "${state}/shallow" "${shallow}"
+          else
+            rm -f -- "${shallow}"
+          fi
+          head="$(git rev-parse HEAD)"
+          if [ "${head}" != "$(cat "${state}/head")" ]; then
+            echo "::error::the consumer's make moved HEAD from $(cat "${state}/head") to ${head}; the baseline scan cannot judge this revision"
+            exit 1
+          fi
+          if ! merge_base="$(git merge-base HEAD "${BASELINE}")"; then
+            echo "::error::no baseline: ${BASELINE} has no merge base with ${head} after repository verification"
+            exit 1
+          fi
+          echo "Baseline ${BASELINE} reachable from ${head} (merge base ${merge_base})"
+
       # The provider toolchain is a locked contract, not a resolution. Core
       # selects the setup-python action by full SHA, the interpreter by exact
       # version (major.minor.patch, so a patch release cannot float in), the
@@ -4033,53 +4289,6 @@ jobs:
       # Core revision; the hosted runner image underneath them is GitHub's,
       # not Core's (workflow audit 2026-09-13, F-005). The SDK venv provisioned
       # above is untouched; only the provider install rides this interpreter.
-      # SDK ADR 0023 (CENTRAL-DIFF): findings are classified new or
-      # pre-existing against a baseline commit; only new blocking findings and
-      # incomplete results fail, pre-existing ones are reported as advisory
-      # with counts. The baseline is the evaluated revision's first parent:
-      # on a pull request or merge group GitHub's merge commit, so its first
-      # parent is the target tip (the merge-base); on a push, the previous
-      # tip (operator decision 2026-11-21, row 23: a run judges only the code
-      # it brings in; this supersedes ADR 0023's "omit on push"). It is
-      # fetched (depth 2 above). nightly, release and supply_chain pass none,
-      # so the whole tree is judged by policy alone. A baseline that does not
-      # resolve blocks here; tracked changes or an incomplete baseline scan
-      # make the SDK fail closed.
-      - id: baseline
-        name: Resolve the baseline commit (CENTRAL-DIFF)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
-          POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
-        run: |
-          set -euo pipefail
-          commit=""
-          case "${EVENT_CLASS}" in
-            pull_request|merge|push)
-              if [ -z "${POLICY}" ]; then
-                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
-              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
-                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
-              else
-                # Operator decision 2026-11-21 (row 23): a run judges only the
-                # code it brings in, so a baseline it cannot resolve blocks.
-                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
-                exit 1
-              fi
-              ;;
-            *)
-              echo "Event class ${EVENT_CLASS}: no baseline, findings are judged by policy alone"
-              ;;
-          esac
-          # The SDK refuses a baseline over tracked changes (ADR 0023); name
-          # them here so a fail-closed baseline is explainable.
-          changed="$(git status --porcelain --untracked-files=no)"
-          if [ -n "${commit}" ] && [ -n "${changed}" ]; then
-            echo "::warning::tracked files differ from HEAD before the Semgrep scan; the baseline will fail closed:"
-            printf '%s\n' "${changed}"
-          fi
-          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
-
       - name: Set up locked Python for the central toolchain
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -4090,14 +4299,14 @@ jobs:
         name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -4122,7 +4331,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -4297,7 +4506,7 @@ jobs:
         name: Aggregate required instances (Core)
         if: always() && steps.plan.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
           results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
@@ -4341,7 +4550,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -4352,7 +4561,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -4364,7 +4573,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -4386,7 +4595,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -4435,7 +4644,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@284a5eb6f55828ab37f992c783aa3ed2273f3213
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@da01ee359ee18c59ff98b119e5aa5ee609754b5d
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}
@@ -4584,7 +4793,7 @@ jobs:
         if: always()
         env:
           SIDE: base
-          DIGEST: aa947a731118f794041e85776ca39aad7761ec2ee5f74212047c2040e78470bb
+          DIGEST: b6b40b71a8b3abb88fc7539a897f6f281f74368ee1eaf79756050ff89a1ce4c0
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
