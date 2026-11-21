@@ -11,7 +11,7 @@
 # pull request changes the analyze steps, at the base's pins (the `base` job).
 # Both are org-ci.yml's steps verbatim apart from the target identity.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 6eff411d332d53e25162894252d84c933c303581d5946140fe691dbf2fb6b404
+# worse. Head steps digest: 7c87068ee2dfbba7a1a4d8ca4a3411817973021fd604047dfc720099960c034d
 name: Promotion canary (Core)
 on:
   pull_request:
@@ -376,6 +376,93 @@ jobs:
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
           mode: blocking
 
+      # SDK ADR 0023 (CENTRAL-DIFF): findings are classified new or
+      # pre-existing against a baseline commit; only new blocking findings and
+      # incomplete results fail, pre-existing ones are reported as advisory
+      # with counts (docs/central-diff-baseline.md). pull_request and push
+      # judge against the evaluated revision's first parent (on a pull
+      # request GitHub's merge commit, so the target tip; on a push the
+      # previous tip; fetched at depth 2 above), a merge group against
+      # merge_group.base_sha; nightly, release and supply_chain pass none, so
+      # the whole tree is judged by policy alone. It is resolved here, before
+      # repository verification runs any consumer code, and held by a ref:
+      # a consumer's make can rewrite .git (a re-shallowed checkout has no
+      # HEAD^1), and nothing it does may move the baseline. A baseline that
+      # does not resolve blocks; tracked changes or an incomplete baseline
+      # scan make the SDK fail closed.
+      - id: baseline
+        name: Resolve the baseline commit (CENTRAL-DIFF)
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        env:
+          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
+          POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
+          # A merge group's base (docs/central-diff-baseline.md): HEAD^1 is
+          # that base only for the first group in the queue.
+          MERGE_GROUP_BASE: ''
+          REPOSITORY: ${{ matrix.repository }}
+          TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          commit=""
+          case "${EVENT_CLASS}" in
+            merge)
+              if [ -z "${POLICY}" ]; then
+                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
+              elif [ -n "${MERGE_GROUP_BASE}" ]; then
+                if ! printf '%s' "${MERGE_GROUP_BASE}" | grep -Eq '^[0-9a-f]{40}$'; then
+                  echo "::error::no baseline: merge group base '${MERGE_GROUP_BASE}' is not a full commit id"
+                  exit 1
+                fi
+                auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+                if ! git -c protocol.version=2 \
+                    -c "http.https://github.com/.extraheader=${auth_header}" \
+                    fetch --depth=1 --no-tags "https://github.com/${REPOSITORY}.git" "${MERGE_GROUP_BASE}"; then
+                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} could not be fetched"
+                  exit 1
+                fi
+                commit="$(git rev-parse --verify --quiet "${MERGE_GROUP_BASE}^{commit}")"
+                if [ "${commit}" != "${MERGE_GROUP_BASE}" ]; then
+                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} does not resolve"
+                  exit 1
+                fi
+                echo "Baseline commit: ${commit} (merge group base of $(git rev-parse HEAD))"
+              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
+                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
+              else
+                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
+                exit 1
+              fi
+              ;;
+            pull_request|push)
+              if [ -z "${POLICY}" ]; then
+                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
+              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
+                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
+              else
+                # Operator decision 2026-11-21 (row 23): a run judges only the
+                # code it brings in, so a baseline it cannot resolve blocks.
+                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Event class ${EVENT_CLASS}: no baseline, findings are judged by policy alone"
+              ;;
+          esac
+          # The SDK refuses a baseline over tracked changes (ADR 0023); name
+          # them here so a fail-closed baseline is explainable.
+          changed="$(git status --porcelain --untracked-files=no)"
+          if [ -n "${commit}" ] && [ -n "${changed}" ]; then
+            echo "::warning::tracked files differ from HEAD before the Semgrep scan; the baseline will fail closed:"
+            printf '%s\n' "${changed}"
+          fi
+          if [ -n "${commit}" ]; then
+            # A ref keeps the baseline reachable whatever the consumer's make
+            # later does to the checkout's history.
+            git update-ref refs/l9/central-diff-baseline "${commit}"
+          fi
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+
       # Repository verification runs the consumer's `make setup`, which may
       # install OS packages with apt (e.g. Playwright's Chromium libraries and
       # fonts). Their downloaded .deb archives are cached per repository so an
@@ -488,86 +575,6 @@ jobs:
       # Core revision; the hosted runner image underneath them is GitHub's,
       # not Core's (workflow audit 2026-09-13, F-005). The SDK venv provisioned
       # above is untouched; only the provider install rides this interpreter.
-      # SDK ADR 0023 (CENTRAL-DIFF): findings are classified new or
-      # pre-existing against a baseline commit; only new blocking findings and
-      # incomplete results fail, pre-existing ones are reported as advisory
-      # with counts. The baseline is the evaluated revision's first parent:
-      # on a pull request or merge group GitHub's merge commit, so its first
-      # parent is the target tip (the merge-base); on a push, the previous
-      # tip (operator decision 2026-11-21, row 23: a run judges only the code
-      # it brings in; this supersedes ADR 0023's "omit on push"). It is
-      # fetched (depth 2 above). nightly, release and supply_chain pass none,
-      # so the whole tree is judged by policy alone. A baseline that does not
-      # resolve blocks here; tracked changes or an incomplete baseline scan
-      # make the SDK fail closed.
-      - id: baseline
-        name: Resolve the baseline commit (CENTRAL-DIFF)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
-          POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
-          # A merge group's base (docs/central-diff-baseline.md): HEAD^1 is
-          # that base only for the first group in the queue.
-          MERGE_GROUP_BASE: ''
-          REPOSITORY: ${{ matrix.repository }}
-          TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
-        run: |
-          set -euo pipefail
-          commit=""
-          case "${EVENT_CLASS}" in
-            merge)
-              if [ -z "${POLICY}" ]; then
-                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
-              elif [ -n "${MERGE_GROUP_BASE}" ]; then
-                if ! printf '%s' "${MERGE_GROUP_BASE}" | grep -Eq '^[0-9a-f]{40}$'; then
-                  echo "::error::no baseline: merge group base '${MERGE_GROUP_BASE}' is not a full commit id"
-                  exit 1
-                fi
-                auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
-                if ! git -c protocol.version=2 \
-                    -c "http.https://github.com/.extraheader=${auth_header}" \
-                    fetch --depth=1 --no-tags "https://github.com/${REPOSITORY}.git" "${MERGE_GROUP_BASE}"; then
-                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} could not be fetched"
-                  exit 1
-                fi
-                commit="$(git rev-parse --verify --quiet "${MERGE_GROUP_BASE}^{commit}")"
-                if [ "${commit}" != "${MERGE_GROUP_BASE}" ]; then
-                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} does not resolve"
-                  exit 1
-                fi
-                echo "Baseline commit: ${commit} (merge group base of $(git rev-parse HEAD))"
-              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
-                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
-              else
-                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
-                exit 1
-              fi
-              ;;
-            pull_request|push)
-              if [ -z "${POLICY}" ]; then
-                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
-              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
-                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
-              else
-                # Operator decision 2026-11-21 (row 23): a run judges only the
-                # code it brings in, so a baseline it cannot resolve blocks.
-                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
-                exit 1
-              fi
-              ;;
-            *)
-              echo "Event class ${EVENT_CLASS}: no baseline, findings are judged by policy alone"
-              ;;
-          esac
-          # The SDK refuses a baseline over tracked changes (ADR 0023); name
-          # them here so a fail-closed baseline is explainable.
-          changed="$(git status --porcelain --untracked-files=no)"
-          if [ -n "${commit}" ] && [ -n "${changed}" ]; then
-            echo "::warning::tracked files differ from HEAD before the Semgrep scan; the baseline will fail closed:"
-            printf '%s\n' "${changed}"
-          fi
-          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
-
       - name: Set up locked Python for the central toolchain
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -1057,7 +1064,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 6eff411d332d53e25162894252d84c933c303581d5946140fe691dbf2fb6b404
+          DIGEST: 7c87068ee2dfbba7a1a4d8ca4a3411817973021fd604047dfc720099960c034d
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -1450,6 +1457,93 @@ jobs:
           provider-version: ${{ steps.biome.outputs['provider-version'] }}
           mode: blocking
 
+      # SDK ADR 0023 (CENTRAL-DIFF): findings are classified new or
+      # pre-existing against a baseline commit; only new blocking findings and
+      # incomplete results fail, pre-existing ones are reported as advisory
+      # with counts (docs/central-diff-baseline.md). pull_request and push
+      # judge against the evaluated revision's first parent (on a pull
+      # request GitHub's merge commit, so the target tip; on a push the
+      # previous tip; fetched at depth 2 above), a merge group against
+      # merge_group.base_sha; nightly, release and supply_chain pass none, so
+      # the whole tree is judged by policy alone. It is resolved here, before
+      # repository verification runs any consumer code, and held by a ref:
+      # a consumer's make can rewrite .git (a re-shallowed checkout has no
+      # HEAD^1), and nothing it does may move the baseline. A baseline that
+      # does not resolve blocks; tracked changes or an incomplete baseline
+      # scan make the SDK fail closed.
+      - id: baseline
+        name: Resolve the baseline commit (CENTRAL-DIFF)
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        env:
+          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
+          POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
+          # A merge group's base (docs/central-diff-baseline.md): HEAD^1 is
+          # that base only for the first group in the queue.
+          MERGE_GROUP_BASE: ''
+          REPOSITORY: ${{ matrix.repository }}
+          TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          commit=""
+          case "${EVENT_CLASS}" in
+            merge)
+              if [ -z "${POLICY}" ]; then
+                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
+              elif [ -n "${MERGE_GROUP_BASE}" ]; then
+                if ! printf '%s' "${MERGE_GROUP_BASE}" | grep -Eq '^[0-9a-f]{40}$'; then
+                  echo "::error::no baseline: merge group base '${MERGE_GROUP_BASE}' is not a full commit id"
+                  exit 1
+                fi
+                auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+                if ! git -c protocol.version=2 \
+                    -c "http.https://github.com/.extraheader=${auth_header}" \
+                    fetch --depth=1 --no-tags "https://github.com/${REPOSITORY}.git" "${MERGE_GROUP_BASE}"; then
+                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} could not be fetched"
+                  exit 1
+                fi
+                commit="$(git rev-parse --verify --quiet "${MERGE_GROUP_BASE}^{commit}")"
+                if [ "${commit}" != "${MERGE_GROUP_BASE}" ]; then
+                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} does not resolve"
+                  exit 1
+                fi
+                echo "Baseline commit: ${commit} (merge group base of $(git rev-parse HEAD))"
+              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
+                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
+              else
+                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
+                exit 1
+              fi
+              ;;
+            pull_request|push)
+              if [ -z "${POLICY}" ]; then
+                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
+              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
+                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
+              else
+                # Operator decision 2026-11-21 (row 23): a run judges only the
+                # code it brings in, so a baseline it cannot resolve blocks.
+                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Event class ${EVENT_CLASS}: no baseline, findings are judged by policy alone"
+              ;;
+          esac
+          # The SDK refuses a baseline over tracked changes (ADR 0023); name
+          # them here so a fail-closed baseline is explainable.
+          changed="$(git status --porcelain --untracked-files=no)"
+          if [ -n "${commit}" ] && [ -n "${changed}" ]; then
+            echo "::warning::tracked files differ from HEAD before the Semgrep scan; the baseline will fail closed:"
+            printf '%s\n' "${changed}"
+          fi
+          if [ -n "${commit}" ]; then
+            # A ref keeps the baseline reachable whatever the consumer's make
+            # later does to the checkout's history.
+            git update-ref refs/l9/central-diff-baseline "${commit}"
+          fi
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+
       # Repository verification runs the consumer's `make setup`, which may
       # install OS packages with apt (e.g. Playwright's Chromium libraries and
       # fonts). Their downloaded .deb archives are cached per repository so an
@@ -1562,86 +1656,6 @@ jobs:
       # Core revision; the hosted runner image underneath them is GitHub's,
       # not Core's (workflow audit 2026-09-13, F-005). The SDK venv provisioned
       # above is untouched; only the provider install rides this interpreter.
-      # SDK ADR 0023 (CENTRAL-DIFF): findings are classified new or
-      # pre-existing against a baseline commit; only new blocking findings and
-      # incomplete results fail, pre-existing ones are reported as advisory
-      # with counts. The baseline is the evaluated revision's first parent:
-      # on a pull request or merge group GitHub's merge commit, so its first
-      # parent is the target tip (the merge-base); on a push, the previous
-      # tip (operator decision 2026-11-21, row 23: a run judges only the code
-      # it brings in; this supersedes ADR 0023's "omit on push"). It is
-      # fetched (depth 2 above). nightly, release and supply_chain pass none,
-      # so the whole tree is judged by policy alone. A baseline that does not
-      # resolve blocks here; tracked changes or an incomplete baseline scan
-      # make the SDK fail closed.
-      - id: baseline
-        name: Resolve the baseline commit (CENTRAL-DIFF)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
-          POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
-          # A merge group's base (docs/central-diff-baseline.md): HEAD^1 is
-          # that base only for the first group in the queue.
-          MERGE_GROUP_BASE: ''
-          REPOSITORY: ${{ matrix.repository }}
-          TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
-        run: |
-          set -euo pipefail
-          commit=""
-          case "${EVENT_CLASS}" in
-            merge)
-              if [ -z "${POLICY}" ]; then
-                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
-              elif [ -n "${MERGE_GROUP_BASE}" ]; then
-                if ! printf '%s' "${MERGE_GROUP_BASE}" | grep -Eq '^[0-9a-f]{40}$'; then
-                  echo "::error::no baseline: merge group base '${MERGE_GROUP_BASE}' is not a full commit id"
-                  exit 1
-                fi
-                auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
-                if ! git -c protocol.version=2 \
-                    -c "http.https://github.com/.extraheader=${auth_header}" \
-                    fetch --depth=1 --no-tags "https://github.com/${REPOSITORY}.git" "${MERGE_GROUP_BASE}"; then
-                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} could not be fetched"
-                  exit 1
-                fi
-                commit="$(git rev-parse --verify --quiet "${MERGE_GROUP_BASE}^{commit}")"
-                if [ "${commit}" != "${MERGE_GROUP_BASE}" ]; then
-                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} does not resolve"
-                  exit 1
-                fi
-                echo "Baseline commit: ${commit} (merge group base of $(git rev-parse HEAD))"
-              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
-                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
-              else
-                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
-                exit 1
-              fi
-              ;;
-            pull_request|push)
-              if [ -z "${POLICY}" ]; then
-                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
-              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
-                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
-              else
-                # Operator decision 2026-11-21 (row 23): a run judges only the
-                # code it brings in, so a baseline it cannot resolve blocks.
-                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
-                exit 1
-              fi
-              ;;
-            *)
-              echo "Event class ${EVENT_CLASS}: no baseline, findings are judged by policy alone"
-              ;;
-          esac
-          # The SDK refuses a baseline over tracked changes (ADR 0023); name
-          # them here so a fail-closed baseline is explainable.
-          changed="$(git status --porcelain --untracked-files=no)"
-          if [ -n "${commit}" ] && [ -n "${changed}" ]; then
-            echo "::warning::tracked files differ from HEAD before the Semgrep scan; the baseline will fail closed:"
-            printf '%s\n' "${changed}"
-          fi
-          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
-
       - name: Set up locked Python for the central toolchain
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -2131,7 +2145,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 6eff411d332d53e25162894252d84c933c303581d5946140fe691dbf2fb6b404
+          DIGEST: 7c87068ee2dfbba7a1a4d8ca4a3411817973021fd604047dfc720099960c034d
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}

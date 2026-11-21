@@ -144,6 +144,35 @@ class BaselineStepTests(unittest.TestCase):
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertEqual("", self.commit())
 
+    def test_the_baseline_is_resolved_before_any_consumer_code_runs(self) -> None:
+        data = yaml.safe_load(ORG_CI.read_text(encoding="utf-8"))
+        ids = [s.get("id") for s in data["jobs"]["analyze"]["steps"]]
+        self.assertLess(ids.index("baseline"), ids.index("repository_verify"))
+
+    def test_the_baseline_survives_a_consumer_reshallowing_the_checkout(self) -> None:
+        """Seen on Cursor-Governance (#328): after its make ran, HEAD^1 was gone."""
+        result = self.run_step("pull_request")
+        self.assertEqual(0, result.returncode, result.stderr)
+        baseline = self.commit()
+        self.assertEqual(
+            baseline, git(self.work, "rev-parse", "refs/l9/central-diff-baseline")
+        )
+        # What a consumer can do to the checkout: mark HEAD itself shallow.
+        head = git(self.work, "rev-parse", "HEAD")
+        shallow = Path(git(self.work, "rev-parse", "--git-path", "shallow"))
+        if not shallow.is_absolute():
+            shallow = self.work / shallow
+        shallow.write_text(head + "\n", encoding="utf-8")
+        failed = subprocess.run(
+            ["git", "-C", str(self.work), "rev-parse", "--verify", "--quiet", "HEAD^1"],
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(0, failed.returncode)
+        self.assertEqual(
+            baseline, git(self.work, "rev-parse", f"{baseline}^{{commit}}")
+        )
+
     def test_the_merge_group_base_comes_from_the_event(self) -> None:
         env = baseline_step()["env"]
         self.assertEqual(

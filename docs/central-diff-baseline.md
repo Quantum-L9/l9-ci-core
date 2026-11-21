@@ -69,6 +69,11 @@ the run; it never falls back to full-tree judgement.
   The `merge` class without a group base (an explicit `event: merge` input
   on another trigger) keeps `HEAD^1`. Tests:
   `tests/workflows/test_org_ci_central_diff_baseline.py`.
+- The baseline is resolved before repository verification runs any consumer
+  code, and is held by `refs/l9/central-diff-baseline`. On #328's canary,
+  Cursor-Governance's full `make test` left its checkout without `HEAD^1`,
+  and a baseline resolved afterwards blocked the run. Consumer code is
+  untrusted and must not be able to move the baseline.
 
 ## Consequences
 
