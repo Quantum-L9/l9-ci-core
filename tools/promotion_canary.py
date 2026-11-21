@@ -408,23 +408,29 @@ def job_blocks(org_ci: str) -> dict[str, str]:
     return {name: "".join(body) for name, body in blocks.items()}
 
 
+def _job_key(name: str, stripped: str) -> tuple[str, str]:
+    """(key, value) of a job-level line; only uses, if and with are supported."""
+    key, _, value = stripped.partition(":")
+    if key not in ("uses", "if", "with"):
+        raise CanaryError(
+            f"org-ci.yml job {name!r}: {key!r} is not supported by the canary"
+        )
+    return key, value.strip()
+
+
 def _reusable_call(name: str, body: str) -> tuple[str, dict[str, str]]:
     """(uses, with-values) of one non-analyze org-ci job; anything else refused."""
     uses = ""
     values: dict[str, str] = {}
     section = ""
-    for line in body.splitlines():
+    lines = [line for line in body.splitlines() if line.strip()]
+    for line in lines:
         stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        if stripped.startswith("#"):
             continue
-        top_level = line.startswith("    ") and not line.startswith("     ")
-        if top_level:
-            section, _, value = stripped.partition(":")
-            if section not in ("uses", "if", "with"):
-                raise CanaryError(
-                    f"org-ci.yml job {name!r}: {section!r} is not supported by the canary"
-                )
-            uses = value.strip() if section == "uses" else uses
+        if line.startswith("    ") and not line.startswith("     "):
+            section, value = _job_key(name, stripped)
+            uses = value if section == "uses" else uses
         elif section == "with" and line.startswith("      "):
             key, _, value = stripped.partition(":")
             values[key.strip()] = value.strip().strip("'\"")
