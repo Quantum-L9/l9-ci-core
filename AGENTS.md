@@ -1956,3 +1956,19 @@ open`. pip-audit's readable report takes each exception as `--ignore-vuln`.
 The subcommands are `resolve`, `exceptions` and `judge`. Promoting Semgrep
 1.186.0 makes the pyjwt and mcp PYSEC entries stale, and they must then be
 removed.
+
+**wcmatch exception (2026-11-21, CTO decision).** GHSA-53pm-wgxf-c6qf on wcmatch
+8.5.2 is reachable: `semgrep scan` matches the file names a PR author controls
+against globs. It is still excepted, because the effect is on availability
+only, the time it can take is bounded, and the bound fails closed:
+
+- **Bounded time.** The SDK kills a scan after 300 s, and every Core job that
+  runs Semgrep has `timeout-minutes`: 30 for each job, 60 for the nightly sink.
+- **Fails closed.** A timed-out scan is a fatal TIMEOUT failure. A cancelled job
+  publishes as `cancelled`, which
+  `test_a_timed_out_or_cancelled_analysis_never_passes` covers. A cancelled
+  canary leg is incomplete.
+- **No shipped multi-star glob.** No glob that Core or the SDK ships has 3 or
+  more stars.
+
+The exception is removed when Semgrep allows wcmatch 11.2 or later.

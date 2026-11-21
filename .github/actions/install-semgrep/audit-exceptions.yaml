@@ -250,6 +250,16 @@
       "created": "2026-11-21",
       "expires": "2026-12-05",
       "removal_trigger": "upstream fix published (a Semgrep release that allows opentelemetry-api >= 1.45.1)"
+    },
+    {
+      "id": "GHSA-53pm-wgxf-c6qf",
+      "package": "wcmatch",
+      "version": "8.5.2",
+      "reason": "ReDoS on attacker file names; availability-only. Reachable: `semgrep scan` matches every target path, whose names a PR author controls, against rule `paths` and --exclude globs with wcmatch.glob.globmatch (semgrep/target_manager.py TargetManager._globmatch). No glob Core or l9-ci-sdk 4a887396 ships has 3 or more stars (scan-scope.yaml excludes have at most 1). Bounded twice: the SDK kills the scan after 300 s (l9_ci/commands/semgrep.py --timeout-seconds default 300) and every Core job that runs it has timeout-minutes (org-ci.yml analyze 30, analyze-semgrep.yml analyze 30, promotion-canary.yml head/base/admitted 30, nightly-sink.yml sink 60). A timeout fails closed: a timed-out scan is a fatal TIMEOUT failure with failed coverage for a required run (SDK provider.py execution_failure; tests/pipeline/test_runner.py test_execution_failures_are_failed_coverage), a timed-out job concludes cancelled, which render-publication publishes as cancelled, never success (tests/publication/test_render_publication.py test_a_timed_out_or_cancelled_analysis_never_passes), and the promotion canary judges a cancelled leg incomplete (tests/workflows/test_promotion_canary.py test_a_cancelled_or_unrun_leg_is_incomplete_and_blocks).",
+      "owner": "l9-ci-core",
+      "created": "2026-11-21",
+      "expires": "2026-12-05",
+      "removal_trigger": "Semgrep allows wcmatch>=11.2 (fixed in 11.2; Semgrep 1.171.0 to 1.186.0 require wcmatch~=8.3)"
     }
   ]
 }
