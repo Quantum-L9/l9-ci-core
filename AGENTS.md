@@ -1583,3 +1583,25 @@ Tests: `tests/workflows/test_org_repository_verification.py`,
 `tests/workflows/test_workflow_toolchain_pins.py`,
 `tests/workflows/test_org_ci_required_instances.py`;
 `tools/check_core_pin_ancestry.py --main origin/main`.
+
+## 39. Core owns each repository's supply-chain exemptions (2026-11-21) — follow-up to the supply-chain lane
+
+`run-supply-chain` now reads a Core-owned data file per repository,
+`.github/actions/run-supply-chain/repositories/<owner>__<name>.json` (lower
+case), selected by `$GITHUB_REPOSITORY` (or `--repository`). Schema
+`l9.supply-chain-core-repo-policy/v1`: `repository` (must name the file's
+repository), `exemptions` (`{purl, license, reason}`) and
+`additional_allowed_licenses` (`{license, reason}`). Every entry needs a
+reason; a Core-denied licence can never be allowed; a name that is not
+`<owner>/<name>` is refused rather than resolved to a path.
+
+- This puts exemption authority in Core (§3): a consumer changes its data by a
+  Core pull request. The consumer-authored `.l9/supply-chain-policy.json` is
+  still read and merged additively; whether to retire it is an open contract
+  question, so this change only adds.
+- Data shipped: Cursor-Governance exempts `pkg:pypi/l9-graphite-memory`;
+  cognitive.engine.graphs and enrichment.inference.engine exempt
+  `pkg:pypi/constellation-node-sdk` — the three findings predicted in
+  `docs/supply-chain.md`, all first-party and Proprietary.
+
+Tests: `tests/actions/test_run_supply_chain.py`.

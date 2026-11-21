@@ -6,8 +6,9 @@ description: >
   dependency review on a pull request, installs the repository's locked
   dependencies into an isolated environment, writes a CycloneDX SBOM of that
   environment (Syft), and judges every package's licence against Core's
-  default-policy.json plus the repository's optional
-  .l9/supply-chain-policy.json. A denied licence, or a known licence that is
+  default-policy.json, Core's per-repository data
+  (repositories/<owner>__<name>.json, by github.repository) and the
+  repository's optional .l9/supply-chain-policy.json. A denied licence, or a known licence that is
   not allowed, fails; an undetermined licence is reported; an SBOM with no
   packages fails closed. The caller provides python3 and permissions
   contents: read.

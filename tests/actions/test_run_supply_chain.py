@@ -119,6 +119,125 @@ class PolicyTests(WorkspaceCase):
                 with self.assertRaises(sc.PolicyError):
                     sc.load_policy(self.root)
 
+    def core_repo(self, payload: object, name: str = "acme__widget.json") -> Path:
+        directory = self.root / "core-repositories"
+        directory.mkdir(exist_ok=True)
+        (directory / name).write_text(
+            payload if isinstance(payload, str) else json.dumps(payload),
+            encoding="utf-8",
+        )
+        return directory
+
+    def test_core_records_exemptions_per_repository(self) -> None:
+        directory = self.core_repo(
+            {
+                "schema": "l9.supply-chain-core-repo-policy/v1",
+                "repository": "Acme/Widget",
+                "additional_allowed_licenses": [
+                    {"license": "LGPL-3.0-only", "reason": "dynamic link only"}
+                ],
+                "exemptions": [
+                    {
+                        "purl": "pkg:pypi/acme-sdk",
+                        "license": "Proprietary",
+                        "reason": "first-party",
+                    }
+                ],
+            }
+        )
+        policy = sc.load_policy(
+            self.root, repository="ACME/widget", core_repo_dir=directory
+        )
+        self.assertIn("LGPL-3.0-only", policy.allowed)
+        self.assertEqual(("pkg:pypi/acme-sdk",), policy.exempt)
+        other = sc.load_policy(
+            self.root, repository="acme/other", core_repo_dir=directory
+        )
+        self.assertEqual((), other.exempt)
+        self.assertEqual((), sc.load_policy(self.root, core_repo_dir=directory).exempt)
+
+    def test_core_and_repository_data_merge_additively(self) -> None:
+        directory = self.core_repo(
+            {
+                "schema": "l9.supply-chain-core-repo-policy/v1",
+                "repository": "acme/widget",
+                "exemptions": [{"purl": "pkg:pypi/a", "reason": "first-party"}],
+            }
+        )
+        self.repo_policy(
+            {
+                "schema": "l9.supply-chain-repo-policy/v1",
+                "allow_dependencies_licenses": ["pkg:pypi/b", "pkg:pypi/a"],
+            }
+        )
+        policy = sc.load_policy(
+            self.root, repository="acme/widget", core_repo_dir=directory
+        )
+        self.assertEqual(("pkg:pypi/a", "pkg:pypi/b"), policy.exempt)
+
+    def test_malformed_core_repository_data_is_refused(self) -> None:
+        good = {
+            "schema": "l9.supply-chain-core-repo-policy/v1",
+            "repository": "acme/widget",
+        }
+        for payload in (
+            "{not json",
+            {**good, "schema": "other"},
+            {**good, "repository": "acme/other"},
+            {**good, "deny": []},
+            {**good, "exemptions": [{"purl": "pkg:pypi/a"}]},
+            {**good, "exemptions": [{"purl": "pkg:pypi/a", "reason": " "}]},
+            {**good, "exemptions": [{"purl": "acme-sdk", "reason": "x"}]},
+            {**good, "exemptions": ["pkg:pypi/a"]},
+            {
+                **good,
+                "additional_allowed_licenses": [
+                    {"license": "AGPL-3.0-only", "reason": "x"}
+                ],
+            },
+        ):
+            with self.subTest(payload=payload):
+                directory = self.core_repo(payload)
+                with self.assertRaises(sc.PolicyError):
+                    sc.load_policy(
+                        self.root, repository="acme/widget", core_repo_dir=directory
+                    )
+
+    def test_a_repository_name_cannot_leave_the_data_directory(self) -> None:
+        for name in ("../etc", "acme/..", "acme", "acme/widget/x", "a b/c"):
+            with self.subTest(name=name), self.assertRaises(sc.PolicyError):
+                sc.core_repo_path(name)
+
+    def test_core_shipped_repository_data_is_valid(self) -> None:
+        files = sorted(sc.CORE_REPO_DIR.glob("*.json"))
+        self.assertTrue(files)
+        for path in files:
+            with self.subTest(path=path.name):
+                repository = json.loads(path.read_text(encoding="utf-8"))["repository"]
+                self.assertEqual(path, sc.core_repo_path(repository))
+                policy = sc.load_policy(self.root, repository=repository)
+                self.assertTrue(policy.exempt)
+        expected = {
+            "Quantum-L9/Cursor-Governance": "pkg:pypi/l9-graphite-memory",
+            "Quantum-L9/cognitive.engine.graphs": "pkg:pypi/constellation-node-sdk",
+            "Quantum-L9/enrichment.inference.engine": "pkg:pypi/constellation-node-sdk",
+        }
+        for repository, purl in expected.items():
+            with self.subTest(repository=repository):
+                self.assertIn(
+                    purl, sc.load_policy(self.root, repository=repository).exempt
+                )
+
+    def test_the_policy_command_reads_the_repository_from_github(self) -> None:
+        out = io.StringIO()
+        env = {"GITHUB_OUTPUT": "", "GITHUB_REPOSITORY": "Quantum-L9/Cursor-Governance"}
+        with redirect_stdout(out), mock.patch.dict("os.environ", env):
+            self.assertEqual(0, sc.main(["--workspace", str(self.root), "policy"]))
+        values = dict(line.split("=", 1) for line in out.getvalue().splitlines())
+        self.assertEqual(
+            "pkg:pypi/l9-graphite-memory", values["allow-dependencies-licenses"]
+        )
+
     def test_the_policy_command_writes_the_dependency_review_inputs(self) -> None:
         out = io.StringIO()
         with redirect_stdout(out), mock.patch.dict("os.environ", {"GITHUB_OUTPUT": ""}):

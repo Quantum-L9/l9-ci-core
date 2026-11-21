@@ -1,0 +1,11 @@
+{
+  "schema": "l9.supply-chain-core-repo-policy/v1",
+  "repository": "Quantum-L9/Cursor-Governance",
+  "exemptions": [
+    {
+      "purl": "pkg:pypi/l9-graphite-memory",
+      "license": "Proprietary",
+      "reason": "Quantum-L9's own memory runtime (vendored wheel); first-party, not third-party licensed."
+    }
+  ]
+}
