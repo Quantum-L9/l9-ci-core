@@ -195,6 +195,61 @@ class PublishTests(unittest.TestCase):
                         sleep=lambda _: None,
                     )
 
+    def test_a_refused_codeql_upload_fails_only_after_the_others_publish(self) -> None:
+        """Default setup refuses CodeQL analyses; Semgrep's must still land."""
+
+        class RefusesCodeQL(FakeGitHub):
+            def __call__(self, method: str, path: str, body: Any) -> tuple[int, Any]:
+                if method == "POST" and path.endswith("/code-scanning/sarifs"):
+                    sent = json.loads(gzip.decompress(base64.b64decode(body["sarif"])))
+                    category = sent["runs"][0]["automationDetails"]["id"]
+                    if category.startswith("l9-central/codeql-"):
+                        self.calls.append((method, path, body))
+                        return 403, {"message": "default setup is enabled"}
+                return super().__call__(method, path, body)
+
+        github = RefusesCodeQL()
+        github.processing = ["complete", "complete"]
+        files = {"codeql-actions": sarif(), "python": sarif(), "gitleaks": sarif()}
+        with self.assertRaises(sink.SinkError) as raised:
+            sink.publish(
+                github, REPO, SHA, "refs/heads/main", files, sleep=lambda _: None
+            )
+        self.assertIn("codeql-actions (HTTP 403)", str(raised.exception))
+        self.assertIn("default setup", str(raised.exception))
+        # All three were attempted; the two that are not CodeQL were accepted.
+        self.assertEqual(3, len(github.made("POST", "/code-scanning/sarifs")))
+        self.assertEqual(
+            2, len([c for c in github.calls if "/code-scanning/sarifs/" in c[1]])
+        )
+
+    def test_any_other_refused_upload_still_fails_at_once(self) -> None:
+        github = FakeGitHub()
+        github.upload_status = 403
+        with self.assertRaises(sink.SinkError) as raised:
+            sink.publish(
+                github,
+                REPO,
+                SHA,
+                "refs/heads/main",
+                {"codeql-python": sarif(), "python": sarif()},
+                sleep=lambda _: None,
+            )
+        self.assertIn("refused the python upload", str(raised.exception))
+
+    def test_an_empty_retirement_run_never_takes_codeqls_driver(self) -> None:
+        github = FakeGitHub()
+        github.alerts = [alert(1, "l9-central/typescript/")]
+        codeql = sarif()
+        codeql["runs"][0]["tool"]["driver"]["name"] = "CodeQL"
+        retire = sink.retired(
+            sink.open_alerts(github, REPO),
+            {"codeql-actions": codeql, "python": sarif()},
+        )
+        self.assertEqual(
+            "Semgrep", retire["typescript"]["runs"][0]["tool"]["driver"]["name"]
+        )
+
 
 class RetireTests(unittest.TestCase):
     def tonight(self) -> dict[str, Any]:
@@ -849,6 +904,7 @@ class WorkflowTests(unittest.TestCase):
                 "${{ !cancelled() && steps.project_sarif.outcome == 'success'"
                 " && steps.biome_check.outcome != 'failure'"
                 " && steps.gitleaks.outcome != 'failure'"
+                " && steps.codeql_analyze.outcome != 'failure'"
                 " && steps.bandit.outcome != 'failure' }}",
                 "${{ !cancelled() && steps.sink_tool.outcome == 'success' }}",
                 "${{ !cancelled() && steps.sink_token.outcome == 'success' }}",
@@ -1046,6 +1102,42 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(sink.SinkError):
             sink.gitleaks_steps(
                 self.org_ci.replace("\n  gitleaks:\n", "\n  secrets:\n")
+            )
+
+    def test_codeql_runs_nightly_on_the_whole_tree_as_the_check_does(self) -> None:
+        """The check's own scope, install and analyze steps, with no base."""
+        import yaml  # noqa: PLC0415
+
+        steps = self.sink_job_steps()
+        original = {
+            s.get("id"): s
+            for s in yaml.safe_load(self.org_ci)["jobs"]["codeql"]["steps"]
+        }
+        for identifier in sink.CODEQL_STEPS:
+            with self.subTest(step=identifier):
+                [inlined] = [s for s in steps if s.get("id") == identifier]
+                self.assertEqual(original[identifier]["run"], inlined["run"])
+                self.assertEqual("${{ !cancelled() }}", inlined["if"])
+        [scope] = [s for s in steps if s.get("id") == "codeql_scope"]
+        self.assertEqual("nightly", scope["env"]["EVENT_NAME"])
+        for key in ("PR_BASE", "MERGE_GROUP_BASE", "PUSH_BEFORE"):
+            self.assertEqual("", scope["env"][key], "no base: the whole tree")
+        self.assertFalse([s for s in steps if s.get("id") == "codeql_verdict"])
+        [project] = [
+            s
+            for s in steps
+            if s.get("name") == "Project CodeQL's SARIF for code scanning"
+        ]
+        self.assertIn('nightly-sarif/codeql-${language}.sarif"', project["run"])
+        self.assertTrue(project["run"].count("head-${language}.sarif"))
+        self.assertNotIn("codeql", sink.ADVISORY_CATEGORIES)
+
+    def test_a_missing_codeql_job_or_step_is_refused(self) -> None:
+        with self.assertRaises(sink.SinkError):
+            sink.codeql_steps(self.org_ci.replace("\n  codeql:\n", "\n  scanning:\n"))
+        with self.assertRaises(sink.SinkError):
+            sink.codeql_steps(
+                self.org_ci.replace("id: codeql_install\n", "id: install\n")
             )
 
     def test_bandit_runs_nightly_only_on_the_whole_tree_advisory(self) -> None:

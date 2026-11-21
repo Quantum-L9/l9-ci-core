@@ -23,7 +23,7 @@
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: 311b717533f13c901f1ea730a0e09f26a01bbd4e856894185a35b9a84967b5bc
+# and issues: write. Analyze steps digest: e6006eb7c92e3de48ab60c7bc9a22aed9b9a03a5ef0ce6691f81ac443176b2a4
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -68,7 +68,7 @@ jobs:
     name: Nightly ${{ matrix.repository }}
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: read
     strategy:
@@ -1112,6 +1112,130 @@ jobs:
           fi
           exit "${status}"
 
+      # --- org-ci.yml's CodeQL check, whole tree (generated) ---
+      - name: Resolve CodeQL's languages and base
+        if: ${{ !cancelled() }}
+        id: codeql_scope
+        env:
+          EVENT_NAME: nightly
+          PR_BASE: ""
+          MERGE_GROUP_BASE: ""
+          PUSH_BEFORE: ""
+        run: |
+          set -euo pipefail
+          # Languages CodeQL analyzes without a build (build-mode none), by the
+          # files git tracks at the evaluated revision. `actions` runs in every
+          # repository with a workflow or action file, which is every governed
+          # one (org-ci reaches them through a workflow); CodeQL refuses a
+          # database for a language with no source, so a repository without
+          # one has no Actions code to scan.
+          languages=""
+          tracked="$(git ls-files)"
+          has() { grep -Eqi "$1" <<< "${tracked}"; }
+          if has '(^|/)\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$'; then languages="actions"; fi
+          if has '\.py$'; then languages="${languages} python"; fi
+          if has '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$'; then languages="${languages} javascript"; fi
+          if has '\.rb$'; then languages="${languages} ruby"; fi
+          if has '\.java$'; then languages="${languages} java"; fi
+          if has '\.cs$'; then languages="${languages} csharp"; fi
+          if has '\.rs$'; then languages="${languages} rust"; fi
+          case "${EVENT_NAME}" in
+            pull_request|pull_request_target) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            if ! git cat-file -e "${base}^{commit}" 2> /dev/null; then
+              echo "::error title=CodeQL::the event's base ${base} is not in this clone; the check cannot tell what is new"
+              exit 1
+            fi
+          else
+            base=""
+          fi
+          languages="${languages# }"
+          echo "languages=${languages}" >> "$GITHUB_OUTPUT"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "CodeQL languages: ${languages}; base: ${base:-none (nothing is new)}"
+      - name: Install CodeQL (checksum-pinned bundle)
+        if: ${{ !cancelled() }}
+        id: codeql_install
+        run: |
+          set -euo pipefail
+          CODEQL_VERSION="2.27.5"
+          CODEQL_SHA256="141e6eb4e99c8498a1258e282e6f7b59c747b4b1a7eabc7cbf7d1aa92792edf0"
+          bundle="${RUNNER_TEMP}/codeql-bundle.tar.zst"
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${bundle}" \
+            "https://github.com/github/codeql-action/releases/download/codeql-bundle-v${CODEQL_VERSION}/codeql-bundle-linux64.tar.zst"
+          actual="$(sha256sum "${bundle}" | awk '{print $1}')"
+          if [ "${actual}" != "${CODEQL_SHA256}" ]; then
+            echo "::error title=CodeQL::bundle checksum mismatch: got ${actual}"
+            exit 1
+          fi
+          tar --zstd -xf "${bundle}" -C "${RUNNER_TEMP}"
+          rm -f "${bundle}"
+          "${RUNNER_TEMP}/codeql/codeql" version --format=terse
+          echo "executable=${RUNNER_TEMP}/codeql/codeql" >> "$GITHUB_OUTPUT"
+      - name: Analyze with CodeQL (security-extended)
+        if: ${{ !cancelled() }}
+        id: codeql_analyze
+        env:
+          CODEQL: ${{ steps.codeql_install.outputs.executable }}
+          LANGUAGES: ${{ steps.codeql_scope.outputs.languages }}
+          BASE: ${{ steps.codeql_scope.outputs.base }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/codeql-results"
+          mkdir -p "${out}" "${RUNNER_TEMP}/codeql-db"
+          sides=("head=${PWD}")
+          if [ -n "${BASE}" ]; then
+            git worktree add --detach "${RUNNER_TEMP}/codeql-base" "${BASE}" > /dev/null
+            sides+=("base=${RUNNER_TEMP}/codeql-base")
+          fi
+          for side in "${sides[@]}"; do
+            name="${side%%=*}"
+            root="${side#*=}"
+            for language in ${LANGUAGES}; do
+              db="${RUNNER_TEMP}/codeql-db/${name}-${language}"
+              status=0
+              "${CODEQL}" database create "${db}" --language="${language}" \
+                --build-mode=none --source-root="${root}" --threads=0 --overwrite > /dev/null || status=$?
+              if [ "${status}" -eq 32 ]; then
+                # CodeQL's "no source code seen" exit: the language has no code
+                # on this side (a pull request adds the language): no results.
+                echo "CodeQL ${name} ${language}: no source on this side; no results"
+                printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"CodeQL","rules":[]}},"results":[]}]}\n' \
+                  > "${out}/${name}-${language}.sarif"
+                continue
+              elif [ "${status}" -ne 0 ]; then
+                echo "::error title=CodeQL::database create for ${language} (${name}) exited ${status}"
+                exit "${status}"
+              fi
+              "${CODEQL}" database analyze "${db}" \
+                "codeql/${language}-queries:codeql-suites/${language}-security-extended.qls" \
+                --format=sarif-latest --sarif-category="/language:${language}" \
+                --output="${out}/${name}-${language}.sarif" --threads=0 > /dev/null
+              echo "CodeQL ${name} ${language}: analyzed"
+            done
+          done
+          echo "directory=${out}" >> "$GITHUB_OUTPUT"
+
+      - name: Project CodeQL's SARIF for code scanning
+        if: ${{ !cancelled() && steps.codeql_analyze.outcome == 'success' }}
+        env:
+          LANGUAGES: ${{ steps.codeql_scope.outputs.languages }}
+          RESULTS: ${{ steps.codeql_analyze.outputs.directory }}
+        run: |
+          set -euo pipefail
+          # One category per language, beside each Semgrep instance's:
+          # l9-central/codeql-<language>/. The whole tree, so every result.
+          mkdir -p "${RUNNER_TEMP}/nightly-sarif"
+          for language in ${LANGUAGES}; do
+            cp "${RESULTS}/head-${language}.sarif" "${RUNNER_TEMP}/nightly-sarif/codeql-${language}.sarif"
+            echo "instance codeql-${language}: projected"
+          done
+
       # --- org-ci.yml's pip-audit check, full lock (generated, not copied) ---
       - name: Detect project languages
         id: detect
@@ -1366,10 +1490,10 @@ jobs:
       # partial upload never writes a stale state into its snapshot.
       - id: sink_tool
         name: Fetch the sink tool (Core, this run's revision)
-        # A Biome, gitleaks or bandit run that failed (not one with findings:
-        # here each reports findings instead of failing) would drop its
-        # category and so close its alerts: nothing publishes.
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
+        # A Biome, gitleaks, CodeQL or bandit run that failed (not one with
+        # findings: here each reports findings instead of failing) would drop
+        # its category and so close its alerts: nothing publishes.
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.codeql_analyze.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
