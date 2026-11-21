@@ -9,6 +9,9 @@ mode). They also pin that Core never captures or parses Biome's report.
 
 from __future__ import annotations
 
+import contextlib
+import importlib.util
+import io
 import json
 import os
 import shutil
@@ -16,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import yaml
@@ -91,6 +95,66 @@ class RunBiomeCheckTests(unittest.TestCase):
         )
         argv = (self.tmp / "argv").read_text(encoding="utf-8").split()
         self.assertEqual(["ci", "--reporter=github", "."], argv)
+
+    def test_format_and_lint_checks_only_disable_the_other_tools(self) -> None:
+        self._configured()
+        expected = {
+            "format": [
+                "--linter-enabled=false",
+                "--assist-enabled=false",
+                "--no-errors-on-unmatched",
+            ],
+            "lint": [
+                "--formatter-enabled=false",
+                "--assist-enabled=false",
+                "--no-errors-on-unmatched",
+            ],
+        }
+        for checks, flags in expected.items():
+            with self.subTest(checks=checks):
+                proc = self._run(
+                    "--mode",
+                    "blocking",
+                    "--checks",
+                    checks,
+                    "--executable",
+                    str(self._biome(1)),
+                )
+                self.assertEqual(1, proc.returncode, proc.stderr)
+                argv = (self.tmp / "argv").read_text(encoding="utf-8").split()
+                self.assertEqual(["ci", "--reporter=github", *flags, "."], argv)
+                self.assertFalse(any(a.endswith("=true") for a in argv))
+                self.assertEqual(checks, self._record()["checks"])
+                self.assertIn(
+                    f"### Biome {checks} (Core, blocking)",
+                    self.summary.read_text("utf-8"),
+                )
+
+    def test_formatting_findings_in_advisory_mode_never_fail(self) -> None:
+        self._configured()
+        proc = self._run(
+            "--mode",
+            "advisory",
+            "--checks",
+            "format",
+            "--executable",
+            str(self._biome(1)),
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertEqual("findings", self._record()["status"])
+
+    def test_unknown_checks_value_is_refused(self) -> None:
+        self._configured()
+        proc = self._run(
+            "--mode",
+            "blocking",
+            "--checks",
+            "style",
+            "--executable",
+            str(self._biome(0)),
+        )
+        self.assertEqual(2, proc.returncode)
+        self.assertIn("checks 'style' is not supported", proc.stderr)
 
     def test_findings_are_recorded_and_advisory_exits_zero(self) -> None:
         self._configured()
@@ -220,6 +284,77 @@ class NoReportParsingTests(unittest.TestCase):
         self.assertIn("|| rc=$?", run)
         self.assertLess(run.index('echo "status='), run.index('exit "${rc}"'))
         self.assertNotIn("l9-biome-scan", (ACTION / "action.yml").read_text("utf-8"))
+
+
+def _load_module():  # type: ignore[no-untyped-def]
+    spec = importlib.util.spec_from_file_location("check_biome", RUN)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {RUN}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class CheckSelectionInProcessTests(unittest.TestCase):
+    """The same contract through ``main()`` directly, in this interpreter."""
+
+    def setUp(self) -> None:
+        self.module = _load_module()
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "biome.json").write_text("{}\n", encoding="utf-8")
+        self.summary = self.tmp / "summary.md"
+        self.biome = self.tmp / "biome"
+        self.biome.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+        self.biome.chmod(0o755)
+        patcher = unittest.mock.patch.dict(
+            os.environ,
+            {
+                "GITHUB_WORKSPACE": str(self.tmp),
+                "GITHUB_STEP_SUMMARY": str(self.summary),
+            },
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _main(self, *args: str) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = self.module.main(list(args))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_lint_findings_block_and_name_the_check(self) -> None:
+        code, out, _ = self._main(
+            "--mode", "blocking", "--checks", "lint", "--executable", str(self.biome)
+        )
+        self.assertEqual(1, code)
+        self.assertIn("::error title=Biome (blocking)::", out)
+        record = json.loads((self.tmp / REPORT).read_text(encoding="utf-8"))
+        self.assertEqual(("lint", "findings"), (record["checks"], record["status"]))
+        self.assertIn(
+            "### Biome lint (Core, blocking)", self.summary.read_text("utf-8")
+        )
+
+    def test_format_findings_are_advisory(self) -> None:
+        code, out, _ = self._main(
+            "--mode", "advisory", "--checks", "format", "--executable", str(self.biome)
+        )
+        self.assertEqual(0, code)
+        self.assertIn("::notice title=Biome (advisory)::", out)
+        self.assertIn(
+            "### Biome format (Core, advisory)", self.summary.read_text("utf-8")
+        )
+
+    def test_unknown_checks_value_is_refused_before_any_write(self) -> None:
+        code, _, err = self._main("--mode", "blocking", "--checks", "style")
+        self.assertEqual(2, code)
+        self.assertIn("checks 'style' is not supported", err)
+        self.assertFalse((self.tmp / REPORT).exists())
+
+    def test_every_check_only_disables_tools(self) -> None:
+        self.assertEqual((), self.module.CHECKS["all"])
+        for flags in self.module.CHECKS.values():
+            self.assertFalse(any(flag.endswith("=true") for flag in flags))
 
 
 if __name__ == "__main__":

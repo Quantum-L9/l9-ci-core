@@ -21,6 +21,16 @@ inputs:
     description: Rollout mode, `advisory` or `blocking` (Core-selected).
     required: false
     default: advisory
+  checks:
+    description: >
+      What biome ci evaluates: `all` (every tool the configuration enables),
+      `format` or `lint` (Core-selected; a check only disables tools).
+    required: false
+    default: all
+  output:
+    description: Record path, relative to root.
+    required: false
+    default: .l9/runtime/biome-check.json
   root:
     description: Workspace-relative project root containing biome.json.
     required: false
@@ -40,6 +50,8 @@ runs:
         L9_BIOME_VERSION: ${{ inputs.provider-version }}
         L9_BIOME_MODE: ${{ inputs.mode }}
         L9_BIOME_ROOT: ${{ inputs.root }}
+        L9_BIOME_CHECKS: ${{ inputs.checks }}
+        L9_BIOME_OUTPUT: ${{ inputs.output }}
       run: |
         set -euo pipefail
         rc=0
@@ -47,9 +59,10 @@ runs:
           --executable "${L9_BIOME_EXECUTABLE}" \
           --provider-version "${L9_BIOME_VERSION}" \
           --mode "${L9_BIOME_MODE}" \
+          --checks "${L9_BIOME_CHECKS}" \
           --root "${L9_BIOME_ROOT}" \
-          --output .l9/runtime/biome-check.json || rc=$?
-        report="${L9_BIOME_ROOT}/.l9/runtime/biome-check.json"
+          --output "${L9_BIOME_OUTPUT}" || rc=$?
+        report="${L9_BIOME_ROOT}/${L9_BIOME_OUTPUT}"
         if [ -f "${report}" ]; then
           status="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["status"])' "${report}")"
         else
