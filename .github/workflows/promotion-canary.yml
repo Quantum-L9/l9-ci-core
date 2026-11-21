@@ -11,7 +11,7 @@
 # pull request changes the analyze steps, at the base's pins (the `base` job).
 # Both are org-ci.yml's steps verbatim apart from the target identity.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 27643a0a1b1a0f001759a8226430f5c1603cd2ec222ed17e37073bbad8d764d7
+# worse. Head steps digest: 776711f54431b3ae1a327ed2838010dd8b3a94248a16c27afc22ea11a23639d2
 name: Promotion canary (Core)
 on:
   pull_request:
@@ -863,6 +863,23 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
 
+      # Every planned instance's own bundle beside the central artifact set
+      # (SDK ADR 0021, Core change 2): secondary languages and the declared
+      # consumer rulepack, whose bundle names the consumer rule files and the
+      # rules evaluated. A separate artifact, so the central set, its manifest
+      # and its handoff are unchanged. .l9/runtime is untracked workspace
+      # state written by this job only.
+      - name: Upload instance bundles
+        if: always() && steps.plan.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: l9-instance-bundles-${{ steps.runtime.outputs['matrix-id'] }}-${{ github.run_attempt }}
+          path: |
+            .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
+
       - id: handoff
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
@@ -1001,7 +1018,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 27643a0a1b1a0f001759a8226430f5c1603cd2ec222ed17e37073bbad8d764d7
+          DIGEST: 776711f54431b3ae1a327ed2838010dd8b3a94248a16c27afc22ea11a23639d2
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -1881,6 +1898,23 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
 
+      # Every planned instance's own bundle beside the central artifact set
+      # (SDK ADR 0021, Core change 2): secondary languages and the declared
+      # consumer rulepack, whose bundle names the consumer rule files and the
+      # rules evaluated. A separate artifact, so the central set, its manifest
+      # and its handoff are unchanged. .l9/runtime is untracked workspace
+      # state written by this job only.
+      - name: Upload instance bundles
+        if: always() && steps.plan.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: l9-instance-bundles-${{ steps.runtime.outputs['matrix-id'] }}-${{ github.run_attempt }}
+          path: |
+            .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
+
       - id: handoff
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
@@ -2019,7 +2053,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 27643a0a1b1a0f001759a8226430f5c1603cd2ec222ed17e37073bbad8d764d7
+          DIGEST: 776711f54431b3ae1a327ed2838010dd8b3a94248a16c27afc22ea11a23639d2
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
