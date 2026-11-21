@@ -10,7 +10,7 @@ operation where the lock and compatibility entry land before any workflow pin
 can select them.
 
     python3 .github/actions/provision-sdk/lock_runtime.py \
-      --revision 2796d7a4e94ae35558b43a5b1a860386a68e0498
+      --revision 1d63203797c692a026a9a578cf611dcf5e709cdd
 """
 
 from __future__ import annotations
