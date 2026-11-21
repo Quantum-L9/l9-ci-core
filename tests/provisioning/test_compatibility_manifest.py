@@ -9,7 +9,7 @@ MANIFEST = ROOT / ".l9" / "sdk-compatibility.yaml"
 LOCKS = ROOT / ".github" / "actions" / "provision-sdk" / "locks"
 # l9-ci-sdk at the promoted revision (l9-ci-sdk#122-#127) — the analysis-contract
 # surface Core adopts, with the capability inventory (`providers inventory`).
-EXPECTED_SHA = "1d63203797c692a026a9a578cf611dcf5e709cdd"
+EXPECTED_SHA = "47ae3ac5bc8c1a14cc33e4985ce392996cd27ccc"
 # Retained as a tested rollback (the prior default).
 ROLLBACK_SHA = "9fd4efe7a3f2d671e063b0e7c15fd52b95d0ccd1"
 # Removed: two generations behind the released contract; lacks the
