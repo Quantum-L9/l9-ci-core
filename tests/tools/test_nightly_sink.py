@@ -11,6 +11,8 @@ import base64
 import gzip
 import io
 import json
+import subprocess
+import os
 import sys
 import tempfile
 import unittest
@@ -755,10 +757,13 @@ class WorkflowTests(unittest.TestCase):
 
     scan = (ROOT / sink.SCAN).read_text(encoding="utf-8")
     security = (ROOT / sink.SECURITY).read_text(encoding="utf-8")
+    org_ci = (ROOT / sink.ORG_CI).read_text(encoding="utf-8")
     committed = (ROOT / sink.WORKFLOW).read_text(encoding="utf-8")
 
     def test_committed_workflow_is_current(self) -> None:
-        self.assertEqual(self.committed, sink.render_workflow(self.scan, self.security))
+        self.assertEqual(
+            self.committed, sink.render_workflow(self.scan, self.security, self.org_ci)
+        )
 
     def sink_job_steps(self) -> list[dict[str, Any]]:
         import yaml  # noqa: PLC0415
@@ -807,7 +812,8 @@ class WorkflowTests(unittest.TestCase):
         start = names.index("Fetch the sink tool (Core, this run's revision)")
         self.assertEqual(
             [
-                "${{ !cancelled() && steps.project_sarif.outcome == 'success' }}",
+                "${{ !cancelled() && steps.project_sarif.outcome == 'success'"
+                " && steps.biome_check.outcome != 'failure' }}",
                 "${{ !cancelled() && steps.sink_tool.outcome == 'success' }}",
                 "${{ !cancelled() && steps.sink_token.outcome == 'success' }}",
                 "${{ !cancelled() && steps.upload_sarif.outcome == 'success' }}",
@@ -897,6 +903,80 @@ class WorkflowTests(unittest.TestCase):
         for present in ("id: instances", "id: aggregate", "operation: semgrep-run"):
             self.assertIn(present, steps)
 
+    def test_biome_runs_nightly_on_the_whole_tree_advisory(self) -> None:
+        """The org-ci `Biome` check's own steps, after its checkout: a schedule
+        has no base, so the scope is the whole tree; findings go to code
+        scanning instead of failing the night (operator, 2026-11-21)."""
+        steps = self.sink_job_steps()
+        [scope] = [s for s in steps if s.get("id") == "biome_scope"]
+        [run] = [s for s in steps if s.get("id") == "biome_check"]
+        self.assertEqual("", scope["env"]["PR_BASE"])
+        self.assertEqual("", scope["env"]["PUSH_BEFORE"])
+        self.assertEqual("advisory", run["env"]["L9_BIOME_MODE"])
+        self.assertEqual("Run Biome check (advisory in the nightly sink)", run["name"])
+        names = [s.get("name") for s in steps]
+        self.assertEqual(1, names.count("Checkout immutable event revision"))
+        self.assertLess(
+            names.index("Run Biome check (advisory in the nightly sink)"),
+            names.index("Project Biome's SARIF for code scanning"),
+        )
+        self.assertLess(
+            names.index("Project Biome's SARIF for code scanning"),
+            names.index("Upload SARIF to code scanning"),
+        )
+
+    def test_biome_sarif_is_projected_with_repository_relative_uris(self) -> None:
+        [project] = [
+            s
+            for s in self.sink_job_steps()
+            if s.get("name") == "Project Biome's SARIF for code scanning"
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp, "work")
+            (workspace / "src").mkdir(parents=True)
+            runner = Path(tmp, "runner")
+            runner.mkdir()
+            sarif = {
+                "runs": [
+                    {
+                        "results": [
+                            {
+                                "locations": [
+                                    {
+                                        "physicalLocation": {
+                                            "artifactLocation": {
+                                                "uri": str(workspace / "src" / "a.js")
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+            (runner / "biome.sarif").write_text(json.dumps(sarif), encoding="utf-8")
+            subprocess.run(
+                ["bash", "-c", project["run"]],
+                cwd=workspace,
+                env={
+                    "PATH": os.environ["PATH"],
+                    "RUNNER_TEMP": str(runner),
+                    "GITHUB_WORKSPACE": str(workspace),
+                },
+                check=True,
+                capture_output=True,
+            )
+            out = json.loads((runner / "nightly-sarif" / "biome.sarif").read_text())
+        location = out["runs"][0]["results"][0]["locations"][0]
+        self.assertEqual(
+            "src/a.js", location["physicalLocation"]["artifactLocation"]["uri"]
+        )
+
+    def test_a_missing_biome_job_is_refused(self) -> None:
+        with self.assertRaises(sink.SinkError):
+            sink.biome_steps(self.org_ci.replace("\n  biome:\n", "\n  lint:\n"))
+
     def test_a_moved_cut_point_is_refused(self) -> None:
         moved = self.scan.replace(
             "- name: Enforce central mode on SDK technical gate", "- name: Enforce it"
@@ -909,6 +989,7 @@ class WorkflowTests(unittest.TestCase):
             root = Path(tmp)
             (root / ".github/workflows").mkdir(parents=True)
             (root / sink.SCAN).write_text(self.scan, encoding="utf-8")
+            (root / sink.ORG_CI).write_text(self.org_ci, encoding="utf-8")
             (root / sink.SECURITY).write_text(self.security, encoding="utf-8")
             (root / sink.WORKFLOW).write_text("stale\n", encoding="utf-8")
             out = io.StringIO()

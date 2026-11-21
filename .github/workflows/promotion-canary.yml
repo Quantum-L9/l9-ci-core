@@ -14,7 +14,7 @@
 # apart from the target identity; the scan legs are the nightly sink's scan
 # without its publication, so a Semgrep change is proven before promotion.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: cbb07c925da16ec57d419e3f8df00ce636a02389a67dec05d0ff10c377afc39d
+# worse. Head steps digest: 860d39e783fa8cb1345e2c1dfb371982ccd523d84d788a7d323c85b828081923
 name: Promotion canary (Core)
 # One verdict per pushed head (row 22). `make pr` pushes and then edits the
 # pull request's body; that `edited` run used to cancel the push run, whose
@@ -624,6 +624,9 @@ jobs:
         id: biome__biome_check
         if: steps.biome__biome_scope.outputs.applies == 'true'
         env:
+          # Blocking here; the nightly sink renders this step advisory, so a
+          # finding reaches code scanning instead of stopping the night.
+          L9_BIOME_MODE: blocking
           L9_BIOME_EXECUTABLE: ${{ steps.biome__biome.outputs.executable }}
           L9_BIOME_VERSION: ${{ steps.biome__biome.outputs['provider-version'] }}
           L9_BIOME_SCOPE: ${{ steps.biome__biome_scope.outputs.scope }}
@@ -642,7 +645,10 @@ jobs:
           summary = Path(env["GITHUB_STEP_SUMMARY"])
           scope = env.get("L9_BIOME_SCOPE", "")
           paths = [p for p in Path(env["L9_BIOME_PATHS"]).read_bytes().decode().split("\0") if p]
-          header = "- Biome (blocking)"
+          mode = env.get("L9_BIOME_MODE", "blocking")
+          if mode not in ("blocking", "advisory"):
+              sys.exit(f"::error title=Biome::unknown mode {mode!r}: the check cannot decide")
+          header = f"- Biome ({mode})"
 
           def write(lines):
               with summary.open("a", encoding="utf-8") as stream:
@@ -702,6 +708,9 @@ jobs:
               if more > 0:
                   lines.append(f"\n+{more} more error(s): see the annotations")
           write(lines)
+          if code == 1 and mode == "advisory":
+              print(f"Biome (advisory): {errors} error(s) in {where}; reported, not enforced")
+              sys.exit(0)
           if code == 1:
               print(
                   f"::error title=Biome::{errors} error(s) in {where}; each is annotated at its "
@@ -1215,7 +1224,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: cbb07c925da16ec57d419e3f8df00ce636a02389a67dec05d0ff10c377afc39d
+          DIGEST: 860d39e783fa8cb1345e2c1dfb371982ccd523d84d788a7d323c85b828081923
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -1905,7 +1914,7 @@ jobs:
         if: always()
         env:
           SIDE: scan
-          DIGEST: cbb07c925da16ec57d419e3f8df00ce636a02389a67dec05d0ff10c377afc39d
+          DIGEST: 860d39e783fa8cb1345e2c1dfb371982ccd523d84d788a7d323c85b828081923
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -2605,7 +2614,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: cbb07c925da16ec57d419e3f8df00ce636a02389a67dec05d0ff10c377afc39d
+          DIGEST: 860d39e783fa8cb1345e2c1dfb371982ccd523d84d788a7d323c85b828081923
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}

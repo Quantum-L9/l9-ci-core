@@ -280,6 +280,9 @@ jobs:
         id: biome_check
         if: steps.biome_scope.outputs.applies == 'true'
         env:
+          # Blocking here; the nightly sink renders this step advisory, so a
+          # finding reaches code scanning instead of stopping the night.
+          L9_BIOME_MODE: blocking
           L9_BIOME_EXECUTABLE: ${{ steps.biome.outputs.executable }}
           L9_BIOME_VERSION: ${{ steps.biome.outputs['provider-version'] }}
           L9_BIOME_SCOPE: ${{ steps.biome_scope.outputs.scope }}
@@ -298,7 +301,10 @@ jobs:
           summary = Path(env["GITHUB_STEP_SUMMARY"])
           scope = env.get("L9_BIOME_SCOPE", "")
           paths = [p for p in Path(env["L9_BIOME_PATHS"]).read_bytes().decode().split("\0") if p]
-          header = "- Biome (blocking)"
+          mode = env.get("L9_BIOME_MODE", "blocking")
+          if mode not in ("blocking", "advisory"):
+              sys.exit(f"::error title=Biome::unknown mode {mode!r}: the check cannot decide")
+          header = f"- Biome ({mode})"
 
           def write(lines):
               with summary.open("a", encoding="utf-8") as stream:
@@ -358,6 +364,9 @@ jobs:
               if more > 0:
                   lines.append(f"\n+{more} more error(s): see the annotations")
           write(lines)
+          if code == 1 and mode == "advisory":
+              print(f"Biome (advisory): {errors} error(s) in {where}; reported, not enforced")
+              sys.exit(0)
           if code == 1:
               print(
                   f"::error title=Biome::{errors} error(s) in {where}; each is annotated at its "

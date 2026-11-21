@@ -99,8 +99,8 @@ class ToolchainActivationTests(unittest.TestCase):
         self.assertEqual(steps.index(install) + 1, steps.index(run))
         self.assertIn("${{ steps.biome.outputs.executable }}", str(run["env"]))
         self.assertNotIn("biome-version", install.get("with", {}))
-        self.assertIn('header = "- Biome (blocking)"', run["run"])
-        self.assertNotIn("Biome (advisory)", ORG_CI.read_text(encoding="utf-8"))
+        self.assertEqual("blocking", run["env"]["L9_BIOME_MODE"])
+        self.assertIn('header = f"- Biome ({mode})"', run["run"])
         for step in steps:
             self.assertNotIn("steps.gov.outputs", str(step.get("if", "")))
             self.assertNotIn("continue-on-error", step)

@@ -21,7 +21,7 @@
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: 904ebf99aeb2d4950822628736ff7e2f419e8d126f0e41ecd80bed25e20cef13
+# and issues: write. Analyze steps digest: 200a4705c80993c5849520a19ed2a83398c86acff070d7c0c75051d1429b9104
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -695,6 +695,204 @@ jobs:
           sys.exit(1 if errors else 0)
           PY
 
+      # --- org-ci.yml's Biome check, whole tree, advisory (generated) ---
+      - name: Resolve Biome's scope
+        id: biome_scope
+        env:
+          REPOSITORY: ${{ matrix.repository }}
+          REVISION: ${{ matrix.revision }}
+          TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+          EVENT_NAME: push
+          PR_BASE: ''
+          MERGE_GROUP_BASE: ''
+          PUSH_BEFORE: ''
+        run: |
+          set -euo pipefail
+          paths="${RUNNER_TEMP}/biome-paths"
+          : > "${paths}"
+          echo "paths=${paths}" >> "$GITHUB_OUTPUT"
+          if [ ! -f biome.json ] && [ ! -f biome.jsonc ]; then
+            echo "applies=false" >> "$GITHUB_OUTPUT"
+            echo "Biome: not applicable: no biome configuration"
+            echo "- Biome (blocking): not applicable: no biome configuration (no biome.json or biome.jsonc at the repository root)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "applies=true" >> "$GITHUB_OUTPUT"
+          case "${EVENT_NAME}" in
+            pull_request) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          if [ "${EVENT_NAME}" = "push" ] && { [ -z "${base}" ] || [ -z "${base//0/}" ]; }; then
+            # A new branch or a first push has no previous revision.
+            base=""
+          fi
+          if [ -z "${base}" ]; then
+            echo "scope=full" >> "$GITHUB_OUTPUT"
+            echo "Biome scope: the whole tree (${EVENT_NAME})"
+            exit 0
+          fi
+          if ! printf '%s' "${base}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error title=Biome scope::the ${EVENT_NAME} base '${base}' is not a full commit id, so the changed files cannot be named"
+            exit 1
+          fi
+          auth="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            if ! git -c "http.https://github.com/.extraheader=${auth}" \
+                -c protocol.version=2 fetch -q --depth=1 origin "${base}"; then
+              echo "::error title=Biome scope::the ${EVENT_NAME} base ${base} could not be fetched from ${REPOSITORY}, so the changed files cannot be named"
+              exit 1
+            fi
+          fi
+          git diff --name-only --diff-filter=d -z "${base}" "${REVISION}" > "${paths}"
+          count="$(tr -cd '\0' < "${paths}" | wc -c | tr -d ' ')"
+          echo "scope=changed" >> "$GITHUB_OUTPUT"
+          echo "changed=${count}" >> "$GITHUB_OUTPUT"
+          echo "Biome scope: ${count} file(s) the ${EVENT_NAME} changes since ${base}"
+
+      - id: biome
+        name: Install Biome (digest-locked central pin)
+        if: >-
+          steps.biome_scope.outputs.applies == 'true'
+          && (steps.biome_scope.outputs.scope == 'full' || steps.biome_scope.outputs.changed != '0')
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ee1720b9863bec15fdfebac13b220aeb699d781
+
+      - name: Run Biome check (advisory in the nightly sink)
+        id: biome_check
+        if: steps.biome_scope.outputs.applies == 'true'
+        env:
+          # Blocking here; the nightly sink renders this step advisory, so a
+          # finding reaches code scanning instead of stopping the night.
+          L9_BIOME_MODE: advisory
+          L9_BIOME_EXECUTABLE: ${{ steps.biome.outputs.executable }}
+          L9_BIOME_VERSION: ${{ steps.biome.outputs['provider-version'] }}
+          L9_BIOME_SCOPE: ${{ steps.biome_scope.outputs.scope }}
+          L9_BIOME_PATHS: ${{ steps.biome_scope.outputs.paths }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          temp = Path(env["RUNNER_TEMP"])
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          scope = env.get("L9_BIOME_SCOPE", "")
+          paths = [p for p in Path(env["L9_BIOME_PATHS"]).read_bytes().decode().split("\0") if p]
+          mode = env.get("L9_BIOME_MODE", "blocking")
+          if mode not in ("blocking", "advisory"):
+              sys.exit(f"::error title=Biome::unknown mode {mode!r}: the check cannot decide")
+          header = f"- Biome ({mode})"
+
+          def write(lines):
+              with summary.open("a", encoding="utf-8") as stream:
+                  stream.write("\n".join(lines) + "\n")
+
+          if scope == "changed" and not paths:
+              print("Biome: no changed files in Biome's scope")
+              write([f"{header}: pass: no changed files in Biome's scope"])
+              sys.exit(0)
+          executable = env.get("L9_BIOME_EXECUTABLE", "")
+          if not executable or not Path(executable).is_file():
+              sys.exit("::error title=Biome::the verified Biome executable is missing; the check cannot run")
+          report = temp / "biome-report.json"
+          sarif = temp / "biome.sarif"
+          command = [
+              executable, "ci", "--no-errors-on-unmatched",
+              "--reporter=github",
+              "--reporter=json", f"--reporter-file={report}",
+              "--reporter=sarif", f"--reporter-file={sarif}",
+          ]
+          command += ["--", *paths] if scope == "changed" else ["."]
+          code = subprocess.run(command, check=False).returncode
+          try:
+              data = json.loads(report.read_text(encoding="utf-8"))
+              counts = data["summary"]
+              diagnostics = data.get("diagnostics", [])
+          except (OSError, ValueError, KeyError) as error:
+              sys.exit(
+                  f"::error title=Biome::biome ci exited {code} and wrote no readable "
+                  f"report ({error}): `{' '.join(command[:2])} ...` failed before judging any file"
+              )
+          checked = int(counts.get("changed", 0)) + int(counts.get("unchanged", 0))
+          errors = int(counts.get("errors", 0))
+          warnings = int(counts.get("warnings", 0))
+          where = "the files this change touches" if scope == "changed" else "the whole tree"
+          if scope == "changed" and checked == 0 and code == 0:
+              print("Biome: no changed files in Biome's scope")
+              write([f"{header}: pass: no changed files in Biome's scope ({len(paths)} changed file(s), none Biome handles)"])
+              sys.exit(0)
+          status = "pass" if code == 0 else "findings" if code == 1 else "error"
+          lines = [
+              f"{header}: {status}: {checked} file(s) of {where}, "
+              f"{errors} error(s), {warnings} warning(s) (Biome {env.get('L9_BIOME_VERSION', '?')})"
+          ]
+          shown = [d for d in diagnostics if d.get("severity") in ("error", "fatal")][:20]
+          if shown:
+              lines += ["", "| File | Line | Rule | Message |", "|---|---|---|---|"]
+              for item in shown:
+                  location = item.get("location") or {}
+                  # 0 is Biome's file-level position (a format diagnostic).
+                  start = (location.get("start") or {}).get("line") or "—"
+                  message = str(item.get("message", "")).replace("|", "\\|")[:200]
+                  lines.append(
+                      f"| `{location.get('path', '')}` | {start} | `{item.get('category', '')}` | {message} |"
+                  )
+              more = errors - len(shown)
+              if more > 0:
+                  lines.append(f"\n+{more} more error(s): see the annotations")
+          write(lines)
+          if code == 1 and mode == "advisory":
+              print(f"Biome (advisory): {errors} error(s) in {where}; reported, not enforced")
+              sys.exit(0)
+          if code == 1:
+              print(
+                  f"::error title=Biome::{errors} error(s) in {where}; each is annotated at its "
+                  "file and line above, and the first are listed in the job summary"
+              )
+          elif code != 0:
+              print(f"::error title=Biome::biome ci exited {code}: an infrastructure failure, not a finding")
+          sys.exit(code)
+          PY
+
+      - name: Project Biome's SARIF for code scanning
+        if: ${{ !cancelled() && steps.biome_check.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          # Biome writes absolute file URIs; code scanning needs them relative
+          # to the repository. Its alerts are one more category, beside each
+          # Semgrep instance's: l9-central/biome/.
+          source = Path(os.environ["RUNNER_TEMP"], "biome.sarif")
+          if not source.is_file():
+              print("Biome wrote no SARIF (no Biome configuration): no biome category tonight")
+              raise SystemExit(0)
+          root = Path(os.environ["GITHUB_WORKSPACE"]).resolve().as_uri() + "/"
+          sarif = json.loads(source.read_text(encoding="utf-8"))
+          for run in sarif.get("runs", []):
+              for result in run.get("results", []):
+                  for location in result.get("locations", []):
+                      artifact = location.get("physicalLocation", {}).get("artifactLocation", {})
+                      uri = str(artifact.get("uri", ""))
+                      if uri.startswith(root):
+                          artifact["uri"] = uri[len(root):]
+                      elif uri.startswith("/"):
+                          artifact["uri"] = os.path.relpath(uri, os.environ["GITHUB_WORKSPACE"])
+          out = Path(os.environ["RUNNER_TEMP"], "nightly-sarif", "biome.sarif")
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(json.dumps(sarif), encoding="utf-8")
+          print("instance biome: projected")
+          PY
+
       # --- security.yml's dependency audit (generated, not copied) ---
       - name: Detect project languages
         id: detect
@@ -893,7 +1091,9 @@ jobs:
       # partial upload never writes a stale state into its snapshot.
       - id: sink_tool
         name: Fetch the sink tool (Core, this run's revision)
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' }}
+        # A Biome run that failed (not one with findings: it is advisory here)
+        # would drop its category and so close its alerts: nothing publishes.
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
