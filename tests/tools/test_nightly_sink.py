@@ -150,8 +150,9 @@ class PublishTests(unittest.TestCase):
         self.assertNotIn("automationDetails", document["runs"][0], "input untouched")
 
     def test_invalid_names_and_empty_sarif_are_refused(self) -> None:
+        document = sarif()
         with self.assertRaises(sink.SinkError):
-            sink.categorised(sarif(), "../x")
+            sink.categorised(document, "../x")
         with self.assertRaises(sink.SinkError):
             sink.categorised({"runs": []}, "python")
 
@@ -181,13 +182,14 @@ class PublishTests(unittest.TestCase):
                 github = FakeGitHub()
                 github.upload_status = status
                 github.processing = processing or ["pending"] * sink.PROCESSING_POLLS
+                files = {"python": sarif()}
                 with self.assertRaises(sink.SinkError):
                     sink.publish(
                         github,
                         REPO,
                         SHA,
                         "refs/heads/main",
-                        {"python": sarif()},
+                        files,
                         sleep=lambda _: None,
                     )
 
@@ -544,28 +546,28 @@ class WorkflowTests(unittest.TestCase):
         import yaml  # noqa: PLC0415
 
         workflow = yaml.safe_load(self.committed)
-        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        self.assertEqual({"contents": "read"}, workflow["permissions"])
         job = workflow["jobs"]["sink"]
-        self.assertEqual(job["permissions"], {"contents": "read"})
+        self.assertEqual({"contents": "read"}, job["permissions"])
         mint = next(s for s in job["steps"] if s.get("id") == "sink_token")
         self.assertEqual(
-            {k: v for k, v in mint["with"].items() if k.startswith("permission-")},
             {
                 "permission-security-events": "write",
                 "permission-issues": "write",
                 "permission-contents": "read",
             },
+            {k: v for k, v in mint["with"].items() if k.startswith("permission-")},
         )
-        self.assertEqual(mint["with"]["repositories"], "${{ matrix.name }}")
+        self.assertEqual("${{ matrix.name }}", mint["with"]["repositories"])
         import re  # noqa: PLC0415
 
         self.assertEqual(
-            set(re.findall(r"secrets\.([A-Z0-9_]+)", self.committed)),
             {"L9_GITHUB_READ_TOKEN", "L9_NIGHTLY_APP_PRIVATE_KEY"},
+            set(re.findall(r"secrets\.([A-Z0-9_]+)", self.committed)),
         )
         self.assertEqual(
-            workflow["jobs"]["plan"]["if"],
             "github.repository == 'Quantum-L9/l9-ci-core'",
+            workflow["jobs"]["plan"]["if"],
         )
 
     def test_biome_runs_advisory_so_its_findings_cannot_stop_the_scan(self) -> None:
@@ -593,9 +595,9 @@ class WorkflowTests(unittest.TestCase):
             (root / sink.WORKFLOW).write_text("stale\n", encoding="utf-8")
             out = io.StringIO()
             with mock.patch.object(sink, "ROOT", root), redirect_stdout(out):
-                self.assertEqual(sink.main(["render", "--check"]), 1)
-                self.assertEqual(sink.main(["render"]), 0)
-                self.assertEqual(sink.main(["render", "--check"]), 0)
+                self.assertEqual(1, sink.main(["render", "--check"]))
+                self.assertEqual(0, sink.main(["render"]))
+                self.assertEqual(0, sink.main(["render", "--check"]))
 
 
 class PlanTests(unittest.TestCase):
@@ -618,8 +620,8 @@ class PlanTests(unittest.TestCase):
         with mock.patch.object(sink._canary(), "resolve", self.resolved):
             matrix = sink.plan_matrix(ROOT, "quantum-l9/cursor-governance", {})
         self.assertEqual(
-            [leg["repository"] for leg in matrix["include"]],
             ["Quantum-L9/Cursor-Governance"],
+            [leg["repository"] for leg in matrix["include"]],
         )
 
     def test_an_undeclared_repository_is_refused(self) -> None:
@@ -638,11 +640,11 @@ class PlanTests(unittest.TestCase):
                 mock.patch.object(sink._canary(), "resolve", self.resolved),
                 redirect_stdout(io.StringIO()),
             ):
-                self.assertEqual(sink.main(["plan"]), 0)
+                self.assertEqual(0, sink.main(["plan"]))
             line = output.read_text(encoding="utf-8")
         self.assertTrue(line.startswith("matrix="))
         self.assertEqual(
-            json.loads(line[7:])["include"][0]["name"], "Cursor-Governance"
+            "Cursor-Governance", json.loads(line[7:])["include"][0]["name"]
         )
 
     def test_the_ratchet_reads_the_ledger_the_scan_was_given(self) -> None:

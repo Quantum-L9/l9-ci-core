@@ -58,7 +58,7 @@ TOKEN_ENV = "L9_NIGHTLY_SINK_TOKEN"
 CATEGORY_PREFIX = "l9-central/"
 ISSUE_TITLE = "Nightly findings (Core central scan)"
 ISSUE_MARKER = "<!-- l9-nightly-findings -->"
-SNAPSHOT = re.compile(r"<!-- l9-nightly-snapshot (\{.*?\}) -->", re.DOTALL)
+SNAPSHOT = re.compile(r"<!-- l9-nightly-snapshot (\{[^}]*\}) -->")
 SNAPSHOT_SCHEMA = "l9.nightly-findings-snapshot/v1"
 LEDGER_SCHEMA = "l9.finding-waivers/v1"
 LEDGER_KEYS = frozenset(
@@ -172,7 +172,7 @@ def retired(
         "version": first.get("version", "2.1.0"),
         "runs": [{"tool": {"driver": {**driver, "rules": []}}, "results": []}],
     }
-    return {name: empty for name in gone}
+    return dict.fromkeys(gone, empty)
 
 
 def _await_processing(
@@ -214,26 +214,27 @@ def open_alerts(transport: Transport, repository: str) -> dict[int, dict[str, st
         if status != 200 or not isinstance(response, list):
             raise SinkError(f"cannot read code scanning alerts (HTTP {status})")
         for alert in response:
-            instance = alert.get("most_recent_instance") or {}
-            category = str(instance.get("category") or "")
-            if not category.startswith(CATEGORY_PREFIX):
-                continue
-            rule = alert.get("rule") or {}
-            location = (instance.get("location") or {}).get("path", "")
-            where = instance.get("location") or {}
-            alerts[int(alert["number"])] = {
-                "category": category,
-                "line": str(where.get("start_line") or ""),
-                "rule": str(rule.get("id") or rule.get("name") or "?"),
-                "severity": str(
-                    rule.get("security_severity_level") or rule.get("severity") or ""
-                ),
-                "path": str(location),
-                "url": str(alert.get("html_url") or ""),
-            }
+            record = _alert_record(alert)
+            if record["category"].startswith(CATEGORY_PREFIX):
+                alerts[int(alert["number"])] = record
         if len(response) < 100:
             return alerts
         page += 1
+
+
+def _alert_record(alert: Mapping[str, Any]) -> dict[str, str]:
+    instance = alert.get("most_recent_instance") or {}
+    where = instance.get("location") or {}
+    rule = alert.get("rule") or {}
+    severity = rule.get("security_severity_level") or rule.get("severity") or ""
+    return {
+        "category": str(instance.get("category") or ""),
+        "line": str(where.get("start_line") or ""),
+        "rule": str(rule.get("id") or rule.get("name") or "?"),
+        "severity": str(severity),
+        "path": str(where.get("path") or ""),
+        "url": str(alert.get("html_url") or ""),
+    }
 
 
 def codeowners(transport: Transport, repository: str, ref: str) -> list[str]:
@@ -436,6 +437,10 @@ def _alert_line(number: int, alert: Mapping[str, str]) -> str:
     return f"- [#{number}]({alert['url']}) `{alert['rule']}`{severity} in `{alert['path']}`"
 
 
+def _is_rolling(issue: Mapping[str, Any]) -> bool:
+    return "pull_request" not in issue and ISSUE_MARKER in str(issue.get("body") or "")
+
+
 def find_issue(
     transport: Transport, repository: str, creator: str
 ) -> dict[str, Any] | None:
@@ -451,13 +456,11 @@ def find_issue(
         )
         if status != 200 or not isinstance(response, list):
             raise SinkError(f"cannot list issues (HTTP {status})")
-        for issue in response:
-            if "pull_request" in issue or ISSUE_MARKER not in str(
-                issue.get("body") or ""
-            ):
-                continue
-            if found is None or int(issue["number"]) > int(found["number"]):
-                found = issue
+        rolling = [i for i in response if _is_rolling(i)]
+        if found is not None:
+            rolling.append(found)
+        if rolling:
+            found = max(rolling, key=lambda issue: int(issue["number"]))
         if len(response) < 100:
             return found
         page += 1
