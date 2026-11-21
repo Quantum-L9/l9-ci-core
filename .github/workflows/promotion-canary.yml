@@ -11,7 +11,7 @@
 # pull request changes the analyze steps, at the base's pins (the `base` job).
 # Both are org-ci.yml's steps verbatim apart from the target identity.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 1436317e90b44643e0096c299a84ff7b753c54e1735a00b5cf9e24200c5a1613
+# worse. Head steps digest: 804faff26346ddab0b7c478ceb49048b65129c2875a36b9db7c17e35e1bb5b64
 name: Promotion canary (Core)
 on:
   pull_request:
@@ -72,6 +72,903 @@ jobs:
           INPUT_EVENT: ${{ inputs.event || '' }}
           INPUT_PROFILE: ${{ inputs.profile || '' }}
           INPUT_MATRIX_ID: canary-head-${{ matrix.slug }}
+          INPUT_SDK_REVISION: ${{ inputs.sdk-revision || '' }}
+          INPUT_SEMGREP_VERSION: ${{ inputs.semgrep-version || '1.171.0' }}
+          INPUT_RETENTION: ${{ inputs.artifact-retention-days || 14 }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+
+          gh_event = os.environ["GH_EVENT"]
+          requested_event = os.environ.get("INPUT_EVENT", "").strip()
+          requested_profile = os.environ.get("INPUT_PROFILE", "").strip()
+
+          allowed = {"pull_request", "push", "merge", "nightly", "release", "supply_chain"}
+          fixed = {"pull_request": "pr_fast", "push": "merge", "merge": "merge"}
+          native = {
+              "pull_request": ("pull_request", "pr_fast"),
+              "merge_group": ("merge", "merge"),
+              "push": ("push", "merge"),
+          }
+
+          if gh_event == "workflow_dispatch":
+              event_class = requested_event or "nightly"
+              profile = requested_profile or event_class
+          elif requested_event:
+              # Reusable workflows retain the caller's event_name, so the
+              # required event input—not `workflow_call`—identifies this path.
+              event_class = requested_event
+              if event_class not in allowed:
+                  raise SystemExit(f"unsupported event class: {event_class}")
+              expected_profile = fixed.get(event_class, event_class)
+              profile = requested_profile or expected_profile
+              if profile != expected_profile:
+                  raise SystemExit(
+                      "reusable profile claim "
+                      f"{profile!r} does not match event {event_class!r}; "
+                      f"expected {expected_profile!r}"
+                  )
+          elif gh_event in native:
+              event_class, profile = native[gh_event]
+          elif gh_event == "workflow_call":
+              raise SystemExit("workflow_call requires event")
+          else:
+              raise SystemExit(f"unsupported trigger: {gh_event}")
+
+          if event_class not in allowed:
+              raise SystemExit(f"unsupported event class: {event_class}")
+          matrix_id = os.environ.get("INPUT_MATRIX_ID", "org-semgrep")
+          if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", matrix_id):
+              raise SystemExit("invalid matrix-id")
+          sdk_revision = os.environ.get("INPUT_SDK_REVISION", "").strip()
+          if sdk_revision and not re.fullmatch(r"[0-9a-f]{40}", sdk_revision):
+              raise SystemExit("sdk-revision must be a full 40-character lowercase SHA")
+          semgrep_version = os.environ.get("INPUT_SEMGREP_VERSION", "1.171.0").strip()
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", semgrep_version):
+              raise SystemExit("semgrep-version must be an exact x.y.z version")
+          retention = int(os.environ.get("INPUT_RETENTION", "14"))
+          if not 1 <= retention <= 90:
+              raise SystemExit("artifact-retention-days must be between 1 and 90")
+
+          outputs = {
+              "event-class": event_class,
+              "profile": profile,
+              "matrix-id": matrix_id,
+              "sdk-revision": sdk_revision,
+              "semgrep-version": semgrep_version,
+              "artifact-retention-days": str(retention),
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+              for key, value in outputs.items():
+                  stream.write(f"{key}={value}\n")
+          PY
+
+      # A pull-request scope failure stays a failure. An explicit full-suite
+      # override is refused. Nothing here selects the deep suite, and a failed
+      # scope does not fall through to one. This runs before checkout so the
+      # apt cache still wraps repository verification directly.
+      - name: Refuse a pull-request full-suite fallback
+        if: >-
+          github.event_name == 'pull_request'
+          || github.event_name == 'merge_group'
+          || steps.runtime.outputs.event-class == 'pull_request'
+          || steps.runtime.outputs.event-class == 'merge'
+        env:
+          # A reusable call keeps the caller's event_name. The class resolved
+          # above is the pull-request or merge path this step is judging.
+          GH_EVENT: ${{ steps.runtime.outputs.event-class }}
+          FULL_SUITE_OVERRIDE: ${{ vars.L9_CI_FULL_SUITE || '' }}
+          PR_SCOPE_STATUS: ${{ vars.L9_PR_SCOPE_STATUS || '' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import sys
+
+
+          def finish(status, code):
+              print(status)
+              print("heavy=false")
+              print("suite_pass=false")
+              print("selected_suite=none")
+              raise SystemExit(code)
+
+
+          event = os.environ["GH_EVENT"]
+          override = os.environ.get("FULL_SUITE_OVERRIDE", "").strip().lower()
+          scope = os.environ.get("PR_SCOPE_STATUS", "").strip().lower()
+          pr_events = ("pull_request", "merge_group", "merge")
+
+          if event not in pr_events:
+              finish("NOT_APPLICABLE", 0)
+          if override not in ("", "0", "false", "no"):
+              finish("POLICY_PR_DEEP_FORBIDDEN", 1)
+          if scope in ("unknown", "failed", "unresolved", "pr_scope_unknown"):
+              finish("PR_SCOPE_UNKNOWN", 1)
+          finish("NO_FULL_SUITE_FALLBACK", 0)
+          PY
+
+      - name: Checkout immutable event revision
+        env:
+          REPOSITORY: ${{ matrix.repository }}
+          REVISION: ${{ matrix.revision }}
+          TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          # Depth 2: a pull_request / merge_group revision is a merge commit,
+          # and its base parent is what a consumer's merge-base check needs
+          # once origin is reset to an anonymous URL below.
+          git -c protocol.version=2 fetch --depth=2 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${REPOSITORY}.git"
+
+      # Reports consumer declarations of Core-owned tools that drift from
+      # Core's toolchain-lock.json, with file:line annotations, into
+      # .l9/runtime/toolchain-alignment.json. Advisory: drift never fails the
+      # job (housekeeping, operator decision 2026-11-20). The lock ships inside
+      # this pinned Core revision.
+      - id: toolchain
+        name: Report toolchain alignment (advisory)
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+
+      - name: Validate native push event context
+        if: github.event_name == 'push'
+        env:
+          EVENT_REPOSITORY: ${{ matrix.repository }}
+          EVENT_SHA: ${{ matrix.revision }}
+          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
+        run: |
+          set -euo pipefail
+          if [ "${EVENT_CLASS}" != "push" ]; then
+            echo "::error::push trigger resolved to event class '${EVENT_CLASS}'" >&2
+            exit 1
+          fi
+          if [ -z "${EVENT_REPOSITORY}" ]; then
+            echo "::error::push execution has no repository identity" >&2
+            exit 1
+          fi
+          if [ -z "${EVENT_SHA}" ]; then
+            echo "::error::push execution has no immutable SHA" >&2
+            exit 1
+          fi
+          case "${EVENT_SHA}" in
+            *[!0-9a-f]* | "") sha_ok=false ;;
+            ????????????????????????????????????????) sha_ok=true ;;
+            *) sha_ok=false ;;
+          esac
+          if [ "${sha_ok}" != "true" ]; then
+            echo "::error::push SHA is not a full 40-character revision" >&2
+            exit 1
+          fi
+          echo "Native push evaluation target: ${EVENT_REPOSITORY}@${EVENT_SHA}"
+
+      - id: consumer
+        name: Resolve optional consumer metadata
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+
+      - id: gov
+        name: Resolve central governance
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          profile: ${{ steps.runtime.outputs.profile }}
+          provider: semgrep
+          event-name: ${{ steps.runtime.outputs['event-class'] }}
+          repository: ${{ matrix.repository }}
+          ref: refs/heads/${{ matrix.branch }}
+          product-kind: ${{ steps.consumer.outputs['product-kind'] }}
+
+      - name: Validate consumer waiver pointers
+        env:
+          REQUESTED: ${{ steps.consumer.outputs['waiver-refs'] }}
+          APPLICABLE: ${{ steps.gov.outputs['waiver-ids'] }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          requested = {item for item in os.environ.get("REQUESTED", "").split(",") if item}
+          applicable = {item for item in os.environ.get("APPLICABLE", "").split(",") if item}
+          unknown = sorted(requested - applicable)
+          if unknown:
+              raise SystemExit(f"consumer waiver_refs are not centrally applicable: {unknown}")
+          PY
+
+      - id: names
+        name: Resolve artifact name
+        env:
+          MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
+        run: |
+          set -euo pipefail
+          echo "artifact-name=l9-semgrep-${MATRIX_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+      - id: sdk
+        name: Provision immutable SDK
+        if: steps.gov.outputs.enabled == 'true'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          sdk-source: git
+          sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+          sdk-revision: ${{ steps.runtime.outputs['sdk-revision'] || '47ae3ac5bc8c1a14cc33e4985ce392996cd27ccc' }}
+          # AGENTS.md §27: l9-ci-sdk is private. Read-only org secret; the
+          # action passes it to git only as a per-command header.
+          github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
+
+      - id: language
+        name: Detect repository language (SDK)
+        if: steps.gov.outputs.enabled == 'true'
+        # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          repo-class: ${{ steps.consumer.outputs['repo-class'] }}
+          root: .
+
+      # L9-CI-CORE-003: every applicable provider/language instance is planned,
+      # run and accounted for, so a second language is never silently dropped
+      # in favour of the detected one. The SDK states the facts (capability
+      # inventory of this exact snapshot, taken before repository verification
+      # can touch the tree); requiredness is Core's (plan-required-instances).
+      - id: inventory
+        name: Inventory repository capabilities (SDK)
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        env:
+          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
+        run: |
+          set -euo pipefail
+          directory=".l9/runtime/${L9_MATRIX_ID}/required-instances"
+          mkdir -p "${directory}"
+          "${L9_EXECUTABLE}" providers inventory --root . --format json \
+            --output "${directory}/inventory.json"
+          echo "path=${directory}/inventory.json" >> "$GITHUB_OUTPUT"
+
+      - id: plan
+        name: Plan required instances (Core)
+        if: steps.inventory.outcome == 'success'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          inventory: ${{ steps.inventory.outputs.path }}
+          repository: ${{ matrix.repository }}
+          revision: ${{ matrix.revision }}
+          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+          required-providers: ${{ steps.gov.outputs['required-provider'] == 'true' && 'semgrep' || '' }}
+          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
+
+      # Core owns the consumer-facing Biome check end to end: the version is
+      # the `biome` key of Core's toolchain lock, the binary is digest-locked,
+      # and the run is blocking (findings annotate, then fail the step;
+      # infrastructure failures are fatal). It is independent of Semgrep
+      # governance; a consumer without biome.json or biome.jsonc is
+      # not_applicable and nothing is downloaded.
+      - id: biome
+        name: Install Biome (digest-locked central pin)
+        if: hashFiles('biome.json', 'biome.jsonc') != ''
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+
+      - id: biome_check
+        name: Run Biome check (blocking)
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          executable: ${{ steps.biome.outputs.executable }}
+          provider-version: ${{ steps.biome.outputs['provider-version'] }}
+          mode: blocking
+
+      # Repository verification runs the consumer's `make setup`, which may
+      # install OS packages with apt (e.g. Playwright's Chromium libraries and
+      # fonts). Their downloaded .deb archives are cached per repository so an
+      # unchanged package set is not re-fetched from the Ubuntu mirror on every
+      # evaluation: Website-Bot's 21.1 MB took 7-8 minutes at ~45 kB/s on some
+      # runs and 1 s on others. Only archives are cached, never installed
+      # state, and apt verifies each cached .deb against the signed package
+      # index before use, re-downloading any that do not match. Entries are
+      # content-addressed (cache entries are immutable): restore never matches
+      # exactly and takes the newest entry for this runner image, else this
+      # image family; the save key is a digest of the archive set kept after
+      # verification, so only a changed set stores a new entry.
+      # Cache-service errors only warn, so this can never fail verification.
+      - id: apt_archive_cache_dir
+        name: Route apt package archives to the verification cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/l9-apt-archives"
+          mkdir -p "${dir}/partial"
+          if id _apt >/dev/null 2>&1; then
+            sudo chown _apt "${dir}/partial"
+          fi
+          printf '%s\n' \
+            "Dir::Cache::Archives \"${dir}/\";" \
+            'APT::Keep-Downloaded-Packages "true";' \
+            'Binary::apt::APT::Keep-Downloaded-Packages "true";' \
+            | sudo tee /etc/apt/apt.conf.d/99-l9-archive-cache >/dev/null
+          family="l9-apt-archives-v1-${ImageOS:-unknown}-$(uname -m)-"
+          image="${family}${ImageVersion:-unknown}-"
+          {
+            echo "path=${dir}"
+            echo "family=${family}"
+            echo "image=${image}"
+          } >> "$GITHUB_OUTPUT"
+
+      - id: apt_archive_cache
+        name: Restore cached apt package archives
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.apt_archive_cache_dir.outputs.path }}/*.deb
+          # Never saved, so restore always resolves through the prefixes.
+          key: ${{ steps.apt_archive_cache_dir.outputs.image }}restore
+          restore-keys: |
+            ${{ steps.apt_archive_cache_dir.outputs.image }}
+            ${{ steps.apt_archive_cache_dir.outputs.family }}
+
+      - id: repository_verify
+        name: Run repository verification contract
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          workspace: .
+          # AGENTS.md §27: held only by the registry snapshot and the composer
+          # prefetch. Both run before and apart from the consumer's make
+          # targets. The verify step does not receive the token.
+          github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
+
+      # Keep only archives of package versions installed in this evaluation, so
+      # superseded versions and packages a repository stopped installing drop
+      # out instead of accumulating across images. The save key is a digest of
+      # the kept set: an unchanged set matches the restored entry and stores
+      # nothing, and a repository whose setup installs no OS packages keeps
+      # nothing and stores nothing.
+      - id: apt_archive_inventory
+        name: Inventory apt package archives
+        if: always() && steps.apt_archive_cache_dir.outcome == 'success'
+        shell: bash
+        env:
+          ARCHIVE_DIR: ${{ steps.apt_archive_cache_dir.outputs.path }}
+          IMAGE_PREFIX: ${{ steps.apt_archive_cache_dir.outputs.image }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for archive in "${ARCHIVE_DIR}"/*.deb; do
+            package="$(dpkg-deb -f "${archive}" Package)"
+            version="$(dpkg-deb -f "${archive}" Version)"
+            if ! dpkg-query -W -f='${Version}\n' "${package}" 2>/dev/null | grep -qxF -- "${version}"; then
+              sudo rm -f -- "${archive}"
+            fi
+          done
+          archives=("${ARCHIVE_DIR}"/*.deb)
+          digest=""
+          if [ "${#archives[@]}" -gt 0 ]; then
+            digest="$(printf '%s\n' "${archives[@]##*/}" | LC_ALL=C sort | sha256sum | cut -c1-16)"
+          fi
+          {
+            echo "count=${#archives[@]}"
+            echo "key=${IMAGE_PREFIX}${digest}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Save apt package archives
+        if: always() && steps.apt_archive_inventory.outputs.count != '' && steps.apt_archive_inventory.outputs.count != '0' && steps.apt_archive_inventory.outputs.key != steps.apt_archive_cache.outputs.cache-matched-key
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.apt_archive_cache_dir.outputs.path }}/*.deb
+          key: ${{ steps.apt_archive_inventory.outputs.key }}
+
+      # The provider toolchain is a locked contract, not a resolution. Core
+      # selects the setup-python action by full SHA, the interpreter by exact
+      # version (major.minor.patch, so a patch release cannot float in), the
+      # Semgrep version exactly, and the Semgrep dependency closure by digest
+      # inside the pinned Core action. Those selections change only with a
+      # Core revision; the hosted runner image underneath them is GitHub's,
+      # not Core's (workflow audit 2026-09-13, F-005). The SDK venv provisioned
+      # above is untouched; only the provider install rides this interpreter.
+      - name: Set up locked Python for the central toolchain
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12.14"
+
+      - id: semgrep
+        name: Install Semgrep (hash-locked central pin)
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
+
+      - name: Run + normalize Semgrep (SDK)
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: semgrep-run
+          language: ${{ steps.language.outputs.language }}
+          raw-output: artifacts/raw/semgrep/${{ steps.runtime.outputs['matrix-id'] }}/report.json
+          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
+          root: .
+          snapshot-id: ${{ matrix.revision }}
+          revision: ${{ matrix.revision }}
+          provider-executable: ${{ steps.semgrep.outputs.executable }}
+          strict: ${{ steps.gov.outputs.strict }}
+          required: ${{ steps.gov.outputs['required-provider'] }}
+          policy: ${{ steps.gov.outputs['sdk-policy'] }}
+          # The Core-staged identity map for the detected language. Without it
+          # a strict profile (`release`) cannot resolve third-party rule
+          # identities and `semgrep run --strict` refuses the run outright.
+          identity-map: ${{ steps.gov.outputs['identity-map-directory'] }}/${{ steps.language.outputs.language }}.yaml
+
+      - name: Validate canonical bundle
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
+
+      - id: gate
+        name: Evaluate SDK technical gate
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        env:
+          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
+          L9_STRICT: ${{ steps.gov.outputs.strict }}
+        run: |
+          set -euo pipefail
+          args=(
+            gate evaluate
+            --bundle ".l9/runtime/${L9_MATRIX_ID}/finding-bundle.json"
+            --output ".l9/runtime/${L9_MATRIX_ID}/gate-result.json"
+          )
+          if [ "${L9_STRICT:-}" = "true" ]; then
+            args+=(--strict-unresolved)
+          else
+            args+=(--no-strict-unresolved)
+          fi
+          exit_code=0
+          "${L9_EXECUTABLE}" "${args[@]}" || exit_code=$?
+          case "${exit_code}" in
+            0) status="pass" ;;
+            1) status="fail" ;;
+            6) status="incomplete" ;;
+            *) echo "gate evaluate failed with unexpected exit ${exit_code}" >&2; exit "${exit_code}" ;;
+          esac
+          {
+            echo "gate-status=${status}"
+            echo "gate-exit-code=${exit_code}"
+          } >> "$GITHUB_OUTPUT"
+          echo "SDK technical gate: ${status} (exit ${exit_code})"
+
+      - id: instances
+        name: Run every planned instance (SDK)
+        if: steps.plan.outcome == 'success'
+        env:
+          L9_INSTANCE_DIR: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances
+          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
+          L9_PROVIDER_EXECUTABLE: ${{ steps.semgrep.outputs.executable }}
+          L9_PRIMARY_LANGUAGE: ${{ steps.language.outputs.language }}
+          L9_PRIMARY_STATUS: ${{ steps.gate.outputs['gate-status'] }}
+          L9_STRICT: ${{ steps.gov.outputs.strict }}
+          L9_REQUIRED: ${{ steps.gov.outputs['required-provider'] }}
+          L9_POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
+          L9_IDENTITY_DIR: ${{ steps.gov.outputs['identity-map-directory'] }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          # One record per planned semgrep instance (l9.core-instance-result/v1). The
+          # primary language already ran through the full pipeline above, so its gate
+          # status is reused; every other planned language runs the SDK now. An instance
+          # that cannot conclude gets no record, so the aggregate reports it incomplete,
+          # and an SDK execution error (run, bundle validation, or a gate exit outside
+          # 0/1/6) fails this step in every mode, exactly as it does for the primary
+          # language's own steps: infrastructure failure is never advisory.
+          env = os.environ
+          directory = Path(env["L9_INSTANCE_DIR"])
+          plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
+          results = directory / "results"
+          results.mkdir(parents=True, exist_ok=True)
+          executable = env["L9_EXECUTABLE"]
+          provider_dir = str(Path(env["L9_PROVIDER_EXECUTABLE"]).parent)
+          run_env = dict(env, PATH=provider_dir + os.pathsep + env.get("PATH", ""))
+          gate_status = {0: "pass", 1: "fail", 6: "incomplete"}
+          errors = []
+
+
+          def record(language, status):
+              body = {
+                  "schema": "l9.core-instance-result/v1",
+                  "repository": plan["repository"],
+                  "provider": "semgrep",
+                  "target": "language:" + language,
+                  "revision": plan["revision"],
+                  "sdk_revision": plan["sdk_revision"],
+                  "status": status,
+              }
+              path = results / ("semgrep-" + language + ".json")
+              path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
+              print("instance semgrep:language:" + language + ": " + status)
+
+
+          def sdk(*args):
+              return subprocess.run([executable, *args], env=run_env, check=False).returncode
+
+
+          for instance in plan["instances"]:
+              if instance["provider"] != "semgrep" or instance["prerequisite"] != "applicable":
+                  continue
+              kind, _, language = instance["target"].partition(":")
+              if kind != "language" or language not in ("python", "typescript"):
+                  continue
+              if language == env.get("L9_PRIMARY_LANGUAGE"):
+                  primary = env.get("L9_PRIMARY_STATUS", "")
+                  if primary in ("pass", "fail", "incomplete"):
+                      record(language, primary)
+                  else:
+                      print("instance semgrep:language:" + language + ": no primary gate status", file=sys.stderr)
+                  continue
+              work = directory / language
+              bundle = str(work / "finding-bundle.json")
+              run = [
+                  "semgrep", "run", "--language", language, "--output", bundle,
+                  "--root", ".", "--snapshot-id", plan["revision"],
+                  "--revision", plan["revision"],
+                  "--identity-map", str(Path(env["L9_IDENTITY_DIR"]) / (language + ".yaml")),
+                  "--policy", env["L9_POLICY"],
+              ]
+              if env.get("L9_STRICT") == "true":
+                  run.append("--strict")
+              if env.get("L9_REQUIRED") == "true":
+                  run.append("--required")
+              work.mkdir(parents=True, exist_ok=True)
+              code = sdk(*run)
+              if code == 0:
+                  code = sdk("bundle", "validate", bundle)
+              if code != 0:
+                  errors.append("instance semgrep:language:" + language + ": SDK run failed (exit " + str(code) + ")")
+                  continue
+              gate = ["gate", "evaluate", "--bundle", bundle, "--output", str(work / "gate-result.json")]
+              gate.append("--strict-unresolved" if env.get("L9_STRICT") == "true" else "--no-strict-unresolved")
+              code = sdk(*gate)
+              if code in gate_status:
+                  record(language, gate_status[code])
+              else:
+                  errors.append("instance semgrep:language:" + language + ": gate exited " + str(code))
+
+          for error in errors:
+              print("::error::" + error, file=sys.stderr)
+          sys.exit(1 if errors else 0)
+          PY
+
+      - id: aggregate
+        name: Aggregate required instances (Core)
+        if: always() && steps.plan.outcome == 'success'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
+          results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
+          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/aggregate.json
+
+      - name: Project agent-review payload
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: bundle-project-agent-payload
+          input: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
+          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/agent-review-payload.json
+          strict: ${{ steps.gov.outputs.strict }}
+
+      - name: Project SARIF (SDK-owned)
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          executable: ${{ steps.sdk.outputs.executable }}
+          operation: bundle-project-sarif
+          input: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
+          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/results.sarif
+          strict: ${{ steps.gov.outputs.strict }}
+
+      - id: route
+        name: Route artifacts
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          provider: semgrep
+          matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
+          raw-report: artifacts/raw/semgrep/${{ steps.runtime.outputs['matrix-id'] }}/report.json
+          bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
+          agent-payload: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/agent-review-payload.json
+          sarif: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/results.sarif
+          destination-root: artifacts
+
+      - name: Stage technical gate result
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        env:
+          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
+        run: |
+          set -euo pipefail
+          cp ".l9/runtime/${L9_MATRIX_ID}/gate-result.json" "artifacts/l9/${L9_MATRIX_ID}/gate-result.json"
+          cp .l9/runtime/capabilities.json "artifacts/l9/${L9_MATRIX_ID}/repository-capabilities.json"
+
+      - name: Build artifact manifest
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          provider: semgrep
+          matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
+          artifact-name: ${{ steps.names.outputs['artifact-name'] }}
+          repository: ${{ matrix.repository }}
+          repository-revision: ${{ matrix.revision }}
+          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+          artifact-root: artifacts
+          bundle: ${{ steps.route.outputs.bundle }}
+          agent-payload: ${{ steps.route.outputs['agent-payload'] }}
+          raw-directory: ${{ steps.route.outputs['raw-directory'] }}
+          routing-record: ${{ steps.route.outputs['routing-record'] }}
+          output: artifacts/metadata/${{ steps.runtime.outputs['matrix-id'] }}/artifact-index.json
+
+      - id: upload
+        name: Upload analysis artifact set
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.names.outputs['artifact-name'] }}
+          path: |
+            artifacts/raw/semgrep/${{ steps.runtime.outputs['matrix-id'] }}/
+            artifacts/l9/${{ steps.runtime.outputs['matrix-id'] }}/
+            artifacts/metadata/${{ steps.runtime.outputs['matrix-id'] }}/
+          if-no-files-found: error
+          retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
+
+      - id: handoff
+        name: Create artifact handoff descriptor
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        # CORE_ACTIONS_PIN
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@2ff05a03a1edb8a9a4602a915fb839dcadf21d56
+        with:
+          artifact-id: ${{ steps.upload.outputs.artifact-id }}
+          artifact-name: ${{ steps.names.outputs['artifact-name'] }}
+          artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+          provider: semgrep
+          matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
+          repository: ${{ matrix.repository }}
+          repository-revision: ${{ matrix.revision }}
+          workflow-head-sha: ${{ matrix.revision }}
+          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
+          output: .l9/runtime/handoffs/${{ steps.runtime.outputs['matrix-id'] }}.json
+
+      - name: Write central CI summary
+        if: always()
+        env:
+          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
+          PROFILE: ${{ steps.runtime.outputs.profile }}
+          MODE: ${{ steps.gov.outputs.mode }}
+          SDK_REVISION: ${{ steps.sdk.outputs['sdk-revision'] }}
+          LANGUAGE: ${{ steps.language.outputs.language }}
+          REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status || steps.repository_verify.outcome }}
+          GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
+          INSTANCES_STATUS: ${{ steps.aggregate.outputs.status }}
+          ARTIFACT_NAME: ${{ steps.names.outputs['artifact-name'] }}
+          TOOLCHAIN_ALIGNMENT: ${{ steps.toolchain.outcome }}
+          BIOME_STATUS: ${{ steps.biome_check.outputs.status || steps.biome_check.outcome }}
+        run: |
+          {
+            echo "### L9 central CI"
+            echo
+            echo "- Event: \`${EVENT_CLASS:-unknown}\`"
+            echo "- Profile: \`${PROFILE:-unknown}\`"
+            echo "- Mode: \`${MODE:-unknown}\`"
+            echo "- SDK revision: \`${SDK_REVISION:-unknown}\`"
+            echo "- Detected language: \`${LANGUAGE:-unknown}\`"
+            echo "- Repository verification: \`${REPOSITORY_VERIFY:-unavailable}\`"
+            echo "- Technical gate: \`${GATE_STATUS:-unavailable}\`"
+            echo "- Required instances: \`${INSTANCES_STATUS:-unavailable}\`"
+            echo "- Artifact set: \`${ARTIFACT_NAME:-unavailable}\`"
+            echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
+            echo "- Biome (blocking): \`${BIOME_STATUS:-unavailable}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce repository verification
+        # Contract and infrastructure failures are fatal on every profile,
+        # including advisory nightly, release, and supply_chain (AGENTS.md §9).
+        # Finding mode stays on the technical-gate step below.
+        if: always()
+        env:
+          REPOSITORY_VERIFY_STATUS: ${{ steps.repository_verify.outputs.status }}
+          REPOSITORY_VERIFY_MODE: ${{ steps.repository_verify.outputs.contract-mode }}
+          REPOSITORY_VERIFY_FAILURE: ${{ steps.repository_verify.outputs.failure-kind }}
+        run: |
+          set -euo pipefail
+          # An absent contract is tolerated only where Core's bundled policy
+          # resolved migration mode; required mode accepts pass only.
+          case "${REPOSITORY_VERIFY_MODE}:${REPOSITORY_VERIFY_STATUS}" in
+            migration:pass|migration:not_applicable|required:pass) ;;
+            *)
+              echo "Blocking profile: repository verification did not pass (mode ${REPOSITORY_VERIFY_MODE:-unavailable}; status ${REPOSITORY_VERIFY_STATUS:-unavailable}; failure ${REPOSITORY_VERIFY_FAILURE:-unavailable})" >&2
+              exit 1
+              ;;
+          esac
+
+      # The verdict is the aggregate over every planned instance, the primary
+      # language's gate among them. A required instance that is missing,
+      # skipped or unfinished makes the aggregate incomplete (exit 6), never
+      # pass; no aggregate at all is incomplete too.
+      # Toolchain drift is housekeeping (operator decision 2026-11-20: only
+      # checks that protect working or secure code block a merge). Each
+      # declaration of a Core-owned tool that differs from toolchain-lock.json
+      # is a warning at file:line and a line in the summary; it never fails
+      # the job. align.py decides what drift is (the report's own status).
+      - name: Report toolchain alignment drift (advisory)
+        if: always()
+        env:
+          REPORT: .l9/runtime/toolchain-alignment.json
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          try:
+              report = json.loads(Path(os.environ["REPORT"]).read_text(encoding="utf-8"))
+              status = report["status"]
+              findings = report["findings"]
+          except (OSError, ValueError, KeyError, TypeError) as error:
+              print(f"::warning::toolchain alignment report unavailable ({error}); drift not reported")
+          else:
+              drift = [
+                  item
+                  for item in findings
+                  if item.get("class") not in ("exact_match", "range_admits_lock")
+              ]
+              for item in drift:
+                  print(
+                      f"::warning file={item.get('path')},line={item.get('line')}::"
+                      f"{item.get('tool')} {item.get('declared') or '(no version)'} "
+                      f"is not Core's locked {item.get('lock')} ({item.get('class')})"
+                  )
+              line = f"- Toolchain drift (advisory): `{status}`, {len(drift)} declaration(s)"
+              summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as stream:
+                      stream.write(line + "\n")
+              print(line)
+          PY
+
+      - name: Enforce central mode on SDK technical gate
+        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
+        env:
+          GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
+          AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
+          AGGREGATE_EXIT: ${{ steps.aggregate.outputs['exit-code'] }}
+          ACCOUNTED: ${{ steps.aggregate.outputs.accounted }}
+          MODE: ${{ steps.gov.outputs.mode }}
+        run: |
+          set -euo pipefail
+          status="${AGGREGATE_STATUS:-incomplete}"
+          exit_code="${AGGREGATE_EXIT:-6}"
+          echo "SDK technical gate (primary language): ${GATE_STATUS:-unavailable}"
+          echo "Required instances: ${status} (exit ${exit_code}; accounted ${ACCOUNTED:-false}); central mode: ${MODE}"
+          if [ "${status}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
+            echo "Blocking mode: failing job on required instances '${status}'" >&2
+            exit "${exit_code}"
+          fi
+      # --- canary record (not part of org-ci.yml) ---
+      - name: Record the canary leg
+        if: always()
+        env:
+          SIDE: head
+          DIGEST: 804faff26346ddab0b7c478ceb49048b65129c2875a36b9db7c17e35e1bb5b64
+          JOB_STATUS: ${{ job.status }}
+          AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
+          REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
+          MATRIX_ID: canary-head-${{ matrix.slug }}
+          SLUG: ${{ matrix.slug }}
+          REPOSITORY: ${{ matrix.repository }}
+          REVISION: ${{ matrix.revision }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/promotion-canary"
+          python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          env = os.environ
+          blocking = set()
+          runtime = Path(".l9/runtime", env["MATRIX_ID"])
+          for path in sorted(runtime.rglob("gate-result.json")):
+              try:
+                  result = json.loads(path.read_text(encoding="utf-8"))
+                  blocking.update(result["blocking_finding_ids"])
+              except (OSError, ValueError, KeyError, TypeError):
+                  pass
+          verify = env.get("REPOSITORY_VERIFY", "")
+          aggregate = env.get("AGGREGATE_STATUS", "")
+          if env["JOB_STATUS"] == "success":
+              status = "pass"
+          elif env["JOB_STATUS"] == "cancelled":
+              # Superseded by a newer run, or over the leg's time limit.
+              status = "cancelled"
+          elif aggregate == "incomplete":
+              status = "incomplete"
+          elif verify not in ("", "pass", "not_applicable"):
+              status = "verification"
+          elif aggregate == "fail":
+              status = "findings"
+          elif aggregate == "pass" and verify in ("pass", "not_applicable"):
+              # Verified and analysed, then a later gate step failed.
+              status = "enforcement"
+          else:
+              # The job failed before any verdict: infrastructure, not the
+              # repository.
+              status = "error"
+          record = {
+              "schema": "l9.promotion-canary-leg/v2",
+              "side": env["SIDE"],
+              "digest": env["DIGEST"],
+              "repository": env["REPOSITORY"],
+              "revision": env["REVISION"],
+              "status": status,
+              "job_status": env["JOB_STATUS"],
+              "aggregate": aggregate,
+              "repository_verification": verify,
+              "blocking_finding_ids": sorted(blocking),
+          }
+          name = env["SIDE"] + "-" + env["SLUG"] + ".json"
+          path = Path(env["RUNNER_TEMP"], "promotion-canary", name)
+          path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(record))
+          PY
+
+      - name: Upload the canary leg record
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: promotion-canary-head-${{ matrix.slug }}
+          path: ${{ runner.temp }}/promotion-canary/head-${{ matrix.slug }}.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # --- base pins leg: begin (rendered from origin/main's org-ci.yml) ---
+  base:
+    name: Canary ${{ matrix.repository }} (base pins)
+    needs: plan
+    if: needs.plan.outputs.applies == 'true' && needs.plan.outputs.differential == 'true' && needs.plan.outputs['base-current'] == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - id: runtime
+        name: Resolve central runtime class
+        env:
+          GH_EVENT: ${{ github.event_name }}
+          INPUT_EVENT: ${{ inputs.event || '' }}
+          INPUT_PROFILE: ${{ inputs.profile || '' }}
+          INPUT_MATRIX_ID: canary-base-${{ matrix.slug }}
           INPUT_SDK_REVISION: ${{ inputs.sdk-revision || '' }}
           INPUT_SEMGREP_VERSION: ${{ inputs.semgrep-version || '1.171.0' }}
           INPUT_RETENTION: ${{ inputs.artifact-retention-days || 14 }}
@@ -876,905 +1773,8 @@ jobs:
       - name: Record the canary leg
         if: always()
         env:
-          SIDE: head
-          DIGEST: 1436317e90b44643e0096c299a84ff7b753c54e1735a00b5cf9e24200c5a1613
-          JOB_STATUS: ${{ job.status }}
-          AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
-          REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
-          MATRIX_ID: canary-head-${{ matrix.slug }}
-          SLUG: ${{ matrix.slug }}
-          REPOSITORY: ${{ matrix.repository }}
-          REVISION: ${{ matrix.revision }}
-        run: |
-          set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/promotion-canary"
-          python3 -I - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          env = os.environ
-          blocking = set()
-          runtime = Path(".l9/runtime", env["MATRIX_ID"])
-          for path in sorted(runtime.rglob("gate-result.json")):
-              try:
-                  result = json.loads(path.read_text(encoding="utf-8"))
-                  blocking.update(result["blocking_finding_ids"])
-              except (OSError, ValueError, KeyError, TypeError):
-                  pass
-          verify = env.get("REPOSITORY_VERIFY", "")
-          aggregate = env.get("AGGREGATE_STATUS", "")
-          if env["JOB_STATUS"] == "success":
-              status = "pass"
-          elif env["JOB_STATUS"] == "cancelled":
-              # Superseded by a newer run, or over the leg's time limit.
-              status = "cancelled"
-          elif aggregate == "incomplete":
-              status = "incomplete"
-          elif verify not in ("", "pass", "not_applicable"):
-              status = "verification"
-          elif aggregate == "fail":
-              status = "findings"
-          elif aggregate == "pass" and verify in ("pass", "not_applicable"):
-              # Verified and analysed, then a later gate step failed.
-              status = "enforcement"
-          else:
-              # The job failed before any verdict: infrastructure, not the
-              # repository.
-              status = "error"
-          record = {
-              "schema": "l9.promotion-canary-leg/v2",
-              "side": env["SIDE"],
-              "digest": env["DIGEST"],
-              "repository": env["REPOSITORY"],
-              "revision": env["REVISION"],
-              "status": status,
-              "job_status": env["JOB_STATUS"],
-              "aggregate": aggregate,
-              "repository_verification": verify,
-              "blocking_finding_ids": sorted(blocking),
-          }
-          name = env["SIDE"] + "-" + env["SLUG"] + ".json"
-          path = Path(env["RUNNER_TEMP"], "promotion-canary", name)
-          path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-          print(json.dumps(record))
-          PY
-
-      - name: Upload the canary leg record
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: promotion-canary-head-${{ matrix.slug }}
-          path: ${{ runner.temp }}/promotion-canary/head-${{ matrix.slug }}.json
-          if-no-files-found: ignore
-          retention-days: 14
-
-  # --- base pins leg: begin (rendered from origin/main's org-ci.yml) ---
-  base:
-    name: Canary ${{ matrix.repository }} (base pins)
-    needs: plan
-    if: needs.plan.outputs.applies == 'true' && needs.plan.outputs.differential == 'true' && needs.plan.outputs['base-current'] == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    steps:
-      - id: runtime
-        name: Resolve central runtime class
-        env:
-          GH_EVENT: ${{ github.event_name }}
-          INPUT_EVENT: ${{ inputs.event || '' }}
-          INPUT_PROFILE: ${{ inputs.profile || '' }}
-          INPUT_MATRIX_ID: canary-base-${{ matrix.slug }}
-          INPUT_SDK_REVISION: ${{ inputs.sdk-revision || '' }}
-          INPUT_SEMGREP_VERSION: ${{ inputs.semgrep-version || '1.171.0' }}
-          INPUT_RETENTION: ${{ inputs.artifact-retention-days || 14 }}
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os
-          import re
-
-          gh_event = os.environ["GH_EVENT"]
-          requested_event = os.environ.get("INPUT_EVENT", "").strip()
-          requested_profile = os.environ.get("INPUT_PROFILE", "").strip()
-
-          allowed = {"pull_request", "push", "merge", "nightly", "release", "supply_chain"}
-          fixed = {"pull_request": "pr_fast", "push": "merge", "merge": "merge"}
-          native = {
-              "pull_request": ("pull_request", "pr_fast"),
-              "merge_group": ("merge", "merge"),
-              "push": ("push", "merge"),
-          }
-
-          if gh_event == "workflow_dispatch":
-              event_class = requested_event or "nightly"
-              profile = requested_profile or event_class
-          elif requested_event:
-              # Reusable workflows retain the caller's event_name, so the
-              # required event input—not `workflow_call`—identifies this path.
-              event_class = requested_event
-              if event_class not in allowed:
-                  raise SystemExit(f"unsupported event class: {event_class}")
-              expected_profile = fixed.get(event_class, event_class)
-              profile = requested_profile or expected_profile
-              if profile != expected_profile:
-                  raise SystemExit(
-                      "reusable profile claim "
-                      f"{profile!r} does not match event {event_class!r}; "
-                      f"expected {expected_profile!r}"
-                  )
-          elif gh_event in native:
-              event_class, profile = native[gh_event]
-          elif gh_event == "workflow_call":
-              raise SystemExit("workflow_call requires event")
-          else:
-              raise SystemExit(f"unsupported trigger: {gh_event}")
-
-          if event_class not in allowed:
-              raise SystemExit(f"unsupported event class: {event_class}")
-          matrix_id = os.environ.get("INPUT_MATRIX_ID", "org-semgrep")
-          if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", matrix_id):
-              raise SystemExit("invalid matrix-id")
-          sdk_revision = os.environ.get("INPUT_SDK_REVISION", "").strip()
-          if sdk_revision and not re.fullmatch(r"[0-9a-f]{40}", sdk_revision):
-              raise SystemExit("sdk-revision must be a full 40-character lowercase SHA")
-          semgrep_version = os.environ.get("INPUT_SEMGREP_VERSION", "1.171.0").strip()
-          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", semgrep_version):
-              raise SystemExit("semgrep-version must be an exact x.y.z version")
-          retention = int(os.environ.get("INPUT_RETENTION", "14"))
-          if not 1 <= retention <= 90:
-              raise SystemExit("artifact-retention-days must be between 1 and 90")
-
-          outputs = {
-              "event-class": event_class,
-              "profile": profile,
-              "matrix-id": matrix_id,
-              "sdk-revision": sdk_revision,
-              "semgrep-version": semgrep_version,
-              "artifact-retention-days": str(retention),
-          }
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
-              for key, value in outputs.items():
-                  stream.write(f"{key}={value}\n")
-          PY
-
-      # A pull-request scope failure stays a failure. An explicit full-suite
-      # override is refused. Nothing here selects the deep suite, and a failed
-      # scope does not fall through to one. This runs before checkout so the
-      # apt cache still wraps repository verification directly.
-      - name: Refuse a pull-request full-suite fallback
-        if: >-
-          github.event_name == 'pull_request'
-          || github.event_name == 'merge_group'
-          || steps.runtime.outputs.event-class == 'pull_request'
-          || steps.runtime.outputs.event-class == 'merge'
-        env:
-          # A reusable call keeps the caller's event_name. The class resolved
-          # above is the pull-request or merge path this step is judging.
-          GH_EVENT: ${{ steps.runtime.outputs.event-class }}
-          FULL_SUITE_OVERRIDE: ${{ vars.L9_CI_FULL_SUITE || '' }}
-          PR_SCOPE_STATUS: ${{ vars.L9_PR_SCOPE_STATUS || '' }}
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os
-          import sys
-
-
-          def finish(status, code):
-              print(status)
-              print("heavy=false")
-              print("suite_pass=false")
-              print("selected_suite=none")
-              raise SystemExit(code)
-
-
-          event = os.environ["GH_EVENT"]
-          override = os.environ.get("FULL_SUITE_OVERRIDE", "").strip().lower()
-          scope = os.environ.get("PR_SCOPE_STATUS", "").strip().lower()
-          pr_events = ("pull_request", "merge_group", "merge")
-
-          if event not in pr_events:
-              finish("NOT_APPLICABLE", 0)
-          if override not in ("", "0", "false", "no"):
-              finish("POLICY_PR_DEEP_FORBIDDEN", 1)
-          if scope in ("unknown", "failed", "unresolved", "pr_scope_unknown"):
-              finish("PR_SCOPE_UNKNOWN", 1)
-          finish("NO_FULL_SUITE_FALLBACK", 0)
-          PY
-
-      - name: Checkout immutable event revision
-        env:
-          REPOSITORY: ${{ matrix.repository }}
-          REVISION: ${{ matrix.revision }}
-          TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
-        run: |
-          set -euo pipefail
-          git init .
-          git remote add origin \
-            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
-          # Depth 2: a pull_request / merge_group revision is a merge commit,
-          # and its base parent is what a consumer's merge-base check needs
-          # once origin is reset to an anonymous URL below.
-          git -c protocol.version=2 fetch --depth=2 origin "${REVISION}"
-          git checkout --detach FETCH_HEAD
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
-
-      # Reports consumer declarations of Core-owned tools that drift from
-      # Core's toolchain-lock.json, with file:line annotations, into
-      # .l9/runtime/toolchain-alignment.json. Advisory: drift never fails the
-      # job (housekeeping, operator decision 2026-11-20). The lock ships inside
-      # this pinned Core revision.
-      - id: toolchain
-        name: Report toolchain alignment (advisory)
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-
-      - name: Validate native push event context
-        if: github.event_name == 'push'
-        env:
-          EVENT_REPOSITORY: ${{ matrix.repository }}
-          EVENT_SHA: ${{ matrix.revision }}
-          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
-        run: |
-          set -euo pipefail
-          if [ "${EVENT_CLASS}" != "push" ]; then
-            echo "::error::push trigger resolved to event class '${EVENT_CLASS}'" >&2
-            exit 1
-          fi
-          if [ -z "${EVENT_REPOSITORY}" ]; then
-            echo "::error::push execution has no repository identity" >&2
-            exit 1
-          fi
-          if [ -z "${EVENT_SHA}" ]; then
-            echo "::error::push execution has no immutable SHA" >&2
-            exit 1
-          fi
-          case "${EVENT_SHA}" in
-            *[!0-9a-f]* | "") sha_ok=false ;;
-            ????????????????????????????????????????) sha_ok=true ;;
-            *) sha_ok=false ;;
-          esac
-          if [ "${sha_ok}" != "true" ]; then
-            echo "::error::push SHA is not a full 40-character revision" >&2
-            exit 1
-          fi
-          echo "Native push evaluation target: ${EVENT_REPOSITORY}@${EVENT_SHA}"
-
-      - id: consumer
-        name: Resolve optional consumer metadata
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-
-      - id: gov
-        name: Resolve central governance
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          profile: ${{ steps.runtime.outputs.profile }}
-          provider: semgrep
-          event-name: ${{ steps.runtime.outputs['event-class'] }}
-          repository: ${{ matrix.repository }}
-          ref: refs/heads/${{ matrix.branch }}
-          product-kind: ${{ steps.consumer.outputs['product-kind'] }}
-
-      - name: Validate consumer waiver pointers
-        env:
-          REQUESTED: ${{ steps.consumer.outputs['waiver-refs'] }}
-          APPLICABLE: ${{ steps.gov.outputs['waiver-ids'] }}
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os
-          requested = {item for item in os.environ.get("REQUESTED", "").split(",") if item}
-          applicable = {item for item in os.environ.get("APPLICABLE", "").split(",") if item}
-          unknown = sorted(requested - applicable)
-          if unknown:
-              raise SystemExit(f"consumer waiver_refs are not centrally applicable: {unknown}")
-          PY
-
-      - id: names
-        name: Resolve artifact name
-        env:
-          MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
-        run: |
-          set -euo pipefail
-          echo "artifact-name=l9-semgrep-${MATRIX_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
-
-      - id: sdk
-        name: Provision immutable SDK
-        if: steps.gov.outputs.enabled == 'true'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          sdk-source: git
-          sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: ${{ steps.runtime.outputs['sdk-revision'] || 'fbe14fec1f5dc8edeae8facc76e598e9c5283170' }}
-          # AGENTS.md §27: l9-ci-sdk is private. Read-only org secret; the
-          # action passes it to git only as a per-command header.
-          github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
-
-      - id: language
-        name: Detect repository language (SDK)
-        if: steps.gov.outputs.enabled == 'true'
-        # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          repo-class: ${{ steps.consumer.outputs['repo-class'] }}
-          root: .
-
-      # L9-CI-CORE-003: every applicable provider/language instance is planned,
-      # run and accounted for, so a second language is never silently dropped
-      # in favour of the detected one. The SDK states the facts (capability
-      # inventory of this exact snapshot, taken before repository verification
-      # can touch the tree); requiredness is Core's (plan-required-instances).
-      - id: inventory
-        name: Inventory repository capabilities (SDK)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
-          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
-        run: |
-          set -euo pipefail
-          directory=".l9/runtime/${L9_MATRIX_ID}/required-instances"
-          mkdir -p "${directory}"
-          "${L9_EXECUTABLE}" providers inventory --root . --format json \
-            --output "${directory}/inventory.json"
-          echo "path=${directory}/inventory.json" >> "$GITHUB_OUTPUT"
-
-      - id: plan
-        name: Plan required instances (Core)
-        if: steps.inventory.outcome == 'success'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          inventory: ${{ steps.inventory.outputs.path }}
-          repository: ${{ matrix.repository }}
-          revision: ${{ matrix.revision }}
-          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
-          required-providers: ${{ steps.gov.outputs['required-provider'] == 'true' && 'semgrep' || '' }}
-          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
-
-      # Core owns the consumer-facing Biome check end to end: the version is
-      # the `biome` key of Core's toolchain lock, the binary is digest-locked,
-      # and the run is blocking (findings annotate, then fail the step;
-      # infrastructure failures are fatal). It is independent of Semgrep
-      # governance; a consumer without biome.json or biome.jsonc is
-      # not_applicable and nothing is downloaded.
-      - id: biome
-        name: Install Biome (digest-locked central pin)
-        if: hashFiles('biome.json', 'biome.jsonc') != ''
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-
-      - id: biome_check
-        name: Run Biome check (blocking)
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          executable: ${{ steps.biome.outputs.executable }}
-          provider-version: ${{ steps.biome.outputs['provider-version'] }}
-          mode: blocking
-
-      # Repository verification runs the consumer's `make setup`, which may
-      # install OS packages with apt (e.g. Playwright's Chromium libraries and
-      # fonts). Their downloaded .deb archives are cached per repository so an
-      # unchanged package set is not re-fetched from the Ubuntu mirror on every
-      # evaluation: Website-Bot's 21.1 MB took 7-8 minutes at ~45 kB/s on some
-      # runs and 1 s on others. Only archives are cached, never installed
-      # state, and apt verifies each cached .deb against the signed package
-      # index before use, re-downloading any that do not match. Entries are
-      # content-addressed (cache entries are immutable): restore never matches
-      # exactly and takes the newest entry for this runner image, else this
-      # image family; the save key is a digest of the archive set kept after
-      # verification, so only a changed set stores a new entry.
-      # Cache-service errors only warn, so this can never fail verification.
-      - id: apt_archive_cache_dir
-        name: Route apt package archives to the verification cache
-        shell: bash
-        run: |
-          set -euo pipefail
-          dir="${RUNNER_TEMP}/l9-apt-archives"
-          mkdir -p "${dir}/partial"
-          if id _apt >/dev/null 2>&1; then
-            sudo chown _apt "${dir}/partial"
-          fi
-          printf '%s\n' \
-            "Dir::Cache::Archives \"${dir}/\";" \
-            'APT::Keep-Downloaded-Packages "true";' \
-            'Binary::apt::APT::Keep-Downloaded-Packages "true";' \
-            | sudo tee /etc/apt/apt.conf.d/99-l9-archive-cache >/dev/null
-          family="l9-apt-archives-v1-${ImageOS:-unknown}-$(uname -m)-"
-          image="${family}${ImageVersion:-unknown}-"
-          {
-            echo "path=${dir}"
-            echo "family=${family}"
-            echo "image=${image}"
-          } >> "$GITHUB_OUTPUT"
-
-      - id: apt_archive_cache
-        name: Restore cached apt package archives
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ steps.apt_archive_cache_dir.outputs.path }}/*.deb
-          # Never saved, so restore always resolves through the prefixes.
-          key: ${{ steps.apt_archive_cache_dir.outputs.image }}restore
-          restore-keys: |
-            ${{ steps.apt_archive_cache_dir.outputs.image }}
-            ${{ steps.apt_archive_cache_dir.outputs.family }}
-
-      - id: repository_verify
-        name: Run repository verification contract
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          workspace: .
-          # AGENTS.md §27: held only by the registry snapshot and the composer
-          # prefetch. Both run before and apart from the consumer's make
-          # targets. The verify step does not receive the token.
-          github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
-
-      # Keep only archives of package versions installed in this evaluation, so
-      # superseded versions and packages a repository stopped installing drop
-      # out instead of accumulating across images. The save key is a digest of
-      # the kept set: an unchanged set matches the restored entry and stores
-      # nothing, and a repository whose setup installs no OS packages keeps
-      # nothing and stores nothing.
-      - id: apt_archive_inventory
-        name: Inventory apt package archives
-        if: always() && steps.apt_archive_cache_dir.outcome == 'success'
-        shell: bash
-        env:
-          ARCHIVE_DIR: ${{ steps.apt_archive_cache_dir.outputs.path }}
-          IMAGE_PREFIX: ${{ steps.apt_archive_cache_dir.outputs.image }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          for archive in "${ARCHIVE_DIR}"/*.deb; do
-            package="$(dpkg-deb -f "${archive}" Package)"
-            version="$(dpkg-deb -f "${archive}" Version)"
-            if ! dpkg-query -W -f='${Version}\n' "${package}" 2>/dev/null | grep -qxF -- "${version}"; then
-              sudo rm -f -- "${archive}"
-            fi
-          done
-          archives=("${ARCHIVE_DIR}"/*.deb)
-          digest=""
-          if [ "${#archives[@]}" -gt 0 ]; then
-            digest="$(printf '%s\n' "${archives[@]##*/}" | LC_ALL=C sort | sha256sum | cut -c1-16)"
-          fi
-          {
-            echo "count=${#archives[@]}"
-            echo "key=${IMAGE_PREFIX}${digest}"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Save apt package archives
-        if: always() && steps.apt_archive_inventory.outputs.count != '' && steps.apt_archive_inventory.outputs.count != '0' && steps.apt_archive_inventory.outputs.key != steps.apt_archive_cache.outputs.cache-matched-key
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ steps.apt_archive_cache_dir.outputs.path }}/*.deb
-          key: ${{ steps.apt_archive_inventory.outputs.key }}
-
-      # The provider toolchain is a locked contract, not a resolution. Core
-      # selects the setup-python action by full SHA, the interpreter by exact
-      # version (major.minor.patch, so a patch release cannot float in), the
-      # Semgrep version exactly, and the Semgrep dependency closure by digest
-      # inside the pinned Core action. Those selections change only with a
-      # Core revision; the hosted runner image underneath them is GitHub's,
-      # not Core's (workflow audit 2026-09-13, F-005). The SDK venv provisioned
-      # above is untouched; only the provider install rides this interpreter.
-      - name: Set up locked Python for the central toolchain
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.12.14"
-
-      - id: semgrep
-        name: Install Semgrep (hash-locked central pin)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
-
-      - name: Run + normalize Semgrep (SDK)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          operation: semgrep-run
-          language: ${{ steps.language.outputs.language }}
-          raw-output: artifacts/raw/semgrep/${{ steps.runtime.outputs['matrix-id'] }}/report.json
-          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
-          root: .
-          snapshot-id: ${{ matrix.revision }}
-          revision: ${{ matrix.revision }}
-          provider-executable: ${{ steps.semgrep.outputs.executable }}
-          strict: ${{ steps.gov.outputs.strict }}
-          required: ${{ steps.gov.outputs['required-provider'] }}
-          policy: ${{ steps.gov.outputs['sdk-policy'] }}
-          # The Core-staged identity map for the detected language. Without it
-          # a strict profile (`release`) cannot resolve third-party rule
-          # identities and `semgrep run --strict` refuses the run outright.
-          identity-map: ${{ steps.gov.outputs['identity-map-directory'] }}/${{ steps.language.outputs.language }}.yaml
-
-      - name: Validate canonical bundle
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
-
-      - id: gate
-        name: Evaluate SDK technical gate
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
-          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
-          L9_STRICT: ${{ steps.gov.outputs.strict }}
-        run: |
-          set -euo pipefail
-          args=(
-            gate evaluate
-            --bundle ".l9/runtime/${L9_MATRIX_ID}/finding-bundle.json"
-            --output ".l9/runtime/${L9_MATRIX_ID}/gate-result.json"
-          )
-          if [ "${L9_STRICT:-}" = "true" ]; then
-            args+=(--strict-unresolved)
-          else
-            args+=(--no-strict-unresolved)
-          fi
-          exit_code=0
-          "${L9_EXECUTABLE}" "${args[@]}" || exit_code=$?
-          case "${exit_code}" in
-            0) status="pass" ;;
-            1) status="fail" ;;
-            6) status="incomplete" ;;
-            *) echo "gate evaluate failed with unexpected exit ${exit_code}" >&2; exit "${exit_code}" ;;
-          esac
-          {
-            echo "gate-status=${status}"
-            echo "gate-exit-code=${exit_code}"
-          } >> "$GITHUB_OUTPUT"
-          echo "SDK technical gate: ${status} (exit ${exit_code})"
-
-      - id: instances
-        name: Run every planned instance (SDK)
-        if: steps.plan.outcome == 'success'
-        env:
-          L9_INSTANCE_DIR: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances
-          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
-          L9_PROVIDER_EXECUTABLE: ${{ steps.semgrep.outputs.executable }}
-          L9_PRIMARY_LANGUAGE: ${{ steps.language.outputs.language }}
-          L9_PRIMARY_STATUS: ${{ steps.gate.outputs['gate-status'] }}
-          L9_STRICT: ${{ steps.gov.outputs.strict }}
-          L9_REQUIRED: ${{ steps.gov.outputs['required-provider'] }}
-          L9_POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
-          L9_IDENTITY_DIR: ${{ steps.gov.outputs['identity-map-directory'] }}
-        run: |
-          set -euo pipefail
-          python3 -I - <<'PY'
-          import json
-          import os
-          import subprocess
-          import sys
-          from pathlib import Path
-
-          # One record per planned semgrep instance (l9.core-instance-result/v1). The
-          # primary language already ran through the full pipeline above, so its gate
-          # status is reused; every other planned language runs the SDK now. An instance
-          # that cannot conclude gets no record, so the aggregate reports it incomplete,
-          # and an SDK execution error (run, bundle validation, or a gate exit outside
-          # 0/1/6) fails this step in every mode, exactly as it does for the primary
-          # language's own steps: infrastructure failure is never advisory.
-          env = os.environ
-          directory = Path(env["L9_INSTANCE_DIR"])
-          plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
-          results = directory / "results"
-          results.mkdir(parents=True, exist_ok=True)
-          executable = env["L9_EXECUTABLE"]
-          provider_dir = str(Path(env["L9_PROVIDER_EXECUTABLE"]).parent)
-          run_env = dict(env, PATH=provider_dir + os.pathsep + env.get("PATH", ""))
-          gate_status = {0: "pass", 1: "fail", 6: "incomplete"}
-          errors = []
-
-
-          def record(language, status):
-              body = {
-                  "schema": "l9.core-instance-result/v1",
-                  "repository": plan["repository"],
-                  "provider": "semgrep",
-                  "target": "language:" + language,
-                  "revision": plan["revision"],
-                  "sdk_revision": plan["sdk_revision"],
-                  "status": status,
-              }
-              path = results / ("semgrep-" + language + ".json")
-              path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
-              print("instance semgrep:language:" + language + ": " + status)
-
-
-          def sdk(*args):
-              return subprocess.run([executable, *args], env=run_env, check=False).returncode
-
-
-          for instance in plan["instances"]:
-              if instance["provider"] != "semgrep" or instance["prerequisite"] != "applicable":
-                  continue
-              kind, _, language = instance["target"].partition(":")
-              if kind != "language" or language not in ("python", "typescript"):
-                  continue
-              if language == env.get("L9_PRIMARY_LANGUAGE"):
-                  primary = env.get("L9_PRIMARY_STATUS", "")
-                  if primary in ("pass", "fail", "incomplete"):
-                      record(language, primary)
-                  else:
-                      print("instance semgrep:language:" + language + ": no primary gate status", file=sys.stderr)
-                  continue
-              work = directory / language
-              bundle = str(work / "finding-bundle.json")
-              run = [
-                  "semgrep", "run", "--language", language, "--output", bundle,
-                  "--root", ".", "--snapshot-id", plan["revision"],
-                  "--revision", plan["revision"],
-                  "--identity-map", str(Path(env["L9_IDENTITY_DIR"]) / (language + ".yaml")),
-                  "--policy", env["L9_POLICY"],
-              ]
-              if env.get("L9_STRICT") == "true":
-                  run.append("--strict")
-              if env.get("L9_REQUIRED") == "true":
-                  run.append("--required")
-              work.mkdir(parents=True, exist_ok=True)
-              code = sdk(*run)
-              if code == 0:
-                  code = sdk("bundle", "validate", bundle)
-              if code != 0:
-                  errors.append("instance semgrep:language:" + language + ": SDK run failed (exit " + str(code) + ")")
-                  continue
-              gate = ["gate", "evaluate", "--bundle", bundle, "--output", str(work / "gate-result.json")]
-              gate.append("--strict-unresolved" if env.get("L9_STRICT") == "true" else "--no-strict-unresolved")
-              code = sdk(*gate)
-              if code in gate_status:
-                  record(language, gate_status[code])
-              else:
-                  errors.append("instance semgrep:language:" + language + ": gate exited " + str(code))
-
-          for error in errors:
-              print("::error::" + error, file=sys.stderr)
-          sys.exit(1 if errors else 0)
-          PY
-
-      - id: aggregate
-        name: Aggregate required instances (Core)
-        if: always() && steps.plan.outcome == 'success'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
-          results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
-          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/aggregate.json
-
-      - name: Project agent-review payload
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          operation: bundle-project-agent-payload
-          input: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
-          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/agent-review-payload.json
-          strict: ${{ steps.gov.outputs.strict }}
-
-      - name: Project SARIF (SDK-owned)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          operation: bundle-project-sarif
-          input: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
-          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/results.sarif
-          strict: ${{ steps.gov.outputs.strict }}
-
-      - id: route
-        name: Route artifacts
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          provider: semgrep
-          matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
-          raw-report: artifacts/raw/semgrep/${{ steps.runtime.outputs['matrix-id'] }}/report.json
-          bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
-          agent-payload: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/agent-review-payload.json
-          sarif: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/results.sarif
-          destination-root: artifacts
-
-      - name: Stage technical gate result
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
-        run: |
-          set -euo pipefail
-          cp ".l9/runtime/${L9_MATRIX_ID}/gate-result.json" "artifacts/l9/${L9_MATRIX_ID}/gate-result.json"
-          cp .l9/runtime/capabilities.json "artifacts/l9/${L9_MATRIX_ID}/repository-capabilities.json"
-
-      - name: Build artifact manifest
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          provider: semgrep
-          matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
-          artifact-name: ${{ steps.names.outputs['artifact-name'] }}
-          repository: ${{ matrix.repository }}
-          repository-revision: ${{ matrix.revision }}
-          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
-          artifact-root: artifacts
-          bundle: ${{ steps.route.outputs.bundle }}
-          agent-payload: ${{ steps.route.outputs['agent-payload'] }}
-          raw-directory: ${{ steps.route.outputs['raw-directory'] }}
-          routing-record: ${{ steps.route.outputs['routing-record'] }}
-          output: artifacts/metadata/${{ steps.runtime.outputs['matrix-id'] }}/artifact-index.json
-
-      - id: upload
-        name: Upload analysis artifact set
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ${{ steps.names.outputs['artifact-name'] }}
-          path: |
-            artifacts/raw/semgrep/${{ steps.runtime.outputs['matrix-id'] }}/
-            artifacts/l9/${{ steps.runtime.outputs['matrix-id'] }}/
-            artifacts/metadata/${{ steps.runtime.outputs['matrix-id'] }}/
-          if-no-files-found: error
-          retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
-
-      - id: handoff
-        name: Create artifact handoff descriptor
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@eba72ac3136cf4b76f1c134f6a23668bdbcdb832
-        with:
-          artifact-id: ${{ steps.upload.outputs.artifact-id }}
-          artifact-name: ${{ steps.names.outputs['artifact-name'] }}
-          artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
-          provider: semgrep
-          matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
-          repository: ${{ matrix.repository }}
-          repository-revision: ${{ matrix.revision }}
-          workflow-head-sha: ${{ matrix.revision }}
-          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
-          output: .l9/runtime/handoffs/${{ steps.runtime.outputs['matrix-id'] }}.json
-
-      - name: Write central CI summary
-        if: always()
-        env:
-          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
-          PROFILE: ${{ steps.runtime.outputs.profile }}
-          MODE: ${{ steps.gov.outputs.mode }}
-          SDK_REVISION: ${{ steps.sdk.outputs['sdk-revision'] }}
-          LANGUAGE: ${{ steps.language.outputs.language }}
-          REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status || steps.repository_verify.outcome }}
-          GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
-          INSTANCES_STATUS: ${{ steps.aggregate.outputs.status }}
-          ARTIFACT_NAME: ${{ steps.names.outputs['artifact-name'] }}
-          TOOLCHAIN_ALIGNMENT: ${{ steps.toolchain.outcome }}
-          BIOME_STATUS: ${{ steps.biome_check.outputs.status || steps.biome_check.outcome }}
-        run: |
-          {
-            echo "### L9 central CI"
-            echo
-            echo "- Event: \`${EVENT_CLASS:-unknown}\`"
-            echo "- Profile: \`${PROFILE:-unknown}\`"
-            echo "- Mode: \`${MODE:-unknown}\`"
-            echo "- SDK revision: \`${SDK_REVISION:-unknown}\`"
-            echo "- Detected language: \`${LANGUAGE:-unknown}\`"
-            echo "- Repository verification: \`${REPOSITORY_VERIFY:-unavailable}\`"
-            echo "- Technical gate: \`${GATE_STATUS:-unavailable}\`"
-            echo "- Required instances: \`${INSTANCES_STATUS:-unavailable}\`"
-            echo "- Artifact set: \`${ARTIFACT_NAME:-unavailable}\`"
-            echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
-            echo "- Biome (blocking): \`${BIOME_STATUS:-unavailable}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Enforce repository verification
-        # Contract and infrastructure failures are fatal on every profile,
-        # including advisory nightly, release, and supply_chain (AGENTS.md §9).
-        # Finding mode stays on the technical-gate step below.
-        if: always()
-        env:
-          REPOSITORY_VERIFY_STATUS: ${{ steps.repository_verify.outputs.status }}
-          REPOSITORY_VERIFY_MODE: ${{ steps.repository_verify.outputs.contract-mode }}
-          REPOSITORY_VERIFY_FAILURE: ${{ steps.repository_verify.outputs.failure-kind }}
-        run: |
-          set -euo pipefail
-          # An absent contract is tolerated only where Core's bundled policy
-          # resolved migration mode; required mode accepts pass only.
-          case "${REPOSITORY_VERIFY_MODE}:${REPOSITORY_VERIFY_STATUS}" in
-            migration:pass|migration:not_applicable|required:pass) ;;
-            *)
-              echo "Blocking profile: repository verification did not pass (mode ${REPOSITORY_VERIFY_MODE:-unavailable}; status ${REPOSITORY_VERIFY_STATUS:-unavailable}; failure ${REPOSITORY_VERIFY_FAILURE:-unavailable})" >&2
-              exit 1
-              ;;
-          esac
-
-      # The verdict is the aggregate over every planned instance, the primary
-      # language's gate among them. A required instance that is missing,
-      # skipped or unfinished makes the aggregate incomplete (exit 6), never
-      # pass; no aggregate at all is incomplete too.
-      # Toolchain drift is housekeeping (operator decision 2026-11-20: only
-      # checks that protect working or secure code block a merge). Each
-      # declaration of a Core-owned tool that differs from toolchain-lock.json
-      # is a warning at file:line and a line in the summary; it never fails
-      # the job. align.py decides what drift is (the report's own status).
-      - name: Report toolchain alignment drift (advisory)
-        if: always()
-        env:
-          REPORT: .l9/runtime/toolchain-alignment.json
-        run: |
-          set -euo pipefail
-          python3 -I - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          try:
-              report = json.loads(Path(os.environ["REPORT"]).read_text(encoding="utf-8"))
-              status = report["status"]
-              findings = report["findings"]
-          except (OSError, ValueError, KeyError, TypeError) as error:
-              print(f"::warning::toolchain alignment report unavailable ({error}); drift not reported")
-          else:
-              drift = [
-                  item
-                  for item in findings
-                  if item.get("class") not in ("exact_match", "range_admits_lock")
-              ]
-              for item in drift:
-                  print(
-                      f"::warning file={item.get('path')},line={item.get('line')}::"
-                      f"{item.get('tool')} {item.get('declared') or '(no version)'} "
-                      f"is not Core's locked {item.get('lock')} ({item.get('class')})"
-                  )
-              line = f"- Toolchain drift (advisory): `{status}`, {len(drift)} declaration(s)"
-              summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
-              if summary:
-                  with open(summary, "a", encoding="utf-8") as stream:
-                      stream.write(line + "\n")
-              print(line)
-          PY
-
-      - name: Enforce central mode on SDK technical gate
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
-          AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
-          AGGREGATE_EXIT: ${{ steps.aggregate.outputs['exit-code'] }}
-          ACCOUNTED: ${{ steps.aggregate.outputs.accounted }}
-          MODE: ${{ steps.gov.outputs.mode }}
-        run: |
-          set -euo pipefail
-          status="${AGGREGATE_STATUS:-incomplete}"
-          exit_code="${AGGREGATE_EXIT:-6}"
-          echo "SDK technical gate (primary language): ${GATE_STATUS:-unavailable}"
-          echo "Required instances: ${status} (exit ${exit_code}; accounted ${ACCOUNTED:-false}); central mode: ${MODE}"
-          if [ "${status}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
-            echo "Blocking mode: failing job on required instances '${status}'" >&2
-            exit "${exit_code}"
-          fi
-      # --- canary record (not part of org-ci.yml) ---
-      - name: Record the canary leg
-        if: always()
-        env:
           SIDE: base
-          DIGEST: fb63d27eb02648548ffe95253895bde2e62a94f6c03f21bb20c7cd51c65ab278
+          DIGEST: 1436317e90b44643e0096c299a84ff7b753c54e1735a00b5cf9e24200c5a1613
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
