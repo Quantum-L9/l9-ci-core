@@ -33,7 +33,12 @@ def _step(name: str) -> dict[str, Any]:
     return matches[0]
 
 
-def _run(script: str, env: dict[str, str], stubs: dict[str, int]) -> tuple[int, str]:
+def _run(
+    script: str,
+    env: dict[str, str],
+    stubs: dict[str, int],
+    cwd: Path | None = None,
+) -> tuple[int, str]:
     """Run a step script with stub executables; return (exit code, all output)."""
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
@@ -59,6 +64,7 @@ def _run(script: str, env: dict[str, str], stubs: dict[str, int]) -> tuple[int, 
             text=True,
             check=False,
             timeout=60,
+            cwd=cwd,
         )
         text = "\n".join(
             (
@@ -268,15 +274,18 @@ class RequiredScanOutcomeTests(unittest.TestCase):
     def test_pip_audit_keeps_its_exit_code_and_states_its_outcome(self) -> None:
         script = str(_step("Python dependency audit (pip-audit)")["run"])
         env = {"L9_CI_INSTALL_COMMAND": ""}
-        code, text = _run(script, env, {"python": 0, "pip": 0, "pip-audit": 0})
-        self.assertEqual(0, code)
-        self.assertIn("outcome=executed_pass", text)
-        code, text = _run(script, env, {"python": 0, "pip": 0, "pip-audit": 1})
-        self.assertEqual(1, code, "pip-audit stays required")
-        self.assertIn("outcome=executed_fail", text)
-        code, text = _run(script, env, {"python": 0, "pip": 1, "pip-audit": 0})
-        self.assertNotEqual(0, code)
-        self.assertNotIn("outcome=", text)
+        with tempfile.TemporaryDirectory() as project:
+            (Path(project) / "requirements.txt").write_text("x==1\n", "utf-8")
+            cwd = Path(project)
+            code, text = _run(script, env, {"python": 0, "pip": 0, "pip-audit": 0}, cwd)
+            self.assertEqual(0, code)
+            self.assertIn("outcome=executed_pass", text)
+            code, text = _run(script, env, {"python": 0, "pip": 0, "pip-audit": 1}, cwd)
+            self.assertEqual(1, code, "pip-audit stays required")
+            self.assertIn("outcome=executed_fail", text)
+            code, text = _run(script, env, {"python": 0, "pip": 1, "pip-audit": 0}, cwd)
+            self.assertNotEqual(0, code)
+            self.assertNotIn("outcome=", text)
 
     def test_gitleaks_states_an_outcome_only_after_acquisition(self) -> None:
         script = str(_step("Secret scan (gitleaks)")["run"])

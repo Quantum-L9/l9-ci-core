@@ -11,6 +11,12 @@
 # check and runs only where a caller references it:
 #   gitleaks   required: a finding or a scanner failure fails the job.
 #   pip-audit  required when a Python project is detected, else not applicable.
+#              It audits the full resolved lock (uv.lock exported with every
+#              group, extra and workspace package; else requirements.txt); a
+#              Python project with no lock is incomplete and fails. On a pull
+#              request, merge group or push it runs only when a dependency
+#              manifest or lock changed in the event's range (row 23); any
+#              other event, or a range that cannot be read, audits.
 #   bandit     advisory when a Python project is detected: it never fails the
 #              job, so its outcome is reported, never implied by a green step.
 #   npm audit  not run unless the caller sets run-npm-audit: true; then required.
@@ -221,30 +227,117 @@ jobs:
         if: steps.detect.outputs.python == 'true'
         env:
           L9_CI_INSTALL_COMMAND: ${{ inputs.l9-ci-install-command }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          # Scope (operator decision 2026-11-21, row 23): a pull request,
+          # merge group or push audits only when it changes a dependency
+          # manifest or lock. Every other event audits. A range that cannot be
+          # read audits too: not running needs a positive proof.
+          is_sha() {
+            local candidate="$1"
+            [[ "${candidate}" =~ ^[0-9a-f]{40}$ ]]
+          }
+          base=""
+          head=""
+          case "${EVENT_NAME:-}" in
+            pull_request|pull_request_target) base="${PR_BASE:-}"; head="${PR_HEAD:-}" ;;
+            merge_group) base="${MERGE_GROUP_BASE:-}"; head="${MERGE_GROUP_HEAD:-}" ;;
+            push) base="${PUSH_BEFORE:-}"; head="${EVENT_SHA:-}" ;;
+            *) ;;
+          esac
+          if is_sha "${base}" && is_sha "${head}" \
+            && [ "${base}" != "0000000000000000000000000000000000000000" ]; then
+            # --no-renames: a renamed or deleted lock shows its old path too.
+            if changed="$(git diff --no-renames --name-only "${base}" "${head}" --)"; then
+              manifests='(^|/)(pyproject\.toml|uv\.lock|setup\.py|setup\.cfg|requirements[^/]*\.txt|constraints[^/]*\.txt|Pipfile(\.lock)?|poetry\.lock|pdm\.lock)$'
+              if ! grep -Eq "${manifests}" <<< "${changed}"; then
+                echo "pip-audit: no dependency manifest or lock changed in ${base}..${head}; nothing new to audit"
+                echo "outcome=not_applicable (no dependency manifest or lock changed)" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            else
+              echo "::warning::pip-audit: the change range ${base}..${head} cannot be read; auditing"
+            fi
+          fi
           python -m pip install --upgrade --only-binary :all: "pip==26.2.1"
           pip install --only-binary :all: "pip-audit==2.9.0"
           if [ -n "$L9_CI_INSTALL_COMMAND" ]; then
             bash -c "$L9_CI_INSTALL_COMMAND" || echo "::notice::l9-ci install command failed; continuing"
           fi
-          # Installation above is acquisition; a failure there leaves no
-          # outcome. From here pip-audit itself runs.
-          # Audit the project, not the runner: plain `pip-audit` audits the
-          # current environment, which on a fresh runner is the toolchain
-          # itself. requirements.txt is audited when present, else the
-          # pyproject.toml project; a setup.py-only project is installed by the
-          # caller's install command and audited in the environment.
+          # The full resolved lock, not the runner's environment: uv.lock
+          # exported with every dependency group, extra and workspace package
+          # (the project's own workspace members are local code, not
+          # packages, and are left out), else requirements.txt. uv is Core's
+          # locked version (install-consumer-ci/toolchain-lock.json).
+          locked=()
+          if [ -f "uv.lock" ]; then
+            pip install --only-binary :all: "uv==0.13.8"
+            out="${RUNNER_TEMP:-/tmp}/l9-locked"
+            mkdir -p "${out}"
+            export_lock() {
+              local name="$1"
+              shift
+              uv export --frozen --all-packages --no-emit-workspace --no-hashes \
+                --format requirements.txt --output-file "${out}/${name}.txt" "$@" > /dev/null
+            }
+            if export_lock all --all-groups --all-extras; then
+              locked+=("${out}/all.txt")
+            elif python3 -I -c 'import sys, tomllib; sys.exit(0 if tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("uv", {}).get("conflicts") else 1)' 2> /dev/null; then
+              # Declared conflicts ([tool.uv].conflicts) make the union of
+              # every extra and group unresolvable by design. Each selection
+              # is exported and audited on its own: the base set, then every
+              # extra and every group. Any selection that cannot be exported
+              # leaves the locked set unknown.
+              echo "pip-audit: uv.lock declares conflicting extras or groups; auditing each selection"
+              selections="$(python3 -I -c 'import tomllib; d = tomllib.load(open("pyproject.toml", "rb")); [print("extra", n) for n in d.get("project", {}).get("optional-dependencies", {})]; [print("group", n) for n in d.get("dependency-groups", {})]')"
+              if ! export_lock base --no-default-groups; then
+                echo "::error::pip-audit: the base set of uv.lock cannot be exported; the audit is incomplete"
+                echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+              locked+=("${out}/base.txt")
+              while read -r kind name; do
+                [ -n "${kind}" ] || continue
+                if ! export_lock "${kind}-${name}" --no-default-groups "--${kind}" "${name}"; then
+                  echo "::error::pip-audit: the ${kind} ${name} of uv.lock cannot be exported; the audit is incomplete"
+                  echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+                  exit 1
+                fi
+                locked+=("${out}/${kind}-${name}.txt")
+              done <<< "${selections}"
+            else
+              echo "::error::pip-audit: uv.lock cannot be exported; the locked set is unknown, so the audit is incomplete"
+              echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          elif [ -f "requirements.txt" ]; then
+            locked=("requirements.txt")
+          else
+            echo "::error::pip-audit: a Python project with no uv.lock or requirements.txt has no locked set to audit; the audit is incomplete"
+            echo "outcome=not_executed (no lock file)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          # Acquisition and the lock are settled; from here pip-audit runs.
           status=0
           # `--desc` takes an optional value; it is given explicitly so the
           # next argument is never read as that value (`--desc .` is a usage
-          # error, exit 2, and audits nothing).
-          if [ -f "requirements.txt" ]; then
+          # error, exit 2, and audits nothing). An exported lock is fully
+          # pinned, so it is audited as written (--no-deps).
+          if [ "${locked[0]}" = "requirements.txt" ]; then
             pip-audit --desc on -r requirements.txt || status=$?
-          elif [ -f "pyproject.toml" ]; then
-            pip-audit --desc on . || status=$?
           else
-            pip-audit --desc on || status=$?
+            requirements=()
+            for file in "${locked[@]}"; do
+              requirements+=(-r "${file}")
+            done
+            pip-audit --desc on --no-deps "${requirements[@]}" || status=$?
           fi
           if [ "${status}" -eq 0 ]; then
             echo "outcome=executed_pass" >> "$GITHUB_OUTPUT"
