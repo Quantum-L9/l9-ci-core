@@ -92,7 +92,7 @@ class RenderTests(unittest.TestCase):
 
     def test_the_verdict_always_runs_and_the_legs_never_stop_each_other(self) -> None:
         jobs = yaml.safe_load(self.canary)["jobs"]
-        self.assertEqual("always()", jobs["verdict"]["if"])
+        self.assertEqual("${{ !cancelled() }}", jobs["verdict"]["if"])
         self.assertEqual("Promotion canary (Core)", jobs["verdict"]["name"])
         self.assertEqual(["plan", "canary"], jobs["verdict"]["needs"])
         self.assertIs(False, jobs["canary"]["strategy"]["fail-fast"])
@@ -202,28 +202,22 @@ class PlanTests(unittest.TestCase):
 
     def test_a_change_outside_the_canary_paths_does_not_apply(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            base, head = self._repo(tmp)
+            self._repo(tmp)
             out = io.StringIO()
             with (
                 redirect_stdout(out),
                 mock.patch.dict("os.environ", {"GITHUB_OUTPUT": ""}),
             ):
-                code = pc.main(["--root", tmp, "plan", "--base", base, "--head", head])
+                code = pc.main(["--root", tmp, "plan"])
             self.assertEqual(0, code)
             self.assertIn("applies=false", out.getvalue())
 
     def test_a_change_to_org_ci_plans_every_declared_repository(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            base, _ = self._repo(tmp)
+            self._repo(tmp)
             org = Path(tmp) / pc.ORG_CI
             org.write_text(org.read_text("utf-8") + "# change\n", encoding="utf-8")
             subprocess.run(["git", "-C", tmp, "commit", "-qam", "org"], check=True)
-            head = subprocess.run(
-                ["git", "-C", tmp, "rev-parse", "HEAD"],
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
             resolved = []
 
             def fake_get(url: str, token: str) -> dict[str, str]:
@@ -241,7 +235,7 @@ class PlanTests(unittest.TestCase):
                 mock.patch.dict("os.environ", env),
                 mock.patch.object(pc, "_get", fake_get),
             ):
-                code = pc.main(["--root", tmp, "plan", "--base", base, "--head", head])
+                code = pc.main(["--root", tmp, "plan"])
             self.assertEqual(0, code)
             values = dict(
                 line.split("=", 1)
@@ -265,11 +259,17 @@ class PlanTests(unittest.TestCase):
 
     def test_an_unreadable_change_set_is_invalid_not_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            self._repo(tmp)
+            subprocess.run(["git", "-C", tmp, "init", "-q"], check=True)
+            (Path(tmp) / pc.DECLARATION).parent.mkdir(parents=True)
+            (Path(tmp) / pc.DECLARATION).write_text(
+                (ROOT / pc.DECLARATION).read_text("utf-8"), encoding="utf-8"
+            )
+            (Path(tmp) / pc.ORG_CI).parent.mkdir(parents=True)
+            (Path(tmp) / pc.ORG_CI).write_text(
+                (ROOT / pc.ORG_CI).read_text("utf-8"), encoding="utf-8"
+            )
             with redirect_stderr(io.StringIO()):
-                code = pc.main(
-                    ["--root", tmp, "plan", "--base", "b" * 40, "--head", "c" * 40]
-                )
+                code = pc.main(["--root", tmp, "plan"])
             self.assertEqual(2, code)
 
 

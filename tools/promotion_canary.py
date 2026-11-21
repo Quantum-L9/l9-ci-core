@@ -21,8 +21,10 @@ Subcommands (stdlib only; run with ``python3 -I``):
 ``render [--check]``
     Write (or verify) ``.github/workflows/promotion-canary.yml``.
 
-``plan --base SHA --head SHA [--force]``
-    Decide whether the change touches a canary path; when it does, resolve each
+``plan [--force]``
+    Decide whether the checked-out change (``HEAD`` against its first parent:
+    a pull request's merge commit against its base) touches a canary path;
+    when it does, resolve each
     declared repository's main head. Writes ``applies`` and ``matrix`` to
     ``$GITHUB_OUTPUT``.
 
@@ -141,16 +143,13 @@ jobs:
       - id: plan
         name: Plan the canary legs
         env:
-          BASE: ${{ github.event.pull_request.base.sha || '' }}
-          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           FORCE: ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
           L9_CANARY_TOKEN: ${{ github.token }}
           L9_CANARY_PRIVATE_TOKEN: ${{ secrets.L9_GITHUB_READ_TOKEN }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC2086
-          python3 -I tools/promotion_canary.py plan \\
-            --base "${BASE}" --head "${HEAD}" ${FORCE}
+          python3 -I tools/promotion_canary.py plan ${FORCE}
 
   canary:
     name: Canary ${{ matrix.repository }}
@@ -225,9 +224,12 @@ FOOTER = """\
   verdict:
     name: Promotion canary (Core)
     needs: [plan, canary]
-    # Always runs: a skipped job reports success on a required check, so the
-    # verdict decides itself, including when no leg was needed.
-    if: always()
+    # Runs whatever the plan and legs concluded (a job skipped by `if:` reports
+    # success on a required check, so the verdict decides itself, including
+    # when no leg was needed). Only a run superseded by a newer one on the same
+    # pull request is cancelled; its verdict is skipped and the newer run's
+    # verdict, which always follows, is the check that counts.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -378,12 +380,16 @@ def load_declaration(root: Path) -> list[dict[str, Any]]:
     return out
 
 
-def changed_paths(root: Path, base: str, head: str) -> list[str]:
-    for value in (base, head):
-        if not SHA.match(value):
-            raise CanaryError(f"not a full revision: {value!r}")
+def changed_paths(root: Path) -> list[str]:
+    """Paths the checked-out change touches: ``HEAD`` against its first parent.
+
+    A pull request is checked out as GitHub's merge commit, whose first parent
+    is the base tip, so this is exactly what merging would change. No revision
+    is taken from outside: the command line is constant.
+    """
     result = subprocess.run(
-        ["git", "-C", str(root), "diff", "--name-only", f"{base}...{head}", "--"],
+        ["git", "diff", "--name-only", "HEAD^1", "HEAD", "--"],
+        cwd=root,
         capture_output=True,
         text=True,
         check=False,
@@ -456,7 +462,7 @@ def _cmd_plan(args: argparse.Namespace) -> None:
     if args.force:
         reasons = ["dispatch"]
     else:
-        reasons = touched(changed_paths(args.root, args.base, args.head), watched)
+        reasons = touched(changed_paths(args.root), watched)
     if not reasons:
         print("No canary path changed; the canary does not apply.")
         _write_output({"applies": "false", "matrix": json.dumps({"include": []})})
@@ -549,8 +555,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     render_parser = sub.add_parser("render")
     render_parser.add_argument("--check", action="store_true")
     plan_parser = sub.add_parser("plan")
-    plan_parser.add_argument("--base", default="")
-    plan_parser.add_argument("--head", default="")
     plan_parser.add_argument("--force", action="store_true")
     verdict_parser = sub.add_parser("verdict")
     verdict_parser.add_argument("--plan-result", default="")

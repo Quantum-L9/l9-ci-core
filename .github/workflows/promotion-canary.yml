@@ -38,16 +38,13 @@ jobs:
       - id: plan
         name: Plan the canary legs
         env:
-          BASE: ${{ github.event.pull_request.base.sha || '' }}
-          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           FORCE: ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
           L9_CANARY_TOKEN: ${{ github.token }}
           L9_CANARY_PRIVATE_TOKEN: ${{ secrets.L9_GITHUB_READ_TOKEN }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC2086
-          python3 -I tools/promotion_canary.py plan \
-            --base "${BASE}" --head "${HEAD}" ${FORCE}
+          python3 -I tools/promotion_canary.py plan ${FORCE}
 
   canary:
     name: Canary ${{ matrix.repository }}
@@ -885,9 +882,12 @@ jobs:
   verdict:
     name: Promotion canary (Core)
     needs: [plan, canary]
-    # Always runs: a skipped job reports success on a required check, so the
-    # verdict decides itself, including when no leg was needed.
-    if: always()
+    # Runs whatever the plan and legs concluded (a job skipped by `if:` reports
+    # success on a required check, so the verdict decides itself, including
+    # when no leg was needed). Only a run superseded by a newer one on the same
+    # pull request is cancelled; its verdict is skipped and the newer run's
+    # verdict, which always follows, is the check that counts.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
