@@ -38,7 +38,7 @@ AGGREGATE_SCHEMA = "l9.core-instance-aggregate/v1"
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SAFE_COMPONENT = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 # The SDK capability inventory's target grammar: what a provider analyses.
-SAFE_TARGET = re.compile(r"^(language|framework):[a-z0-9][a-z0-9._+-]{0,63}$")
+SAFE_TARGET = re.compile(r"^(language|framework|consumer):[a-z0-9][a-z0-9._+-]{0,63}$")
 APPLICABLE = "applicable"
 MAX_REASONS = 32
 MAX_RECORD_BYTES = 65536

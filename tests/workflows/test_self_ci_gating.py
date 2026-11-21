@@ -66,6 +66,7 @@ UNIT_TEST_MODULES = (
     "tests/governance/test_semgrep_policy_file_permissions.py",
     "tests/governance/test_semgrep_policy_logging.py",
     "tests/invocation/test_invoke_sdk.py",
+    "tests/invocation/test_invoke_sdk_baseline_consumer.py",
     "tests/invocation/test_invoke_sdk_finding_waivers.py",
     "tests/invocation/test_validate_bundle.py",
     "tests/provisioning/test_compatibility_manifest.py",

@@ -45,6 +45,44 @@ supported:
       - baseline scan-packet-envelope
       - baseline compare-scan
       - baseline validate-ledger
+  # 4a887396 (l9-ci-sdk main: #134, #135, #143, #136, #138, #139, #144 on
+  # 47ae3ac5), ADMITTED, NOT DEFAULT (PIN-ADVANCE-3 step one). #144 classifies
+  # findings new or pre-existing against --baseline-commit (ADR 0023, bundle
+  # schema 1.2.0, fail closed); #138 adds the central finding-waiver ledger
+  # (--waivers); #136 adds `semgrep consumer-run` for a declared consumer
+  # rulepack (ADR 0021, a new required CLI path); #134 puts tests in required
+  # scope, which blocks pre-existing test findings unless the baseline is
+  # passed (row 26). It is therefore activated only together with Core's
+  # baseline wiring (step two), not made the default here: with #317's
+  # admitted leg, a default without that wiring would be judged on the very
+  # findings the wiring downgrades. requirements.txt is byte-identical, so the
+  # runtime lock is unchanged.
+  - source: git
+    repository: https://github.com/Quantum-L9/l9-ci-sdk.git
+    revision: 4a887396990a59ffb4a7108790b2fa1005c7865d
+    integration_contract: l9.integration-contract/v1
+    requirements_sha256: 96cad34733f60567c110bc9b7a25679ae5d2c76a3107dad8e118868ab59b70e3
+    runtime_locks:
+      - cpython-3.12.14-linux-x86_64.txt
+    artifact_protocols:
+      - l9.finding-bundle/v1
+      - l9.agent-review-payload/v1
+      - l9.sarif-log/v1
+    required_cli_paths:
+      - providers detect
+      - providers inventory
+      - semgrep run
+      - semgrep normalize
+      - semgrep consumer-run
+      - gate evaluate
+      - bundle validate
+      - bundle project-agent-payload
+      - bundle project-sarif
+      - compatibility check
+      - baseline compare-tests
+      - baseline scan-packet-envelope
+      - baseline compare-scan
+      - baseline validate-ledger
   # 1d632037 (l9-ci-sdk#140, #142, #134, #135 on 2796d7a4, SDK main):
   # hardcoded-credential requires a secret-shaped value, not a name (#140);
   # archived code (**/_archived/**) is declared out of required scope with its

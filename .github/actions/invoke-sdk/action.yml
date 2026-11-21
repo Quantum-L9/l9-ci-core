@@ -8,7 +8,7 @@ inputs:
     required: true
   operation:
     description: >
-      One of semgrep-run, semgrep-normalize, bundle-validate,
+      One of semgrep-run, semgrep-consumer-run, semgrep-normalize, bundle-validate,
       bundle-project-agent-payload, bundle-project-sarif, or
       compatibility-check.
     required: true
@@ -69,6 +69,13 @@ inputs:
   waiver-date:
     description: Optional YYYY-MM-DD day waiver expiry is judged on.
     required: false
+  baseline-commit:
+    description: >
+      Optional full commit for semgrep-run to classify findings against
+      (SDK ADR 0023): pre-existing blocking findings are reported as advisory,
+      new ones keep their mode, and an unresolvable baseline fails closed.
+      Requires policy.
+    required: false
   generated-at:
     description: Optional deterministic generation timestamp.
     required: false
@@ -119,6 +126,7 @@ runs:
         L9_WAIVERS: ${{ inputs.waivers }}
         L9_WAIVER_REPOSITORY: ${{ inputs.waiver-repository }}
         L9_WAIVER_DATE: ${{ inputs.waiver-date }}
+        L9_BASELINE_COMMIT: ${{ inputs.baseline-commit }}
         L9_GENERATED_AT: ${{ inputs.generated-at }}
         L9_REVISION: ${{ inputs.revision }}
         L9_STRICT: ${{ inputs.strict }}

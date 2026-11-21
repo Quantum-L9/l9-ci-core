@@ -156,7 +156,51 @@ class PlanFromRecordedInventoryTests(unittest.TestCase):
             f"language:{path.stem}"
             for path in (ACTIONS / "resolve-governance/identity-maps").glob("*.yaml")
         )
-        self.assertEqual(maps, sorted(TARGETS["semgrep"]))
+        languages = sorted(t for t in TARGETS["semgrep"] if t.startswith("language:"))
+        self.assertEqual(maps, languages)
+        # The consumer rulepack (SDK ADR 0021) needs no identity map: its
+        # rules carry consumer canonical IDs.
+        self.assertIn("consumer:*", TARGETS["semgrep"])
+
+    def test_a_declared_consumer_rulepack_is_planned_and_required(self) -> None:
+        record = copy.deepcopy(inventory("mixed"))
+        body = planner.unwrap(record)
+        body["provider_prerequisites"].append(
+            {
+                "provider_id": "semgrep",
+                "target": "consumer:quantum-l9.cursor-governance",
+                "state": "applicable",
+                "reason": "consumer rulepack declared and in scope",
+            }
+        )
+        plan = plan_for(record)
+        consumer = next(
+            i for i in plan["instances"] if i["target"].startswith("consumer:")
+        )
+        self.assertTrue(consumer["required"])
+        self.assertEqual("required by central governance", consumer["requiredness"])
+        # The aggregate accounts for the consumer instance like any other.
+        targets = [i["target"] for i in plan["instances"]]
+        self.assertEqual("pass", aggregate(plan, *targets)["status"])
+        self.assertNotEqual("pass", aggregate(plan, *targets[:-1])["status"])
+
+    def test_a_consumer_wildcard_is_the_only_wildcard(self) -> None:
+        self.assertTrue(planner.is_executable("consumer:x", frozenset({"consumer:*"})))
+        self.assertFalse(planner.is_executable("language:x", frozenset({"consumer:*"})))
+        for bad in ("language:*", "framework:*", "*", "consumer:*x"):
+            with self.subTest(target=bad), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "targets.json"
+                path.write_text(
+                    json.dumps(
+                        {
+                            "schema": "l9.core-executable-targets/v1",
+                            "providers": {"semgrep": [bad]},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                with self.assertRaises(planner.PlanningError):
+                    planner.load_executable_targets(path)
 
     def test_bare_record_and_cli_envelope_plan_the_same(self) -> None:
         envelope = inventory("mixed")
