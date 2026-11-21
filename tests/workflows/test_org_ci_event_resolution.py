@@ -89,6 +89,9 @@ GATE_TERM = re.compile(
 )
 
 
+NOT_CANCELLED = "!cancelled() && ("
+
+
 def evaluate_gate(
     expression: str,
     *,
@@ -108,7 +111,17 @@ def evaluate_gate(
 
     An absent `inputs.event` is modelled as GitHub does: a missing context
     property is null, and null compares equal to the empty string.
+
+    The required job also waits for `security` and must run whatever that job
+    concluded, so its gate is `!cancelled() && (<ref gate>)`. The modelled run
+    is not cancelled: the wrapper is stripped exactly, and anything else around
+    the ref gate is unparsable.
     """
+    expression = expression.strip()
+    if expression.startswith(NOT_CANCELLED):
+        if not expression.endswith(")"):
+            raise AssertionError(f"unparsable gate: {expression!r}")
+        expression = expression[len(NOT_CANCELLED) : -1]
     context = {
         "github.event_name": event_name,
         "github.ref_name": ref_name,

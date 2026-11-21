@@ -164,19 +164,42 @@ permissions:
   contents: read
 
 jobs:
+  # Secret scan (gitleaks, the consumer's .gitleaks.toml layered on the Core
+  # preset), Python dependency audit (pip-audit) and advisory bandit, scoped to
+  # what the event changed (L2-closeout item 1). Its result is enforced inside
+  # the required job below, so the one required context carries it: a secret or
+  # a vulnerable dependency blocks, bandit never does. The same ref gate as
+  # `analyze`, so a narrowed native push runs neither.
+  security:
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    # Inherits the workflow's `contents: read`; security.yml asks for no more.
+    # CORE_ACTIONS_PIN — security.yml at #298's merge revision (AGENTS.md §16)
+    uses: Quantum-L9/l9-ci-core/.github/workflows/security.yml@14396e9deb6bc1db467fae57e7d1d7d7efd63426
+    with:
+      gitleaks-scope: event
+
   analyze:
     # The required check name. Its one source is .l9/org-runtime-contract.yaml
     # (entrypoint.required_check.name); tests/workflows/test_required_check_name.py
     # holds this value equal to it, and the organization ruleset must list it.
     name: Analyze (central Core)
+    # `analyze` waits for `security` and runs whatever its result (!cancelled()),
+    # then enforces it in its last step. GitHub skips a job whose dependency
+    # failed unless its `if` says otherwise, and a skipped required check would
+    # read as passing.
+    needs: security
     # Non-push triggers are unaffected. A reusable invocation always carries the
     # required `event` input, so a caller that is itself on a push keeps its own
     # governed evaluation instead of inheriting this ref gate. Only a native push
     # is narrowed, and only to the repository's self-declared default branch.
     if: >-
-      github.event_name != 'push'
+      !cancelled()
+      && (github.event_name != 'push'
       || inputs.event != ''
-      || github.ref_name == github.event.repository.default_branch
+      || github.ref_name == github.event.repository.default_branch)
     # An explicit Ubuntu release family, never `-latest`. `ubuntu-24.04` fixes
     # the OS family so a `-latest` family jump cannot re-base the fleet's
     # evaluation; GitHub still rolls hosted image builds within that family on
@@ -1136,4 +1159,19 @@ jobs:
           if [ "${status}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
             echo "Blocking mode: failing job on required instances '${status}'" >&2
             exit "${exit_code}"
+          fi
+
+      # The security job's result, enforced in the required context. Anything
+      # but success fails, skipped and cancelled included: an INCOMPLETE scan
+      # never passes.
+      - name: Enforce security scan (secrets, dependency audit)
+        if: always()
+        env:
+          SECURITY_RESULT: ${{ needs.security.result }}
+        run: |
+          set -euo pipefail
+          echo "Security scan (gitleaks, pip-audit; bandit advisory): ${SECURITY_RESULT:-unavailable}"
+          if [ "${SECURITY_RESULT}" != "success" ]; then
+            echo "::error title=Security scan::the security job concluded '${SECURITY_RESULT:-unavailable}'; a secret or a vulnerable dependency blocks the merge (see the security job)"
+            exit 1
           fi
