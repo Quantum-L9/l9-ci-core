@@ -138,7 +138,7 @@ class LocksetTests(unittest.TestCase):
             "--format requirements.txt",
         ):
             self.assertIn(flag, export)
-        exported = export.split("--output-file ", 1)[1]
+        exported = export.split("--output-file ", 1)[1].split()[0]
         [audit] = _audits(calls)
         self.assertIn(f"--no-deps -r {exported}", audit)
         self.assertIn("outcome=executed_pass", text)
@@ -175,6 +175,46 @@ class LocksetTests(unittest.TestCase):
         self.assertEqual(1, code)
         self.assertIn("outcome=not_executed (no lock file)", text)
         self.assertEqual([], _audits(calls))
+
+    def test_conflicting_selections_are_exported_and_audited_one_by_one(self) -> None:
+        # [tool.uv].conflicts makes --all-extras/--all-groups unresolvable by
+        # design; every selection is still exported and audited.
+        pyproject = (
+            "[project]\nname = 'p'\n"
+            "[project.optional-dependencies]\ncpu = ['a']\ngpu = ['b']\n"
+            "[dependency-groups]\ndev = ['c']\n"
+            "[tool.uv]\nconflicts = [[{extra = 'cpu'}, {extra = 'gpu'}]]\n"
+        )
+        project = self.project({"pyproject.toml": pyproject, "uv.lock": "x\n"})
+        (project.bin / "uv").write_text(
+            "#!/usr/bin/env bash\n"
+            f'printf "%s\\n" "uv $*" >> "{project.log}"\n'
+            'case "$*" in *--all-extras*) exit 2 ;; esac\n'
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        code, text, calls = project.run({"EVENT_NAME": "workflow_dispatch"})
+        self.assertEqual(0, code, text)
+        exports = [c for c in calls if c.startswith("uv export")]
+        selections = sorted(
+            c.split("--output-file ", 1)[1].split()[0].rsplit("/", 1)[1]
+            for c in exports[1:]
+        )
+        self.assertEqual(
+            ["base.txt", "extra-cpu.txt", "extra-gpu.txt", "group-dev.txt"], selections
+        )
+        [audit] = _audits(calls)
+        for name in selections:
+            self.assertIn(f"/{name}", audit)
+
+    def test_an_unexportable_lock_without_declared_conflicts_still_fails(
+        self,
+    ) -> None:
+        project = self.project({"pyproject.toml": "[project]\n", "uv.lock": "x\n"})
+        project.stub("uv", 2)
+        code, text, _ = project.run({"EVENT_NAME": "workflow_dispatch"})
+        self.assertEqual(1, code)
+        self.assertIn("outcome=not_executed (uv.lock could not be exported)", text)
 
     def test_a_vulnerable_lock_fails(self) -> None:
         project = self.project({"pyproject.toml": "[project]\n", "uv.lock": "x\n"})
@@ -224,6 +264,19 @@ class ScopeTests(unittest.TestCase):
                 for event, env in self.events(base, head).items():
                     _, _, calls = self.project.run({"EVENT_NAME": event, **env})
                     self.assertEqual(1, len(_audits(calls)), event)
+
+    def test_a_renamed_lock_is_a_dependency_change(self) -> None:
+        # Rename detection would show only the new name; the old path counts.
+        _git(self.project.root, "mv", "uv.lock", "lockfile.bak")
+        _git(self.project.root, "commit", "-qm", "rename the lock")
+        head = _git(self.project.root, "rev-parse", "HEAD")
+        code, text, _ = self.project.run(
+            {"EVENT_NAME": "push", "PUSH_BEFORE": self.project.base, "EVENT_SHA": head}
+        )
+        # Not skipped as unchanged: the lock is gone, so the audit fails.
+        self.assertEqual(1, code)
+        self.assertNotIn("outcome=not_applicable", text)
+        self.assertIn("outcome=not_executed (no lock file)", text)
 
     def test_events_outside_row_23_always_audit(self) -> None:
         self.project.commit("README.md", "b\n")
