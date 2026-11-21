@@ -407,6 +407,31 @@ def job_blocks(org_ci: str) -> dict[str, str]:
     return {name: "".join(body) for name, body in blocks.items()}
 
 
+def _reusable_call(name: str, body: str) -> tuple[str, dict[str, str]]:
+    """(uses, with-values) of one non-analyze org-ci job; anything else refused."""
+    uses = ""
+    values: dict[str, str] = {}
+    section = ""
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        top_level = line.startswith("    ") and not line.startswith("     ")
+        if top_level:
+            section, _, value = stripped.partition(":")
+            if section not in ("uses", "if", "with"):
+                raise CanaryError(
+                    f"org-ci.yml job {name!r}: {section!r} is not supported by the canary"
+                )
+            uses = value.strip() if section == "uses" else uses
+        elif section == "with" and line.startswith("      "):
+            key, _, value = stripped.partition(":")
+            values[key.strip()] = value.strip().strip("'\"")
+        elif section != "if":
+            raise CanaryError(f"org-ci.yml job {name!r}: unexpected {stripped!r}")
+    return uses, values
+
+
 def reusable_jobs(org_ci: str) -> list[tuple[str, str, str, dict[str, str]]]:
     """(job, workflow path, pinned sha, with-values) for every non-analyze job.
 
@@ -418,27 +443,7 @@ def reusable_jobs(org_ci: str) -> list[tuple[str, str, str, dict[str, str]]]:
     for name, body in job_blocks(org_ci).items():
         if name == "analyze":
             continue
-        uses = ""
-        values: dict[str, str] = {}
-        section = ""
-        for line in body.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if line.startswith("    ") and not line.startswith("     "):
-                key, _, value = stripped.partition(":")
-                section = key
-                if key == "uses":
-                    uses = value.strip()
-                elif key not in ("if", "with"):
-                    raise CanaryError(
-                        f"org-ci.yml job {name!r}: {key!r} is not supported by the canary"
-                    )
-            elif section == "with" and line.startswith("      "):
-                key, _, value = stripped.partition(":")
-                values[key.strip()] = value.strip().strip("'\"")
-            elif section != "if":
-                raise CanaryError(f"org-ci.yml job {name!r}: unexpected {stripped!r}")
+        uses, values = _reusable_call(name, body)
         match = REUSABLE.match(uses)
         if not match:
             raise CanaryError(
@@ -503,72 +508,108 @@ def _expression_value(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+CHECKOUT_IDENTITY = (
+    "          repository: ${{ matrix.repository }}\n"
+    "          ref: ${{ matrix.revision }}\n"
+    "          token: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN"
+    " || github.token }}\n"
+)
+INPUT_EXPRESSION = re.compile(r"\$\{\{\s*inputs\.([a-z0-9-]+)\s*\}\}")
+INPUT_BARE = re.compile(r"\binputs\.([a-z0-9-]+)\b")
+NOT_RETARGETED = re.compile(r"\b(inputs|needs)\.|\bsecrets\.(?!L9_GITHUB_READ_TOKEN\b)")
+
+
+def _substitute(text: str, inputs: dict[str, str], what: str) -> str:
+    """Resolve ``inputs.*`` and the event identity for a push of the head."""
+
+    def value(match: re.Match[str], expression: bool) -> str:
+        key = match.group(1)
+        if key not in inputs:
+            raise CanaryError(f"{what}: input {key!r} has no value")
+        return _expression_value(inputs[key]) if expression else inputs[key] or "''"
+
+    text = INPUT_EXPRESSION.sub(lambda m: value(m, False), text)
+    text = INPUT_BARE.sub(lambda m: value(m, True), text)
+    # A main head has no pull request range: describe a push of that commit.
+    text = text.replace("${{ github.event_name }}", "push")
+    text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", "''", text)
+    text = text.replace("${{ github.sha }}", "${{ matrix.revision }}")
+    return text.replace("${{ github.repository }}", "${{ matrix.repository }}")
+
+
+def _isolate_step(item: str, name: str, number: int, directory: str) -> tuple[str, str]:
+    """(step text, step id): prefixed id, continue-on-error, working directory,
+    and a checkout retargeted to the evaluated repository."""
+    own = re.search(r"(?m)^ {8}id: ([A-Za-z0-9_-]+)$", item)
+    step_id = f"{name}__{own.group(1) if own else f's{number}'}"
+    if own:
+        item = item.replace(own.group(0), f"        id: {step_id}")
+    first, _, rest = item.partition("\n")
+    extra = "" if own else f"        id: {step_id}\n"
+    extra += "        continue-on-error: true\n"
+    runs_here = re.search(r"(?m)^ {8}run:", item) and not re.search(
+        r"(?m)^ {8}working-directory:", item
+    )
+    if runs_here and directory != ".":
+        extra += f"        working-directory: {directory}\n"
+    item = first + "\n" + extra + rest
+    if re.search(
+        r"(?m)^ {6}- uses: actions/checkout@|^ {8}uses: actions/checkout@", item
+    ):
+        if re.search(r"(?m)^ {8}with:$", item):
+            item = re.sub(
+                r"(?m)^( {8}with:\n)",
+                lambda m: m.group(1) + CHECKOUT_IDENTITY,
+                item,
+                count=1,
+            )
+        else:
+            item = item.rstrip("\n") + "\n        with:\n" + CHECKOUT_IDENTITY
+    return (item if item.endswith("\n") else item + "\n"), step_id
+
+
+def _result_steps(name: str, ids: list[str]) -> str:
+    """The job result ``analyze`` reads, and the workspace clear before it."""
+    variables = [step.upper().replace("-", "_") for step in ids]
+    outcomes = "".join(
+        f"          {variable}: ${{{{ steps.{step}.outcome }}}}\n"
+        for variable, step in zip(variables, ids, strict=True)
+    )
+    loop = " ".join('"${' + variable + '}"' for variable in variables)
+    return (
+        f"      - name: Result of the inlined {name} job\n"
+        f"        id: {name}__result\n"
+        "        if: always()\n"
+        "        env:\n" + outcomes + "        run: |\n"
+        "          set -euo pipefail\n"
+        "          result=success\n"
+        f"          for outcome in {loop}; do\n"
+        '            case "${outcome}" in failure|cancelled) result=failure ;; esac\n'
+        "          done\n"
+        f'          echo "{name} job: ${{result}}"\n'
+        '          echo "result=${result}" >> "$GITHUB_OUTPUT"\n'
+        f"      - name: Clear the workspace after the inlined {name} job\n"
+        "        if: always()\n"
+        "        run: |\n"
+        "          set -euo pipefail\n"
+        '          test -n "${GITHUB_WORKSPACE:-}" && test "${GITHUB_WORKSPACE}" != "/"\n'
+        '          find "${GITHUB_WORKSPACE}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +\n'
+    )
+
+
 def inline_job(name: str, workflow: str, values: dict[str, str], what: str) -> str:
     """A reusable workflow's job as canary leg steps, retargeted and isolated."""
     steps, directory, _ = _single_job(workflow, what)
     inputs = {**_inputs(workflow), **values}
-
-    def scalar(match: re.Match[str]) -> str:
-        key = match.group(1)
-        if key not in inputs:
-            raise CanaryError(f"{what}: input {key!r} has no value")
-        return inputs[key] or "''"
-
-    def bare(match: re.Match[str]) -> str:
-        key = match.group(1)
-        if key not in inputs:
-            raise CanaryError(f"{what}: input {key!r} has no value")
-        return _expression_value(inputs[key])
-
-    directory = re.sub(r"\$\{\{\s*inputs\.([a-z0-9-]+)\s*\}\}", scalar, directory)
-    steps = re.sub(r"\$\{\{\s*inputs\.([a-z0-9-]+)\s*\}\}", scalar, steps)
-    steps = re.sub(r"\binputs\.([a-z0-9-]+)\b", bare, steps)
-    # A main head has no pull request range: describe a push of that commit.
-    steps = steps.replace("${{ github.event_name }}", "push")
-    steps = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", "''", steps)
-    steps = steps.replace("${{ github.sha }}", "${{ matrix.revision }}")
-    steps = steps.replace("${{ github.repository }}", "${{ matrix.repository }}")
-    items = re.split(r"(?m)^(?= {6}- )", steps)
-    if items and not items[0].strip():
-        items = items[1:]
-    ids: list[str] = []
-    out: list[str] = []
-    for number, item in enumerate(items):
-        own = re.search(r"(?m)^ {8}id: ([A-Za-z0-9_-]+)$", item)
-        step_id = f"{name}__{own.group(1) if own else f's{number}'}"
-        if own:
-            item = item.replace(own.group(0), f"        id: {step_id}")
-        first, _, rest = item.partition("\n")
-        extra = "" if own else f"        id: {step_id}\n"
-        extra += "        continue-on-error: true\n"
-        if (
-            re.search(r"(?m)^ {8}run:", item)
-            and not re.search(r"(?m)^ {8}working-directory:", item)
-            and directory != "."
-        ):
-            extra += f"        working-directory: {directory}\n"
-        item = first + "\n" + extra + rest
-        if "actions/checkout@" in first or re.search(
-            r"(?m)^ {8}uses: actions/checkout@", item
-        ):
-            identity = (
-                "          repository: ${{ matrix.repository }}\n"
-                "          ref: ${{ matrix.revision }}\n"
-                "          token: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN"
-                " || github.token }}\n"
-            )
-            if re.search(r"(?m)^ {8}with:$", item):
-                item = re.sub(
-                    r"(?m)^( {8}with:\n)",
-                    lambda m: m.group(1) + identity,
-                    item,
-                    count=1,
-                )
-            else:
-                item = item.rstrip("\n") + "\n        with:\n" + identity
-        ids.append(step_id)
-        out.append(item if item.endswith("\n") else item + "\n")
-    body = "".join(out)
+    directory = _substitute(directory, inputs, what)
+    steps = _substitute(steps, inputs, what)
+    items = [item for item in re.split(r"(?m)^(?= {6}- )", steps) if item.strip()]
+    isolated = [
+        _isolate_step(item, name, number, directory)
+        for number, item in enumerate(items)
+    ]
+    ids = [step_id for _, step_id in isolated]
+    body = "".join(text for text, _ in isolated)
     for step in ids:
         bare_id = step.split("__", 1)[1]
         body = re.sub(rf"\bsteps\.{re.escape(bare_id)}\.", f"steps.{step}.", body)
@@ -576,41 +617,11 @@ def inline_job(name: str, workflow: str, values: dict[str, str], what: str) -> s
         line.strip()
         for line in body.splitlines()
         if not line.lstrip().startswith("#")
-        and (
-            TARGET_SHAPED.search(line)
-            or re.search(
-                r"\b(inputs|needs)\.|\bsecrets\.(?!L9_GITHUB_READ_TOKEN\b)", line
-            )
-        )
+        and (TARGET_SHAPED.search(line) or NOT_RETARGETED.search(line))
     ]
     if left:
         raise CanaryError(f"{what}: references the canary cannot retarget: {left}")
-    outcomes = "".join(
-        f"          {step.upper().replace('-', '_')}: ${{{{ steps.{step}.outcome }}}}\n"
-        for step in ids
-    )
-    return (
-        body
-        + f"      - name: Result of the inlined {name} job\n"
-        + f"        id: {name}__result\n"
-        + "        if: always()\n"
-        + "        env:\n"
-        + outcomes
-        + "        run: |\n"
-        + "          set -euo pipefail\n"
-        + "          result=success\n"
-        + f"          for outcome in {' '.join('"${' + s.upper().replace('-', '_') + '}"' for s in ids)}; do\n"
-        + '            case "${outcome}" in failure|cancelled) result=failure ;; esac\n'
-        + "          done\n"
-        + f'          echo "{name} job: ${{result}}"\n'
-        + '          echo "result=${result}" >> "$GITHUB_OUTPUT"\n'
-        + f"      - name: Clear the workspace after the inlined {name} job\n"
-        + "        if: always()\n"
-        + "        run: |\n"
-        + "          set -euo pipefail\n"
-        + '          test -n "${GITHUB_WORKSPACE:-}" && test "${GITHUB_WORKSPACE}" != "/"\n'
-        + '          find "${GITHUB_WORKSPACE}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +\n'
-    )
+    return body + _result_steps(name, ids)
 
 
 Provider = Any  # Callable[[str, str, str, dict[str, str]], str]
@@ -961,6 +972,29 @@ def compare(
     return True, "kept: already red at the base pins, nothing new"
 
 
+def _plan_problem(env: dict[str, str]) -> str:
+    """Why the plan cannot be judged, or "" when it can."""
+    head_digest = env.get("L9_CANARY_HEAD_DIGEST", "")
+    base_digest = env.get("L9_CANARY_BASE_DIGEST", "")
+    differential = env.get("L9_CANARY_DIFFERENTIAL") == "true"
+    if not DIGEST.match(head_digest) or not DIGEST.match(base_digest):
+        return "the canary applies but its plan is incomplete"
+    if differential == (head_digest == base_digest):
+        return "the plan's differential flag contradicts its digests"
+    if env.get("L9_CANARY_HEAD_CURRENT") != "true":
+        return (
+            "the canary's inlined org-ci jobs are not what org-ci.yml pins: run "
+            "`python3 tools/promotion_canary.py render`, and push"
+        )
+    if differential and env.get("L9_CANARY_BASE_CURRENT") != "true":
+        return (
+            "the pull request changes the analyze steps, but its embedded base leg "
+            "is not the base tip's: fetch origin/main, run "
+            "`python3 tools/promotion_canary.py render`, and push"
+        )
+    return ""
+
+
 def judge(env: dict[str, str]) -> tuple[bool, list[str]]:
     """(passed, report lines) from the verdict job's environment."""
     plan_result = env.get("L9_CANARY_PLAN_RESULT", "")
@@ -972,24 +1006,12 @@ def judge(env: dict[str, str]) -> tuple[bool, list[str]]:
         legs = json.loads(env.get("L9_CANARY_MATRIX", ""))["include"]
     except (ValueError, KeyError, TypeError) as error:
         return False, [f"FAIL the canary plan is unreadable: {error}"]
-    head_digest = env.get("L9_CANARY_HEAD_DIGEST", "")
-    base_digest = env.get("L9_CANARY_BASE_DIGEST", "")
-    if not legs or not DIGEST.match(head_digest) or not DIGEST.match(base_digest):
-        return False, ["FAIL the canary applies but its plan is incomplete"]
+    problem = _plan_problem(env) if legs else "the canary applies but planned no leg"
+    if problem:
+        return False, [f"FAIL {problem}"]
+    head_digest = env["L9_CANARY_HEAD_DIGEST"]
+    base_digest = env["L9_CANARY_BASE_DIGEST"]
     differential = env.get("L9_CANARY_DIFFERENTIAL") == "true"
-    if differential == (head_digest == base_digest):
-        return False, ["FAIL the plan's differential flag contradicts its digests"]
-    if env.get("L9_CANARY_HEAD_CURRENT") != "true":
-        return False, [
-            "FAIL the canary's inlined org-ci jobs are not what org-ci.yml pins: "
-            "run `python3 tools/promotion_canary.py render`, and push"
-        ]
-    if differential and env.get("L9_CANARY_BASE_CURRENT") != "true":
-        return False, [
-            "FAIL the pull request changes the analyze steps, but its embedded base "
-            "leg is not the base tip's: fetch origin/main, run "
-            "`python3 tools/promotion_canary.py render`, and push"
-        ]
     records = Path(env.get("L9_CANARY_RECORDS", ""))
     passed = True
     rows = [
