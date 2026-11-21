@@ -295,10 +295,9 @@ class ReusableJobTests(unittest.TestCase):
                 pc.embedded_provider(head_part),
             ),
         )
+        provide = pc.embedded_provider("")
         with self.assertRaisesRegex(pc.CanaryError, "no inlined"):
-            pc.embedded_provider("")(
-                "security", ".github/workflows/security.yml", SECURITY_SHA, {}
-            )
+            provide("security", ".github/workflows/security.yml", SECURITY_SHA, {})
 
     def test_unsupported_shapes_are_refused_not_left_out(self) -> None:
         for job in (

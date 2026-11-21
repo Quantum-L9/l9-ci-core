@@ -100,7 +100,7 @@ BASE_END = "  # --- base pins leg: end ---\n"
 REUSABLE = re.compile(
     r"^Quantum-L9/l9-ci-core/(\.github/workflows/[A-Za-z0-9._-]+\.ya?ml)@([0-9a-f]{40})$"
 )
-JOB_NAME = re.compile(r"^  ([a-z][a-z0-9_-]*):\n$")
+JOB_NAME = re.compile(r"^ {2}([a-z][a-z0-9_-]*):\n$")
 INLINE_BEGIN = "      # --- inlined org-ci job {key}: begin ---\n"
 INLINE_END = "      # --- inlined org-ci job {key}: end ---\n"
 LEG_TIMEOUT = 30
@@ -118,13 +118,14 @@ STATIC_PATHS = (
 # Target identity in the analyze job, and what a leg uses instead. Each must
 # occur at least once; anything target-shaped that is left is refused. The
 # matrix id names the leg's artifact set, so every leg has its own.
+MATRIX_REVISION = "${{ matrix.revision }}"
 REPLACEMENTS = (
     (
         "${{ github.event.pull_request.head.sha || github.sha }}",
-        "${{ matrix.revision }}",
+        MATRIX_REVISION,
     ),
     ("${{ github.repository }}", "${{ matrix.repository }}"),
-    ("${{ github.sha }}", "${{ matrix.revision }}"),
+    ("${{ github.sha }}", MATRIX_REVISION),
     ("${{ github.ref }}", "refs/heads/${{ matrix.branch }}"),
     (
         "INPUT_MATRIX_ID: ${{ inputs.matrix-id || 'org-semgrep' }}",
@@ -486,7 +487,7 @@ def _single_job(workflow: str, what: str) -> tuple[str, str, int]:
         raise CanaryError(f"{what}: the canary inlines one-job workflows only")
     (body,) = blocks.values()
     for key in ("strategy:", "services:", "container:", "needs:", "outputs:"):
-        if re.search(rf"(?m)^    {key}", body):
+        if re.search(rf"(?m)^ {{4}}{key}", body):
             raise CanaryError(f"{what}: job-level {key[:-1]} is not supported")
     lines = body.splitlines(keepends=True)
     try:
@@ -494,7 +495,7 @@ def _single_job(workflow: str, what: str) -> tuple[str, str, int]:
     except ValueError as error:
         raise CanaryError(f"{what}: the job has no steps") from error
     directory = re.search(r"(?m)^ {8}working-directory: (.+)$", "".join(lines[:steps]))
-    timeout = re.search(r"(?m)^    timeout-minutes: ([0-9]+)$", body)
+    timeout = re.search(r"(?m)^ {4}timeout-minutes: (\d+)$", body)
     return (
         "".join(lines[steps + 1 :]).rstrip("\n") + "\n",
         directory.group(1).strip() if directory else ".",
@@ -503,7 +504,7 @@ def _single_job(workflow: str, what: str) -> tuple[str, str, int]:
 
 
 def _expression_value(value: str) -> str:
-    if value in ("true", "false") or re.fullmatch(r"-?[0-9]+", value):
+    if value in ("true", "false") or re.fullmatch(r"-?\d+", value):
         return value
     return "'" + value.replace("'", "''") + "'"
 
@@ -533,7 +534,7 @@ def _substitute(text: str, inputs: dict[str, str], what: str) -> str:
     # A main head has no pull request range: describe a push of that commit.
     text = text.replace("${{ github.event_name }}", "push")
     text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", "''", text)
-    text = text.replace("${{ github.sha }}", "${{ matrix.revision }}")
+    text = text.replace("${{ github.sha }}", MATRIX_REVISION)
     return text.replace("${{ github.repository }}", "${{ matrix.repository }}")
 
 
