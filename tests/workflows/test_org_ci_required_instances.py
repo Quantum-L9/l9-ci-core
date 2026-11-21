@@ -191,7 +191,9 @@ class RunnerTests(unittest.TestCase):
         calls = self.log.read_text(encoding="utf-8")
         self.assertIn("semgrep run --language typescript", calls)
         self.assertNotIn("--language python", calls)  # primary already ran
-        self.assertIn("--identity-map maps/typescript.yaml", calls)
+        self.assertIn(
+            f"--identity-map {self.tmp.resolve()}/maps/typescript.yaml", calls
+        )
         self.assertIn("--required", calls)
         result = self.aggregate()
         self.assertEqual(
@@ -209,8 +211,19 @@ class RunnerTests(unittest.TestCase):
         ]
         self.assertTrue(runs)
         for run in runs:
-            self.assertIn("--root .l9/runtime/m/scan-tree", run)
+            self.assertIn(f"--root {self.tmp.resolve()}/.l9/runtime/m/scan-tree", run)
             self.assertNotIn("--root . ", run + " ")
+
+    def test_every_path_the_sdk_receives_is_absolute(self) -> None:
+        """The scan root is not the working directory (CG canary, #340)."""
+        self.run_instances()
+        flags = ("--root", "--output", "--identity-map", "--policy", "--bundle")
+        for line in self.log.read_text(encoding="utf-8").splitlines():
+            words = line.split()
+            for index, word in enumerate(words[:-1]):
+                if word in flags:
+                    with self.subTest(line=line, flag=word):
+                        self.assertTrue(Path(words[index + 1]).is_absolute())
 
     def test_without_a_scan_tree_no_instance_runs(self) -> None:
         printed = self.run_instances(expect=1, L9_SCAN_ROOT="")
@@ -231,7 +244,7 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("--baseline-commit " + "e" * 40, run)
         self.assertIn("--waivers /runner/finding-waivers.yaml", run)
         self.assertIn("--repository Quantum-L9/fixture", run)
-        self.assertIn("--policy policy.yaml", run)
+        self.assertIn(f"--policy {self.tmp.resolve()}/policy.yaml", run)
 
     def test_without_a_baseline_no_language_run_carries_one(self) -> None:
         self.run_instances()
@@ -247,7 +260,7 @@ class RunnerTests(unittest.TestCase):
             for line in self.log.read_text(encoding="utf-8").splitlines()
             if line.startswith("semgrep consumer-run")
         )
-        self.assertIn("--policy policy.yaml", consumer)
+        self.assertIn(f"--policy {self.tmp.resolve()}/policy.yaml", consumer)
         self.assertIn("--required", consumer)
         # The consumer run is its own execution; ADR 0023 is not applied to it.
         self.assertNotIn("--baseline-commit", consumer)
