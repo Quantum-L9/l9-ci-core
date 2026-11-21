@@ -23,6 +23,20 @@ inputs:
       does not. Empty reads anonymously.
     required: false
     default: ""
+  event-name:
+    description: >
+      Empty (default): the consumer's make targets run under this run's own
+      GitHub context. push: they run as a push of the checked-out commit to
+      event-ref (GITHUB_EVENT_NAME, GITHUB_SHA, GITHUB_REF, GITHUB_EVENT_PATH
+      set for that commit; GITHUB_BASE_REF and GITHUB_HEAD_REF cleared). The
+      promotion canary uses push, since its legs check out a consumer's main
+      SHA inside a Core pull_request run. Any other value fails verification.
+    required: false
+    default: ""
+  event-ref:
+    description: refs/heads/<branch> the push targets; required with event-name push.
+    required: false
+    default: ""
 outputs:
   present:
     value: ${{ steps.verify.outputs.present }}
@@ -69,4 +83,6 @@ runs:
         L9_REPOSITORY_IDENTITY: ${{ github.repository }}
         L9_REGISTRY_SNAPSHOT: ${{ runner.temp }}/l9-registry-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}.yaml
         SEED_COMPOSER_ROOT: ${{ steps.composer.outputs.seed-root }}
+        L9_VERIFICATION_EVENT: ${{ inputs.event-name }}
+        L9_VERIFICATION_REF: ${{ inputs.event-ref }}
       run: python3 "${{ github.action_path }}/run.py"
