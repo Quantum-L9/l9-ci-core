@@ -4,7 +4,7 @@ Quantum-L9/Cursor-Governance#956: when a stacked parent merges and its child
 pull request is retargeted onto `main`, GitHub emits only `pull_request`
 activity type `edited` (with `github.event.changes.base` present). The default
 `pull_request` activity types are `opened`, `synchronize` and `reopened`, so
-the required `Analyze (central Core)` check was never evaluated for the new
+the required check was never evaluated for the new
 base.
 
 A title or body edit is deliberately *not* skipped: a job skipped by `if:`

@@ -787,7 +787,12 @@ class WorkflowContractTests(unittest.TestCase):
     def test_required_check_and_make_v1_stay_in_place(self) -> None:
         org = load(ORG_CI)
         names = [job.get("name", job_id) for job_id, job in org["jobs"].items()]
-        self.assertIn("Analyze (central Core)", names)
+        self.assertIn(
+            yaml.safe_load(
+                (ROOT / ".l9" / "org-runtime-contract.yaml").read_text(encoding="utf-8")
+            )["entrypoint"]["required_check"]["name"],
+            names,
+        )
         self.assertEqual(
             {
                 "schema": "l9.repo-execution/v2",
