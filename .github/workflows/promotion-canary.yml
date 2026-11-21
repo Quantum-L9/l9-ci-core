@@ -1035,13 +1035,18 @@ jobs:
                   pass
           verify = env.get("REPOSITORY_VERIFY", "")
           aggregate = env.get("AGGREGATE_STATUS", "")
-          if env["JOB_STATUS"] == "success":
-              status = "pass"
-          elif env["JOB_STATUS"] == "cancelled":
+          if env["JOB_STATUS"] == "cancelled":
               # Superseded by a newer run, or over the leg's time limit.
               status = "cancelled"
           elif aggregate == "incomplete":
+              # Before the job status: an advisory (nightly) scan that could
+              # not conclude ends its job green.
               status = "incomplete"
+          elif env["JOB_STATUS"] == "success" and aggregate == "fail":
+              # An advisory run whose findings did not fail the job.
+              status = "findings"
+          elif env["JOB_STATUS"] == "success":
+              status = "pass"
           elif verify not in ("", "pass", "not_applicable"):
               status = "verification"
           elif aggregate == "fail":
@@ -1098,7 +1103,7 @@ jobs:
         name: Resolve central runtime class
         env:
           GH_EVENT: ${{ github.event_name }}
-          INPUT_EVENT: ${{ inputs.event || '' }}
+          INPUT_EVENT: nightly
           INPUT_PROFILE: ${{ inputs.profile || '' }}
           INPUT_MATRIX_ID: canary-scan-${{ matrix.slug }}
           INPUT_SDK_REVISION: ${{ inputs.sdk-revision || '' }}
@@ -1709,13 +1714,18 @@ jobs:
                   pass
           verify = env.get("REPOSITORY_VERIFY", "")
           aggregate = env.get("AGGREGATE_STATUS", "")
-          if env["JOB_STATUS"] == "success":
-              status = "pass"
-          elif env["JOB_STATUS"] == "cancelled":
+          if env["JOB_STATUS"] == "cancelled":
               # Superseded by a newer run, or over the leg's time limit.
               status = "cancelled"
           elif aggregate == "incomplete":
+              # Before the job status: an advisory (nightly) scan that could
+              # not conclude ends its job green.
               status = "incomplete"
+          elif env["JOB_STATUS"] == "success" and aggregate == "fail":
+              # An advisory run whose findings did not fail the job.
+              status = "findings"
+          elif env["JOB_STATUS"] == "success":
+              status = "pass"
           elif verify not in ("", "pass", "not_applicable"):
               status = "verification"
           elif aggregate == "fail":
@@ -1772,7 +1782,7 @@ jobs:
         name: Resolve central runtime class
         env:
           GH_EVENT: ${{ github.event_name }}
-          INPUT_EVENT: ${{ inputs.event || '' }}
+          INPUT_EVENT: nightly
           INPUT_PROFILE: ${{ inputs.profile || '' }}
           INPUT_MATRIX_ID: canary-admitted-${{ matrix.slug }}
           INPUT_SDK_REVISION: ${{ inputs.sdk-revision || '' }}
@@ -2393,13 +2403,18 @@ jobs:
                   pass
           verify = env.get("REPOSITORY_VERIFY", "")
           aggregate = env.get("AGGREGATE_STATUS", "")
-          if env["JOB_STATUS"] == "success":
-              status = "pass"
-          elif env["JOB_STATUS"] == "cancelled":
+          if env["JOB_STATUS"] == "cancelled":
               # Superseded by a newer run, or over the leg's time limit.
               status = "cancelled"
           elif aggregate == "incomplete":
+              # Before the job status: an advisory (nightly) scan that could
+              # not conclude ends its job green.
               status = "incomplete"
+          elif env["JOB_STATUS"] == "success" and aggregate == "fail":
+              # An advisory run whose findings did not fail the job.
+              status = "findings"
+          elif env["JOB_STATUS"] == "success":
+              status = "pass"
           elif verify not in ("", "pass", "not_applicable"):
               status = "verification"
           elif aggregate == "fail":
@@ -4078,13 +4093,18 @@ jobs:
                   pass
           verify = env.get("REPOSITORY_VERIFY", "")
           aggregate = env.get("AGGREGATE_STATUS", "")
-          if env["JOB_STATUS"] == "success":
-              status = "pass"
-          elif env["JOB_STATUS"] == "cancelled":
+          if env["JOB_STATUS"] == "cancelled":
               # Superseded by a newer run, or over the leg's time limit.
               status = "cancelled"
           elif aggregate == "incomplete":
+              # Before the job status: an advisory (nightly) scan that could
+              # not conclude ends its job green.
               status = "incomplete"
+          elif env["JOB_STATUS"] == "success" and aggregate == "fail":
+              # An advisory run whose findings did not fail the job.
+              status = "findings"
+          elif env["JOB_STATUS"] == "success":
+              status = "pass"
           elif verify not in ("", "pass", "not_applicable"):
               status = "verification"
           elif aggregate == "fail":
@@ -4610,7 +4630,7 @@ jobs:
         name: Resolve central runtime class
         env:
           GH_EVENT: ${{ github.event_name }}
-          INPUT_EVENT: ${{ inputs.event || '' }}
+          INPUT_EVENT: nightly
           INPUT_PROFILE: ${{ inputs.profile || '' }}
           INPUT_MATRIX_ID: canary-scanbase-${{ matrix.slug }}
           INPUT_SDK_REVISION: ${{ inputs.sdk-revision || '' }}
@@ -5762,13 +5782,18 @@ jobs:
                   pass
           verify = env.get("REPOSITORY_VERIFY", "")
           aggregate = env.get("AGGREGATE_STATUS", "")
-          if env["JOB_STATUS"] == "success":
-              status = "pass"
-          elif env["JOB_STATUS"] == "cancelled":
+          if env["JOB_STATUS"] == "cancelled":
               # Superseded by a newer run, or over the leg's time limit.
               status = "cancelled"
           elif aggregate == "incomplete":
+              # Before the job status: an advisory (nightly) scan that could
+              # not conclude ends its job green.
               status = "incomplete"
+          elif env["JOB_STATUS"] == "success" and aggregate == "fail":
+              # An advisory run whose findings did not fail the job.
+              status = "findings"
+          elif env["JOB_STATUS"] == "success":
+              status = "pass"
           elif verify not in ("", "pass", "not_applicable"):
               status = "verification"
           elif aggregate == "fail":

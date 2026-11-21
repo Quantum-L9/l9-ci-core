@@ -2011,7 +2011,9 @@ semgrep check moved to nightly". It supersedes row 23 for Semgrep. Record:
   whole tree, findings to code scanning and the rolling issue.
 - **Canary (§40).** `promotion-canary.yml` keeps the org-ci head and base legs
   and adds the nightly-scan legs `scan` and `scanbase`; the admitted-SDK leg
-  (§43) is a scan leg. The verdict prints and judges both tables.
+  (§43) is a scan leg. Scan legs run as a `nightly` event, as the sink does
+  (whole tree, advisory), and are judged on concluding and on the findings the
+  pull request adds. The verdict prints and judges both tables.
 
 Tests: `tests/workflows/test_central_semgrep_required_instances.py`,
 `tests/workflows/test_instance_runner_scan_root_paths.py`,

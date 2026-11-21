@@ -116,6 +116,12 @@ BASE_BEGIN = (
 # the admitted-SDK leg runs the scan, the only family that provisions the SDK.
 SCAN_SIDE = "scan"
 SCAN_BASE_SIDE = "scanbase"
+# The scan legs run as the nightly sink runs them: a `nightly` event, so the
+# nightly profile (whole tree, no baseline, advisory findings). Each side of
+# the comparison is then the same kind of run, and a finding is judged by
+# whether the pull request adds it, never by the mode's verdict.
+EVENT_LINE = "          INPUT_EVENT: ${{ inputs.event || '' }}\n"
+NIGHTLY_EVENT_LINE = "          INPUT_EVENT: nightly\n"
 BASE_END = "  # --- base pins leg: end ---\n"
 REUSABLE = re.compile(
     r"^Quantum-L9/l9-ci-core/(\.github/workflows/[A-Za-z0-9._-]+\.ya?ml)@([0-9a-f]{40})$"
@@ -318,13 +324,18 @@ LEG = """\
                   pass
           verify = env.get("REPOSITORY_VERIFY", "")
           aggregate = env.get("AGGREGATE_STATUS", "")
-          if env["JOB_STATUS"] == "success":
-              status = "pass"
-          elif env["JOB_STATUS"] == "cancelled":
+          if env["JOB_STATUS"] == "cancelled":
               # Superseded by a newer run, or over the leg's time limit.
               status = "cancelled"
           elif aggregate == "incomplete":
+              # Before the job status: an advisory (nightly) scan that could
+              # not conclude ends its job green.
               status = "incomplete"
+          elif env["JOB_STATUS"] == "success" and aggregate == "fail":
+              # An advisory run whose findings did not fail the job.
+              status = "findings"
+          elif env["JOB_STATUS"] == "success":
+              status = "pass"
           elif verify not in ("", "pass", "not_applicable"):
               status = "verification"
           elif aggregate == "fail":
@@ -935,6 +946,7 @@ def leg_job(
     provider: Provider,
     admission: str = "",
     digest: str = "",
+    nightly: bool = False,
 ) -> str:
     """One leg: a sibling job per reusable job of the source workflow (org-ci.yml
     or the scan), then its ``analyze`` (which reads each sibling's result for its
@@ -953,6 +965,12 @@ def leg_job(
     results = ""
     needs = ["plan"]
     analyze = retarget(analyze_steps(org_ci), side)
+    if nightly:
+        if analyze.count(EVENT_LINE) != 1:
+            raise CanaryError(
+                f"the scan's steps no longer contain {EVENT_LINE.strip()!r} once"
+            )
+        analyze = analyze.replace(EVENT_LINE, NIGHTLY_EVENT_LINE)
     for name, path, sha, values in reusable_jobs(org_ci):
         key = f"{name} {path}@{sha}"
         block = provider(name, path, sha, values)
@@ -1006,7 +1024,9 @@ def base_block(base_org_ci: str, provider: Provider, base_scan: str = "") -> str
     the base, the base's org-ci.yml is that scan (it ran Semgrep itself)."""
     digest = steps_digest(base_org_ci, base_scan)
     scan = (
-        leg_job(SCAN_BASE_SIDE, base_scan, provider, digest=digest) if base_scan else ""
+        leg_job(SCAN_BASE_SIDE, base_scan, provider, digest=digest, nightly=True)
+        if base_scan
+        else ""
     )
     return (
         BASE_BEGIN
@@ -1034,8 +1054,15 @@ def render(
     digest = steps_digest(org_ci, scan)
     legs = leg_job("head", org_ci, provider, digest=digest)
     if scan:
-        legs += leg_job(SCAN_SIDE, scan, provider, digest=digest)
-    legs += leg_job("admitted", scan or org_ci, provider, admission, digest=digest)
+        legs += leg_job(SCAN_SIDE, scan, provider, digest=digest, nightly=True)
+    legs += leg_job(
+        "admitted",
+        scan or org_ci,
+        provider,
+        admission,
+        digest=digest,
+        nightly=bool(scan),
+    )
     return (
         _fill(
             HEADER,

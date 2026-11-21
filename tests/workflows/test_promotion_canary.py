@@ -10,6 +10,9 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import textwrap
+import sys
+import os
 import re
 import subprocess
 import tempfile
@@ -1286,6 +1289,73 @@ class ScanVerdictTests(VerdictTests):
         passed, report = pc.judge(self.scan_env(L9_CANARY_ADMITTED=ADMITTED))
         self.assertFalse(passed)
         self.assertTrue(any("| pass | findings | FAIL" in r for r in report))
+
+
+class ScanLegTests(unittest.TestCase):
+    """The scan legs run the nightly sink's event; the record reads the
+    aggregate before the job status, since a nightly scan is advisory."""
+
+    def setUp(self) -> None:
+        self.canary = (ROOT / pc.CANARY).read_text(encoding="utf-8")
+        self.jobs = yaml.safe_load(self.canary)["jobs"]
+
+    def runtime_event(self, job: str) -> str:
+        step = next(s for s in self.jobs[job]["steps"] if s.get("id") == "runtime")
+        return str(step["env"]["INPUT_EVENT"])
+
+    def test_scan_legs_run_as_the_nightly_sink_runs(self) -> None:
+        for job in ("scan", "scanbase", "admitted"):
+            with self.subTest(job=job):
+                self.assertEqual("nightly", self.runtime_event(job))
+        for job in ("head", "base"):
+            with self.subTest(job=job):
+                self.assertNotEqual("nightly", self.runtime_event(job))
+
+    def classify(self, job_status: str, aggregate: str, verify: str = "") -> str:
+        record = next(
+            s
+            for s in self.jobs["scan"]["steps"]
+            if s.get("name") == "Record the canary leg"
+        )
+        script = str(record["run"])
+        body = script[script.index("<<'PY'\n") + 7 : script.rindex("PY")]
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "promotion-canary").mkdir()
+            env = {
+                "PATH": os.environ["PATH"],
+                "RUNNER_TEMP": tmp,
+                "SIDE": "scan",
+                "DIGEST": "d" * 64,
+                "JOB_STATUS": job_status,
+                "AGGREGATE_STATUS": aggregate,
+                "REPOSITORY_VERIFY": verify,
+                "MATRIX_ID": "canary-scan-x",
+                "SLUG": "x",
+                "REPOSITORY": "Quantum-L9/x",
+                "REVISION": "1" * 40,
+            }
+            subprocess.run(
+                [sys.executable, "-I", "-c", textwrap.dedent(body)],
+                cwd=tmp,
+                env=env,
+                check=True,
+                capture_output=True,
+            )
+            data = json.loads(Path(tmp, "promotion-canary", "scan-x.json").read_text())
+            return str(data["status"])
+
+    def test_an_advisory_scan_is_classified_by_its_aggregate(self) -> None:
+        for job_status, aggregate, expected in (
+            ("success", "pass", "pass"),
+            ("success", "fail", "findings"),
+            ("success", "incomplete", "incomplete"),
+            ("failure", "incomplete", "incomplete"),
+            ("failure", "fail", "findings"),
+            ("cancelled", "incomplete", "cancelled"),
+            ("failure", "", "error"),
+        ):
+            with self.subTest(job=job_status, aggregate=aggregate):
+                self.assertEqual(expected, self.classify(job_status, aggregate))
 
 
 class AdmittedVerdictTests(VerdictTests):
