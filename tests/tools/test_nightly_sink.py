@@ -453,6 +453,215 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(7, self.run_report(github)["issue"])
 
 
+PIP_AUDIT_REPORT = {
+    "dependencies": [
+        {
+            "name": "Jinja2",
+            "version": "3.1.4",
+            "vulns": [
+                {
+                    "id": "GHSA-q2x7-8rv6-6q7h",
+                    "fix_versions": ["3.1.5"],
+                    "aliases": ["CVE-2024-56201"],
+                    "description": "d",
+                }
+            ],
+        },
+        {"name": "anyio", "version": "4.6.2", "vulns": []},
+        {
+            "name": "urllib3",
+            "version": "2.2.1",
+            "vulns": [
+                {
+                    "id": "PYSEC-2024-1",
+                    "fix_versions": [],
+                    "aliases": [],
+                    "description": "d",
+                }
+            ],
+        },
+    ],
+    "fixes": [],
+}
+
+
+class DependencyAuditTests(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+        (self.dir / "uv.lock").write_text("x\n")
+        self.report = self.dir / "audit.json"
+        self.report.write_text(json.dumps(PIP_AUDIT_REPORT))
+
+    def audit(
+        self,
+        python: str = "true",
+        outcome: str = "executed_fail",
+        packages: str = "119",
+    ) -> dict[str, Any]:
+        return sink.dependency_audit(python, outcome, packages, self.report, self.dir)
+
+    def test_an_executed_audit_counts_packages_and_known_vulnerabilities(self) -> None:
+        audit = self.audit()
+        self.assertEqual(
+            ("executed", 119, "uv.lock"),
+            (audit["status"], audit["packages"], audit["lock"]),
+        )
+        self.assertEqual(
+            ["jinja2==3.1.4 GHSA-q2x7-8rv6-6q7h", "urllib3==2.2.1 PYSEC-2024-1"],
+            sorted(audit["vulns"]),
+        )
+
+    def test_no_python_project_is_not_applicable(self) -> None:
+        self.assertEqual("not_applicable", self.audit(python="false")["status"])
+
+    def test_an_audit_that_did_not_conclude_is_incomplete(self) -> None:
+        for outcome, packages in (
+            ("", "119"),
+            ("not_executed (no lock file)", ""),
+            ("executed_pass", ""),
+        ):
+            with self.subTest(outcome=outcome):
+                self.assertEqual(
+                    "incomplete",
+                    self.audit(outcome=outcome, packages=packages)["status"],
+                )
+        self.report.unlink()
+        self.assertEqual("incomplete", self.audit()["status"], "no JSON report")
+        self.report.write_text(json.dumps({"dependencies": []}))
+        self.assertEqual(
+            "incomplete", self.audit()["status"], "a failure with nothing reported"
+        )
+
+    def test_the_requirements_file_is_the_lock_without_uv_lock(self) -> None:
+        (self.dir / "uv.lock").unlink()
+        self.assertEqual("requirements.txt", self.audit()["lock"])
+
+    def test_the_central_ledger_waives_a_known_vulnerability(self) -> None:
+        audit = self.audit()
+        entry = waiver()
+        entry["scope"] = {
+            "repository": REPO,
+            "provider_id": "pip-audit",
+            "provider_rule_id": "PYSEC-2024-1",
+            "path": "uv.lock",
+        }
+        entry["fingerprint"] = sink.dependency_fingerprint(
+            "urllib3", "2.2.1", "PYSEC-2024-1"
+        )
+        self.assertEqual(
+            {"urllib3==2.2.1 PYSEC-2024-1": "w-1"},
+            sink.waived_dependencies(audit, [entry]),
+        )
+        entry["scope"] = {**entry["scope"], "path": "requirements.txt"}
+        self.assertEqual(
+            {}, sink.waived_dependencies(audit, [entry]), "the path must match"
+        )
+        self.assertEqual(
+            {},
+            sink.waived_dependencies(audit, [waiver()]),
+            "a Semgrep entry waives nothing here",
+        )
+
+    def test_the_first_night_is_the_baseline_and_a_rise_fails(self) -> None:
+        audit = self.audit()
+        first = sink.judge_dependencies(None, audit, {})
+        self.assertEqual(
+            ("pass", None, 2),
+            (first["ratchet"], first["previous_open"], len(first["open"])),
+        )
+        previous = {"dependencies": ["urllib3==2.2.1 PYSEC-2024-1"]}
+        rose = sink.judge_dependencies(previous, audit, {})
+        self.assertEqual(
+            ("fail", ["urllib3==2.2.1 PYSEC-2024-1"]),
+            (rose["ratchet"], rose["accepted"]),
+        )
+        waived = sink.judge_dependencies(
+            previous, audit, {"jinja2==3.1.4 GHSA-q2x7-8rv6-6q7h": "w-1"}
+        )
+        self.assertEqual("pass", waived["ratchet"])
+
+    def test_an_incomplete_audit_fails_and_keeps_the_bar(self) -> None:
+        previous = {"dependencies": ["a==1 X"]}
+        verdict = sink.judge_dependencies(previous, self.audit(outcome=""), {})
+        self.assertEqual(
+            ("fail", ["a==1 X"]), (verdict["ratchet"], verdict["accepted"])
+        )
+
+    def test_the_issue_has_a_pip_audit_section_and_per_tool_counts(self) -> None:
+        github = FakeGitHub()
+        github.alerts = [alert(1)]
+        audit = self.audit()
+        result = sink.report(
+            github,
+            REPO,
+            SHA,
+            "refs/heads/main",
+            CREATOR,
+            [],
+            {},
+            "2026-11-21",
+            "",
+            audit,
+        )
+        self.assertEqual("pass", result["ratchet"])
+        body = github.issues[0]["body"]
+        self.assertIn("- Semgrep, open in code scanning: **1**", body)
+        self.assertIn(
+            "- pip-audit, known vulnerabilities: **2** in 119 audited packages", body
+        )
+        self.assertIn("## pip-audit (full resolved lock)", body)
+        self.assertIn("- Packages audited: 119 from `uv.lock`", body)
+        self.assertIn(
+            "[GHSA-q2x7-8rv6-6q7h](https://osv.dev/vulnerability/GHSA-q2x7-8rv6-6q7h)",
+            body,
+        )
+        self.assertEqual(sorted(audit["vulns"]), sink.snapshot_of(body)["dependencies"])
+
+    def test_a_vulnerability_rise_fails_the_night_and_is_recorded(self) -> None:
+        github = FakeGitHub()
+        github.alerts = [alert(1)]
+        only = dict(PIP_AUDIT_REPORT)
+        only["dependencies"] = PIP_AUDIT_REPORT["dependencies"][2:]
+        self.report.write_text(json.dumps(only))
+        sink.report(
+            github,
+            REPO,
+            SHA,
+            "refs/heads/main",
+            CREATOR,
+            [],
+            {},
+            "2026-11-20",
+            "",
+            self.audit(),
+        )
+        self.report.write_text(json.dumps(PIP_AUDIT_REPORT))
+        result = sink.report(
+            github,
+            REPO,
+            SHA,
+            "refs/heads/main",
+            CREATOR,
+            [],
+            {},
+            "2026-11-21",
+            "",
+            self.audit(),
+        )
+        self.assertEqual(
+            ("fail", False), (result["ratchet"], result["rose"]), "Semgrep did not rise"
+        )
+        [comment] = github.made("POST", "/comments")
+        self.assertIn(
+            "known vulnerabilities (pip-audit) rose from 1 to 2", comment["body"]
+        )
+        self.assertEqual(
+            1, len(github.made("POST", "/issues")), "still one rolling issue"
+        )
+
+
 class CommandLineTests(unittest.TestCase):
     def test_exit_codes(self) -> None:
         args = [
@@ -466,6 +675,16 @@ class CommandLineTests(unittest.TestCase):
             "--ledger",
             "/nonexistent.yaml",
             "--bundle-dir",
+            "/nonexistent",
+            "--python-project",
+            "false",
+            "--pip-audit-outcome",
+            "",
+            "--pip-audit-packages",
+            "",
+            "--pip-audit-report",
+            "/nonexistent.json",
+            "--lock-dir",
             "/nonexistent",
         ]
         with (
@@ -489,6 +708,16 @@ class CommandLineTests(unittest.TestCase):
                         "x",
                         "--bundle-dir",
                         "y",
+                        "--python-project",
+                        "false",
+                        "--pip-audit-outcome",
+                        "",
+                        "--pip-audit-packages",
+                        "",
+                        "--pip-audit-report",
+                        "/nonexistent.json",
+                        "--lock-dir",
+                        "/nonexistent",
                     ]
                 ),
             )
@@ -525,10 +754,92 @@ class WorkflowTests(unittest.TestCase):
     """nightly-sink.yml is org-ci.yml's analyze steps, then the sink."""
 
     org_ci = (ROOT / ".github/workflows/org-ci.yml").read_text(encoding="utf-8")
+    security = (ROOT / sink.SECURITY).read_text(encoding="utf-8")
     committed = (ROOT / sink.WORKFLOW).read_text(encoding="utf-8")
 
     def test_committed_workflow_is_current(self) -> None:
-        self.assertEqual(self.committed, sink.render_workflow(self.org_ci))
+        self.assertEqual(
+            self.committed, sink.render_workflow(self.org_ci, self.security)
+        )
+
+    def sink_job_steps(self) -> list[dict[str, Any]]:
+        import yaml  # noqa: PLC0415
+
+        return yaml.safe_load(self.committed)["jobs"]["sink"]["steps"]
+
+    def test_the_dependency_audit_is_security_ymls_own_step(self) -> None:
+        """Reused, not copied: the nightly runs security.yml's script verbatim."""
+        import yaml  # noqa: PLC0415
+
+        security = yaml.safe_load(self.security)["jobs"]["security"]["steps"]
+        steps = self.sink_job_steps()
+        for name in sink.AUDIT_STEPS:
+            [original] = [s for s in security if s.get("name") == name]
+            [inlined] = [s for s in steps if s.get("name") == name]
+            self.assertEqual(original.get("run"), inlined.get("run"), name)
+            self.assertEqual(original.get("uses"), inlined.get("uses"), name)
+            self.assertEqual(original.get("if"), inlined.get("if"), name)
+
+    def test_the_nightly_audits_the_full_lock_with_a_json_report(self) -> None:
+        [audit] = [s for s in self.sink_job_steps() if s.get("id") == "pip_audit"]
+        env = audit["env"]
+        self.assertEqual("nightly", env["EVENT_NAME"], "not a PR/merge/push: full lock")
+        self.assertEqual(sink.AUDIT_REPORT, env["PIP_AUDIT_REPORT"])
+        self.assertEqual("", env["L9_CI_INSTALL_COMMAND"])
+        self.assertEqual("${{ matrix.revision }}", env["EVENT_SHA"])
+        self.assertNotIn("continue-on-error", audit, "fail-closed: never fail-open")
+        steps = self.sink_job_steps()
+        names = [s.get("name") or s.get("id") for s in steps]
+        self.assertLess(
+            names.index("Python dependency audit (pip-audit)"),
+            names.index("Mint the sink token for this repository (GitHub App)"),
+            "the audit and its counts do not wait on the token",
+        )
+        [summary] = [
+            s for s in steps if s.get("name") == "Summarize the dependency audit"
+        ]
+        self.assertEqual(
+            "${{ steps.pip_audit.outputs.packages }}", summary["env"]["PACKAGES"]
+        )
+
+    def test_each_sink_step_waits_on_the_one_before_it(self) -> None:
+        """A failed audit still reaches the issue; a failed upload never does."""
+        steps = self.sink_job_steps()
+        names = [s.get("name") for s in steps]
+        start = names.index("Fetch the sink tool (Core, this run's revision)")
+        self.assertEqual(
+            [
+                "${{ !cancelled() && steps.project_sarif.outcome == 'success' }}",
+                "${{ !cancelled() && steps.sink_tool.outcome == 'success' }}",
+                "${{ !cancelled() && steps.sink_token.outcome == 'success' }}",
+                "${{ !cancelled() && steps.upload_sarif.outcome == 'success' }}",
+            ],
+            [s.get("if") for s in steps[start:]],
+        )
+        self.assertNotIn("pip_audit", " ".join(str(s.get("if")) for s in steps[start:]))
+
+    def test_the_report_step_receives_the_audit(self) -> None:
+        [step] = [
+            s
+            for s in self.sink_job_steps()
+            if s.get("name")
+            == "Update the nightly findings issue and apply the ratchet"
+        ]
+        self.assertEqual(
+            "${{ steps.pip_audit.outputs.outcome }}", step["env"]["PIP_AUDIT_OUTCOME"]
+        )
+        self.assertEqual(
+            "${{ steps.detect.outputs.python }}", step["env"]["PYTHON_PROJECT"]
+        )
+        for flag in ("--pip-audit-report", "--pip-audit-outcome", "--lock-dir"):
+            self.assertIn(flag, step["run"])
+
+    def test_a_missing_security_step_is_refused(self) -> None:
+        moved = self.security.replace(
+            "name: Python dependency audit (pip-audit)", "name: Audit"
+        )
+        with self.assertRaises(sink.SinkError):
+            sink.audit_steps(moved)
 
     def test_scan_is_a_nightly_whole_tree_run_under_its_own_matrix_id(self) -> None:
         steps = sink.sink_steps(self.org_ci)
@@ -593,6 +904,7 @@ class WorkflowTests(unittest.TestCase):
             (root / ".github/workflows/org-ci.yml").write_text(
                 self.org_ci, encoding="utf-8"
             )
+            (root / sink.SECURITY).write_text(self.security, encoding="utf-8")
             (root / sink.WORKFLOW).write_text("stale\n", encoding="utf-8")
             out = io.StringIO()
             with mock.patch.object(sink, "ROOT", root), redirect_stdout(out):

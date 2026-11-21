@@ -70,6 +70,15 @@ on:
         type: string
         required: false
         default: history
+      pip-audit-report:
+        description: >
+          Path for pip-audit's JSON report. Empty (the default) writes none
+          and pip-audit prints its usual table. The nightly findings sink
+          (tools/nightly_sink.py) inlines this step with a path so it can
+          count the known vulnerabilities of the full resolved lock.
+        type: string
+        required: false
+        default: ""
 permissions:
   contents: read
 jobs:
@@ -234,6 +243,7 @@ jobs:
           MERGE_GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
           PUSH_BEFORE: ${{ github.event.before }}
           EVENT_SHA: ${{ github.sha }}
+          PIP_AUDIT_REPORT: ${{ inputs.pip-audit-report }}
         run: |
           set -euo pipefail
           # Scope (operator decision 2026-11-21, row 23): a pull request,
@@ -340,25 +350,38 @@ jobs:
             total=$((total + count))
           done
           echo "pip-audit: ${total} pinned package(s) audited in all"
+          echo "packages=${total}" >> "$GITHUB_OUTPUT"
           # Acquisition and the lock are settled; from here pip-audit runs.
           status=0
+          report=()
+          if [ -n "${PIP_AUDIT_REPORT:-}" ]; then
+            report=(--format json --output "${PIP_AUDIT_REPORT}")
+          fi
           # `--desc` takes an optional value; it is given explicitly so the
           # next argument is never read as that value (`--desc .` is a usage
           # error, exit 2, and audits nothing). An exported lock is fully
           # pinned, so it is audited as written (--no-deps).
           if [ "${locked[0]}" = "requirements.txt" ]; then
-            pip-audit --desc on -r requirements.txt || status=$?
+            pip-audit --desc on ${report[@]+"${report[@]}"} -r requirements.txt || status=$?
           else
             requirements=()
             for file in "${locked[@]}"; do
               requirements+=(-r "${file}")
             done
-            pip-audit --desc on --no-deps "${requirements[@]}" || status=$?
+            pip-audit --desc on --no-deps ${report[@]+"${report[@]}"} "${requirements[@]}" || status=$?
           fi
           if [ "${status}" -eq 0 ]; then
             echo "outcome=executed_pass" >> "$GITHUB_OUTPUT"
           else
             echo "outcome=executed_fail" >> "$GITHUB_OUTPUT"
+          fi
+          # A caller that asked for a report judges the vulnerabilities it
+          # lists (the nightly sink's ratchet): pip-audit's "vulnerabilities
+          # found" exit (1) then ends this step cleanly. Any other failure
+          # still fails it, and without a report path nothing changes.
+          if [ -n "${PIP_AUDIT_REPORT:-}" ] && [ "${status}" -eq 1 ]; then
+            echo "pip-audit: known vulnerabilities written to ${PIP_AUDIT_REPORT}; the caller judges them"
+            exit 0
           fi
           exit "${status}"
       # Advisory by existing policy: no Bandit result fails this job. The exit

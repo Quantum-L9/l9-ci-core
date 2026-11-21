@@ -11,12 +11,15 @@
 # the repository's pull-request gate. Every instance bundle is projected to
 # SARIF by the SDK and uploaded to that repository's code scanning (one
 # category per instance), and one rolling "Nightly findings" issue is updated
-# with the new, fixed and still-open alerts. An open count that rises fails
+# with the new, fixed and still-open alerts. security.yml's own pip-audit step
+# (inlined from security.yml, not copied) audits each repository's full
+# resolved lock, and its known vulnerabilities go to the same issue. An open
+# count (either tool) that rises, or an incomplete audit, fails
 # the run; findings a live entry of Core's central finding-waiver ledger
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: cac6436fa06b9ec8daaf60dc8e71e87e1c8ce251d2675bf2d7fb0e613d91c895
+# and issues: write. Analyze steps digest: 195e94cd295fec27ad60153f06ab315a52f41f03b1a2d9be9ccc38931cf9b88c
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -1008,7 +1011,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # --- nightly sink (not part of org-ci.yml) ---
-      - name: Project every instance bundle to SARIF (SDK)
+      - id: project_sarif
+        name: Project every instance bundle to SARIF (SDK)
         env:
           L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
           L9_STRICT: ${{ steps.gov.outputs.strict }}
@@ -1063,7 +1067,205 @@ jobs:
           sys.exit(1 if errors else 0)
           PY
 
-      - name: Fetch the sink tool (Core, this run's revision)
+      # --- security.yml's dependency audit (generated, not copied) ---
+      - name: Detect project languages
+        id: detect
+        run: |
+          set -euo pipefail
+          python_project=false
+          node_project=false
+          if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ] || [ -f "setup.py" ]; then
+            python_project=true
+          fi
+          if [ -f "package.json" ]; then
+            node_project=true
+          fi
+          echo "python=${python_project}" >> "$GITHUB_OUTPUT"
+          echo "node=${node_project}" >> "$GITHUB_OUTPUT"
+          echo "Detected: python=${python_project} node=${node_project}"
+      - name: Set up Python
+        if: steps.detect.outputs.python == 'true'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Python dependency audit (pip-audit)
+        id: pip_audit
+        if: steps.detect.outputs.python == 'true'
+        env:
+          L9_CI_INSTALL_COMMAND: ""
+          EVENT_NAME: nightly
+          PR_BASE: ""
+          PR_HEAD: ""
+          MERGE_GROUP_BASE: ""
+          MERGE_GROUP_HEAD: ""
+          PUSH_BEFORE: ""
+          EVENT_SHA: ${{ matrix.revision }}
+          PIP_AUDIT_REPORT: "${{ runner.temp }}/nightly-pip-audit.json"
+        run: |
+          set -euo pipefail
+          # Scope (operator decision 2026-11-21, row 23): a pull request,
+          # merge group or push audits only when it changes a dependency
+          # manifest or lock. Every other event audits. A range that cannot be
+          # read audits too: not running needs a positive proof.
+          is_sha() {
+            local candidate="$1"
+            [[ "${candidate}" =~ ^[0-9a-f]{40}$ ]]
+          }
+          base=""
+          head=""
+          case "${EVENT_NAME:-}" in
+            pull_request|pull_request_target) base="${PR_BASE:-}"; head="${PR_HEAD:-}" ;;
+            merge_group) base="${MERGE_GROUP_BASE:-}"; head="${MERGE_GROUP_HEAD:-}" ;;
+            push) base="${PUSH_BEFORE:-}"; head="${EVENT_SHA:-}" ;;
+            *) ;;
+          esac
+          if is_sha "${base}" && is_sha "${head}" \
+            && [ "${base}" != "0000000000000000000000000000000000000000" ]; then
+            # --no-renames: a renamed or deleted lock shows its old path too.
+            if changed="$(git diff --no-renames --name-only "${base}" "${head}" --)"; then
+              manifests='(^|/)(pyproject\.toml|uv\.lock|setup\.py|setup\.cfg|requirements[^/]*\.txt|constraints[^/]*\.txt|Pipfile(\.lock)?|poetry\.lock|pdm\.lock)$'
+              if ! grep -Eq "${manifests}" <<< "${changed}"; then
+                echo "pip-audit: no dependency manifest or lock changed in ${base}..${head}; nothing new to audit"
+                echo "outcome=not_applicable (no dependency manifest or lock changed)" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            else
+              echo "::warning::pip-audit: the change range ${base}..${head} cannot be read; auditing"
+            fi
+          fi
+          python -m pip install --upgrade --only-binary :all: "pip==26.2.1"
+          pip install --only-binary :all: "pip-audit==2.9.0"
+          if [ -n "$L9_CI_INSTALL_COMMAND" ]; then
+            bash -c "$L9_CI_INSTALL_COMMAND" || echo "::notice::l9-ci install command failed; continuing"
+          fi
+          # The full resolved lock, not the runner's environment: uv.lock
+          # exported with every dependency group, extra and workspace package
+          # (the project's own workspace members are local code, not
+          # packages, and are left out), else requirements.txt. uv is Core's
+          # locked version (install-consumer-ci/toolchain-lock.json).
+          locked=()
+          if [ -f "uv.lock" ]; then
+            pip install --only-binary :all: "uv==0.13.8"
+            out="${RUNNER_TEMP:-/tmp}/l9-locked"
+            mkdir -p "${out}"
+            export_lock() {
+              local name="$1"
+              shift
+              echo "pip-audit: uv export --frozen --all-packages --no-emit-workspace --no-hashes --format requirements.txt $* (${name})"
+              uv export --frozen --all-packages --no-emit-workspace --no-hashes \
+                --format requirements.txt --output-file "${out}/${name}.txt" "$@" > /dev/null
+            }
+            if export_lock all --all-groups --all-extras; then
+              locked+=("${out}/all.txt")
+            elif python3 -I -c 'import sys, tomllib; sys.exit(0 if tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("uv", {}).get("conflicts") else 1)' 2> /dev/null; then
+              # Declared conflicts ([tool.uv].conflicts) make the union of
+              # every extra and group unresolvable by design. Each selection
+              # is exported and audited on its own: the base set, then every
+              # extra and every group. Any selection that cannot be exported
+              # leaves the locked set unknown.
+              echo "pip-audit: uv.lock declares conflicting extras or groups; auditing each selection"
+              selections="$(python3 -I -c 'import tomllib; d = tomllib.load(open("pyproject.toml", "rb")); [print("extra", n) for n in d.get("project", {}).get("optional-dependencies", {})]; [print("group", n) for n in d.get("dependency-groups", {})]')"
+              if ! export_lock base --no-default-groups; then
+                echo "::error::pip-audit: the base set of uv.lock cannot be exported; the audit is incomplete"
+                echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+              locked+=("${out}/base.txt")
+              while read -r kind name; do
+                [ -n "${kind}" ] || continue
+                if ! export_lock "${kind}-${name}" --no-default-groups "--${kind}" "${name}"; then
+                  echo "::error::pip-audit: the ${kind} ${name} of uv.lock cannot be exported; the audit is incomplete"
+                  echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+                  exit 1
+                fi
+                locked+=("${out}/${kind}-${name}.txt")
+              done <<< "${selections}"
+            else
+              echo "::error::pip-audit: uv.lock cannot be exported; the locked set is unknown, so the audit is incomplete"
+              echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          elif [ -f "requirements.txt" ]; then
+            locked=("requirements.txt")
+          else
+            echo "::error::pip-audit: a Python project with no uv.lock or requirements.txt has no locked set to audit; the audit is incomplete"
+            echo "outcome=not_executed (no lock file)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          # The audited set, named in the log: each file's pinned packages
+          # and the total. A file the export did not write is not an empty
+          # set; the audit is incomplete.
+          total=0
+          for file in "${locked[@]}"; do
+            if [ ! -f "${file}" ]; then
+              echo "::error::pip-audit: ${file} was not written; the audit is incomplete"
+              echo "outcome=not_executed (the locked set was not written)" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            count="$(awk '/^[A-Za-z0-9][A-Za-z0-9._-]*(\[[^]]*\])?[[:space:]]*==/ { n++ } END { print n + 0 }' "${file}")"
+            echo "pip-audit: auditing ${count} pinned package(s) from ${file}"
+            total=$((total + count))
+          done
+          echo "pip-audit: ${total} pinned package(s) audited in all"
+          echo "packages=${total}" >> "$GITHUB_OUTPUT"
+          # Acquisition and the lock are settled; from here pip-audit runs.
+          status=0
+          report=()
+          if [ -n "${PIP_AUDIT_REPORT:-}" ]; then
+            report=(--format json --output "${PIP_AUDIT_REPORT}")
+          fi
+          # `--desc` takes an optional value; it is given explicitly so the
+          # next argument is never read as that value (`--desc .` is a usage
+          # error, exit 2, and audits nothing). An exported lock is fully
+          # pinned, so it is audited as written (--no-deps).
+          if [ "${locked[0]}" = "requirements.txt" ]; then
+            pip-audit --desc on ${report[@]+"${report[@]}"} -r requirements.txt || status=$?
+          else
+            requirements=()
+            for file in "${locked[@]}"; do
+              requirements+=(-r "${file}")
+            done
+            pip-audit --desc on --no-deps ${report[@]+"${report[@]}"} "${requirements[@]}" || status=$?
+          fi
+          if [ "${status}" -eq 0 ]; then
+            echo "outcome=executed_pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "outcome=executed_fail" >> "$GITHUB_OUTPUT"
+          fi
+          # A caller that asked for a report judges the vulnerabilities it
+          # lists (the nightly sink's ratchet): pip-audit's "vulnerabilities
+          # found" exit (1) then ends this step cleanly. Any other failure
+          # still fails it, and without a report path nothing changes.
+          if [ -n "${PIP_AUDIT_REPORT:-}" ] && [ "${status}" -eq 1 ]; then
+            echo "pip-audit: known vulnerabilities written to ${PIP_AUDIT_REPORT}; the caller judges them"
+            exit 0
+          fi
+          exit "${status}"
+      # Advisory by existing policy: no Bandit result fails this job. The exit
+      # code is still read, because "no findings", "findings" and "the scanner
+      # did not complete" are three different facts. Bandit exits 0 with no
+      # issue at the selected level, 1 with issues, and anything else when it
+      # could not scan.
+
+      - name: Summarize the dependency audit
+        if: ${{ !cancelled() }}
+        env:
+          REPOSITORY: ${{ matrix.repository }}
+          PYTHON_PROJECT: ${{ steps.detect.outputs.python }}
+          OUTCOME: ${{ steps.pip_audit.outputs.outcome }}
+          PACKAGES: ${{ steps.pip_audit.outputs.packages }}
+        run: |
+          set -euo pipefail
+          line="pip-audit ${REPOSITORY}: python=${PYTHON_PROJECT:-?} outcome=${OUTCOME:-none} packages=${PACKAGES:-0}"
+          echo "${line}"
+          echo "- ${line}" >> "${GITHUB_STEP_SUMMARY}"
+
+      # Each sink step runs only when the one it depends on succeeded, so a
+      # failed dependency audit still reaches the issue, while a failed or
+      # partial upload never writes a stale state into its snapshot.
+      - id: sink_tool
+        name: Fetch the sink tool (Core, this run's revision)
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
@@ -1085,6 +1287,7 @@ jobs:
       # permission or the repository, so a missing grant stops here.
       - id: sink_token
         name: Mint the sink token for this repository (GitHub App)
+        if: ${{ !cancelled() && steps.sink_tool.outcome == 'success' }}
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ vars.L9_NIGHTLY_APP_ID }}
@@ -1095,7 +1298,9 @@ jobs:
           permission-issues: write
           permission-contents: read
 
-      - name: Upload SARIF to code scanning
+      - id: upload_sarif
+        name: Upload SARIF to code scanning
+        if: ${{ !cancelled() && steps.sink_token.outcome == 'success' }}
         env:
           L9_NIGHTLY_SINK_TOKEN: ${{ steps.sink_token.outputs.token }}
           GITHUB_TOKEN: ""
@@ -1112,6 +1317,7 @@ jobs:
             --sarif-dir "${RUNNER_TEMP}/nightly-sarif"
 
       - name: Update the nightly findings issue and apply the ratchet
+        if: ${{ !cancelled() && steps.upload_sarif.outcome == 'success' }}
         env:
           L9_NIGHTLY_SINK_TOKEN: ${{ steps.sink_token.outputs.token }}
           GITHUB_TOKEN: ""
@@ -1122,6 +1328,9 @@ jobs:
           CREATOR: ${{ steps.sink_token.outputs.app-slug }}[bot]
           # The central ledger the scan above was given (resolve-governance).
           L9_FINDING_WAIVERS: ${{ steps.gov.outputs['finding-waivers'] }}
+          PYTHON_PROJECT: ${{ steps.detect.outputs.python }}
+          PIP_AUDIT_OUTCOME: ${{ steps.pip_audit.outputs.outcome }}
+          PIP_AUDIT_PACKAGES: ${{ steps.pip_audit.outputs.packages }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -1133,4 +1342,9 @@ jobs:
             --creator "${CREATOR}" \
             --ledger "${L9_FINDING_WAIVERS}" \
             --bundle-dir "${RUNNER_TEMP}/nightly-bundles" \
+            --python-project "${PYTHON_PROJECT}" \
+            --pip-audit-outcome "${PIP_AUDIT_OUTCOME}" \
+            --pip-audit-packages "${PIP_AUDIT_PACKAGES}" \
+            --pip-audit-report "${RUNNER_TEMP}/nightly-pip-audit.json" \
+            --lock-dir "${GITHUB_WORKSPACE}" \
             --run-url "${RUN_URL}"
