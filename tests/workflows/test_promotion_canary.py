@@ -200,7 +200,23 @@ class RenderTests(unittest.TestCase):
 
     def test_every_job_is_read_only_and_the_verdict_decides_itself(self) -> None:
         jobs = yaml.safe_load(self.canary)["jobs"]
-        self.assertEqual(["plan", "head", "admitted", "base", "verdict"], list(jobs))
+        # Each reusable org-ci job runs as a sibling job ahead of its leg (#327):
+        # head and admitted from this org-ci.yml, base from the base org-ci.yml.
+        own = [name for name, *_ in pc.reusable_jobs(self.org_ci)]
+        base_siblings = [job for job in jobs if job.startswith("base__")]
+        self.assertEqual(
+            [
+                "plan",
+                *[f"head__{name}" for name in own],
+                "head",
+                *[f"admitted__{name}" for name in own],
+                "admitted",
+                *base_siblings,
+                "base",
+                "verdict",
+            ],
+            list(jobs),
+        )
         for name, job in jobs.items():
             with self.subTest(job=name):
                 self.assertEqual({"contents": "read"}, job["permissions"])
@@ -217,9 +233,24 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(["plan", "head", "admitted", "base"], jobs["verdict"]["needs"])
         for leg in ("head", "admitted", "base"):
             self.assertIs(False, jobs[leg]["strategy"]["fail-fast"])
-        self.assertEqual(pc.HEAD_IF, jobs["head"]["if"])
-        self.assertEqual(pc.BASE_IF, jobs["base"]["if"])
-        self.assertEqual(pc.ADMITTED_IF, jobs["admitted"]["if"])
+        # A leg with sibling jobs needs them and runs whatever they concluded
+        # (org-ci.yml enforces their results inside the leg); without
+        # siblings it needs only the plan.
+        for leg, condition in (
+            ("head", pc.HEAD_IF),
+            ("base", pc.BASE_IF),
+            ("admitted", pc.ADMITTED_IF),
+        ):
+            with self.subTest(leg=leg):
+                siblings = [job for job in jobs if job.startswith(f"{leg}__")]
+                if siblings:
+                    self.assertEqual(["plan", *siblings], jobs[leg]["needs"])
+                    self.assertEqual(
+                        f"${{{{ !cancelled() && ({condition}) }}}}", jobs[leg]["if"]
+                    )
+                else:
+                    self.assertEqual("plan", jobs[leg]["needs"])
+                    self.assertEqual(condition, jobs[leg]["if"])
 
     def test_the_verdict_downloads_both_legs_of_one_run(self) -> None:
         """The #312 failure: a differential plan must reach base-<slug> records.
@@ -946,7 +977,11 @@ class AdmittedLegTests(unittest.TestCase):
 
         def same(steps: list[dict[str, object]]) -> str:
             # Each leg names its own artifact set; nothing else may differ.
-            return yaml.safe_dump(steps).replace("canary-admitted-", "canary-head-")
+            return (
+                yaml.safe_dump(steps)
+                .replace("canary-admitted-", "canary-head-")
+                .replace("canary-job-admitted-", "canary-job-head-")
+            )
 
         self.assertEqual(same(head[:index]), same(admitted[:index]))
         # The provision-sdk step becomes download + its own composite steps.
