@@ -2044,3 +2044,34 @@ Operator decision. Record: [`docs/biome-check.md`](docs/biome-check.md).
 Tests: `tests/workflows/test_org_ci_biome_job.py`,
 `tests/workflows/test_promotion_canary.py` (`StepJobTests`),
 `tests/tools/test_nightly_sink.py`.
+
+## 49. gitleaks, pip-audit and npm-audit are checks of their own; bandit is nightly (2026-11-21) — amends §47, §48
+
+Operator decisions ("same approach for all tools"; bandit option A). Record:
+[`docs/security-checks.md`](docs/security-checks.md).
+
+- **Checks.** `org-ci.yml` jobs `gitleaks`, `pip-audit` and `npm-audit`, each
+  named as its job, beside `Biome` and `analyze`. `analyze` no longer `needs`
+  a security job and has no "Enforce security scan" step; `org-ci.yml` no
+  longer calls `security.yml` (kept for `self-security.yml`). Each check
+  always reports.
+- **Incoming code only.** gitleaks scans the commits the event adds;
+  pip-audit audits the full resolved lock only when a dependency manifest or
+  lock changes, otherwise "dependencies unchanged"; npm-audit stays opt-in
+  (off: "not applicable"), and when enabled audits only when `package.json` /
+  `package-lock.json` change.
+- **Modes unchanged.** gitleaks and pip-audit block; npm-audit is opt-in.
+- **Nightly.** `nightly-sink.yml` runs the `gitleaks` check's step on the whole
+  tree (`gitleaks dir`, SARIF `l9-central/gitleaks/`, counted), the
+  `pip-audit` check's audit (ratcheted), and bandit: nightly only, advisory,
+  SARIF `l9-central/bandit/` listed and never counted, the full JSON report
+  kept as an artifact, tests excluded at any depth.
+- **Signal.** Findings are annotated at file and line; a secret's value is
+  never printed (gitleaks `--redact`; only file, line, rule and commit read).
+- **Canary (§40, §48).** Each check is a sibling step job of every leg; its
+  result is part of the leg record.
+- **Required.** Adding `gitleaks`, `pip-audit` and `npm-audit` to ruleset
+  21895545 is the operator's; each must report once first.
+
+Tests: `tests/workflows/test_org_ci_security_checks.py`,
+`tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`.

@@ -13,15 +13,17 @@
 # judges the findings. Every instance bundle is projected to
 # SARIF by the SDK and uploaded to that repository's code scanning (one
 # category per instance), and one rolling "Nightly findings" issue is updated
-# with the new, fixed and still-open alerts. security.yml's own pip-audit step
-# (inlined from security.yml, not copied) audits each repository's full
-# resolved lock, and its known vulnerabilities go to the same issue. An open
-# count (either tool) that rises, or an incomplete audit, fails
+# with the new, fixed and still-open alerts. org-ci.yml's `pip-audit` check
+# (inlined, not copied) audits each repository's full resolved lock, and its
+# known vulnerabilities go to the same issue. org-ci.yml's `Biome` check runs
+# on the whole tree, and bandit runs only here (nightly only, operator
+# 2026-11-21), both advisory: their alerts are listed, never counted. An open
+# Semgrep or dependency count that rises, or an incomplete audit, fails
 # the run; findings a live entry of Core's central finding-waiver ledger
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: 200a4705c80993c5849520a19ed2a83398c86acff070d7c0c75051d1429b9104
+# and issues: write. Analyze steps digest: 311b717533f13c901f1ea730a0e09f26a01bbd4e856894185a35b9a84967b5bc
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -893,7 +895,224 @@ jobs:
           print("instance biome: projected")
           PY
 
-      # --- security.yml's dependency audit (generated, not copied) ---
+      # --- org-ci.yml's gitleaks check, whole tree, reported (generated) ---
+      - name: Secret scan (gitleaks)
+        if: ${{ !cancelled() }}
+        id: gitleaks
+        env:
+          # Incoming code only: the commits the event adds (base..head for a
+          # pull request or merge group, before..after for a push); every other
+          # event scans the whole history.
+          GITLEAKS_LOG_OPTS: ""
+          GITLEAKS_SCOPE: history
+          # `git`: the commits in scope. The nightly sink inlines this step
+          # with `dir` (the whole tree of the default branch), findings
+          # reported rather than failing (`GITLEAKS_FINDINGS_FAIL: "false"`)
+          # and written as SARIF to GITLEAKS_SARIF for code scanning.
+          GITLEAKS_TARGET: dir
+          GITLEAKS_FINDINGS_FAIL: "false"
+          GITLEAKS_SARIF: ${{ runner.temp }}/nightly-sarif/gitleaks.sarif
+          EVENT_NAME: nightly
+          PR_BASE: ""
+          PR_HEAD: ""
+          MERGE_GROUP_BASE: ""
+          MERGE_GROUP_HEAD: ""
+          PUSH_BEFORE: ""
+          EVENT_SHA: ${{ matrix.revision }}
+        run: |
+          set -euo pipefail
+          case "${GITLEAKS_SCOPE:-history}" in
+            history) ;;
+            event)
+              if [ -z "${GITLEAKS_LOG_OPTS}" ]; then
+                case "${EVENT_NAME}" in
+                  pull_request|pull_request_target) GITLEAKS_LOG_OPTS="${PR_BASE}..${PR_HEAD}" ;;
+                  merge_group) GITLEAKS_LOG_OPTS="${MERGE_GROUP_BASE}..${MERGE_GROUP_HEAD}" ;;
+                  push)
+                    if [ -z "${PUSH_BEFORE}" ] || [ "${PUSH_BEFORE}" = "0000000000000000000000000000000000000000" ]; then
+                      GITLEAKS_LOG_OPTS="-1 ${EVENT_SHA}"
+                    else
+                      GITLEAKS_LOG_OPTS="${PUSH_BEFORE}..${EVENT_SHA}"
+                    fi
+                    ;;
+                  *) ;;
+                esac
+              fi
+              ;;
+            *)
+              echo "::error::gitleaks-scope must be history or event (got '${GITLEAKS_SCOPE}')"
+              exit 2
+              ;;
+          esac
+          # Rules: the Core preset (presets/security/.gitleaks.toml) is
+          # gitleaks' own default rule set (`[extend] useDefault = true`). A
+          # repository's own .gitleaks.toml is honoured on top of it: its rules
+          # and allowlists apply, and when it does not already extend the
+          # defaults it is made to, so no repository config can drop the Core
+          # rules. A repository config that extends another file by `path`
+          # cannot also extend the defaults (gitleaks allows one of the two),
+          # so it is refused rather than scanned with fewer rules. Reviewed
+          # false positives belong in .gitleaksignore, which gitleaks reads
+          # from the scanned tree.
+          config="${RUNNER_TEMP:-/tmp}/l9-gitleaks.toml"
+          config_args=()
+          if [ -f ".gitleaks.toml" ]; then
+            python3 -I - ".gitleaks.toml" "${config}" <<'PY'
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          source, target = Path(sys.argv[1]), Path(sys.argv[2])
+          text = source.read_text(encoding="utf-8")
+          try:
+              extend = tomllib.loads(text).get("extend")
+          except tomllib.TOMLDecodeError as error:
+              sys.exit(f"::error::.gitleaks.toml is not valid TOML: {error}")
+          if extend is None:
+              text += (
+                  "\n\n# Added by Core security.yml: keep the Core preset rules"
+                  " (gitleaks defaults).\n[extend]\nuseDefault = true\n"
+              )
+          elif not isinstance(extend, dict) or "path" in extend:
+              sys.exit(
+                  "::error::.gitleaks.toml [extend] names a path; it cannot also"
+                  " extend the Core preset rules (gitleaks allows path or"
+                  " useDefault, not both). Inline the rules and use"
+                  " `useDefault = true`."
+              )
+          elif extend.get("useDefault") is not True:
+              sys.exit(
+                  "::error::.gitleaks.toml [extend] must set useDefault = true"
+                  " so the Core preset rules apply."
+              )
+          target.write_text(text, encoding="utf-8")
+          PY
+            config_args=(--config "${config}")
+          fi
+          case "${GITLEAKS_TARGET}" in
+            git) ;;
+            dir) GITLEAKS_LOG_OPTS="" ;;
+            *)
+              echo "::error::GITLEAKS_TARGET must be git or dir (got '${GITLEAKS_TARGET}')"
+              exit 2
+              ;;
+          esac
+          range_args=()
+          if [ -n "${GITLEAKS_LOG_OPTS}" ]; then
+            # The range must resolve in this clone before gitleaks runs:
+            # gitleaks exits 1 both for findings and for a git log error, so an
+            # unresolvable range would otherwise read as a failed scan. The
+            # options are word-split on purpose; they are git log arguments.
+            # shellcheck disable=SC2086
+            if ! git log --format=%H ${GITLEAKS_LOG_OPTS} -- > /dev/null; then
+              echo "::error::gitleaks range '${GITLEAKS_LOG_OPTS}' does not resolve in this clone; fetch its history"
+              exit 2
+            fi
+            range_args=(--log-opts="${GITLEAKS_LOG_OPTS}")
+          fi
+          GITLEAKS_VERSION="8.24.3"
+          GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          actual_sha="$(sha256sum /tmp/gitleaks.tar.gz | awk '{print $1}')"
+          if [ "${actual_sha}" != "${GITLEAKS_SHA256}" ]; then
+            echo "::error::gitleaks checksum mismatch: got ${actual_sha}"
+            exit 1
+          fi
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          # Everything above is acquisition. A failure there ends the step with
+          # no outcome, which the report labels not_executed. From here the
+          # scanner itself runs and its exit code is the outcome.
+          status=0
+          report="${RUNNER_TEMP:-/tmp}/gitleaks-report.json"
+          /tmp/gitleaks "${GITLEAKS_TARGET}" "${config_args[@]}" "${range_args[@]}" \
+            --no-banner --redact --exit-code 1 \
+            --report-format json --report-path "${report}" . || status=$?
+          case "${status}" in
+            0) echo "outcome=executed_pass" >> "$GITHUB_OUTPUT" ;;
+            1) echo "outcome=executed_fail" >> "$GITHUB_OUTPUT" ;;
+            *) echo "outcome=not_executed" >> "$GITHUB_OUTPUT" ;;
+          esac
+          # Signal law: every finding named by file, line, rule and commit,
+          # never by its value (the report is redacted and the secret and
+          # match fields are not read).
+          scope_text="${GITLEAKS_LOG_OPTS:-the whole history}"
+          [ "${GITLEAKS_TARGET}" = dir ] && scope_text="the whole tree"
+          SCOPE_TEXT="${scope_text}" STATUS="${status}" REPORT="${report}" \
+            python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          env = os.environ
+          status = int(env["STATUS"])
+          try:
+              findings = json.loads(Path(env["REPORT"]).read_text(encoding="utf-8")) or []
+          except (OSError, ValueError):
+              findings = []
+          scope = env["SCOPE_TEXT"]
+          label = "nightly, reported" if env.get("GITLEAKS_FINDINGS_FAIL") == "false" else "blocking"
+          if status == 0:
+              line = f"- gitleaks ({label}): pass: no secret in {scope}"
+          elif status == 1:
+              line = f"- gitleaks ({label}): findings: {len(findings)} secret(s) in {scope} (values never printed)"
+          else:
+              line = f"- gitleaks ({label}): error: gitleaks exited {status}; no result for {scope}"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Rule | Commit |", "|---|---|---|---|"]
+          for item in findings[:20]:
+              path = str(item.get("File", "")).replace(",", "%2C").replace(":", "%3A")
+              rule = str(item.get("RuleID", ""))
+              commit = str(item.get("Commit", ""))[:12]
+              print(
+                  f"::error file={path},line={item.get('StartLine', 1)},title=gitleaks {rule}::"
+                  f"a {rule} secret is {'committed in ' + commit if commit else 'in the tree'}; the value is redacted"
+              )
+              lines.append(f"| `{item.get('File', '')}` | {item.get('StartLine', '')} | `{rule}` | `{commit}` |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the job log")
+          with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          if env.get("GITLEAKS_SARIF") and status in (0, 1):
+              # Code scanning's copy (nightly): file, line and rule only.
+              rules = sorted({str(item.get("RuleID", "")) for item in findings})
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {
+                          "name": "gitleaks",
+                          "informationUri": "https://github.com/gitleaks/gitleaks",
+                          "rules": [{"id": rule, "shortDescription": {"text": f"{rule} secret"}} for rule in rules],
+                      }},
+                      "results": [{
+                          "ruleId": str(item.get("RuleID", "")),
+                          "level": "error",
+                          "message": {"text": f"a {item.get('RuleID', '')} secret is committed here; the value is redacted"},
+                          "locations": [{"physicalLocation": {
+                              "artifactLocation": {"uri": str(item.get("File", "")).removeprefix("./")},
+                              "region": {"startLine": max(int(item.get("StartLine") or 1), 1)},
+                          }}],
+                      } for item in findings],
+                  }],
+              }
+              Path(env["GITLEAKS_SARIF"]).parent.mkdir(parents=True, exist_ok=True)
+              Path(env["GITLEAKS_SARIF"]).write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if status == 1 and env.get("GITLEAKS_FINDINGS_FAIL") == "false":
+              print(f"gitleaks: {len(findings)} secret(s) in {scope}, reported to code scanning")
+          elif status == 1:
+              print(f"::error title=gitleaks::{len(findings)} secret(s) in {scope}; each is annotated at its file and line")
+          elif status != 0:
+              print(f"::error title=gitleaks::gitleaks exited {status}: an infrastructure failure, not a finding")
+          PY
+          if [ "${status}" -eq 1 ] && [ "${GITLEAKS_FINDINGS_FAIL}" = "false" ]; then
+            exit 0
+          fi
+          exit "${status}"
+
+      # --- org-ci.yml's pip-audit check, full lock (generated, not copied) ---
       - name: Detect project languages
         id: detect
         run: |
@@ -909,6 +1128,9 @@ jobs:
           echo "python=${python_project}" >> "$GITHUB_OUTPUT"
           echo "node=${node_project}" >> "$GITHUB_OUTPUT"
           echo "Detected: python=${python_project} node=${node_project}"
+          if [ "${python_project}" != "true" ]; then
+            echo "- pip-audit (blocking): not applicable: no Python project (no pyproject.toml, requirements.txt or setup.py)" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Set up Python
         if: steps.detect.outputs.python == 'true'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -926,7 +1148,7 @@ jobs:
           MERGE_GROUP_HEAD: ""
           PUSH_BEFORE: ""
           EVENT_SHA: ${{ matrix.revision }}
-          PIP_AUDIT_REPORT: "${{ runner.temp }}/nightly-pip-audit.json"
+          PIP_AUDIT_REPORT: ${{ runner.temp }}/pip-audit.json
         run: |
           set -euo pipefail
           # Scope (operator decision 2026-11-21, row 23): a pull request,
@@ -1067,11 +1289,9 @@ jobs:
             exit 0
           fi
           exit "${status}"
-      # Advisory by existing policy: no Bandit result fails this job. The exit
-      # code is still read, because "no findings", "findings" and "the scanner
-      # did not complete" are three different facts. Bandit exits 0 with no
-      # issue at the selected level, 1 with issues, and anything else when it
-      # could not scan.
+      # The audit step ends cleanly on "vulnerabilities found" because it
+      # wrote a report (the nightly sink inlines it the same way); this step
+      # judges that report: a known vulnerability fails the check, named.
 
       - name: Summarize the dependency audit
         if: ${{ !cancelled() }}
@@ -1086,14 +1306,70 @@ jobs:
           echo "${line}"
           echo "- ${line}" >> "${GITHUB_STEP_SUMMARY}"
 
+      # bandit runs nightly only, advisory (operator, 2026-11-21; it is not a
+      # pull-request check). The whole default branch, every severity and
+      # confidence; tests are excluded at any depth (a measured 3,581 of
+      # 4,694 Cursor-Governance findings sat in nested test paths). Findings
+      # go to code scanning (l9-central/bandit/, listed, never counted) and
+      # the complete JSON report is kept as an artifact, so bandit can be
+      # compared with SonarCloud before it is promoted or retired. Exit 0 (no
+      # finding) and 1 (findings) are both a completed scan; anything else is
+      # a scan that did not complete and fails the step.
+      - id: bandit
+        name: Python static security scan (bandit, nightly, advisory)
+        if: ${{ !cancelled() && steps.detect.outputs.python == 'true' }}
+        run: |
+          set -euo pipefail
+          python -m pip install --only-binary :all: "bandit[sarif]==1.8.6"
+          exclude="./venv,./.venv,./tests,./build,./dist,*/tests/*,*/test_*.py"
+          sarif_dir="${RUNNER_TEMP}/nightly-sarif"
+          mkdir -p "${sarif_dir}"
+          for format in json sarif; do
+            target="${RUNNER_TEMP}/bandit.json"
+            [ "${format}" = "sarif" ] && target="${sarif_dir}/bandit.sarif"
+            status=0
+            bandit -q -r . -f "${format}" -o "${target}" --exclude "${exclude}" || status=$?
+            if [ "${status}" -gt 1 ]; then
+              echo "::error title=bandit::bandit -f ${format} exited ${status}: the scan did not complete"
+              exit "${status}"
+            fi
+          done
+          python3 -I - "${RUNNER_TEMP}/bandit.json" <<'PY'
+          import json
+          import os
+          import sys
+          from collections import Counter
+
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          results = data.get("results", [])
+          by = Counter((r.get("issue_severity", "?"), r.get("issue_confidence", "?")) for r in results)
+          line = (
+              f"- bandit (nightly, advisory): {len(results)} finding(s); "
+              + ", ".join(f"{s}/{c}: {n}" for (s, c), n in sorted(by.items()))
+          )
+          print(line)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write(line + "\n")
+          PY
+
+      - name: Keep bandit's full JSON report
+        if: ${{ !cancelled() && steps.bandit.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bandit-${{ matrix.slug }}
+          path: ${{ runner.temp }}/bandit.json
+          if-no-files-found: error
+          retention-days: 30
+
       # Each sink step runs only when the one it depends on succeeded, so a
       # failed dependency audit still reaches the issue, while a failed or
       # partial upload never writes a stale state into its snapshot.
       - id: sink_tool
         name: Fetch the sink tool (Core, this run's revision)
-        # A Biome run that failed (not one with findings: it is advisory here)
-        # would drop its category and so close its alerts: nothing publishes.
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' }}
+        # A Biome, gitleaks or bandit run that failed (not one with findings:
+        # here each reports findings instead of failing) would drop its
+        # category and so close its alerts: nothing publishes.
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
@@ -1173,6 +1449,6 @@ jobs:
             --python-project "${PYTHON_PROJECT}" \
             --pip-audit-outcome "${PIP_AUDIT_OUTCOME}" \
             --pip-audit-packages "${PIP_AUDIT_PACKAGES}" \
-            --pip-audit-report "${RUNNER_TEMP}/nightly-pip-audit.json" \
+            --pip-audit-report "${RUNNER_TEMP}/pip-audit.json" \
             --lock-dir "${GITHUB_WORKSPACE}" \
             --run-url "${RUN_URL}"

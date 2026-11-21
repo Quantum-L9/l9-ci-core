@@ -168,7 +168,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -180,6 +181,13 @@ jobs:
           # event scans the whole history.
           GITLEAKS_LOG_OPTS: ""
           GITLEAKS_SCOPE: event
+          # `git`: the commits in scope. The nightly sink inlines this step
+          # with `dir` (the whole tree of the default branch), findings
+          # reported rather than failing (`GITLEAKS_FINDINGS_FAIL: "false"`)
+          # and written as SARIF to GITLEAKS_SARIF for code scanning.
+          GITLEAKS_TARGET: git
+          GITLEAKS_FINDINGS_FAIL: "true"
+          GITLEAKS_SARIF: ""
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
@@ -257,6 +265,14 @@ jobs:
           PY
             config_args=(--config "${config}")
           fi
+          case "${GITLEAKS_TARGET}" in
+            git) ;;
+            dir) GITLEAKS_LOG_OPTS="" ;;
+            *)
+              echo "::error::GITLEAKS_TARGET must be git or dir (got '${GITLEAKS_TARGET}')"
+              exit 2
+              ;;
+          esac
           range_args=()
           if [ -n "${GITLEAKS_LOG_OPTS}" ]; then
             # The range must resolve in this clone before gitleaks runs:
@@ -286,7 +302,7 @@ jobs:
           # scanner itself runs and its exit code is the outcome.
           status=0
           report="${RUNNER_TEMP:-/tmp}/gitleaks-report.json"
-          /tmp/gitleaks git "${config_args[@]}" "${range_args[@]}" \
+          /tmp/gitleaks "${GITLEAKS_TARGET}" "${config_args[@]}" "${range_args[@]}" \
             --no-banner --redact --exit-code 1 \
             --report-format json --report-path "${report}" . || status=$?
           case "${status}" in
@@ -297,7 +313,9 @@ jobs:
           # Signal law: every finding named by file, line, rule and commit,
           # never by its value (the report is redacted and the secret and
           # match fields are not read).
-          SCOPE_TEXT="${GITLEAKS_LOG_OPTS:-the whole history}" STATUS="${status}" REPORT="${report}" \
+          scope_text="${GITLEAKS_LOG_OPTS:-the whole history}"
+          [ "${GITLEAKS_TARGET}" = dir ] && scope_text="the whole tree"
+          SCOPE_TEXT="${scope_text}" STATUS="${status}" REPORT="${report}" \
             python3 -I - <<'PY'
           import json
           import os
@@ -310,12 +328,13 @@ jobs:
           except (OSError, ValueError):
               findings = []
           scope = env["SCOPE_TEXT"]
+          label = "nightly, reported" if env.get("GITLEAKS_FINDINGS_FAIL") == "false" else "blocking"
           if status == 0:
-              line = f"- gitleaks (blocking): pass: no secret in {scope}"
+              line = f"- gitleaks ({label}): pass: no secret in {scope}"
           elif status == 1:
-              line = f"- gitleaks (blocking): findings: {len(findings)} secret(s) in {scope} (values never printed)"
+              line = f"- gitleaks ({label}): findings: {len(findings)} secret(s) in {scope} (values never printed)"
           else:
-              line = f"- gitleaks (blocking): error: gitleaks exited {status}; no result for {scope}"
+              line = f"- gitleaks ({label}): error: gitleaks exited {status}; no result for {scope}"
           lines = [line]
           if findings:
               lines += ["", "| File | Line | Rule | Commit |", "|---|---|---|---|"]
@@ -325,18 +344,48 @@ jobs:
               commit = str(item.get("Commit", ""))[:12]
               print(
                   f"::error file={path},line={item.get('StartLine', 1)},title=gitleaks {rule}::"
-                  f"a {rule} secret was committed in {commit or 'the scanned range'}; the value is redacted"
+                  f"a {rule} secret is {'committed in ' + commit if commit else 'in the tree'}; the value is redacted"
               )
               lines.append(f"| `{item.get('File', '')}` | {item.get('StartLine', '')} | `{rule}` | `{commit}` |")
           if len(findings) > 20:
               lines.append(f"\n+{len(findings) - 20} more: see the job log")
           with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
               stream.write("\n".join(lines) + "\n")
-          if status == 1:
+          if env.get("GITLEAKS_SARIF") and status in (0, 1):
+              # Code scanning's copy (nightly): file, line and rule only.
+              rules = sorted({str(item.get("RuleID", "")) for item in findings})
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {
+                          "name": "gitleaks",
+                          "informationUri": "https://github.com/gitleaks/gitleaks",
+                          "rules": [{"id": rule, "shortDescription": {"text": f"{rule} secret"}} for rule in rules],
+                      }},
+                      "results": [{
+                          "ruleId": str(item.get("RuleID", "")),
+                          "level": "error",
+                          "message": {"text": f"a {item.get('RuleID', '')} secret is committed here; the value is redacted"},
+                          "locations": [{"physicalLocation": {
+                              "artifactLocation": {"uri": str(item.get("File", "")).removeprefix("./")},
+                              "region": {"startLine": max(int(item.get("StartLine") or 1), 1)},
+                          }}],
+                      } for item in findings],
+                  }],
+              }
+              Path(env["GITLEAKS_SARIF"]).parent.mkdir(parents=True, exist_ok=True)
+              Path(env["GITLEAKS_SARIF"]).write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if status == 1 and env.get("GITLEAKS_FINDINGS_FAIL") == "false":
+              print(f"gitleaks: {len(findings)} secret(s) in {scope}, reported to code scanning")
+          elif status == 1:
               print(f"::error title=gitleaks::{len(findings)} secret(s) in {scope}; each is annotated at its file and line")
           elif status != 0:
               print(f"::error title=gitleaks::gitleaks exited {status}: an infrastructure failure, not a finding")
           PY
+          if [ "${status}" -eq 1 ] && [ "${GITLEAKS_FINDINGS_FAIL}" = "false" ]; then
+            exit 0
+          fi
           exit "${status}"
 
   pip-audit:
@@ -350,7 +399,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -530,11 +580,6 @@ jobs:
             exit 0
           fi
           exit "${status}"
-      # Advisory by existing policy: no Bandit result fails this job. The exit
-      # code is still read, because "no findings", "findings" and "the scanner
-      # did not complete" are three different facts. Bandit exits 0 with no
-      # issue at the selected level, 1 with issues, and anything else when it
-      # could not scan.
       # The audit step ends cleanly on "vulnerabilities found" because it
       # wrote a report (the nightly sink inlines it the same way); this step
       # judges that report: a known vulnerability fails the check, named.
@@ -596,7 +641,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -650,7 +696,7 @@ jobs:
           exit "${status}"
 
   # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
-  # beside `security` and `analyze`, for every repository the organization
+  # beside gitleaks, pip-audit, npm-audit and `analyze`, for every repository the organization
   # ruleset governs, and always reports: no biome.json / biome.jsonc is a
   # success that says "not applicable: no biome configuration"; a pull request
   # that changes no file in Biome's scope is a success that says so. A pull
@@ -662,7 +708,7 @@ jobs:
   # with the first of them, and fail the job: the mode is blocking.
   biome:
     name: Biome
-    # The same ref gate as `security` and `analyze`.
+    # The same ref gate as the other checks and `analyze`.
     if: >-
       github.event_name != 'push'
       || inputs.event != ''

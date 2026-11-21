@@ -13,7 +13,6 @@ import json
 import textwrap
 import sys
 import os
-import re
 import subprocess
 import tempfile
 import unittest
@@ -55,12 +54,11 @@ ORG_CI_TEXT = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
 # The central Semgrep scan (docs/semgrep-runs-nightly.md): the scan
 # legs and the admitted leg render it.
 SCAN_TEXT = (ROOT / pc.SCAN).read_text(encoding="utf-8")
-# org-ci.yml calls security.yml at a pinned revision (#312). Tests read the pin
-# from org-ci.yml itself, not through the tool under test.
-SECURITY_SHA = re.search(
-    r"uses: Quantum-L9/l9-ci-core/\.github/workflows/security\.yml@([0-9a-f]{40})",
-    ORG_CI_TEXT,
-).group(1)
+# The reusable security.yml call org-ci.yml made before the security checks
+# became jobs of their own (docs/security-checks.md), at the revision main
+# pinned. A base leg renders an older org-ci.yml that still has it, so the
+# canary keeps inlining reusable jobs; with_security() adds one to a variant.
+SECURITY_SHA = "802ffda7da59892cce9107f865d9d9afb99f7739"
 SECURITY_JOB = f"""\
   # A reusable job ahead of analyze, as #312 adds.
   security:
@@ -469,7 +467,11 @@ class ReusableJobTests(unittest.TestCase):
             [
                 "plan",
                 "head__security",
-                # Biome is its own check: a sibling org-ci.yml step job.
+                # gitleaks, pip-audit, npm-audit and Biome are checks of their
+                # own: sibling org-ci.yml step jobs.
+                "head__gitleaks",
+                "head__pip-audit",
+                "head__npm-audit",
                 "head__biome",
                 "head",
                 # The scan legs run central-semgrep.yml, which has no sibling
@@ -477,6 +479,9 @@ class ReusableJobTests(unittest.TestCase):
                 "scan",
                 "admitted",
                 "base__security",
+                "base__gitleaks",
+                "base__pip-audit",
+                "base__npm-audit",
                 "base__biome",
                 "base",
                 "verdict",
@@ -503,7 +508,15 @@ class ReusableJobTests(unittest.TestCase):
                 self.assertIn("${{ job.status }}", yaml.safe_dump(sibling["steps"][-2]))
                 leg = jobs[side]
                 self.assertEqual(
-                    ["plan", f"{side}__security", f"{side}__biome"], leg["needs"]
+                    [
+                        "plan",
+                        f"{side}__security",
+                        *(
+                            f"{side}__{name}"
+                            for name in ("gitleaks", "pip-audit", "npm-audit", "biome")
+                        ),
+                    ],
+                    leg["needs"],
                 )
                 self.assertEqual(f"${{{{ !cancelled() && ({condition}) }}}}", leg["if"])
                 steps = leg["steps"]
@@ -632,10 +645,8 @@ class ReusableJobTests(unittest.TestCase):
             pc.leg_job("head", unmapped, security_provider)
 
     def test_adding_a_job_makes_the_change_differential(self) -> None:
-        # org-ci.yml without #312's enforcement step: the base before the job.
-        enforce = "\n      - name: Enforce security scan (secrets, dependency audit)\n"
+        # org-ci.yml without the added reusable job: the base before the job.
         main = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
-        main = main[: main.index(enforce)].rstrip("\n") + "\n"
         self.assertNotEqual(pc.steps_digest(main), pc.steps_digest(self.org_ci))
         header_only = "# comment\n" + main
         self.assertEqual(pc.steps_digest(main), pc.steps_digest(header_only))
@@ -1399,10 +1410,15 @@ class StepJobTests(ScanLegTests):
             for s in self.jobs["head"]["steps"]
             if s.get("name") == "Record the canary leg"
         )
+        org_ci = (ROOT / pc.ORG_CI).read_text(encoding="utf-8")
         self.assertEqual(
-            "biome=${{ steps.biome__result.outputs.result }}",
+            ",".join(
+                f"{name}=${{{{ steps.{name}__result.outputs.result }}}}"
+                for name, _ in pc.step_jobs(org_ci)
+            ),
             record["env"]["INDEPENDENT"],
         )
+        self.assertIn("biome=", record["env"]["INDEPENDENT"])
         self.assertIn("head__biome", self.jobs["head"]["needs"])
 
     def test_a_first_key_id_is_isolated_and_its_references_follow(self) -> None:
