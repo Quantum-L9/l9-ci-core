@@ -403,9 +403,15 @@ class ConsumerEventTests(unittest.TestCase):
             ADMISSION,
             SCAN_TEXT,
         )
-        # Only the org-ci legs verify the consumer; the scan legs run no make.
-        cases = [(committed, "head"), (committed, "base"), (committed, "scanbase")]
-        cases += [(rendered, side) for side in ("head", "base")]
+        # The org-ci legs verify the consumer. A scan leg runs no make when it
+        # renders central-semgrep.yml; scanbase falls back to the base's
+        # org-ci.yml while the base predates central-semgrep.yml, and then
+        # verifies too, so it is held to the same rule whenever it verifies.
+        cases = [(committed, "head"), (committed, "base"), (rendered, "head")]
+        cases += [(rendered, "base")]
+        scanbase = yaml.safe_load(committed)["jobs"]["scanbase"]["steps"]
+        if any(s.get("id") == "repository_verify" for s in scanbase):
+            cases.append((committed, "scanbase"))
         for workflow, side in cases:
             with self.subTest(side=side):
                 inputs = self.verify_step(workflow, side)["with"]

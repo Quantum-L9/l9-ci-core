@@ -1174,12 +1174,16 @@ def _cmd_render(args: argparse.Namespace) -> int:
             return 1
         print(f"{CANARY} matches {ORG_CI}")
         return 0
-    main_org_ci = _git(args.root, "show", "origin/main:.github/workflows/org-ci.yml")
-    main_scan = scan_source(lambda path: _git(args.root, "show", f"origin/main:{path}"))
+    # The base leg is the pull request's base tip: origin/main, or the parent
+    # branch of a stacked pull request (``--base origin/<parent>``), which is
+    # what the verdict compares it with (HEAD^1 of the merge commit).
+    ref = args.base
+    main_org_ci = _git(args.root, "show", f"{ref}:.github/workflows/org-ci.yml")
+    main_scan = scan_source(lambda path: _git(args.root, "show", f"{ref}:{path}"))
     provider = git_provider(args.root)
     base = base_block(main_org_ci, provider, main_scan)
     target.write_text(render(org_ci, base, provider, admission, scan), encoding="utf-8")
-    print(f"wrote {CANARY} (base leg from origin/main)")
+    print(f"wrote {CANARY} (base leg from {ref})")
     return 0
 
 
@@ -1385,8 +1389,8 @@ def _cmd_plan(args: argparse.Namespace) -> None:
     else:
         print(
             "::error::The analyze steps change, but the embedded base leg is not "
-            "the base tip's: fetch origin/main and run "
-            "python3 tools/promotion_canary.py render"
+            "the base tip's: fetch the pull request's base and run "
+            "python3 tools/promotion_canary.py render --base origin/<base>"
         )
     if admitted:
         print(
@@ -1469,8 +1473,9 @@ def _plan_problem(env: dict[str, str]) -> str:
     if differential and env.get("L9_CANARY_BASE_CURRENT") != "true":
         return (
             "the pull request changes the analyze steps, but its embedded base leg "
-            "is not the base tip's: fetch origin/main, run "
-            "`python3 tools/promotion_canary.py render`, and push"
+            "is not the base tip's: fetch the pull request's base, run "
+            "`python3 tools/promotion_canary.py render --base origin/<base>` "
+            "(origin/main unless the pull request is stacked), and push"
         )
     return ""
 
@@ -1631,6 +1636,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     render_parser = sub.add_parser("render")
     render_parser.add_argument("--check", action="store_true")
+    render_parser.add_argument(
+        "--base",
+        default="origin/main",
+        help="the pull request's base (origin/<parent> for a stacked pull request)",
+    )
     plan_parser = sub.add_parser("plan")
     plan_parser.add_argument("--force", action="store_true")
     sub.add_parser("verdict")
