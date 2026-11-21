@@ -187,6 +187,9 @@ FOOTER = """\
           env = os.environ
           if env["JOB_STATUS"] == "success":
               status = "pass"
+          elif env["JOB_STATUS"] == "cancelled":
+              # Superseded by a newer run, or over the leg's time limit.
+              status = "cancelled"
           elif env.get("AGGREGATE_STATUS", "") == "incomplete":
               status = "incomplete"
           elif env.get("REPOSITORY_VERIFY", "") not in ("", "pass", "not_applicable"):
@@ -527,6 +530,7 @@ def judge_leg(leg: dict[str, Any], records: Path) -> tuple[bool, list[str]]:
     detail = {
         "incomplete": "incomplete (a required instance did not conclude)",
         "error": "infrastructure error (no verdict was reached)",
+        "cancelled": "cancelled or timed out (no verdict was reached)",
     }.get(status, f"unrecognised leg status {status!r}")
     return False, [f"FAIL {name}: {detail}"]
 

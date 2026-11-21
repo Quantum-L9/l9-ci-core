@@ -323,6 +323,10 @@ class VerdictTests(unittest.TestCase):
         passed, report = self.judge([leg])
         self.assertFalse(passed)
         self.assertIn("infrastructure error", report[0])
+        self.record(leg, "cancelled")
+        passed, report = self.judge([leg])
+        self.assertFalse(passed)
+        self.assertIn("cancelled or timed out", report[0])
         self.record(leg, "bogus")
         self.assertFalse(self.judge([leg])[0])
 
@@ -340,6 +344,7 @@ class VerdictTests(unittest.TestCase):
         record = canary[canary.index("name: Record the canary leg") :]
         for status in (
             '"pass"',
+            '"cancelled"',
             '"incomplete"',
             '"verification"',
             '"findings"',
