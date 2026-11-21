@@ -78,6 +78,7 @@ REPO_TEST_MODULES := \
 	tests/tools/test_check_toolchain_versions.py \
 	tests/tools/test_check_workflow_integrity.py \
 	tests/tools/test_manifest_integrity.py \
+	tests/tools/test_nightly_sink.py \
 	tests/tools/test_project_required_repositories.py \
 	tests/tools/test_tool_ownership.py \
 	tests/workflows/test_merge_queue_triggers.py \
