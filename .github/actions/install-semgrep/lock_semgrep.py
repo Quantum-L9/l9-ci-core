@@ -7,7 +7,7 @@ install those versions from those bytes (``--require-hashes``,
 ``--only-binary :all:``). Operator tool, run deliberately when Core selects a
 new central Semgrep version; never executed by a workflow.
 
-    python3 .github/actions/install-semgrep/lock_semgrep.py --version 1.171.0
+    python3 .github/actions/install-semgrep/lock_semgrep.py --version 1.186.0
 
 Resolution happens through pip itself (``pip download`` for CPython
 ``--python`` on manylinux x86_64, the runner class ``org-ci.yml`` names), so
