@@ -620,8 +620,22 @@ def _classify_argv(
     command = argv[0]
     if _MAKE_FUNCTION_PLACEHOLDER in command:
         # The command word came from a GNU make function the judge cannot
-        # evaluate. It is not "no test": it is an undecided command.
-        if test_recipe:
+        # evaluate. An interpreter chosen by `$(shell ...)` or `$(if ...)` is
+        # still Python when its arguments are Python's (`-m pytest`, a .py
+        # path); those are judged as Python. Anything else is undecided in a
+        # test recipe and not a test command elsewhere.
+        if _python_arguments(argv[1:]):
+            _classify_python(
+                root,
+                ["python3", *argv[1:]],
+                hits,
+                via=via,
+                directory=directory,
+                depth=depth,
+                seen=seen,
+                test_recipe=test_recipe,
+            )
+        elif test_recipe:
             hits.append(
                 _Hit("UNKNOWN_SCRIPT", f"make function in command word {command}")
             )
@@ -683,7 +697,8 @@ def _classify_argv(
         # both land there.
         if "RUNNER_TEMP" in command or "runner.temp" in command:
             return
-        hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {command}"))
+        if test_recipe or _names_a_test(command):
+            hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {command}"))
 
 
 _ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
@@ -730,6 +745,29 @@ def _strip_command_prefix(argv: Sequence[str]) -> list[str]:
         else:
             break
     return words
+
+
+_PYTHON_FLAGS = frozenset({"-I", "-u", "-B", "-E", "-O", "-OO", "-s", "-S", "-q"})
+
+
+def _python_arguments(args: Sequence[str]) -> bool:
+    """True when ``args`` are a Python interpreter's: ``-m``/``-c`` or a .py."""
+
+    words = list(args)
+    while words and words[0] in _PYTHON_FLAGS:
+        words = words[1:]
+    return bool(words) and (words[0] in {"-m", "-c"} or words[0].endswith(".py"))
+
+
+_TEST_NAME = re.compile(
+    r"(?:^|[^a-z])(?:test|tests|pytest|unittest|tox|nox)(?:[^a-z]|$)"
+)
+
+
+def _names_a_test(token: str) -> bool:
+    """Whether a script's file name says it runs tests."""
+
+    return bool(_TEST_NAME.search(Path(token).name.lower()))
 
 
 def _retag(hit: _Hit, via: str) -> _Hit:
@@ -788,7 +826,9 @@ def _classify_pytest(root: Path, args: Sequence[str], directory: str) -> _Hit:
     values = list(args)
     while index < len(values):
         token = values[index]
-        if token in _PYTEST_FLAGS:
+        if token in _PYTEST_FLAGS or re.fullmatch(r"-r[a-zA-Z]+", token):
+            # -r takes its report characters attached (-rfEs): a report
+            # option, never a selection.
             index += 1
             continue
         if token in _PYTEST_VALUE:
@@ -1012,7 +1052,12 @@ def _follow_path(
     test_recipe: bool = False,
 ) -> None:
     if "$" in token:
-        hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {token}"))
+        # A script behind a variable (an external rail, a peer checkout) is
+        # undecided only where it could be the suite: in a test recipe, or
+        # when its name says test. A setup script elsewhere is not a test
+        # command, as a missing docs script is not (#357).
+        if test_recipe or _names_a_test(token):
+            hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {token}"))
         return
     path = _safe_path(root, token, directory)
     if path is None:
