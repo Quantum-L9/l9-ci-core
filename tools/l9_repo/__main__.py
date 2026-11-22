@@ -53,6 +53,7 @@ from .change_policy import (
 )
 from .contract import (
     CONTRACT_PATH,
+    FACADE_TEMPLATES,
     PHASES,
     V2_SCHEMA_NAME,
     ContractError,
@@ -1198,6 +1199,16 @@ def build_parser() -> argparse.ArgumentParser:
             "it (repeatable; `all` inherits every inheritable file)"
         ),
     )
+    parser.add_argument(
+        "--facade",
+        choices=sorted(FACADE_TEMPLATES),
+        default=None,
+        help=(
+            "stamp only: render the contract and Makefile for this released "
+            "facade (default: the facade the repository already declares, "
+            "else make-v1)"
+        ),
+    )
     parser.add_argument("command", choices=COMMANDS)
     return parser
 
@@ -1218,6 +1229,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 arguments.profile,
                 core_stamp_revision(),
                 arguments.inherit,
+                arguments.facade,
             )
             for relative in changed:
                 written = (core.root / relative).is_file()

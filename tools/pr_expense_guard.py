@@ -7,9 +7,11 @@ a fixture or a green judge is not a hosted test receipt.
 
 The judge reads the proposed revision. A diff that only touches workflow
 files is not an exemption. It follows Make, pre-commit, and literal nested
-scripts; a comment that mentions pytest is not an edge. The make-v1 ``test``
-leaf is always in scope when a Makefile is present, because the required
-workflow runs that leaf even when no consumer workflow names it.
+scripts; a comment that mentions pytest is not an edge. The make phase the
+required workflow runs is always in scope when a Makefile is present, even
+when no consumer workflow names it: ``test`` under make-v1, ``test-fast``
+under make-v2 (``.l9/repo-workflow.json`` ``facade``). make-v2's ``test`` is
+the whole suite and the required workflow does not run it on a judged event.
 
 A ``bash -c "$VAR"`` install command is not a nested script. An unresolved
 literal script path, or a pytest/unittest/make selection whose arguments are
@@ -19,6 +21,7 @@ not literals, blocks as ``UNKNOWN_SCRIPT``.
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 import subprocess
@@ -611,8 +614,17 @@ def _classify_argv(
     seen: set[str],
     test_recipe: bool = False,
 ) -> None:
+    argv = _strip_command_prefix(argv)
+    if not argv:
+        return
     command = argv[0]
-    if "=" in command and not command.startswith(("./", "/")):
+    if _MAKE_FUNCTION_PLACEHOLDER in command:
+        # The command word came from a GNU make function the judge cannot
+        # evaluate. It is not "no test": it is an undecided command.
+        if test_recipe:
+            hits.append(
+                _Hit("UNKNOWN_SCRIPT", f"make function in command word {command}")
+            )
         return
     base = Path(command).name
     if base in {"pytest", "py.test"}:
@@ -672,6 +684,52 @@ def _classify_argv(
         if "RUNNER_TEMP" in command or "runner.temp" in command:
             return
         hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {command}"))
+
+
+_ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
+_ENV_VALUE_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})
+
+
+def _unreadable_assignment(word: str) -> bool:
+    """An array append or a command-substitution assignment.
+
+    The tokenizer cannot split nested quotes in a substitution, so such a
+    statement is not read as a command; this is what the judge did before
+    prefix assignments were stripped.
+    """
+
+    if "+=" in word.split("=", 1)[0] + "=":
+        return True
+    return bool(_ASSIGNMENT.match(word)) and ("$(" in word or "`" in word)
+
+
+def _drop_env_wrapper(words: list[str]) -> list[str]:
+    """Drop ``env`` and its options; ``-u NAME`` and ``-C DIR`` take a value."""
+
+    rest = words[1:]
+    while rest and rest[0].startswith("-"):
+        rest = rest[2:] if rest[0] in _ENV_VALUE_OPTIONS else rest[1:]
+    return rest
+
+
+def _strip_command_prefix(argv: Sequence[str]) -> list[str]:
+    """Drop leading ``NAME=value`` words and an ``env`` wrapper.
+
+    ``PYTHONPATH=. pytest tests/`` runs pytest. Dropping the whole statement
+    because its first word is an assignment made the judge blind to it.
+    """
+
+    words = list(argv)
+    if words and _unreadable_assignment(words[0]):
+        return []
+    while words:
+        if _ASSIGNMENT.match(words[0]):
+            words = words[1:]
+        elif words[0] == "env":
+            words = _drop_env_wrapper(words)
+        else:
+            break
+    return words
 
 
 def _retag(hit: _Hit, via: str) -> _Hit:
@@ -1024,7 +1082,10 @@ def _looks_like_test_command(constant: str) -> bool:
             return True
         if re.match(r"^python[0-9.]*\s+-m\s+(?:pytest|unittest)(?:\s|$)", text):
             return True
-        if re.match(r"^make\s+(?:test|repo-test|test-deep)(?:\s|$)", text):
+        if re.match(
+            r"^make\s+(?:test-fast|test|repo-test-fast|repo-test|test-deep)(?:\s|$)",
+            text,
+        ):
             return True
     return False
 
@@ -1058,26 +1119,84 @@ def _classify_make(
     if not targets:
         targets = ["test"]
     for target in targets:
-        if target in {"test", "repo-test", "test-deep"}:
+        if target in {"test", "test-fast", "repo-test", "test-deep"}:
             _walk_make_target(root, target, hits, directory, set())
         elif target.startswith("repo-"):
             _walk_make_target(root, target, hits, directory, set())
+
+
+_CONTRACT = Path(".l9/repo-workflow.json")
+_FAST_TEST_FACADES = frozenset({"make-v2"})
+
+
+def required_test_phase(root: Path) -> str:
+    """The make phase the required workflow runs on a judged event.
+
+    make-v2 declares ``test-fast``; make-v1, a V1 contract and a repository
+    with no contract run ``test``. A contract the judge cannot read is a
+    ``GuardParseError``: the judge never guesses which phase runs.
+    """
+
+    path = root / _CONTRACT
+    if not path.is_file():
+        return "test"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise GuardParseError(f"unreadable {_CONTRACT}: {error}") from error
+    if isinstance(data, dict) and data.get("facade") in _FAST_TEST_FACADES:
+        return "test-fast"
+    return "test"
 
 
 def _walk_make_test(root: Path, hits: list[_Hit]) -> None:
     makefile = root / "Makefile"
     if not makefile.is_file():
         return
+    phase = required_test_phase(root)
     try:
         targets, _variables = _parse_make_tree(makefile)
     except GuardParseError as error:
         hits.append(_Hit("UNKNOWN_SCRIPT", str(error)))
         return
-    # A Makefile that does not define test has no make test suite. An
-    # explicit `make test` in a workflow still fails closed below.
-    if "test" not in targets:
+    if phase not in targets:
+        if phase != "test":
+            # make-v2 declares test-fast; a facade without it is not judged
+            # as if it ran nothing.
+            hits.append(_Hit("UNKNOWN_SCRIPT", f"make target {phase} is absent"))
+        # A Makefile that does not define test has no make test suite. An
+        # explicit `make test` in a workflow still fails closed below.
         return
-    _walk_make_target(root, "test", hits, "", set())
+    before = len(hits)
+    _walk_make_target(root, phase, hits, "", set())
+    if len(hits) == before:
+        recipe = _first_recipe_line(targets, phase, set())
+        if recipe is not None:
+            # make runs something, and nothing in it classified. That is an
+            # undecided suite, not zero tests.
+            hits.append(
+                _Hit(
+                    "UNKNOWN_SCRIPT",
+                    f"make {phase} runs no command the judge can classify: {recipe}",
+                )
+            )
+
+
+def _first_recipe_line(
+    targets: Mapping[str, _Target], name: str, seen: set[str]
+) -> str | None:
+    if name in seen or name not in targets:
+        return None
+    seen.add(name)
+    target = targets[name]
+    for dep in target.deps:
+        line = _first_recipe_line(targets, dep, seen)
+        if line is not None:
+            return line
+    for line in target.recipe:
+        if line.strip():
+            return line.strip()
+    return None
 
 
 def _walk_make_target(
@@ -1220,10 +1339,16 @@ def _strip_make_comment(text: str) -> str:
 
 
 _MAKE_FUNCTIONS = frozenset({"if", "wildcard", "shell"})
+# What an unevaluated make function expands to. It is never empty: deleting
+# the call erased the command word of `$(PY) -m pytest tests/` and the judge
+# then saw no test command at all.
+_MAKE_FUNCTION_PLACEHOLDER = "$(make-function)"
 
 
 def _is_test_target(name: str) -> bool:
-    return name in {"test", "repo-test", "test-deep"} or name.startswith("repo-")
+    return name in {"test", "test-fast", "repo-test", "test-deep"} or name.startswith(
+        "repo-"
+    )
 
 
 def _is_make_function(name: str) -> bool:
@@ -1258,6 +1383,7 @@ def _expand_make(value: str, variables: Mapping[str, str], depth: int = 0) -> st
             continue
         name = value[index + 2 : end].strip()
         if _is_make_function(name):
+            output.append(_expand_make_function(name, variables, depth))
             index = end + 1
             continue
         if name not in variables:
@@ -1266,6 +1392,43 @@ def _expand_make(value: str, variables: Mapping[str, str], depth: int = 0) -> st
             output.append(_expand_make(variables[name], variables, depth + 1))
         index = end + 1
     return "".join(output)
+
+
+def _interpreter_family(word: str) -> str | None:
+    base = Path(word.strip().strip("'\"")).name
+    if base in {"python", "python3"} or re.fullmatch(r"python3\.\d+", base):
+        return "python"
+    return None
+
+
+def _expand_make_function(name: str, variables: Mapping[str, str], depth: int) -> str:
+    """Evaluate the one shape that is decidable without running make.
+
+    ``$(if COND,THEN,ELSE)`` resolves when both branches expand to the same
+    text, or to the same Python interpreter (``.venv/bin/python`` vs
+    ``python3``). Anything else stays an explicit unevaluated token.
+    """
+
+    head, _, rest = name.partition(" ")
+    if head == "if":
+        arguments = _split_top(rest, ",")
+        if len(arguments) in {2, 3}:
+            then = _expand_make(arguments[1], variables, depth + 1).strip()
+            other = (
+                _expand_make(arguments[2], variables, depth + 1).strip()
+                if len(arguments) == 3
+                else ""
+            )
+            if then == other:
+                return then
+            if (
+                " " not in then
+                and " " not in other
+                and _interpreter_family(then) == "python"
+                and _interpreter_family(other) == "python"
+            ):
+                return other
+    return _MAKE_FUNCTION_PLACEHOLDER
 
 
 def _matching_closer(value: str, start: int, opener: str, closer: str) -> int | None:

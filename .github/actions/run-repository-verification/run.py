@@ -78,6 +78,7 @@ if str(CORE_TOOLS) not in sys.path:
 from l9_repo.__main__ import RepositoryWorkflow, WorkflowError  # noqa: E402
 from l9_repo.contract import (  # noqa: E402
     CONTRACT_PATH,
+    FAST_TEST_PHASE,
     PHASES,
     ContractError,
     RepositoryExecution,
@@ -97,6 +98,13 @@ MODES = frozenset({MIGRATION_MODE, REQUIRED_MODE})
 
 V1_SCHEMA_VERSION = 1
 V2_REQUIRED_PHASES = PHASES
+#: Events whose required check judges pull-request test expense (org-ci.yml
+#: "Judge pull-request test expense"). On these a make-v2 consumer runs
+#: test-fast, the selection that judge proved bounded; every other event runs
+#: the whole test phase.
+FAST_TEST_EVENTS = frozenset(
+    {"pull_request", "pull_request_target", "merge_group", "push"}
+)
 
 CONTRACT_ABSENT = "absent"
 CONTRACT_V1 = "v1"
@@ -734,18 +742,36 @@ def report_phase_failure(error: subprocess.CalledProcessError, workspace: Path) 
         )
 
 
-def run_v2(workspace: Path) -> None:
-    """Execute the declared ``make-v1`` facade phases in order, argv-only.
+def v2_run_phases(facade: str, event_name: str) -> tuple[str, ...]:
+    """The facade phases one verification run executes, in order.
+
+    make-v1 runs its four phases on every event. make-v2 runs
+    ``setup validate check test-fast`` on a judged event and
+    ``setup validate check test`` on any other: a pull request never runs the
+    whole suite, and the whole suite is never silently dropped elsewhere.
+    """
+
+    if facade != "make-v2":
+        return V2_REQUIRED_PHASES
+    final = FAST_TEST_PHASE if event_name in FAST_TEST_EVENTS else "test"
+    return ("setup", "validate", "check", final)
+
+
+def run_v2(workspace: Path, facade: str = "make-v1") -> None:
+    """Execute the declared facade's phases in order, argv-only.
 
     The facade was verified byte-for-byte against this Core checkout before
     this runs, so each phase reaches exactly the repository's ``repo-<phase>``
     leaf. The first non-zero phase raises :class:`PhaseError` (its command,
     exit code and output tail), so later phases never run. No consumer
-    Python is imported.
+    Python is imported. The event is read after ``apply_event_context``, so
+    a canary leg run as a push takes the push phases. ``facade`` is the one
+    ``verify_v2`` already validated.
     """
 
     materialize_inherited(workspace)
-    for phase in V2_REQUIRED_PHASES:
+    event_name = os.environ.get("GITHUB_EVENT_NAME", "").strip()
+    for phase in v2_run_phases(facade, event_name):
         argv = ["make", phase]
         print("+", " ".join(argv), flush=True)
         run_phase(phase, argv, workspace)
@@ -1096,10 +1122,11 @@ def main() -> int:
     version = CONTRACT_INVALID
     clear_failure_sidecar()
     try:
-        version = classify_contract(load_contract(contract))
+        document = load_contract(contract)
+        version = classify_contract(document)
         if version == CONTRACT_V2:
             verify_v2(workspace, mode)
-            run_v2(workspace)
+            run_v2(workspace, str(document.get("facade", "make-v1")))
         elif mode == REQUIRED_MODE:
             raise ContractError(
                 "a V1 contract is not admitted in required mode; declare the "

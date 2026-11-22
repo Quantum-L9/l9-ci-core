@@ -348,3 +348,35 @@ tree passes that admission.
   `repository-execution` change gate runs it whenever `tools/l9_repo/`,
   `tests/repo_execution/`, `.l9/repo-workflow.json`,
   `.l9/core-repo-policy.json`, `Makefile`, or `Repo.mk` changes.
+
+## make-v2: a declared bounded test phase (2026-11-22)
+
+Operator decision, 2026-11-22: the fix for whole-tree suites on pull requests
+is upstream. make-v1 has a single test phase, and the required check runs it on
+every pull request, so the pull-request expense judge blocked any whole-tree
+suite with no way to declare a bounded one. make-v1 is released and stays
+byte-for-byte unchanged, so the new phase is a new facade, `make-v2`
+(`tools/l9_repo/facades/make-v2.mk`).
+
+| | make-v1 | make-v2 |
+|---|---|---|
+| `required_phases` | `setup validate check test` | `setup validate check test-fast test` |
+| `Repo.mk` leaves | `repo-setup repo-validate repo-check repo-test` | adds `repo-test-fast` |
+| Required check on `pull_request`, `pull_request_target`, `merge_group`, `push` | `setup validate check test` | `setup validate check test-fast` |
+| Required check on any other event | `setup validate check test` | `setup validate check test` |
+| What the expense judge reads | `test` | `test-fast` |
+
+`test-fast` is blocking from the start; there is no advisory period. The judge
+holds it to a bounded, nonempty, literal selection: `pytest tests/ -m unit` is
+`REPO_TEST_FULL`, `pytest tests/unit -m unit` is bounded. A make-v2 facade
+without `test-fast`, or a contract the judge cannot read, is `UNKNOWN_SCRIPT`.
+`test` remains the whole suite under make-v2 and is not run by the required
+check on a judged event.
+
+A make-v1 consumer whose `repo-test` is a whole-tree suite adopts make-v2 by
+setting `"facade": "make-v2"` and the five-phase `required_phases` in
+`.l9/repo-workflow.json`, regenerating `Makefile` (`reconcile`, or
+`stamp --facade make-v2` for a stamped repository; a later re-stamp keeps the
+declared facade), and adding `repo-test-fast` to `Repo.mk`. The phase selection
+lives in `run-repository-verification`, so it takes effect for consumers at the
+§16 pin advance.

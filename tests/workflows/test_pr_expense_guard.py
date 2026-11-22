@@ -299,6 +299,64 @@ class KnownBadCases(unittest.TestCase):
         decision = judge(self.root)
         self.assert_static(decision, "UNKNOWN_SCRIPT")
 
+    def _make_v1_repo_test(self, recipe: str) -> None:
+        write(self.root, "Makefile", "include Repo.mk\ntest: repo-test\n")
+        write(
+            self.root,
+            "Repo.mk",
+            "VENV ?= .venv\n"
+            "REPO_PY := $(if $(wildcard $(VENV)/bin/python),"
+            "$(VENV)/bin/python,python3)\n"
+            "repo-test:\n\t" + recipe + "\n",
+        )
+
+    def test_interpreter_from_a_make_function_is_still_judged(self) -> None:
+        # Cognitive.Engine.Graphs: the make function used to expand to
+        # nothing, the command word vanished, and a whole-tree suite was
+        # reported as ZERO_TESTS.
+        bounded_test(self.root)
+        self._make_v1_repo_test(
+            '@PYTHONPATH="$${PYTHONPATH:-}:." $(REPO_PY) -m pytest tests/ -m unit -q'
+        )
+        decision = judge(self.root, changed_files=("engine/a.py",))
+        self.assert_static(decision, "REPO_TEST_FULL")
+        self.assertIn("REPO_TEST_FULL pytest tests/", decision.findings)
+
+    def test_bounded_suite_behind_a_make_function_interpreter_passes(self) -> None:
+        bounded_test(self.root)
+        self._make_v1_repo_test(
+            '@PYTHONPATH="$${PYTHONPATH:-}:." $(REPO_PY) -m pytest tests/unit -m unit'
+        )
+        decision = judge(self.root, changed_files=("engine/a.py",))
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_prefix_assignment_does_not_hide_a_full_suite(self) -> None:
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow("  fast:\n    steps:\n      - run: CI=1 env -u X pytest tests/\n"),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "FULL_PYTEST")
+
+    def test_undecidable_make_function_command_word_is_unknown(self) -> None:
+        write(
+            self.root,
+            "Makefile",
+            "PY := $(shell command -v python3)\ntest:\n\t$(PY) -m pytest tests/\n",
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "UNKNOWN_SCRIPT")
+
+    def test_unclassified_make_test_recipe_is_unknown_not_zero(self) -> None:
+        write(self.root, "Makefile", "test:\n\ttox -e py312\n")
+        decision = judge(self.root)
+        self.assert_static(decision, "UNKNOWN_SCRIPT")
+        self.assertTrue(
+            any("tox -e py312" in item for item in decision.findings),
+            decision.findings,
+        )
+
     def test_pytest_with_no_paths_still_fails(self) -> None:
         write(
             self.root,
