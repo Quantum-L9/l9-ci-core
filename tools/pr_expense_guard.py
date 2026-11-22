@@ -59,6 +59,8 @@ _PYTEST_VALUE = frozenset(
         "--maxfail",
         "--cov",
         "--cov-report",
+        "--cov-fail-under",
+        "--cov-context",
         "--cov-config",
         "--rootdir",
         "--junitxml",
@@ -90,6 +92,12 @@ _PYTEST_FLAGS = frozenset(
         "-ra",
         "--strict-markers",
         "--strict-config",
+        # pytest-cov switches: they change what is measured, never what runs.
+        "--cov-branch",
+        "--cov-append",
+        "--cov-reset",
+        "--no-cov",
+        "--no-cov-on-fail",
     }
 )
 _UNITTEST_FLAGS = frozenset(
@@ -310,9 +318,11 @@ def _walk_workflow(
         return
     workflow_name = str(document.get("name", path.name))
     judge_events = _judge_events(event)
+    workflow_workdir = _nested_workdir(document.get("defaults"))
     for job_id, job in jobs.items():
         if not isinstance(job, dict):
             raise GuardParseError(f"{path} job {job_id} is not a mapping")
+        job = _with_workflow_workdir(job, workflow_workdir)
         _walk_job(
             root,
             path,
@@ -558,6 +568,30 @@ def _workdir(step: Mapping[str, object], job: Mapping[str, object]) -> str:
     return ""
 
 
+def _with_workflow_workdir(
+    job: Mapping[str, object], workflow_workdir: object
+) -> Mapping[str, object]:
+    """A job seen with the workflow-level ``defaults.run.working-directory``.
+
+    GitHub applies step ``working-directory``, then job ``defaults``, then
+    workflow ``defaults``. Ignoring the last made a relative pytest path
+    resolve from the repository root and read as ZERO_TESTS.
+    """
+
+    if not isinstance(workflow_workdir, str) or not workflow_workdir.strip():
+        return job
+    if _nested_workdir(job.get("defaults")) is not None:
+        return job
+    defaults = job.get("defaults")
+    merged = dict(defaults) if isinstance(defaults, dict) else {}
+    run = merged.get("run")
+    merged["run"] = {
+        **(run if isinstance(run, dict) else {}),
+        "working-directory": workflow_workdir,
+    }
+    return {**job, "defaults": merged}
+
+
 def _nested_workdir(defaults: object) -> object:
     if not isinstance(defaults, dict):
         return None
@@ -588,7 +622,7 @@ def _scan_shell(
     logical = _join_continuations(stripped.splitlines())
     for line in logical:
         for statement in _split_statements(line):
-            argv = _expand_tokens(_tokenize(statement), arrays)
+            argv = _strip_subshell(_expand_tokens(_tokenize(statement), arrays))
             if not argv:
                 continue
             _classify_argv(
@@ -725,6 +759,30 @@ def _drop_env_wrapper(words: list[str]) -> list[str]:
     while rest and rest[0].startswith("-"):
         rest = rest[2:] if rest[0] in _ENV_VALUE_OPTIONS else rest[1:]
     return rest
+
+
+def _strip_subshell(argv: list[str]) -> list[str]:
+    """Drop the grouping parentheses of ``( cd x && pytest -q )``.
+
+    The statement splitter cuts a subshell at ``&&``, so the opening ``(``
+    sticks to the first word and the closing ``)`` to the last (``-q)``).
+    Only an unbalanced bracket is dropped; ``$(...)`` stays whole.
+    """
+
+    words = list(argv)
+    if words and words[0].startswith("(") and not words[0].startswith("$("):
+        words[0] = words[0].lstrip("(")
+        if not words[0]:
+            words = words[1:]
+    if words:
+        last = words[-1]
+        while last.endswith(")") and last.count(")") > last.count("("):
+            last = last[:-1]
+        if last:
+            words[-1] = last
+        else:
+            words = words[:-1]
+    return words
 
 
 def _strip_command_prefix(argv: Sequence[str]) -> list[str]:
