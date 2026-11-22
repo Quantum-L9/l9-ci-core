@@ -93,7 +93,7 @@ class FacadeDeterminismTests(unittest.TestCase):
 
     def test_unsupported_facade_cannot_render(self) -> None:
         with self.assertRaisesRegex(ContractError, "unsupported facade"):
-            render_facade("make-v2")
+            render_facade("make-v9")
 
     def test_reconcile_is_one_directional_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

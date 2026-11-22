@@ -44,6 +44,17 @@ _CONTRACT_KEYS = frozenset({"schema", "facade", "required_phases"})
 FACADES_DIR = pathlib.Path(__file__).resolve().parent / "facades"
 FACADE_TEMPLATES: Mapping[str, pathlib.Path] = {
     "make-v1": FACADES_DIR / "make-v1.mk",
+    "make-v2": FACADES_DIR / "make-v2.mk",
+}
+
+# make-v2 adds ``test-fast``: the bounded selection the organization's required
+# check runs on pull requests, merge groups and pushes. ``test`` stays the
+# whole suite. ``PHASES`` remains the make-v1 list for callers that predate it.
+FAST_TEST_PHASE = "test-fast"
+PHASES_V2: tuple[str, ...] = ("setup", "validate", "check", FAST_TEST_PHASE, "test")
+FACADE_PHASES: Mapping[str, tuple[str, ...]] = {
+    "make-v1": PHASES,
+    "make-v2": PHASES_V2,
 }
 
 # The targets the facade itself owns. A repository implements ``repo-<phase>``
@@ -52,6 +63,28 @@ FACADE_TEMPLATES: Mapping[str, pathlib.Path] = {
 # not a registry of any other tool's commands.
 FACADE_TARGETS = frozenset({"help", *PHASES})
 REQUIRED_LEAVES: tuple[str, ...] = tuple(f"repo-{phase}" for phase in PHASES)
+
+
+def facade_phases(facade: str) -> tuple[str, ...]:
+    """The ordered phases a released facade declares."""
+
+    phases = FACADE_PHASES.get(facade)
+    if phases is None:
+        _fail(f"unsupported facade: {facade!r}")
+    return phases
+
+
+def facade_targets(facade: str) -> frozenset[str]:
+    """The verbs a facade owns; ``Repo.mk`` may not redefine any of them."""
+
+    return frozenset({"help", *facade_phases(facade)})
+
+
+def required_leaves(facade: str) -> tuple[str, ...]:
+    """The ``repo-<phase>`` leaves a repository must implement for a facade."""
+
+    return tuple(f"repo-{phase}" for phase in facade_phases(facade))
+
 
 # A rule line: target names before the first ':' that is not part of an
 # assignment (':=' / '::='), not a recipe line (leading tab), not a comment.
@@ -119,10 +152,11 @@ def validate_v2_contract_data(data: object) -> dict[str, Any]:
             + ", ".join(sorted(FACADE_TEMPLATES))
         )
     phases = data["required_phases"]
-    if not isinstance(phases, list) or phases != list(PHASES):
+    expected = list(FACADE_PHASES[facade])
+    if not isinstance(phases, list) or phases != expected:
         _fail(
-            "repo-execution/v2 contract required_phases must be exactly "
-            + json.dumps(list(PHASES))
+            f"repo-execution/v2 contract required_phases for {facade} must be "
+            "exactly " + json.dumps(expected)
         )
     return data
 
@@ -362,7 +396,9 @@ def _record_assignment(
         variables[name] = _Variable(tokens=[])
 
 
-def implemented_leaves(text: str) -> set[str]:
+def implemented_leaves(
+    text: str, leaves_required: tuple[str, ...] = REQUIRED_LEAVES
+) -> set[str]:
     """Return the required leaves that carry an unconditional implementation.
 
     ``text`` must already be the unconditional projection (see
@@ -426,7 +462,7 @@ def implemented_leaves(text: str) -> set[str]:
         leaves = {
             name
             for name in match.group(1).split()
-            if not name.startswith(".") and name in REQUIRED_LEAVES
+            if not name.startswith(".") and name in leaves_required
         }
         if not leaves:
             continue
@@ -454,7 +490,7 @@ def implemented_leaves(text: str) -> set[str]:
     return implemented
 
 
-def validate_repo_mk_text(text: str) -> None:
+def validate_repo_mk_text(text: str, facade: str = "make-v1") -> None:
     """Structural ABI validation of a repository-owned ``Repo.mk``.
 
     Required leaves must be declared unconditionally and ``.PHONY`` (so a
@@ -469,8 +505,10 @@ def validate_repo_mk_text(text: str) -> None:
     unconditional = _unconditional_text(text)
     declared = {target for _, target in make_target_declarations(unconditional)}
     phony = make_phony_targets(unconditional)
-    implemented = implemented_leaves(unconditional)
-    for leaf in REQUIRED_LEAVES:
+    leaves = required_leaves(facade)
+    targets = facade_targets(facade)
+    implemented = implemented_leaves(unconditional, leaves)
+    for leaf in leaves:
         if leaf not in declared:
             _fail(f"Repo.mk is missing required implementation target: {leaf}")
         if leaf not in phony:
@@ -483,7 +521,7 @@ def validate_repo_mk_text(text: str) -> None:
                 "a literal target above the rule)"
             )
     for number, target in declarations:
-        if target in FACADE_TARGETS:
+        if target in targets:
             _fail(
                 f"Repo.mk:{number} redefines facade target {target!r}; "
                 f"implement repo-{target} instead"
@@ -525,7 +563,7 @@ class RepositoryExecution:
 
         self.contract()
         self.verify_makefile()
-        validate_repo_mk_text(self.repo_mk_text())
+        validate_repo_mk_text(self.repo_mk_text(), self.facade())
 
     def reconcile(self) -> bool:
         """Write the facade into ``Makefile``; never touch ``Repo.mk``.

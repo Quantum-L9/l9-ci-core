@@ -8,7 +8,7 @@ unchanged:
 consumer path             Core source                                 profiles
 ========================  ==========================================  ==============
 .l9/repo-workflow.json    the exact Repository Execution V2 contract  all
-Makefile                  ``tools/l9_repo/facades/make-v1.mk``        all
+Makefile                  ``tools/l9_repo/facades/<facade>.mk``       all
 .gitleaks.toml            ``presets/security/.gitleaks.toml``         all
 requirements-ci.txt       rendered from ``toolchain-lock.json``       python
 .python-version           rendered from ``toolchain-lock.json``       python
@@ -77,10 +77,11 @@ from typing import Any, NoReturn
 
 from .contract import (
     CONTRACT_PATH,
+    FACADE_TEMPLATES,
     MAKEFILE_PATH,
-    PHASES,
     V2_SCHEMA_NAME,
     ContractError,
+    facade_phases,
     render_facade,
 )
 
@@ -91,6 +92,9 @@ STAMP_SCHEMA = "l9.core-stamp/v1"
 # v1 plus ``inherited``: profile paths the repository does not carry.
 STAMP_SCHEMA_V2 = "l9.core-stamp/v2"
 STAMP_SCHEMAS: tuple[str, ...] = (STAMP_SCHEMA, STAMP_SCHEMA_V2)
+#: The facade a repository is stamped with when it declares none. A
+#: repository that declares another released facade (make-v2) keeps it: the
+#: contract and Makefile are rendered for the facade it declares.
 STAMP_FACADE = "make-v1"
 
 PRESETS_DIR = CORE_ROOT / "presets"
@@ -178,13 +182,38 @@ def _digest(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
-def render_contract() -> bytes:
+def declared_facade(root: pathlib.Path) -> str:
+    """The released facade the repository's contract names, else the default.
+
+    Only a facade Core has released is honoured; anything unreadable or
+    unknown renders the default, and contract validation reports the error.
+    """
+
+    path = root / CONTRACT_PATH
+    if path.is_symlink() or not path.is_file():
+        return STAMP_FACADE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return STAMP_FACADE
+    facade = data.get("facade") if isinstance(data, dict) else None
+    if (
+        isinstance(data, dict)
+        and data.get("schema") == V2_SCHEMA_NAME
+        and isinstance(facade, str)
+        and facade in FACADE_TEMPLATES
+    ):
+        return facade
+    return STAMP_FACADE
+
+
+def render_contract(facade: str = STAMP_FACADE) -> bytes:
     """The exact three-field V2 contract, in its canonical byte form."""
 
     document = {
         "schema": V2_SCHEMA_NAME,
-        "facade": STAMP_FACADE,
-        "required_phases": list(PHASES),
+        "facade": facade,
+        "required_phases": list(facade_phases(facade)),
     }
     return (json.dumps(document, indent=2) + "\n").encode("utf-8")
 
@@ -293,13 +322,13 @@ def render_requirements() -> bytes:
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
-def render_file(relative: str) -> bytes:
+def render_file(relative: str, facade: str = STAMP_FACADE) -> bytes:
     """The bytes this Core revision owns for one consumer path."""
 
     if relative == CONTRACT_PATH.as_posix():
-        return render_contract()
+        return render_contract(facade)
     if relative == MAKEFILE_PATH.as_posix():
-        return render_facade(STAMP_FACADE)
+        return render_facade(facade)
     if relative == "requirements-ci.txt":
         return render_requirements()
     if relative == PYTHON_VERSION_PATH:
@@ -325,8 +354,20 @@ def profile_files(profile: str) -> tuple[str, ...]:
     return files
 
 
-def render_profile(profile: str) -> dict[str, bytes]:
-    return {relative: render_file(relative) for relative in profile_files(profile)}
+def render_profile(profile: str, facade: str = STAMP_FACADE) -> dict[str, bytes]:
+    """Every Core-owned file of ``profile``. Only the contract and the
+    ``Makefile`` depend on the facade; every other path is facade-free."""
+
+    facade_owned = {
+        CONTRACT_PATH.as_posix(): render_contract(facade),
+        MAKEFILE_PATH.as_posix(): render_facade(facade),
+    }
+    return {
+        relative: facade_owned[relative]
+        if relative in facade_owned
+        else render_file(relative)
+        for relative in profile_files(profile)
+    }
 
 
 def inheritable_files(profile: str) -> tuple[str, ...]:
@@ -375,6 +416,7 @@ def stamp(
     profile: str,
     core_revision: str,
     inherit: Iterable[str] = (),
+    facade: str | None = None,
 ) -> list[str]:
     """Write every Core-owned file for ``profile`` plus the stamp record.
 
@@ -398,7 +440,7 @@ def stamp(
             f"Core revision must be a full 40-character commit SHA: {core_revision!r}"
         )
     inherited = normalize_inherit(profile, inherit)
-    everything = render_profile(profile)
+    everything = render_profile(profile, facade or declared_facade(root))
     rendered = {
         relative: data
         for relative, data in everything.items()
@@ -560,7 +602,8 @@ def classify_stamp(
     modified: list[str] = []
     behind: list[str] = []
     inherited = set(inherited_paths(record))
-    for relative, expected in render_profile(record["profile"]).items():
+    rendered = render_profile(record["profile"], declared_facade(root))
+    for relative, expected in rendered.items():
         path = root / relative
         if relative in inherited:
             finding = _inherited_finding(relative, path, expected)

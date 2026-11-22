@@ -7,9 +7,11 @@ a fixture or a green judge is not a hosted test receipt.
 
 The judge reads the proposed revision. A diff that only touches workflow
 files is not an exemption. It follows Make, pre-commit, and literal nested
-scripts; a comment that mentions pytest is not an edge. The make-v1 ``test``
-leaf is always in scope when a Makefile is present, because the required
-workflow runs that leaf even when no consumer workflow names it.
+scripts; a comment that mentions pytest is not an edge. The make phase the
+required workflow runs is always in scope when a Makefile is present, even
+when no consumer workflow names it: ``test`` under make-v1, ``test-fast``
+under make-v2 (``.l9/repo-workflow.json`` ``facade``). make-v2's ``test`` is
+the whole suite and the required workflow does not run it on a judged event.
 
 A ``bash -c "$VAR"`` install command is not a nested script. An unresolved
 literal script path, or a pytest/unittest/make selection whose arguments are
@@ -19,6 +21,7 @@ not literals, blocks as ``UNKNOWN_SCRIPT``.
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 import subprocess
@@ -1067,7 +1070,10 @@ def _looks_like_test_command(constant: str) -> bool:
             return True
         if re.match(r"^python[0-9.]*\s+-m\s+(?:pytest|unittest)(?:\s|$)", text):
             return True
-        if re.match(r"^make\s+(?:test|repo-test|test-deep)(?:\s|$)", text):
+        if re.match(
+            r"^make\s+(?:test-fast|test|repo-test-fast|repo-test|test-deep)(?:\s|$)",
+            text,
+        ):
             return True
     return False
 
@@ -1101,36 +1107,65 @@ def _classify_make(
     if not targets:
         targets = ["test"]
     for target in targets:
-        if target in {"test", "repo-test", "test-deep"}:
+        if target in {"test", "test-fast", "repo-test", "test-deep"}:
             _walk_make_target(root, target, hits, directory, set())
         elif target.startswith("repo-"):
             _walk_make_target(root, target, hits, directory, set())
+
+
+_CONTRACT = Path(".l9/repo-workflow.json")
+_FAST_TEST_FACADES = frozenset({"make-v2"})
+
+
+def required_test_phase(root: Path) -> str:
+    """The make phase the required workflow runs on a judged event.
+
+    make-v2 declares ``test-fast``; make-v1, a V1 contract and a repository
+    with no contract run ``test``. A contract the judge cannot read is a
+    ``GuardParseError``: the judge never guesses which phase runs.
+    """
+
+    path = root / _CONTRACT
+    if not path.is_file():
+        return "test"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise GuardParseError(f"unreadable {_CONTRACT}: {error}") from error
+    if isinstance(data, dict) and data.get("facade") in _FAST_TEST_FACADES:
+        return "test-fast"
+    return "test"
 
 
 def _walk_make_test(root: Path, hits: list[_Hit]) -> None:
     makefile = root / "Makefile"
     if not makefile.is_file():
         return
+    phase = required_test_phase(root)
     try:
         targets, _variables = _parse_make_tree(makefile)
     except GuardParseError as error:
         hits.append(_Hit("UNKNOWN_SCRIPT", str(error)))
         return
-    # A Makefile that does not define test has no make test suite. An
-    # explicit `make test` in a workflow still fails closed below.
-    if "test" not in targets:
+    if phase not in targets:
+        if phase != "test":
+            # make-v2 declares test-fast; a facade without it is not judged
+            # as if it ran nothing.
+            hits.append(_Hit("UNKNOWN_SCRIPT", f"make target {phase} is absent"))
+        # A Makefile that does not define test has no make test suite. An
+        # explicit `make test` in a workflow still fails closed below.
         return
     before = len(hits)
-    _walk_make_target(root, "test", hits, "", set())
+    _walk_make_target(root, phase, hits, "", set())
     if len(hits) == before:
-        recipe = _first_recipe_line(targets, "test", set())
+        recipe = _first_recipe_line(targets, phase, set())
         if recipe is not None:
-            # make test runs something, and nothing in it classified. That is
-            # an undecided suite, not zero tests.
+            # make runs something, and nothing in it classified. That is an
+            # undecided suite, not zero tests.
             hits.append(
                 _Hit(
                     "UNKNOWN_SCRIPT",
-                    f"make test runs no command the judge can classify: {recipe}",
+                    f"make {phase} runs no command the judge can classify: {recipe}",
                 )
             )
 
@@ -1299,7 +1334,9 @@ _MAKE_FUNCTION_PLACEHOLDER = "$(make-function)"
 
 
 def _is_test_target(name: str) -> bool:
-    return name in {"test", "repo-test", "test-deep"} or name.startswith("repo-")
+    return name in {"test", "test-fast", "repo-test", "test-deep"} or name.startswith(
+        "repo-"
+    )
 
 
 def _is_make_function(name: str) -> bool:

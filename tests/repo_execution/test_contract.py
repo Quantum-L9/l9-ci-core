@@ -49,7 +49,7 @@ class ContractShapeTests(unittest.TestCase):
                     validate_v2_contract_data(v2_contract(schema=schema))
 
     def test_wrong_or_unsupported_facade_fails(self) -> None:
-        for facade in ("make-v2", "MAKE-V1", "", None, ["make-v1"]):
+        for facade in ("make-v9", "MAKE-V1", "", None, ["make-v1"]):
             with self.subTest(facade=facade):
                 with self.assertRaisesRegex(ContractError, "unsupported facade"):
                     validate_v2_contract_data(v2_contract(facade=facade))
@@ -75,7 +75,7 @@ class ContractShapeTests(unittest.TestCase):
                     validate_v2_contract_data(document)
 
     def test_released_facades_are_an_explicit_registry(self) -> None:
-        self.assertEqual({"make-v1"}, set(FACADE_TEMPLATES))
+        self.assertEqual({"make-v1", "make-v2"}, set(FACADE_TEMPLATES))
         for facade, template in FACADE_TEMPLATES.items():
             with self.subTest(facade=facade):
                 self.assertTrue(template.is_file(), template)
@@ -123,7 +123,7 @@ class BridgeAgreementTests(unittest.TestCase):
         bridge = self.bridge()
         rejected: list[dict[str, object]] = [
             v2_contract(commands={}),
-            v2_contract(facade="make-v2"),
+            v2_contract(facade="make-v9"),
             v2_contract(required_phases=["setup", "check", "validate", "test"]),
             v2_contract(schema="l9.repo-execution/v3"),
         ]
