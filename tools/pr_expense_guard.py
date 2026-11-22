@@ -620,8 +620,22 @@ def _classify_argv(
     command = argv[0]
     if _MAKE_FUNCTION_PLACEHOLDER in command:
         # The command word came from a GNU make function the judge cannot
-        # evaluate. It is not "no test": it is an undecided command.
-        if test_recipe:
+        # evaluate. An interpreter chosen by `$(shell ...)` or `$(if ...)` is
+        # still Python when its arguments are Python's (`-m pytest`, a .py
+        # path); those are judged as Python. Anything else is undecided in a
+        # test recipe and not a test command elsewhere.
+        if _python_arguments(argv[1:]):
+            _classify_python(
+                root,
+                ["python3", *argv[1:]],
+                hits,
+                via=via,
+                directory=directory,
+                depth=depth,
+                seen=seen,
+                test_recipe=test_recipe,
+            )
+        elif test_recipe:
             hits.append(
                 _Hit("UNKNOWN_SCRIPT", f"make function in command word {command}")
             )
@@ -683,7 +697,8 @@ def _classify_argv(
         # both land there.
         if "RUNNER_TEMP" in command or "runner.temp" in command:
             return
-        hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {command}"))
+        if test_recipe or _names_a_test(command):
+            hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {command}"))
 
 
 _ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
@@ -730,6 +745,32 @@ def _strip_command_prefix(argv: Sequence[str]) -> list[str]:
         else:
             break
     return words
+
+
+_PYTHON_FLAGS = frozenset({"-I", "-u", "-B", "-E", "-O", "-OO", "-s", "-S", "-q"})
+
+
+def _python_arguments(args: Sequence[str]) -> bool:
+    """True when ``args`` are a Python interpreter's: ``-m``/``-c`` or a .py."""
+
+    words = list(args)
+    while words and words[0] in _PYTHON_FLAGS:
+        words = words[1:]
+    if not words:
+        return False
+    first = words[0]
+    return first in {"-m", "-c"} or first.endswith(".py")
+
+
+_TEST_NAME = re.compile(
+    r"(?:^|[^a-z])(?:test|tests|pytest|unittest|tox|nox)(?:[^a-z]|$)"
+)
+
+
+def _names_a_test(token: str) -> bool:
+    """Whether a script's file name says it runs tests."""
+
+    return bool(_TEST_NAME.search(Path(token).name.lower()))
 
 
 def _retag(hit: _Hit, via: str) -> _Hit:
@@ -788,7 +829,9 @@ def _classify_pytest(root: Path, args: Sequence[str], directory: str) -> _Hit:
     values = list(args)
     while index < len(values):
         token = values[index]
-        if token in _PYTEST_FLAGS:
+        if token in _PYTEST_FLAGS or re.fullmatch(r"-r[a-zA-Z]+", token):
+            # -r takes its report characters attached (-rfEs): a report
+            # option, never a selection.
             index += 1
             continue
         if token in _PYTEST_VALUE:
@@ -1012,7 +1055,12 @@ def _follow_path(
     test_recipe: bool = False,
 ) -> None:
     if "$" in token:
-        hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {token}"))
+        # A script behind a variable (an external rail, a peer checkout) is
+        # undecided only where it could be the suite: in a test recipe, or
+        # when its name says test. A setup script elsewhere is not a test
+        # command, as a missing docs script is not (#357).
+        if test_recipe or _names_a_test(token):
+            hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {token}"))
         return
     path = _safe_path(root, token, directory)
     if path is None:
@@ -1282,8 +1330,21 @@ def _parse_makefile(
     if not path.is_file():
         raise GuardParseError(f"missing makefile {path}")
     current: str | None = None
+    defining = 0
     lines = _join_continuations(path.read_text(encoding="utf-8").splitlines())
     for raw in lines:
+        directive = _make_directive(raw)
+        # A define ... endef body is a variable's text, not rules or recipes.
+        if defining:
+            if directive == "endef":
+                defining -= 1
+            elif directive == "define":
+                defining += 1
+            continue
+        if directive == "define":
+            defining += 1
+            current = None
+            continue
         if raw.startswith("\t"):
             if current is None:
                 raise GuardParseError(f"{path.name} has a recipe outside a target")
@@ -1291,11 +1352,19 @@ def _parse_makefile(
                 _expand_make(raw[1:].lstrip("@+-"), variables)
             )
             continue
-        stripped = raw.strip()
+        stripped = _strip_assignment_modifiers(raw.strip())
         if stripped == "" or stripped.startswith("#"):
             continue
-        if stripped.startswith("include ") or stripped.startswith("-include "):
-            optional = stripped.startswith("-include ")
+        if directive in _MAKE_SKIPPED_DIRECTIVES:
+            # Conditionals are read on both branches (the judge sees every
+            # recipe either could run); export/unexport without an assignment,
+            # vpath and undefine select no recipe.
+            if directive == "undefine":
+                variables.pop(stripped.split(None, 1)[-1].strip(), None)
+            # A conditional inside a rule keeps that rule's recipe lines.
+            continue
+        if stripped.startswith(("include ", "-include ", "sinclude ")):
+            optional = stripped.startswith(("-include ", "sinclude "))
             name = stripped.split(None, 1)[1].strip()
             included = path.parent / name
             if not included.is_file() and optional:
@@ -1330,6 +1399,46 @@ def _parse_makefile(
         deps = _strip_make_comment(target.group(2)).split()
         targets[name] = _Target(deps=deps, recipe=[])
         current = name
+
+
+_MAKE_SKIPPED_DIRECTIVES = frozenset(
+    {"ifdef", "ifndef", "ifeq", "ifneq", "else", "endif", "vpath", "undefine"}
+)
+_ASSIGNMENT_MODIFIERS = ("override", "export", "unexport", "private")
+
+
+def _make_directive(raw: str) -> str:
+    """The GNU make directive a non-recipe line starts with, else ``""``.
+
+    ``export A`` / ``unexport A`` / a bare ``export`` (no assignment) are
+    reported as ``vpath``-like no-ops through ``_MAKE_SKIPPED_DIRECTIVES``.
+    """
+
+    if raw.startswith("\t"):
+        return ""
+    words = raw.split("#", 1)[0].split()
+    if not words:
+        return ""
+    head = words[0]
+    if head in {"define", "endef"} or head in _MAKE_SKIPPED_DIRECTIVES:
+        return head
+    if head in {"export", "unexport"}:
+        rest = raw.split(None, 1)[1] if len(words) > 1 else ""
+        if not re.search(r"(?::=|\?=|\+=|!=|=)", rest.split("#", 1)[0]):
+            return "vpath"
+    if head == "override" and len(words) > 1 and words[1] == "define":
+        return "define"
+    return ""
+
+
+def _strip_assignment_modifiers(text: str) -> str:
+    """Drop ``override``/``export``/``unexport``/``private`` before an assignment."""
+
+    words = text.split(None, 1)
+    while len(words) == 2 and words[0] in _ASSIGNMENT_MODIFIERS:
+        text = words[1].lstrip()
+        words = text.split(None, 1)
+    return text
 
 
 def _strip_make_comment(text: str) -> str:

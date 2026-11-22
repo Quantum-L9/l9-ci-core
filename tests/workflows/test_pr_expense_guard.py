@@ -339,14 +339,125 @@ class KnownBadCases(unittest.TestCase):
         decision = judge(self.root)
         self.assert_static(decision, "FULL_PYTEST")
 
-    def test_undecidable_make_function_command_word_is_unknown(self) -> None:
+    def test_a_shell_function_interpreter_is_judged_by_its_arguments(self) -> None:
+        # EIE: PYTHON := $(shell ...) picks the interpreter; `-m pytest tests/`
+        # is still a whole-tree suite, not an undecided command.
         write(
             self.root,
             "Makefile",
             "PY := $(shell command -v python3)\ntest:\n\t$(PY) -m pytest tests/\n",
         )
         decision = judge(self.root)
+        self.assert_static(decision, "REPO_TEST_FULL")
+
+    def test_a_shell_function_interpreter_with_a_bounded_suite_passes(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            "Makefile",
+            "PY := $(shell command -v python3)\n"
+            "test:\n\t$(PY) -I -m pytest tests/unit/test_a.py\n",
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_an_undecidable_command_word_in_a_test_recipe_is_unknown(self) -> None:
+        write(
+            self.root,
+            "Makefile",
+            "RUNNER := $(shell command -v tox)\ntest:\n\t$(RUNNER) -e py312\n",
+        )
+        decision = judge(self.root)
         self.assert_static(decision, "UNKNOWN_SCRIPT")
+
+    def test_a_setup_script_behind_a_variable_is_not_a_test_command(self) -> None:
+        # EIE: `bash "$GATE_RAIL/scripts/gen_env.sh"` in an e2e step and
+        # `bash "$subject/tools/deps/install_locked.sh"` install or generate;
+        # neither is the suite.
+        bounded_test(self.root)
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow(
+                "  fast:\n"
+                "    steps:\n"
+                '      - run: bash "$GATE_RAIL/scripts/gen_env.sh" base.env\n'
+                '      - run: PYTHON=py bash "$subject/tools/deps/install_locked.sh"\n'
+                "      - run: $TOOLS/bin/setup.sh\n"
+                "      - run: pytest tests/unit/test_a.py\n"
+            ),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_a_test_script_behind_a_variable_stays_unknown(self) -> None:
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow(
+                '  fast:\n    steps:\n      - run: bash "$RAIL/scripts/run_tests.sh"\n'
+            ),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "UNKNOWN_SCRIPT")
+
+    def test_gnu_make_directives_are_read_not_refused(self) -> None:
+        # l9-graphiti-memory: `export L9_SUITE_PROFILE` made the whole
+        # Makefile unreadable and every PR UNKNOWN_SCRIPT.
+        bounded_test(self.root)
+        write(
+            self.root,
+            "Makefile",
+            "L9_SUITE_PROFILE ?= local\n"
+            "export L9_SUITE_PROFILE\n"
+            "export A := 1\n"
+            "unexport B\n"
+            "export\n"
+            "override C = 1\n"
+            "private D = 2\n"
+            "vpath %.c src\n"
+            "undefine C\n"
+            "define HELP\n"
+            "usage: make test\n"
+            "\tnot a recipe\n"
+            "endef\n"
+            "ifdef CI\n"
+            "PY := python3\n"
+            "else\n"
+            "PY := python\n"
+            "endif\n"
+            "test:\n"
+            "\t$(PY) -m pytest tests/unit/test_a.py\n",
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_a_whole_tree_suite_inside_a_conditional_is_still_judged(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            "Makefile",
+            "test:\n"
+            "ifdef CI\n"
+            "\tpytest tests/\n"
+            "else\n"
+            "\tpytest tests/unit/test_a.py\n"
+            "endif\n",
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "REPO_TEST_FULL")
+
+    def test_attached_pytest_report_characters_are_a_flag(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow(
+                "  fast:\n    steps:\n      - run: pytest -rfEs tests/unit/test_a.py\n"
+            ),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
 
     def test_unclassified_make_test_recipe_is_unknown_not_zero(self) -> None:
         write(self.root, "Makefile", "test:\n\ttox -e py312\n")
