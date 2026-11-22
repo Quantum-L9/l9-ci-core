@@ -23,6 +23,14 @@ inputs:
       does not. Empty reads anonymously.
     required: false
     default: ""
+  external-read-token:
+    description: >
+      Read-only token for a declared external checkout owned outside
+      Quantum-L9 (organization secret L9_EXTERNAL_READ_TOKEN, e.g.
+      cryptoxdog/IB-Odoo_19). Only the external checkout step receives it,
+      before any consumer code. Empty falls back to github-read-token.
+    required: false
+    default: ""
   event-name:
     description: >
       Empty (default): the consumer's make targets run under this run's own
@@ -74,6 +82,7 @@ runs:
       shell: bash
       env:
         L9_GITHUB_READ_TOKEN: ${{ inputs.github-read-token }}
+        L9_EXTERNAL_READ_TOKEN: ${{ inputs.external-read-token }}
         L9_REPOSITORY_WORKSPACE: ${{ inputs.workspace }}
       run: python3 "${GITHUB_ACTION_PATH}/../checkout-external/checkout.py"
     - id: verify

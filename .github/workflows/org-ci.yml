@@ -2087,6 +2087,10 @@ jobs:
           # prefetch. Both run before and apart from the consumer's make
           # targets. The verify step does not receive the token.
           github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
+          # A declared external checkout owned outside Quantum-L9
+          # (cryptoxdog/IB-Odoo_19) is read with this token; only the
+          # external checkout step receives it, before any consumer code.
+          external-read-token: ${{ secrets.L9_EXTERNAL_READ_TOKEN }}
           # Empty: the consumer's make runs under this run's own event. The
           # promotion canary sets push and the leg's branch, since its legs
           # check out a consumer's main head inside a Core pull_request run

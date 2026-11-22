@@ -255,8 +255,12 @@ def retirement_decision(evidence: Mapping[str, Any]) -> Decision:
 # L9-CI-CORE-005: native privileged scanners keep their trust boundary.
 # ---------------------------------------------------------------------------
 READ_ONLY_PERMISSIONS = {"contents": "read"}
-# Read-only organization token for private SDK and registry reads (AGENTS.md §27).
-READ_ONLY_SECRETS = frozenset({"L9_GITHUB_READ_TOKEN"})
+# Read-only organization token for private SDK and registry reads (AGENTS.md §27),
+# and the read-only token for a declared external checkout owned outside
+# Quantum-L9 (a fine-grained token covers one resource owner; operator,
+# 2026-11-22: Contents read-only on cryptoxdog/IB-Odoo_19). Only the
+# external-checkout step receives it, before any consumer code.
+READ_ONLY_SECRETS = frozenset({"L9_GITHUB_READ_TOKEN", "L9_EXTERNAL_READ_TOKEN"})
 SECRET_REFERENCE = re.compile(
     r"secrets\.([A-Za-z_][A-Za-z0-9_]*)|secrets\[['\"]([^'\"]+)"
 )

@@ -82,6 +82,59 @@ class ExternalCheckoutTests(unittest.TestCase):
         self.assertIn("L9_ODOO_CONSUMER=", text)
         self.assertNotIn(TOKEN, text)
 
+    def test_an_out_of_org_repository_uses_the_external_token(self) -> None:
+        # A fine-grained token covers one resource owner, so the organization
+        # token cannot read cryptoxdog/IB-Odoo_19 (CEG's declared checkout).
+        org, external = "org-token", "external-token"
+        self.assertEqual(
+            external, self.module.token_for("cryptoxdog/IB-Odoo_19", org, external)
+        )
+        self.assertEqual(
+            org, self.module.token_for("Quantum-L9/l9-ci-sdk", org, external)
+        )
+        self.assertEqual(
+            org, self.module.token_for("quantum-l9/l9-ci-sdk", org, external)
+        )
+        # No external token configured: fall back to the organization token.
+        self.assertEqual(org, self.module.token_for("cryptoxdog/IB-Odoo_19", org, ""))
+
+    def test_main_fetches_with_the_external_token_and_clears_both(self) -> None:
+        fetched: list[str] = []
+        seen_env: list[dict[str, str]] = []
+
+        def fake_fetch(destination, repository, revision, token):  # type: ignore[no-untyped-def]
+            fetched.append(token)
+            seen_env.append(dict(os.environ))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / ".l9"
+            manifest.mkdir()
+            (manifest / "external-checkout.json").write_text(
+                json.dumps(
+                    {
+                        "repository": "cryptoxdog/IB-Odoo_19",
+                        "ref": "3d7212355cfa7db838807c2f39181cf95473ca76",
+                        "path": "odoo-consumer",
+                        "env": "L9_ODOO_CONSUMER",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            env = {
+                self.module.READ_TOKEN_ENV: "org-token",
+                self.module.EXTERNAL_TOKEN_ENV: "external-token",
+                self.module.WORKSPACE_ENV: tmp,
+                "GITHUB_ENV": str(Path(tmp) / "github-env"),
+            }
+            with (
+                unittest.mock.patch.dict(os.environ, env),
+                unittest.mock.patch.object(self.module, "fetch_revision", fake_fetch),
+            ):
+                self.assertEqual(0, self.module.main())
+        self.assertEqual(["external-token"], fetched)
+        self.assertNotIn(self.module.READ_TOKEN_ENV, seen_env[0])
+        self.assertNotIn(self.module.EXTERNAL_TOKEN_ENV, seen_env[0])
+
     def test_declaration_rejects_a_path_that_escapes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             manifest = Path(tmp) / ".l9"
