@@ -32,7 +32,7 @@ REPORTS = {
     "Unit tests": "coverage-unit-tests",
     "Repository contract": "coverage-repository-contract",
 }
-DOWNLOAD_ACTION = "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+DOWNLOAD_ACTION = "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333"
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -149,7 +149,7 @@ class SonarCoverageTests(unittest.TestCase):
         self.assertNotRegex(runs[0], r"\b(python|make|bash \S+\.sh|pip)\b")
         uses = [str(step["uses"]) for step in steps if "uses" in step]
         self.assertIn(
-            f"{DOWNLOAD_ACTION} # v4.3.0", WORKFLOW.read_text(encoding="utf-8")
+            f"{DOWNLOAD_ACTION} # v8.0.2", WORKFLOW.read_text(encoding="utf-8")
         )
         self.assertEqual(3, len(uses))
 
