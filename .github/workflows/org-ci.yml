@@ -384,7 +384,12 @@ jobs:
           GH_EVENT: ${{ steps.runtime.outputs.event-class }}
           GUARD_BEFORE: ${{ github.event.before || '' }}
           GUARD_WORKSPACE: ${{ github.workspace }}
-          CORE_SHA: ${{ github.workflow_sha }}
+          # workflow_sha stays on the default branch while a pull request
+          # changes this file, so the judge fetched from it is the one the
+          # pull request replaces. The evaluated revision carries the judge
+          # that belongs to this run. A reusable call is the opposite:
+          # github.sha is the caller's, and the workflow file is Core's.
+          CORE_SHA: ${{ github.event_name == 'workflow_call' && github.workflow_sha || github.sha }}
         run: |
           set -euo pipefail
           sha_ok=false

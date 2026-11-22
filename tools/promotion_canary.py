@@ -196,7 +196,12 @@ OPTIONAL_REPLACEMENTS = (
     # The judge's condition matches the Core pull_request that launched the
     # canary. A leg's checkout is the consumer's main head, not a merge
     # commit, so that judgment is PR_SCOPE_UNKNOWN for every repository.
-    # The step stays in the leg and does not run.
+    # The step stays in the leg and does not run. Its pin names the
+    # evaluated revision; a leg has no Core revision to fetch.
+    (
+        "${{ github.event_name == 'workflow_call' && github.workflow_sha || github.sha }}",
+        "''",
+    ),
     (
         "        if: >-\n"
         "          github.event_name == 'pull_request'\n"

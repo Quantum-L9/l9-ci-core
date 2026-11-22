@@ -341,7 +341,10 @@ class RequiredWorkflowTests(unittest.TestCase):
         self.assertEqual(
             "${{ github.event.before || '' }}", step["env"]["GUARD_BEFORE"]
         )
-        self.assertEqual("${{ github.workflow_sha }}", step["env"]["CORE_SHA"])
+        self.assertEqual(
+            "${{ github.event_name == 'workflow_call' && github.workflow_sha || github.sha }}",
+            step["env"]["CORE_SHA"],
+        )
         self.assertEqual("${{ github.workspace }}", step["env"]["GUARD_WORKSPACE"])
         run = str(step["run"])
         workflow = ORG_CI.read_text(encoding="utf-8")

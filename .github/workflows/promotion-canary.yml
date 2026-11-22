@@ -14,7 +14,7 @@
 # apart from the target identity; the scan legs are the nightly sink's scan
 # without its publication, so a Semgrep change is proven before promotion.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 683e97efc0fe196a62583edb0b7bf4464f36b250788b447b4bab0637b0525bdb
+# worse. Head steps digest: 043be78ef91d6d48ae61fb37643bdb4011c8e3468f05efc33d805e8ec255c933
 name: Promotion canary (Core)
 # One verdict per pushed head (row 22). `make pr` pushes and then edits the
 # pull request's body; that `edited` run used to cancel the push run, whose
@@ -729,7 +729,12 @@ jobs:
           GH_EVENT: ${{ steps.runtime.outputs.event-class }}
           GUARD_BEFORE: ''
           GUARD_WORKSPACE: ${{ github.workspace }}
-          CORE_SHA: ${{ github.workflow_sha }}
+          # workflow_sha stays on the default branch while a pull request
+          # changes this file, so the judge fetched from it is the one the
+          # pull request replaces. The evaluated revision carries the judge
+          # that belongs to this run. A reusable call is the opposite:
+          # github.sha is the caller's, and the workflow file is Core's.
+          CORE_SHA: ''
         run: |
           set -euo pipefail
           sha_ok=false
@@ -1049,7 +1054,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 683e97efc0fe196a62583edb0b7bf4464f36b250788b447b4bab0637b0525bdb
+          DIGEST: 043be78ef91d6d48ae61fb37643bdb4011c8e3468f05efc33d805e8ec255c933
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -1728,7 +1733,7 @@ jobs:
         if: always()
         env:
           SIDE: scan
-          DIGEST: 683e97efc0fe196a62583edb0b7bf4464f36b250788b447b4bab0637b0525bdb
+          DIGEST: 043be78ef91d6d48ae61fb37643bdb4011c8e3468f05efc33d805e8ec255c933
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -2417,7 +2422,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 683e97efc0fe196a62583edb0b7bf4464f36b250788b447b4bab0637b0525bdb
+          DIGEST: 043be78ef91d6d48ae61fb37643bdb4011c8e3468f05efc33d805e8ec255c933
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
