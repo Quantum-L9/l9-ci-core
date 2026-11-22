@@ -398,7 +398,7 @@ class ConsumerEventTests(unittest.TestCase):
             SCAN_TEXT,
         )
         # Only the org-ci legs verify the consumer; the scan legs run no make.
-        cases = [(committed, "head"), (committed, "base"), (committed, "scanbase")]
+        cases = [(committed, "head"), (committed, "base")]
         cases += [(rendered, side) for side in ("head", "base")]
         for workflow, side in cases:
             with self.subTest(side=side):

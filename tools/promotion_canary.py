@@ -189,6 +189,10 @@ OPTIONAL_REPLACEMENTS = (
     ("event-ref: ''", "event-ref: refs/heads/${{ matrix.branch }}"),
     # A leg is never a merge group; its baseline is the first parent.
     ("${{ github.event.merge_group.base_sha }}", "''"),
+    # github.event.before is the Core push that triggered the workflow, not
+    # the consumer revision a leg checks out. A leg has no push predecessor,
+    # so the expense fetch stays empty instead of reading the Core event.
+    ("${{ github.event.before || '' }}", "''"),
 )
 TARGET_SHAPED = re.compile(
     r"github\.(repository|sha|ref|head_ref|base_ref|event\.(?!_)[a-z_.]+)\b"
