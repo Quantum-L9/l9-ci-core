@@ -59,6 +59,8 @@ _PYTEST_VALUE = frozenset(
         "--maxfail",
         "--cov",
         "--cov-report",
+        "--cov-fail-under",
+        "--cov-context",
         "--cov-config",
         "--rootdir",
         "--junitxml",
@@ -90,6 +92,12 @@ _PYTEST_FLAGS = frozenset(
         "-ra",
         "--strict-markers",
         "--strict-config",
+        # pytest-cov switches: they change what is measured, never what runs.
+        "--cov-branch",
+        "--cov-append",
+        "--cov-reset",
+        "--no-cov",
+        "--no-cov-on-fail",
     }
 )
 _UNITTEST_FLAGS = frozenset(
@@ -614,7 +622,7 @@ def _scan_shell(
     logical = _join_continuations(stripped.splitlines())
     for line in logical:
         for statement in _split_statements(line):
-            argv = _expand_tokens(_tokenize(statement), arrays)
+            argv = _strip_subshell(_expand_tokens(_tokenize(statement), arrays))
             if not argv:
                 continue
             _classify_argv(
@@ -751,6 +759,30 @@ def _drop_env_wrapper(words: list[str]) -> list[str]:
     while rest and rest[0].startswith("-"):
         rest = rest[2:] if rest[0] in _ENV_VALUE_OPTIONS else rest[1:]
     return rest
+
+
+def _strip_subshell(argv: list[str]) -> list[str]:
+    """Drop the grouping parentheses of ``( cd x && pytest -q )``.
+
+    The statement splitter cuts a subshell at ``&&``, so the opening ``(``
+    sticks to the first word and the closing ``)`` to the last (``-q)``).
+    Only an unbalanced bracket is dropped; ``$(...)`` stays whole.
+    """
+
+    words = list(argv)
+    if words and words[0].startswith("(") and not words[0].startswith("$("):
+        words[0] = words[0].lstrip("(")
+        if not words[0]:
+            words = words[1:]
+    if words:
+        last = words[-1]
+        while last.endswith(")") and last.count(")") > last.count("("):
+            last = last[:-1]
+        if last:
+            words[-1] = last
+        else:
+            words = words[:-1]
+    return words
 
 
 def _strip_command_prefix(argv: Sequence[str]) -> list[str]:

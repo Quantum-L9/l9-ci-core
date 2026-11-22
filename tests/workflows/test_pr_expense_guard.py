@@ -483,6 +483,38 @@ class KnownBadCases(unittest.TestCase):
         decision = judge(self.root)
         self.assert_static(decision, "ZERO_TESTS")
 
+    def test_pytest_cov_switches_are_flags(self) -> None:
+        # l9-ci-sdk and l9-graphiti-memory: `--cov-branch` was "unclassified".
+        bounded_test(self.root)
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow(
+                "  fast:\n    steps:\n"
+                "      - run: python -m pytest --cov=pkg --cov-branch --cov-append"
+                " --cov-fail-under 90 --no-cov-on-fail tests/unit/test_a.py\n"
+            ),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_a_subshell_does_not_glue_its_parenthesis_to_an_argument(self) -> None:
+        # `(cd x && pytest -q)` produced "unclassified pytest option -q)".
+        bounded_test(self.root)
+        write(
+            self.root,
+            "Makefile",
+            "test:\n\t(cd . && python -m pytest -q tests/unit/test_a.py)\n",
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_a_whole_tree_suite_inside_a_subshell_is_still_judged(self) -> None:
+        bounded_test(self.root)
+        write(self.root, "Makefile", "test:\n\t(cd . && python -m pytest -q)\n")
+        decision = judge(self.root)
+        self.assert_static(decision, "REPO_TEST_FULL")
+
     def test_attached_pytest_report_characters_are_a_flag(self) -> None:
         bounded_test(self.root)
         write(
