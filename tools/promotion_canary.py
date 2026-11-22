@@ -189,6 +189,23 @@ OPTIONAL_REPLACEMENTS = (
     ("event-ref: ''", "event-ref: refs/heads/${{ matrix.branch }}"),
     # A leg is never a merge group; its baseline is the first parent.
     ("${{ github.event.merge_group.base_sha }}", "''"),
+    # The expense judge reads the push predecessor. A leg is not that push;
+    # an empty predecessor keeps the expression from naming the Core event.
+    ("${{ github.event.before || '' }}", "''"),
+    # A leg checks out a consumer. The judge would read that checkout as the
+    # Core pull request and fail the leg. The consumer's own pull requests
+    # run the judge through org-ci.yml.
+    (
+        "      - name: Judge pull-request test expense\n"
+        "        if: >-\n"
+        "          github.event_name == 'pull_request'\n"
+        "          || github.event_name == 'merge_group'\n"
+        "          || github.event_name == 'push'\n"
+        "          || steps.runtime.outputs.event-class == 'pull_request'\n"
+        "          || steps.runtime.outputs.event-class == 'merge'\n"
+        "          || steps.runtime.outputs.event-class == 'push'\n",
+        "      - name: Judge pull-request test expense\n        if: false\n",
+    ),
 )
 TARGET_SHAPED = re.compile(
     r"github\.(repository|sha|ref|head_ref|base_ref|event\.(?!_)[a-z_.]+)\b"

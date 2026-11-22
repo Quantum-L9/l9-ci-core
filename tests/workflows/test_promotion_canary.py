@@ -805,7 +805,7 @@ class PlanTests(unittest.TestCase):
             pc.steps_digest(self.changed, SCAN_TEXT), values["head-digest"]
         )
         legs = json.loads(values["matrix"])["include"]
-        self.assertEqual(5, len(legs))
+        self.assertEqual(len(pc.load_declaration(ROOT)), len(legs))
 
     def test_a_stale_embedded_base_is_reported_not_run(self) -> None:
         stale = self.org_ci + "      # main moved since the render\n"
