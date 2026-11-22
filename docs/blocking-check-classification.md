@@ -39,6 +39,7 @@ Classes:
 |---|---|---|
 | Resolve central runtime class | PLUMBING | Selects the evaluation profile |
 | Refuse a pull-request full-suite fallback | BLOCKING_CORRECTNESS | A pull request must be judged on its own event, never a substitute |
+| Judge pull-request test expense | BLOCKING_CORRECTNESS | A pull request is judged on the tests it would run; an unreadable guard or a non-literal suite blocks |
 | Checkout immutable event revision | PLUMBING | Fixes the evaluated revision |
 | Report toolchain alignment (advisory) | HOUSEKEEPING | Tool-version drift; a consumer finding never fails the job, only an unreadable Core lock does |
 | Validate native push event context | BLOCKING_CORRECTNESS | A push evaluation must name the revision it judges |
@@ -110,6 +111,31 @@ check succeeds with "not applicable: npm audit is opt-in and not enabled".
 |---|---|---|
 | Checkout (full history) | PLUMBING | |
 | Node dependency audit (npm audit) | BLOCKING_SECURITY | When enabled: no `package.json` is not applicable; unchanged `package.json` / `package-lock.json` passes as "dependencies unchanged"; otherwise `npm audit --audit-level=high` fails on a high or critical advisory, and a manifest without a lock fails named |
+
+## CodeQL (`org-ci.yml` job `codeql`, the `CodeQL` check)
+
+Blocking at error / high. Always reports. Only what the event introduces
+([codeql-check.md](codeql-check.md)).
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | The base must be in the clone |
+| Resolve CodeQL's languages and base | PLUMBING | `actions` for workflow or action files, and each build-mode-none language by its files; the event's base, or none; a base outside the clone fails as INCOMPLETE |
+| Install CodeQL (checksum-pinned bundle) | PLUMBING | |
+| Analyze with CodeQL (security-extended) | PLUMBING | Head and base, build-mode none; a language with no source on one side has no results there; any other CodeQL failure fails as INCOMPLETE |
+| Judge new CodeQL results (blocking at error / high) | BLOCKING_SECURITY | A result the base does not have (rule, path, CodeQL line fingerprint) at level error or security severity 7.0+ fails, annotated at file and line; other new results are warnings; no base: nothing is new |
+
+## actionlint (`org-ci.yml` job `actionlint`, the `actionlint` check)
+
+Blocking. Always reports. The workflow files the event changes
+([actionlint-check.md](actionlint-check.md)).
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | The base must be in the clone |
+| Resolve actionlint's scope | PLUMBING | The changed workflow files, every workflow when an action definition changed or there is no base; none changed is a pass that says so, no workflow files is not applicable; an unresolvable base fails as INCOMPLETE |
+| Install actionlint (toolchain-locked) | PLUMBING | |
+| Run actionlint (blocking) | BLOCKING_CORRECTNESS | A finding in a changed file fails, annotated at file, line and column; with no base (dispatch, canary) findings are warnings; an actionlint failure is never a pass |
 
 ## bandit (nightly only)
 

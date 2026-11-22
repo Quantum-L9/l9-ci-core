@@ -2090,3 +2090,54 @@ Operator-directed correction. Record:
 
 Tests: `tests/workflows/test_gitleaks_core_rules.py`,
 `tests/workflows/test_security_consumer_scope.py`.
+
+## 50. CodeQL is one org-wide check, judging only what a change introduces (2026-11-21)
+
+Operator decision. Record: [`docs/codeql-check.md`](docs/codeql-check.md).
+
+- **Check.** `org-ci.yml` job `codeql`, named `CodeQL`, beside the other
+  checks; `contents: read` only (L9-CI-CORE-005), so it uploads nothing on a
+  pull request and does not use `codeql-action`. The CodeQL CLI comes from the
+  checksum-pinned official bundle (2.27.5).
+- **Only new results.** The revision and the event's base are both analyzed
+  (build-mode none, `security-extended`; `actions` for workflow or action
+  files, and python, javascript, ruby, java, csharp, rust by their files). A
+  result the base lacks (rule, path, `primaryLocationLineHash`) at level error
+  or security severity 7.0+ fails; other new results warn. No base (dispatch,
+  canary): nothing is new.
+- **Nightly.** `nightly-sink.yml` runs the check's steps on the whole tree and
+  publishes `l9-central/codeql-<language>/`, counted. Default setup blocks
+  CodeQL uploads: the sink publishes every other category first, then fails
+  the night naming the refused CodeQL categories.
+- **Migration.** (a) the check lands, (b) per-repository CodeQL files are
+  deleted, (c) default setup is turned off; file and click lists in the
+  record. Requiredness (ruleset 21895545) is the operator's.
+
+Tests: `tests/workflows/test_org_ci_codeql_job.py`,
+`tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`.
+
+## 51. actionlint is one org-wide check, judging changed workflows (2026-11-21)
+
+Operator decision. Record: [`docs/actionlint-check.md`](docs/actionlint-check.md).
+
+- **Check.** `org-ci.yml` job `actionlint`, named `actionlint`, blocking,
+  `contents: read`. A pull request, merge group or push judges the workflow
+  files it changes (every workflow when an action definition changes);
+  other events and the nightly sink judge every workflow. It always reports.
+- **Pin.** Core's toolchain lock: `toolchain-lock.json` `actionlint` and
+  `install-consumer-ci/locks/actionlint-<version>.json` (sha256), bound to the
+  job's literals by test; `tool-ownership.json` now owns actionlint.
+- **Deterministic.** shellcheck and pyflakes integrations are off (the runner
+  image's copies are unpinned). A repository's `.github/actionlint.yaml`
+  applies; Core's ignores only `job.workflow_sha` in `settings-runner.yml`.
+- **Generated workflows.** The canary and sink renderers write an undeclared
+  `inputs.X || default` as its default and the leg record reads only its own
+  leg's steps, so Core's generated workflows pass actionlint.
+- **Nightly.** `l9-central/actionlint/`, counted.
+
+Tests: `tests/workflows/test_org_ci_actionlint_job.py`,
+`tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`,
+`tests/workflows/test_workflow_toolchain_pins.py`.
+- **No base (amendment, same day).** A dispatch or a promotion-canary leg
+  has no base: actionlint judges every workflow and reports the findings as
+  warnings, never failing, as CodeQL does (§50). Changed files still block.

@@ -19,25 +19,23 @@
 # remains outside this untrusted PR trigger and can be reintroduced through a
 # trusted post-analysis lane when Assurance is the authoritative decision source.
 #
-# `push` is a first-class canonical event, declared without a `branches:` selector.
-# GitHub Actions cannot express "this repository's default branch" symbolically in
-# `on.push.branches`, and Quantum-L9 repositories do not all use `main`; hardcoding
-# a branch name here would silently exclude them.
+# `push` is not a trigger of this file. A job skipped by `if:` still creates a
+# check under that job's name, and this file's `analyze` job is the required
+# check. A feature-branch push that reached this workflow therefore left the
+# required check pending. The push trigger lives in
+# org-ci-default-branch-push.yml: it runs on every push and calls this workflow
+# with `event: push` only when `github.ref_name` is the repository's default
+# branch. A feature-branch push skips that caller, whose job is not the
+# required check. No branch name is written here: the caller compares the ref
+# to `github.event.repository.default_branch`, so a repository on `trunk` or
+# `master` is governed like one on `main`.
 #
-# The trigger is therefore broad and the ref decision is made at runtime, where the
-# repository's own `default_branch` is readable from the event payload. A push is
-# evaluated only on the branch that repository itself declares default, so a repo
-# on `trunk` or `master` is governed exactly like one on `main` and no branch name
-# is written into Core. Feature-branch pushes skip before a runner is claimed;
-# their pull_request evaluation is unaffected. This gates a ref against a property
-# the repository states about itself — it does not decide which repositories are
-# governed, which remains the organization ruleset's.
-#
-# A push resolves to event class `push` and execution profile `merge`, the same
-# analysis engine the merge queue uses. It carries no new authority: the job stays
-# `contents: read`, the target is `github.repository` at `github.sha` from the
-# GitHub event context only, and no caller-supplied repository, ref, or SHA can
-# redirect it. A push trigger is an evaluation lane, not a trusted write lane.
+# A called push resolves to event class `push` and execution profile `merge`,
+# the same analysis engine the merge queue uses. It carries no new authority:
+# the job stays `contents: read`, the target is `github.repository` at
+# `github.sha` from the GitHub event context only, and no caller-supplied
+# repository, ref, or SHA can redirect it. A push trigger is an evaluation
+# lane, not a trusted write lane.
 #
 # Core deliberately holds no lifecycle or genesis logic. Whether an observed push
 # run is a genesis attestation is decided by the birth control plane, by comparing
@@ -62,7 +60,6 @@ name: Organization CI (Core)
 # immutable head SHA. The cost is one analysis per edit, and the verdict is
 # never masked.
 on:
-  push:
   pull_request:
     types: [opened, synchronize, reopened, edited]
   merge_group:
@@ -809,6 +806,431 @@ jobs:
           fi
           exit "${status}"
 
+  # CodeQL is one org-wide check (operator, 2026-11-21; docs/codeql-check.md),
+  # replacing per-repository CodeQL workflows and default setup. Read-only,
+  # like every pull-request job here (L9-CI-CORE-005): nothing is uploaded on
+  # a pull request. The languages the revision contains are analyzed, always
+  # including `actions`, with build-mode none and the security-extended suite,
+  # once at the evaluated revision and once at the event's base; only results
+  # the base does not have are judged (rule, path and CodeQL's own
+  # primaryLocationLineHash), and a new result at error level or security
+  # severity high or above fails the check. An event with no base (a
+  # dispatch, the nightly sink, the promotion canary) has nothing new: it
+  # reports what it found and passes. The nightly sink runs the same steps on
+  # the whole default branch and sends the SARIF to code scanning.
+  codeql:
+    name: CodeQL
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve CodeQL's languages and base
+        id: codeql_scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # Languages CodeQL analyzes without a build (build-mode none), by the
+          # files git tracks at the evaluated revision. `actions` runs in every
+          # repository with a workflow or action file, which is every governed
+          # one (org-ci reaches them through a workflow); CodeQL refuses a
+          # database for a language with no source, so a repository without
+          # one has no Actions code to scan.
+          languages=""
+          tracked="$(git ls-files)"
+          has() { grep -Eqi "$1" <<< "${tracked}"; }
+          if has '(^|/)\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$'; then languages="actions"; fi
+          if has '\.py$'; then languages="${languages} python"; fi
+          if has '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$'; then languages="${languages} javascript"; fi
+          if has '\.rb$'; then languages="${languages} ruby"; fi
+          if has '\.java$'; then languages="${languages} java"; fi
+          if has '\.cs$'; then languages="${languages} csharp"; fi
+          if has '\.rs$'; then languages="${languages} rust"; fi
+          case "${EVENT_NAME}" in
+            pull_request|pull_request_target) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            if ! git cat-file -e "${base}^{commit}" 2> /dev/null; then
+              echo "::error title=CodeQL::the event's base ${base} is not in this clone; the check cannot tell what is new"
+              exit 1
+            fi
+          else
+            base=""
+          fi
+          languages="${languages# }"
+          echo "languages=${languages}" >> "$GITHUB_OUTPUT"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "CodeQL languages: ${languages}; base: ${base:-none (nothing is new)}"
+      - name: Install CodeQL (checksum-pinned bundle)
+        id: codeql_install
+        run: |
+          set -euo pipefail
+          CODEQL_VERSION="2.27.5"
+          CODEQL_SHA256="141e6eb4e99c8498a1258e282e6f7b59c747b4b1a7eabc7cbf7d1aa92792edf0"
+          bundle="${RUNNER_TEMP}/codeql-bundle.tar.zst"
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${bundle}" \
+            "https://github.com/github/codeql-action/releases/download/codeql-bundle-v${CODEQL_VERSION}/codeql-bundle-linux64.tar.zst"
+          actual="$(sha256sum "${bundle}" | awk '{print $1}')"
+          if [ "${actual}" != "${CODEQL_SHA256}" ]; then
+            echo "::error title=CodeQL::bundle checksum mismatch: got ${actual}"
+            exit 1
+          fi
+          tar --zstd -xf "${bundle}" -C "${RUNNER_TEMP}"
+          rm -f "${bundle}"
+          "${RUNNER_TEMP}/codeql/codeql" version --format=terse
+          echo "executable=${RUNNER_TEMP}/codeql/codeql" >> "$GITHUB_OUTPUT"
+      - name: Analyze with CodeQL (security-extended)
+        id: codeql_analyze
+        env:
+          CODEQL: ${{ steps.codeql_install.outputs.executable }}
+          LANGUAGES: ${{ steps.codeql_scope.outputs.languages }}
+          BASE: ${{ steps.codeql_scope.outputs.base }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/codeql-results"
+          mkdir -p "${out}" "${RUNNER_TEMP}/codeql-db"
+          sides=("head=${PWD}")
+          if [ -n "${BASE}" ]; then
+            git worktree add --detach "${RUNNER_TEMP}/codeql-base" "${BASE}" > /dev/null
+            sides+=("base=${RUNNER_TEMP}/codeql-base")
+          fi
+          for side in "${sides[@]}"; do
+            name="${side%%=*}"
+            root="${side#*=}"
+            for language in ${LANGUAGES}; do
+              db="${RUNNER_TEMP}/codeql-db/${name}-${language}"
+              status=0
+              "${CODEQL}" database create "${db}" --language="${language}" \
+                --build-mode=none --source-root="${root}" --threads=0 --overwrite > /dev/null || status=$?
+              if [ "${status}" -eq 32 ]; then
+                # CodeQL's "no source code seen" exit: the language has no code
+                # on this side (a pull request adds the language): no results.
+                echo "CodeQL ${name} ${language}: no source on this side; no results"
+                printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"CodeQL","rules":[]}},"results":[]}]}\n' \
+                  > "${out}/${name}-${language}.sarif"
+                continue
+              elif [ "${status}" -ne 0 ]; then
+                echo "::error title=CodeQL::database create for ${language} (${name}) exited ${status}"
+                exit "${status}"
+              fi
+              "${CODEQL}" database analyze "${db}" \
+                "codeql/${language}-queries:codeql-suites/${language}-security-extended.qls" \
+                --format=sarif-latest --sarif-category="/language:${language}" \
+                --output="${out}/${name}-${language}.sarif" --threads=0 > /dev/null
+              echo "CodeQL ${name} ${language}: analyzed"
+            done
+          done
+          echo "directory=${out}" >> "$GITHUB_OUTPUT"
+      - name: Judge new CodeQL results (blocking at error / high)
+        id: codeql_verdict
+        env:
+          RESULTS: ${{ steps.codeql_analyze.outputs.directory }}
+          LANGUAGES: ${{ steps.codeql_scope.outputs.languages }}
+          BASE: ${{ steps.codeql_scope.outputs.base }}
+          L9_CODEQL_MODE: blocking
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import collections
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          results = Path(env["RESULTS"])
+          # SARIF message links ("[a user-provided value](1)") read as their text.
+          link = re.compile(r"\[([^\]]*)\]\(\d+\)")
+          base = env.get("BASE", "")
+          blocking = env.get("L9_CODEQL_MODE", "blocking") == "blocking"
+
+
+          def load(name):
+              run = json.loads((results / name).read_text(encoding="utf-8"))["runs"][0]
+              rules = {rule["id"]: rule for rule in run.get("tool", {}).get("driver", {}).get("rules", [])}
+              found = []
+              for result in run.get("results", []):
+                  rule = rules.get(result.get("ruleId", ""), {})
+                  location = (result.get("locations") or [{}])[0].get("physicalLocation", {})
+                  level = result.get("level") or rule.get("defaultConfiguration", {}).get("level", "warning")
+                  try:
+                      severity = float(rule.get("properties", {}).get("security-severity", 0))
+                  except (TypeError, ValueError):
+                      severity = 0.0
+                  found.append({
+                      "rule": result.get("ruleId", ""),
+                      "path": location.get("artifactLocation", {}).get("uri", ""),
+                      "line": location.get("region", {}).get("startLine", 1),
+                      "hash": result.get("partialFingerprints", {}).get("primaryLocationLineHash", ""),
+                      "message": link.sub(r"\1", " ".join(result.get("message", {}).get("text", "").split())),
+                      "level": level,
+                      "severity": severity,
+                      "blocks": level == "error" or severity >= 7.0,
+                  })
+              return found
+
+
+          new, total = [], 0
+          for language in env["LANGUAGES"].split():
+              head = load(f"head-{language}.sarif")
+              total += len(head)
+              if not base:
+                  continue
+              known = collections.Counter(
+                  (r["rule"], r["path"], r["hash"]) for r in load(f"base-{language}.sarif")
+              )
+              for result in head:
+                  key = (result["rule"], result["path"], result["hash"])
+                  if known[key]:
+                      known[key] -= 1
+                  else:
+                      new.append({**result, "language": language})
+
+          failing = [r for r in new if r["blocks"]]
+          for r in new:
+              kind = "error" if r["blocks"] and blocking else "warning"
+              path = r["path"].replace(",", "%2C").replace(":", "%3A")
+              print(f"::{kind} file={path},line={r['line']},title=CodeQL {r['rule']}::{r['message']}")
+          mode = "blocking at error / high" if blocking else "advisory"
+          if not base:
+              head_line = f"- CodeQL ({mode}): no base for this event, so nothing is new; {total} result(s) on the whole tree"
+          elif failing:
+              head_line = f"- CodeQL ({mode}): findings: {len(failing)} new result(s) at error / high or above ({len(new)} new in all)"
+          else:
+              head_line = f"- CodeQL ({mode}): pass: {len(new)} new result(s), none at error / high or above"
+          lines = [head_line, f"- languages: `{env['LANGUAGES']}`; base: `{base or 'none'}`"]
+          if new:
+              lines += ["", "| Severity | Rule | File | Line |", "|---|---|---|---|"]
+              for r in sorted(new, key=lambda r: (not r["blocks"], -r["severity"]))[:20]:
+                  grade = f"{r['level']} {r['severity']:g}" if r["severity"] else r["level"]
+                  lines.append(f"| {grade} | `{r['rule']}` | `{r['path']}` | {r['line']} |")
+              if len(new) > 20:
+                  lines.append(f"\n+{len(new) - 20} more: see the annotations")
+          with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(head_line)
+          if failing and blocking:
+              print(f"::error title=CodeQL::{len(failing)} new result(s) at error / high or above; each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
+  # actionlint is one org-wide check (operator, 2026-11-21;
+  # docs/actionlint-check.md), blocking, always reporting. A pull request,
+  # merge group or push is judged on the workflow files it changes; a change
+  # to an action definition (action.yml / action.yaml) re-judges every
+  # workflow, since actionlint checks a workflow's use of local actions
+  # through them. An event with no base (a dispatch, the promotion canary)
+  # judges every workflow and reports, never fails: it brings nothing in. The
+  # nightly sink judges every workflow too, to code scanning. The version and
+  # checksum are Core's toolchain lock
+  # (toolchain-lock.json `actionlint`, locks/actionlint-<version>.json).
+  # shellcheck and pyflakes are off: the runner image's copies are not
+  # pinned, so findings would move with the image.
+  actionlint:
+    name: actionlint
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve actionlint's scope
+        id: actionlint_scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          workflows='^\.github/workflows/[^/]+\.ya?ml$'
+          actions='(^|/)action\.ya?ml$'
+          list="${RUNNER_TEMP}/actionlint-files"
+          git ls-files | grep -E "${workflows}" > "${list}.all" || true
+          if [ ! -s "${list}.all" ]; then
+            echo "applies=false" >> "$GITHUB_OUTPUT"
+            echo "actionlint: not applicable: no workflow files"
+            echo "- actionlint (blocking): not applicable: no workflow files" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          case "${EVENT_NAME}" in
+            pull_request|pull_request_target) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          scope="every workflow"
+          judge="report"
+          cp "${list}.all" "${list}"
+          if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            judge="block"
+            if ! changed="$(git diff --name-only --diff-filter=d "${base}" "${EVENT_SHA}" --)"; then
+              echo "::error title=actionlint::the event's base ${base} is not in this clone; the check cannot tell what changed"
+              exit 1
+            fi
+            if grep -Eq "${actions}" <<< "${changed}"; then
+              scope="every workflow (an action definition changed)"
+            else
+              grep -E "${workflows}" <<< "${changed}" > "${list}" || true
+              scope="the workflow files ${base:0:12}..${EVENT_SHA:0:12} changes"
+              if [ ! -s "${list}" ]; then
+                echo "applies=false" >> "$GITHUB_OUTPUT"
+                echo "actionlint: no changed workflow or action files"
+                echo "- actionlint (blocking): pass: no changed workflow or action files" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+          fi
+          {
+            echo "applies=true"
+            echo "files=${list}"
+            echo "scope=${scope}"
+            echo "judge=${judge}"
+          } >> "$GITHUB_OUTPUT"
+          echo "actionlint: $(wc -l < "${list}") workflow file(s): ${scope}"
+      - name: Install actionlint (toolchain-locked)
+        id: actionlint_install
+        if: steps.actionlint_scope.outputs.applies == 'true'
+        run: |
+          set -euo pipefail
+          ACTIONLINT_VERSION="1.7.12"
+          ACTIONLINT_SHA256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+          archive="${RUNNER_TEMP}/actionlint.tar.gz"
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          actual="$(sha256sum "${archive}" | awk '{print $1}')"
+          if [ "${actual}" != "${ACTIONLINT_SHA256}" ]; then
+            echo "::error title=actionlint::checksum mismatch: got ${actual}"
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/actionlint-bin"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/actionlint-bin" actionlint
+          echo "executable=${RUNNER_TEMP}/actionlint-bin/actionlint" >> "$GITHUB_OUTPUT"
+      - name: Run actionlint (blocking)
+        id: actionlint_check
+        if: steps.actionlint_scope.outputs.applies == 'true'
+        env:
+          ACTIONLINT: ${{ steps.actionlint_install.outputs.executable }}
+          FILES: ${{ steps.actionlint_scope.outputs.files }}
+          SCOPE: ${{ steps.actionlint_scope.outputs.scope }}
+          JUDGE: ${{ steps.actionlint_scope.outputs.judge }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to ACTIONLINT_SARIF.
+          ACTIONLINT_FINDINGS_FAIL: "true"
+          ACTIONLINT_SARIF: ""
+        run: |
+          set -euo pipefail
+          report="${RUNNER_TEMP}/actionlint.json"
+          mapfile -t files < "${FILES}"
+          status=0
+          # The repository's own .github/actionlint.yaml applies (actionlint
+          # finds it from the working directory).
+          "${ACTIONLINT}" -shellcheck= -pyflakes= -format '{{json .}}' "${files[@]}" > "${report}" || status=$?
+          if [ "${status}" -gt 1 ]; then
+            echo "::error title=actionlint::actionlint exited ${status}: the check did not complete"
+            cat "${report}"
+            exit "${status}"
+          fi
+          STATUS="${status}" REPORT="${report}" COUNT="${#files[@]}" python3 -I - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          try:
+              findings = json.loads(Path(env["REPORT"]).read_text(encoding="utf-8") or "[]")
+          except ValueError as error:
+              sys.exit(f"::error title=actionlint::unreadable report ({error})")
+          # Findings block only what an event brings in (a base exists); with
+          # no base, and in the nightly sink, they are reported.
+          nightly = env.get("ACTIONLINT_FINDINGS_FAIL") == "false"
+          reported = nightly or env.get("JUDGE") != "block"
+          label = "nightly, reported" if nightly else ("reported: no base" if reported else "blocking")
+          scope = env["SCOPE"]
+          if not findings:
+              line = f"- actionlint ({label}): pass: {env['COUNT']} workflow file(s), {scope}"
+          else:
+              line = f"- actionlint ({label}): findings: {len(findings)} in {env['COUNT']} workflow file(s), {scope}"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Kind | Message |", "|---|---|---|---|"]
+          for item in findings:
+              path = str(item.get("filepath", "")).replace(",", "%2C").replace(":", "%3A")
+              message = " ".join(str(item.get("message", "")).split())
+              print(
+                  f"::{'warning' if reported else 'error'} file={path},line={item.get('line', 1)},col={item.get('column', 1)},"
+                  f"title=actionlint {item.get('kind', '')}::{message}"
+              )
+          for item in findings[:20]:
+              message = " ".join(str(item.get("message", "")).split()).replace("|", "\\|")
+              lines.append(f"| `{item.get('filepath', '')}` | {item.get('line', '')} | `{item.get('kind', '')}` | {message} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("ACTIONLINT_SARIF"):
+              kinds = sorted({str(item.get("kind", "")) for item in findings})
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {
+                          "name": "actionlint",
+                          "informationUri": "https://github.com/rhysd/actionlint",
+                          "rules": [{"id": kind, "shortDescription": {"text": f"actionlint {kind} check"}} for kind in kinds],
+                      }},
+                      "results": [{
+                          "ruleId": str(item.get("kind", "")),
+                          "level": "error",
+                          "message": {"text": " ".join(str(item.get("message", "")).split())},
+                          "locations": [{"physicalLocation": {
+                              "artifactLocation": {"uri": str(item.get("filepath", "")).removeprefix("./")},
+                              "region": {
+                                  "startLine": max(int(item.get("line") or 1), 1),
+                                  "startColumn": max(int(item.get("column") or 1), 1),
+                              },
+                          }}],
+                      } for item in findings],
+                  }],
+              }
+              target = Path(env["ACTIONLINT_SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title=actionlint::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
   # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
   # beside gitleaks, pip-audit, npm-audit and `analyze`, for every repository the organization
   # ruleset governs, and always reports: no biome.json / biome.jsonc is a
@@ -1180,6 +1602,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before || '' }}
         run: |
           set -euo pipefail
           git init .
@@ -1190,6 +1613,12 @@ jobs:
           # once origin is reset to an anonymous URL below.
           git -c protocol.version=2 fetch --depth=2 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
+          # A multi-commit push is not in that depth. Fetch the previous
+          # commit while the remote still has the checkout token, then drop
+          # the token. The expense judge only diffs objects already local.
+          if [[ "${BEFORE}" =~ ^[0-9a-f]{40}$ && "${BEFORE}" != 0000000000000000000000000000000000000000 ]]; then
+            git -c protocol.version=2 fetch --depth=1 origin "${BEFORE}"
+          fi
           git remote set-url origin "https://github.com/${REPOSITORY}.git"
 
       # Reports consumer declarations of Core-owned tools that drift from
@@ -1201,6 +1630,46 @@ jobs:
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
         uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2ee1720b9863bec15fdfebac13b220aeb699d781
+
+      # Trusted Core judge. The only source is this workflow revision's
+      # tools/pr_expense_guard.py, checked out beside the consumer. The step
+      # does not call a consumer-relative copy and does not paste the module.
+      # receipt=static is not a hosted test receipt.
+      - name: Judge pull-request test expense
+        if: >-
+          github.event_name == 'pull_request'
+          || github.event_name == 'merge_group'
+          || github.event_name == 'push'
+          || steps.runtime.outputs.event-class == 'pull_request'
+          || steps.runtime.outputs.event-class == 'merge'
+          || steps.runtime.outputs.event-class == 'push'
+        env:
+          GH_EVENT: ${{ steps.runtime.outputs.event-class }}
+          GUARD_BEFORE: ${{ github.event.before || '' }}
+          GUARD_WORKSPACE: ${{ github.workspace }}
+          CORE_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          sha_ok=false
+          case "${CORE_SHA}" in
+            *[!0-9a-f]* | "") sha_ok=false ;;
+            ????????????????????????????????????????) sha_ok=true ;;
+            *) sha_ok=false ;;
+          esac
+          if [ "${sha_ok}" != "true" ]; then
+            echo "::error::workflow SHA is not a full lowercase revision" >&2
+            exit 1
+          fi
+          core="${RUNNER_TEMP}/l9-ci-core-expense-guard"
+          rm -rf "${core}"
+          git init "${core}"
+          git -C "${core}" remote add origin https://github.com/Quantum-L9/l9-ci-core.git
+          git -C "${core}" -c protocol.version=2 fetch --depth=1 origin "${CORE_SHA}"
+          git -C "${core}" checkout --detach FETCH_HEAD
+          test -f "${core}/tools/pr_expense_guard.py"
+          CORE_GUARD="${core}/tools/pr_expense_guard.py"
+          export CORE_GUARD
+          python3 -c 'import os, runpy; runpy.run_path(os.environ["CORE_GUARD"], run_name="__main__")'
 
       - name: Validate native push event context
         if: github.event_name == 'push'
