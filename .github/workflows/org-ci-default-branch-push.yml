@@ -1,0 +1,28 @@
+# Push caller for org-ci.yml.
+#
+# org-ci.yml's analyze job is the required check. A job that file skipped
+# with `if:` still created that check, so a feature-branch push left the
+# pull request blocked. This workflow is the push trigger. Its job is not
+# the required check. It calls org-ci.yml only on the repository's default
+# branch, compared at runtime so no branch name is written here.
+name: Default-branch push
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: l9-core-default-branch-push-${{ github.repository }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  call:
+    name: Default-branch push
+    if: github.ref_name == github.event.repository.default_branch
+    uses: ./.github/workflows/org-ci.yml
+    with:
+      event: push
+    secrets:
+      L9_GITHUB_READ_TOKEN: ${{ secrets.L9_GITHUB_READ_TOKEN }}

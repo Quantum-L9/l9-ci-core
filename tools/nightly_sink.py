@@ -45,7 +45,7 @@ import os
 import re
 import sys
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Set, Callable, Mapping, Sequence
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -488,18 +488,33 @@ def snapshot_of(body: str) -> dict[str, Any] | None:
     return data if data.get("schema") == SNAPSHOT_SCHEMA else None
 
 
+#: Categories whose tool is advisory (docs/biome-check.md): their alerts are
+#: listed in the issue but never counted, so a first night or a rise cannot
+#: fail the ratchet that guards the blocking categories.
+ADVISORY_CATEGORIES = frozenset({"biome"})
+
+
+def advisory_alerts(alerts: Mapping[int, Mapping[str, str]]) -> set[int]:
+    """Alert numbers whose category belongs to an advisory tool."""
+    names = {f"{CATEGORY_PREFIX}{name}/" for name in ADVISORY_CATEGORIES}
+    return {n for n, alert in alerts.items() if alert.get("category") in names}
+
+
 def judge(
     previous: Mapping[str, Any] | None,
     current: Mapping[int, Mapping[str, str]],
     waived: Mapping[int, str],
+    advisory: Set[int] = frozenset(),
 ) -> dict[str, Any]:
     """New, fixed, still-open and waived alerts, and the ratchet verdict.
 
     Waived alerts are open in code scanning but are not counted: the ratchet
-    compares tonight's counted alerts with last night's.
+    compares tonight's counted alerts with last night's. Advisory alerts are
+    neither counted nor waived: they are listed apart.
     """
     before = set(previous.get("alerts", [])) if previous else set()
-    now = set(current) - set(waived)
+    listed = set(current) - set(waived)
+    now = listed - set(advisory)
     previous_open = len(before) if previous else None
     rose = previous_open is not None and len(now) > previous_open
     return {
@@ -511,6 +526,7 @@ def judge(
         # re-running or waiting a night cannot clear a rise.
         "accepted": sorted(before) if rose else sorted(now),
         "waived": dict(sorted(waived.items())),
+        "advisory": sorted(listed & set(advisory)),
         "previous_open": previous_open,
         "rose": rose,
         "ratchet": "fail" if rose else "pass",
@@ -540,6 +556,7 @@ def render(
         + ("" if previous is None else f" (previous night {previous})"),
         f"- New: {len(verdict['new'])} · Fixed: {len(verdict['fixed'])}",
         f"- Waived (central finding-waiver ledger, not counted): {len(verdict['waived'])}",
+        f"- Advisory tools (reported, never counted): {len(verdict.get('advisory', []))}",
         f"- Ratchet: **{verdict['ratchet']}**"
         + (" (first night sets the baseline)" if previous is None else ""),
         "",
@@ -565,6 +582,10 @@ def render(
             _alert_line(n, alerts[n]) + f" — waiver `{waiver}`"
             for n, waiver in verdict["waived"].items()
         ]
+        lines.append("")
+    if verdict.get("advisory"):
+        lines += ["### Advisory (not counted)", ""]
+        lines += [_alert_line(n, alerts[n]) for n in verdict["advisory"]]
         lines.append("")
     if audited:
         lines += _dependency_section(dependencies, audit)
@@ -697,7 +718,7 @@ def report(
     owners = codeowners(transport, repository, ref)
     issue = find_issue(transport, repository, creator)
     previous = snapshot_of(str(issue.get("body") or "")) if issue else None
-    verdict = judge(previous, alerts, waived)
+    verdict = judge(previous, alerts, waived, advisory_alerts(alerts))
     dependencies = judge_dependencies(
         previous, audit, waived_dependencies(audit, ledger)
     )
@@ -927,6 +948,40 @@ SINK = """\
           sys.exit(1 if errors else 0)
           PY
 
+@@BIOME@@
+      - name: Project Biome's SARIF for code scanning
+        if: ${{ !cancelled() && steps.biome_check.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          # Biome writes absolute file URIs; code scanning needs them relative
+          # to the repository. Its alerts are one more category, beside each
+          # Semgrep instance's: l9-central/biome/.
+          source = Path(os.environ["RUNNER_TEMP"], "biome.sarif")
+          if not source.is_file():
+              print("Biome wrote no SARIF (no Biome configuration): no biome category tonight")
+              raise SystemExit(0)
+          root = Path(os.environ["GITHUB_WORKSPACE"]).resolve().as_uri() + "/"
+          sarif = json.loads(source.read_text(encoding="utf-8"))
+          for run in sarif.get("runs", []):
+              for result in run.get("results", []):
+                  for location in result.get("locations", []):
+                      artifact = location.get("physicalLocation", {}).get("artifactLocation", {})
+                      uri = str(artifact.get("uri", ""))
+                      if uri.startswith(root):
+                          artifact["uri"] = uri[len(root):]
+                      elif uri.startswith("/"):
+                          artifact["uri"] = os.path.relpath(uri, os.environ["GITHUB_WORKSPACE"])
+          out = Path(os.environ["RUNNER_TEMP"], "nightly-sarif", "biome.sarif")
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(json.dumps(sarif), encoding="utf-8")
+          print("instance biome: projected")
+          PY
+
 @@AUDIT@@
       - name: Summarize the dependency audit
         if: ${{ !cancelled() }}
@@ -946,7 +1001,9 @@ SINK = """\
       # partial upload never writes a stale state into its snapshot.
       - id: sink_tool
         name: Fetch the sink tool (Core, this run's revision)
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' }}
+        # A Biome run that failed (not one with findings: it is advisory here)
+        # would drop its category and so close its alerts: nothing publishes.
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
@@ -1135,12 +1192,61 @@ def audit_steps(security: str) -> str:
     )
 
 
-def render_workflow(scan: str, security: str) -> str:
+BIOME_JOB = "biome"
+BIOME_MODE_LINE = "          L9_BIOME_MODE: blocking\n"
+ORG_CI = Path(".github/workflows/org-ci.yml")
+
+
+def biome_steps(org_ci: str) -> str:
+    """org-ci.yml's `Biome` job, run on the whole tree and advisory.
+
+    The job's own steps after its checkout (the sink's scan already checked
+    the repository out at its main head), retargeted like any canary sibling:
+    a schedule is not a pull request, so Biome judges the whole tree. Advisory,
+    so a finding reaches code scanning and the issue instead of failing the
+    night; an infrastructure failure still fails the step.
+    """
+    pc = _canary()
+    blocks = pc.job_blocks(org_ci)
+    if BIOME_JOB not in blocks:
+        raise SinkError("org-ci.yml has no `biome` job to run nightly")
+    workflow = "on:\n  workflow_call:\njobs:\n  biome:\n" + blocks[BIOME_JOB]
+    try:
+        steps, _, _ = pc._single_job(workflow, "org-ci.yml job 'biome'")
+        steps = pc._substitute(steps, {}, "org-ci.yml job 'biome'")
+    except pc.CanaryError as error:
+        raise SinkError(str(error)) from error
+    items = [i for i in re.split(r"(?m)^(?= {6}- )", steps) if i.strip()]
+    if not items or "name: Checkout immutable event revision" not in items[0]:
+        raise SinkError("org-ci.yml's biome job no longer starts with its checkout")
+    text = "".join(items[1:])
+    if text.count(BIOME_MODE_LINE) != 1:
+        raise SinkError("org-ci.yml's biome job no longer sets L9_BIOME_MODE once")
+    text = text.replace(BIOME_MODE_LINE, "          L9_BIOME_MODE: advisory\n")
+    name = "      - name: Run Biome check (blocking)\n"
+    if text.count(name) != 1:
+        raise SinkError("org-ci.yml's biome job no longer names its run step once")
+    text = text.replace(
+        name, "      - name: Run Biome check (advisory in the nightly sink)\n"
+    )
+    return (
+        "      # --- org-ci.yml's Biome check, whole tree, advisory (generated) ---\n"
+        + text.rstrip("\n")
+        + "\n"
+    )
+
+
+def render_workflow(scan: str, security: str, org_ci: str) -> str:
     steps = sink_steps(scan)
+    biome = biome_steps(org_ci)
     audit = audit_steps(security)
-    digest = hashlib.sha256((steps + audit).encode("utf-8")).hexdigest()
+    digest = hashlib.sha256((steps + biome + audit).encode("utf-8")).hexdigest()
     header = HEADER.replace("@@DIGEST@@", digest).replace("@@TIMEOUT@@", str(TIMEOUT))
-    sink = SINK.replace("@@MATRIX_ID@@", MATRIX_ID).replace("@@AUDIT@@\n", audit + "\n")
+    sink = (
+        SINK.replace("@@MATRIX_ID@@", MATRIX_ID)
+        .replace("@@BIOME@@\n", biome + "\n")
+        .replace("@@AUDIT@@\n", audit + "\n")
+    )
     return header + steps + "\n" + sink
 
 
@@ -1257,7 +1363,8 @@ def _cmd_report(args: argparse.Namespace) -> int:
 def _cmd_render(args: argparse.Namespace) -> int:
     scan = (ROOT / SCAN).read_text(encoding="utf-8")
     security = (ROOT / SECURITY).read_text(encoding="utf-8")
-    rendered = render_workflow(scan, security)
+    org_ci = (ROOT / ORG_CI).read_text(encoding="utf-8")
+    rendered = render_workflow(scan, security, org_ci)
     target = ROOT / WORKFLOW
     if args.check:
         current = target.read_text(encoding="utf-8") if target.is_file() else ""

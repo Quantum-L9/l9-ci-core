@@ -2019,3 +2019,28 @@ Tests: `tests/workflows/test_central_semgrep_required_instances.py`,
 `tests/workflows/test_instance_runner_scan_root_paths.py`,
 `tests/workflows/test_promotion_canary.py` (`ScanVerdictTests`),
 `tests/tools/test_nightly_sink.py`.
+
+## 48. Biome is its own check, judging incoming code only (2026-11-21) — amends §16
+
+Operator decision. Record: [`docs/biome-check.md`](docs/biome-check.md).
+
+- **Check.** `org-ci.yml` job `biome`, named `Biome`, beside `security` and
+  `analyze`; `analyze` no longer installs or runs Biome. Blocking. It always
+  reports: no `biome.json` / `biome.jsonc`, or no changed file in Biome's
+  scope, is a success that says so.
+- **Incoming code only.** A pull request is judged on the files it changes
+  against its base, a merge group against `merge_group.base_sha`, a
+  default-branch push against `before`; other events judge the whole tree.
+  The paths come from `git diff --name-only --diff-filter=d <base> <revision>`
+  and go to `biome ci` as arguments (Biome 2.5.8; `--changed --since` needs a
+  merge base a shallow checkout cannot promise).
+- **Nightly.** `nightly-sink.yml` renders the job's steps on the whole default
+  branch, advisory, to code scanning category `l9-central/biome/`.
+- **Canary (§40).** org-ci.yml jobs that run their own steps are siblings of
+  every leg; their result is part of the leg record (`checks`).
+- **Required.** Adding `Biome` to ruleset 21895545 is the operator's; GitHub
+  lists the check only after it has reported once.
+
+Tests: `tests/workflows/test_org_ci_biome_job.py`,
+`tests/workflows/test_promotion_canary.py` (`StepJobTests`),
+`tests/tools/test_nightly_sink.py`.

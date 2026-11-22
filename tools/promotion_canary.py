@@ -189,6 +189,23 @@ OPTIONAL_REPLACEMENTS = (
     ("event-ref: ''", "event-ref: refs/heads/${{ matrix.branch }}"),
     # A leg is never a merge group; its baseline is the first parent.
     ("${{ github.event.merge_group.base_sha }}", "''"),
+    # The expense judge reads the push predecessor. A leg is not that push;
+    # an empty predecessor keeps the expression from naming the Core event.
+    ("${{ github.event.before || '' }}", "''"),
+    # A leg checks out a consumer. The judge would read that checkout as the
+    # Core pull request and fail the leg. The consumer's own pull requests
+    # run the judge through org-ci.yml.
+    (
+        "      - name: Judge pull-request test expense\n"
+        "        if: >-\n"
+        "          github.event_name == 'pull_request'\n"
+        "          || github.event_name == 'merge_group'\n"
+        "          || github.event_name == 'push'\n"
+        "          || steps.runtime.outputs.event-class == 'pull_request'\n"
+        "          || steps.runtime.outputs.event-class == 'merge'\n"
+        "          || steps.runtime.outputs.event-class == 'push'\n",
+        "      - name: Judge pull-request test expense\n        if: false\n",
+    ),
 )
 TARGET_SHAPED = re.compile(
     r"github\.(repository|sha|ref|head_ref|base_ref|event\.(?!_)[a-z_.]+)\b"
@@ -301,6 +318,8 @@ LEG = """\
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
+          # org-ci.yml's own checks beside analyze (Biome): job=result pairs.
+          INDEPENDENT: "@@INDEPENDENT@@"
           MATRIX_ID: canary-@@SIDE@@-${{ matrix.slug }}
           SLUG: ${{ matrix.slug }}
           REPOSITORY: ${{ matrix.repository }}
@@ -347,6 +366,14 @@ LEG = """\
               # The job failed before any verdict: infrastructure, not the
               # repository.
               status = "error"
+          independent = dict(
+              item.split("=", 1) for item in env.get("INDEPENDENT", "").split(",") if "=" in item
+          )
+          if any(result == "cancelled" for result in independent.values()):
+              status = "cancelled"
+          elif status == "pass" and any(r != "success" for r in independent.values()):
+              # A check of its own (Biome) failed while analyze passed.
+              status = "checks"
           record = {
               "schema": "l9.promotion-canary-leg/v2",
               "side": env["SIDE"],
@@ -357,6 +384,7 @@ LEG = """\
               "job_status": env["JOB_STATUS"],
               "aggregate": aggregate,
               "repository_verification": verify,
+              "independent_checks": independent,
               "blocking_finding_ids": sorted(blocking),
           }
           name = env["SIDE"] + "-" + env["SLUG"] + ".json"
@@ -627,7 +655,7 @@ def reusable_jobs(org_ci: str) -> list[tuple[str, str, str, dict[str, str]]]:
     """
     out = []
     for name, body in job_blocks(org_ci).items():
-        if name == "analyze":
+        if name == "analyze" or _is_step_job(body):
             continue
         uses, values = _reusable_call(name, body)
         match = REUSABLE.match(uses)
@@ -638,6 +666,26 @@ def reusable_jobs(org_ci: str) -> list[tuple[str, str, str, dict[str, str]]]:
             )
         out.append((name, match.group(1), match.group(2), values))
     return out
+
+
+def _is_step_job(body: str) -> bool:
+    """A job with its own block of steps (not a reusable-workflow call)."""
+    return bool(re.search(r"(?m)^ {4}steps:\n {6}- ", body))
+
+
+def step_jobs(org_ci: str) -> list[tuple[str, str]]:
+    """(job, body) for every non-analyze job that runs its own steps.
+
+    Such a job (`Biome`, its own required check) is a sibling of analyze in
+    org-ci.yml that analyze does not enforce: each leg runs it as a sibling job
+    and folds its result into the leg record, so a check that turns red at the
+    pull request's pins is a regression like any other.
+    """
+    return [
+        (name, body)
+        for name, body in job_blocks(org_ci).items()
+        if name != "analyze" and _is_step_job(body)
+    ]
 
 
 def _inputs(workflow: str) -> dict[str, str]:
@@ -720,6 +768,11 @@ def _substitute(text: str, inputs: dict[str, str], what: str) -> str:
     text = text.replace("${{ github.event_name }}", "push")
     text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", "''", text)
     text = text.replace("${{ github.sha }}", MATRIX_REVISION)
+    # A job that checks out by hand reads the repository with the leg's token.
+    text = text.replace(
+        "TOKEN: ${{ github.token }}",
+        "TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}",
+    )
     return text.replace("${{ github.repository }}", "${{ matrix.repository }}")
 
 
@@ -727,10 +780,11 @@ def _isolate_step(item: str, name: str, number: int, directory: str) -> tuple[st
     """(step text, step id): prefixed id, working directory, and a checkout
     retargeted to the evaluated repository. No continue-on-error: the step runs
     in the job's own sibling job, so a failure fails that job only."""
-    own = re.search(r"(?m)^ {8}id: ([A-Za-z0-9_-]+)$", item)
-    step_id = f"{name}__{own.group(1) if own else f's{number}'}"
+    # The id is either on its own line or the step's first key (`- id: x`).
+    own = re.search(r"(?m)^( {6}- | {8})id: ([A-Za-z0-9_-]+)$", item)
+    step_id = f"{name}__{own.group(2) if own else f's{number}'}"
     if own:
-        item = item.replace(own.group(0), f"        id: {step_id}")
+        item = item.replace(own.group(0), f"{own.group(1)}id: {step_id}", 1)
     first, _, rest = item.partition("\n")
     extra = "" if own else f"        id: {step_id}\n"
     runs_here = re.search(r"(?m)^ {8}run:", item) and not re.search(
@@ -993,6 +1047,27 @@ def leg_job(
         analyze = re.sub(
             pattern, f"${{{{ steps.{name}__result.outputs.result }}}}", analyze
         )
+    independent = []
+    for name, body in step_jobs(org_ci):
+        key = f"{name} org-ci.yml"
+        workflow = "on:\n  workflow_call:\njobs:\n  " + name + ":\n" + body
+        block = inline_job(name, workflow, {}, f"org-ci.yml job {name!r}")
+        job = f"{side}__{name}"
+        needs.append(job)
+        siblings += _fill(
+            SIBLING,
+            JOB=job,
+            NAME=name,
+            SIDE=side,
+            TITLE=title,
+            IF=condition,
+            TIMEOUT=str(SIBLING_TIMEOUT),
+            STEPS=(
+                INLINE_BEGIN.format(key=key) + block + INLINE_END.format(key=key)
+            ).rstrip("\n"),
+        )
+        results += _fill(SIBLING_RESULT, NAME=name, SIDE=side)
+        independent.append(f"{name}=${{{{ steps.{name}__result.outputs.result }}}}")
     if re.search(r"\bneeds\.", analyze):
         raise CanaryError(
             "org-ci.yml analyze reads a `needs.` value the canary cannot map"
@@ -1015,6 +1090,7 @@ def leg_job(
         TIMEOUT=str(LEG_TIMEOUT),
         STEPS=(results + analyze).rstrip("\n"),
         DIGEST=digest or steps_digest(org_ci),
+        INDEPENDENT=",".join(independent),
     )
 
 
@@ -1115,12 +1191,17 @@ def _cmd_render(args: argparse.Namespace) -> int:
             return 1
         print(f"{CANARY} matches {ORG_CI}")
         return 0
-    main_org_ci = _git(args.root, "show", "origin/main:.github/workflows/org-ci.yml")
-    main_scan = scan_source(lambda path: _git(args.root, "show", f"origin/main:{path}"))
+    # The base leg is the pull request's base tip: origin/main, or the parent
+    # branch of a stacked pull request (``--base origin/<parent>``), which is
+    # what the verdict compares it with (HEAD^1 of the merge commit).
+    ref = args.base
+    commit = resolve_base(args.root, ref)
+    main_org_ci = _git(args.root, "show", f"{commit}:.github/workflows/org-ci.yml")
+    main_scan = scan_source(lambda path: _git(args.root, "show", f"{commit}:{path}"))
     provider = git_provider(args.root)
     base = base_block(main_org_ci, provider, main_scan)
     target.write_text(render(org_ci, base, provider, admission, scan), encoding="utf-8")
-    print(f"wrote {CANARY} (base leg from origin/main)")
+    print(f"wrote {CANARY} (base leg from {ref})")
     return 0
 
 
@@ -1185,6 +1266,33 @@ def load_declaration(root: Path) -> list[dict[str, Any]]:
         seen.add(key)
         out.append(dict(entry))
     return out
+
+
+BASE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
+COMMIT = re.compile(r"[0-9a-f]{40}")
+
+
+def resolve_base(root: Path, ref: str) -> str:
+    """The commit a ``--base`` ref names; only a plain branch-like name.
+
+    The ref comes from the command line, so it is never handed to git as it
+    is: it must look like a ref (no leading ``-``, no revision syntax such as
+    ``^``, ``~``, ``:`` or ``@{``), it is resolved with ``rev-parse --verify``
+    after ``--end-of-options``, and only the resulting commit SHA is used.
+    """
+    if not BASE_REF.fullmatch(ref) or ".." in ref:
+        raise CanaryError(f"--base {ref!r} is not a branch name such as origin/main")
+    commit = _git(
+        root,
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "--end-of-options",
+        f"{ref}^{{commit}}",
+    ).strip()
+    if not COMMIT.fullmatch(commit):
+        raise CanaryError(f"--base {ref!r} does not name a commit")
+    return commit
 
 
 def _git(root: Path, *args: str) -> str:
@@ -1326,8 +1434,8 @@ def _cmd_plan(args: argparse.Namespace) -> None:
     else:
         print(
             "::error::The analyze steps change, but the embedded base leg is not "
-            "the base tip's: fetch origin/main and run "
-            "python3 tools/promotion_canary.py render"
+            "the base tip's: fetch the pull request's base and run "
+            "python3 tools/promotion_canary.py render --base origin/<base>"
         )
     if admitted:
         print(
@@ -1410,8 +1518,9 @@ def _plan_problem(env: dict[str, str]) -> str:
     if differential and env.get("L9_CANARY_BASE_CURRENT") != "true":
         return (
             "the pull request changes the analyze steps, but its embedded base leg "
-            "is not the base tip's: fetch origin/main, run "
-            "`python3 tools/promotion_canary.py render`, and push"
+            "is not the base tip's: fetch the pull request's base, run "
+            "`python3 tools/promotion_canary.py render --base origin/<base>` "
+            "(origin/main unless the pull request is stacked), and push"
         )
     return ""
 
@@ -1572,6 +1681,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     render_parser = sub.add_parser("render")
     render_parser.add_argument("--check", action="store_true")
+    render_parser.add_argument(
+        "--base",
+        default="origin/main",
+        help="the pull request's base (origin/<parent> for a stacked pull request)",
+    )
     plan_parser = sub.add_parser("plan")
     plan_parser.add_argument("--force", action="store_true")
     sub.add_parser("verdict")

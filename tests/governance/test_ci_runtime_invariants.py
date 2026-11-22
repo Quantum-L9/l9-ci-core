@@ -397,7 +397,9 @@ class RuntimeInvariantWitnessTests(unittest.TestCase):
     def test_L9_CI_CORE_005_known_bad_privileged_scope_is_reported(self) -> None:
         text = ORG_CI.read_text(encoding="utf-8")
         job_permissions = "    permissions:\n      contents: read\n"
-        self.assertEqual(1, text.count(job_permissions))
+        # One per job that runs steps: `biome` and `analyze` (security is a
+        # reusable call); each mutation below widens every one of them.
+        self.assertEqual(2, text.count(job_permissions))
         token = "${{ secrets.L9_GITHUB_READ_TOKEN }}"
         self.assertIn(token, text)
         cases = {

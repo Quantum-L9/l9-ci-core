@@ -1,12 +1,14 @@
 """org-ci.yml activates Core's toolchain SSOT actions (CG-TOOLCHAIN-SSOT PR-B).
 
 PR-A landed ``check-toolchain-alignment``, ``install-biome`` and
-``run-biome-check``; this activation pins them in the required ``analyze`` job.
-These tests keep the activation honest: every edge is a full-SHA Core action
-pin shared by the three steps, the job stays ``contents: read``, the steps are
-advisory (they run before, and never as part of, any enforcement step), Biome
-is not downloaded for a consumer without a Biome config, and no SDK Biome
-workflow is referenced.
+``run-biome-check``. Toolchain alignment runs in the required ``analyze`` job;
+Biome is its own check, the ``biome`` job (operator, 2026-11-21;
+docs/biome-check.md), which installs Biome with ``install-biome`` and runs it
+itself on the changed files. These tests keep the activation honest: every
+edge is a full-SHA Core action pin shared across org-ci.yml, the jobs stay
+``contents: read``, alignment is advisory (it runs before, and never as part
+of, any enforcement step), Biome is not downloaded for a consumer without a
+Biome config, and no SDK Biome workflow is referenced.
 """
 
 from __future__ import annotations
@@ -20,16 +22,22 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
-ACTIONS = ("check-toolchain-alignment", "install-biome", "run-biome-check")
+# The job each toolchain action runs in. run-biome-check is not used by
+# org-ci.yml any more: the Biome job runs `biome ci` on the changed files itself.
+ACTIONS = {"check-toolchain-alignment": "analyze", "install-biome": "biome"}
 PIN = re.compile(
     r"^Quantum-L9/l9-ci-core/\.github/actions/(?P<action>[a-z-]+)@(?P<sha>[0-9a-f]{40})$"
 )
 
 
-def analyze_steps() -> list[dict[str, Any]]:
+def job_steps(job: str = "analyze") -> list[dict[str, Any]]:
     document = yaml.safe_load(ORG_CI.read_text(encoding="utf-8"))
-    steps: list[dict[str, Any]] = document["jobs"]["analyze"]["steps"]
+    steps: list[dict[str, Any]] = document["jobs"][job]["steps"]
     return steps
+
+
+def analyze_steps() -> list[dict[str, Any]]:
+    return job_steps("analyze")
 
 
 def step_index(steps: list[dict[str, Any]], action: str) -> int:
@@ -46,9 +54,10 @@ class ToolchainActivationTests(unittest.TestCase):
 
     def test_each_action_is_pinned_to_one_shared_full_sha(self) -> None:
         shas = set()
-        for action in ACTIONS:
+        for action, job in ACTIONS.items():
             with self.subTest(action=action):
-                step = self.steps[step_index(self.steps, action)]
+                steps = job_steps(job)
+                step = steps[step_index(steps, action)]
                 match = PIN.match(step["uses"])
                 assert match is not None
                 shas.add(match.group("sha"))
@@ -82,40 +91,25 @@ class ToolchainActivationTests(unittest.TestCase):
             checkout + 1, step_index(self.steps, "check-toolchain-alignment")
         )
 
-    def test_biome_install_immediately_precedes_its_run(self) -> None:
-        """Biome needs no SDK step: org-ci provisions none since Semgrep left
-        the required check (docs/semgrep-runs-nightly.md)."""
-        install = step_index(self.steps, "install-biome")
-        run = step_index(self.steps, "run-biome-check")
-        self.assertEqual(install + 1, run)
-        for step in (self.steps[install], self.steps[run]):
-            self.assertNotIn("steps.language", str(step))
-            self.assertNotIn("steps.sdk", str(step))
-
-    def test_biome_is_blocking_and_independent_of_semgrep_governance(self) -> None:
-        """Biome blocks on findings fleet-wide (AGENTS.md §16 activation)."""
-        install = self.steps[step_index(self.steps, "install-biome")]
-        run = self.steps[step_index(self.steps, "run-biome-check")]
-        self.assertEqual("blocking", run["with"]["mode"])
-        self.assertEqual(
-            "${{ steps.biome.outputs.executable }}", run["with"]["executable"]
-        )
-        self.assertEqual("hashFiles('biome.json', 'biome.jsonc') != ''", install["if"])
+    def test_biome_is_its_own_blocking_check_independent_of_governance(self) -> None:
+        """Biome blocks on findings fleet-wide, as the `Biome` check."""
+        steps = job_steps("biome")
+        install = steps[step_index(steps, "install-biome")]
+        run = next(s for s in steps if s.get("id") == "biome_check")
+        self.assertEqual(steps.index(install) + 1, steps.index(run))
+        self.assertIn("${{ steps.biome.outputs.executable }}", str(run["env"]))
         self.assertNotIn("biome-version", install.get("with", {}))
-        for step in (install, run):
+        self.assertEqual("blocking", run["env"]["L9_BIOME_MODE"])
+        self.assertIn('header = f"- Biome ({mode})"', run["run"])
+        for step in steps:
             self.assertNotIn("steps.gov.outputs", str(step.get("if", "")))
             self.assertNotIn("continue-on-error", step)
-
-    def test_biome_summary_label_names_the_enforced_mode(self) -> None:
-        """A blocking failure must not be summarised as informational."""
-        mode = self.steps[step_index(self.steps, "run-biome-check")]["with"]["mode"]
-        text = ORG_CI.read_text(encoding="utf-8")
-        self.assertIn(f"- Biome ({mode}):", text)
-        other = {"advisory": "blocking", "blocking": "advisory"}[mode]
-        self.assertNotIn(f"- Biome ({other}):", text)
+        for action in ("install-biome", "run-biome-check"):
+            with self.assertRaises(AssertionError):
+                step_index(self.steps, action)
 
     def test_toolchain_steps_precede_every_enforcement_step(self) -> None:
-        last = max(step_index(self.steps, action) for action in ACTIONS)
+        last = step_index(self.steps, "check-toolchain-alignment")
         enforcement = [
             index
             for index, step in enumerate(self.steps)
@@ -124,14 +118,15 @@ class ToolchainActivationTests(unittest.TestCase):
         self.assertTrue(enforcement)
         self.assertLess(last, min(enforcement))
 
-    def test_summary_reports_both_advisory_results(self) -> None:
+    def test_summary_reports_alignment_and_points_at_the_biome_check(self) -> None:
         summary = next(
             step
             for step in self.steps
             if step.get("name") == "Write central CI summary"
         )
         self.assertIn("TOOLCHAIN_ALIGNMENT", summary["env"])
-        self.assertIn("BIOME_STATUS", summary["env"])
+        self.assertNotIn("BIOME_STATUS", summary["env"])
+        self.assertIn("its own check, \\`Biome\\`", summary["run"])
 
     def test_no_sdk_biome_workflow_is_referenced(self) -> None:
         self.assertNotIn("l9-biome-scan", ORG_CI.read_text(encoding="utf-8"))

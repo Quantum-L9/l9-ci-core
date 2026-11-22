@@ -63,6 +63,8 @@ NON_TOOL_FILES: tuple[str, ...] = (".l9/repo-workflow.json", "Makefile")
 #: required check, so its locked Python and Semgrep runs live there.
 SCAN_WORKFLOW = "central-semgrep.yml"
 
+ORG_CI_WORKFLOW = "org-ci.yml"
+
 TOOLS: Mapping[str, Mapping[str, Any]] = {
     "bandit": {
         "configs": (),
@@ -71,8 +73,8 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
     "biome": {
         "configs": ("biome.json", ".biomeignore", ".editorconfig"),
         "runs": (
-            ("org-ci.yml", "analyze", "Install Biome (digest-locked central pin)"),
-            ("org-ci.yml", "analyze", "Run Biome check (blocking)"),
+            (ORG_CI_WORKFLOW, "biome", "Install Biome (digest-locked central pin)"),
+            (ORG_CI_WORKFLOW, "biome", "Run Biome check (blocking)"),
         ),
         "formats": JS_TS_JSON,
         "lints": JS_TS_JSON,
@@ -209,7 +211,7 @@ NOT_OWNED: Mapping[str, Mapping[str, str]] = {
 #: pytest, pre-commit): it executes the consumer's make-v1 phases, and which
 #: stamped tool a phase invokes is the product's ``Repo.mk``.
 CONSUMER_EXECUTION: Mapping[str, str] = {
-    "workflow": "org-ci.yml",
+    "workflow": ORG_CI_WORKFLOW,
     "job": "analyze",
     "step": "Run repository verification contract",
     "phases": "setup validate check test",

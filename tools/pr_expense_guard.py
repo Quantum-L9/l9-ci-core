@@ -211,7 +211,14 @@ def _collect(root: Path, event: str) -> list[_Hit]:
     _walk_make_test(root, hits)
     _walk_pre_commit(root, hits)
     workflows = _workflow_paths(root)
-    relevant = [path for path in workflows if _workflow_relevant(root, path, event)]
+    # promotion-canary.yml is the render of org-ci.yml and central-semgrep.yml,
+    # which are walked themselves. The render also runs a provisioner it
+    # downloaded under runner.temp; that path is not a test selection.
+    relevant = [
+        path
+        for path in workflows
+        if path.name != "promotion-canary.yml" and _workflow_relevant(root, path, event)
+    ]
     seen: set[Path] = set()
     for path in relevant:
         _walk_workflow(root, path, event, hits, seen, inherited=True)
@@ -398,6 +405,10 @@ def _walk_job_uses(
         return
     path = root / local
     if not path.is_file():
+        # owner/repo/.github/workflows/name.yml@sha is another repository.
+        # When that file is not in this checkout it is not this tree's tests.
+        if not uses.startswith("./"):
+            return
         hits.append(_Hit("UNKNOWN_SCRIPT", f"missing reusable workflow {local}"))
         return
     _walk_workflow(root, path, event, hits, seen, inherited=True)
@@ -407,7 +418,14 @@ def _local_workflow(uses: str) -> str | None:
     path = uses.split("@", 1)[0]
     if path.startswith("./"):
         path = path[2:]
-    if path.startswith(".github/workflows/") and path.endswith((".yml", ".yaml")):
+    marker = ".github/workflows/"
+    # org-ci.yml calls this repository's own workflow by
+    # Quantum-L9/l9-ci-core/.github/workflows/<name>@<sha>. The file in this
+    # checkout is that workflow.
+    index = path.find(marker)
+    if index > 0:
+        path = path[index:]
+    if path.startswith(marker) and path.endswith((".yml", ".yaml")):
         return path
     return None
 
@@ -1024,6 +1042,15 @@ def _classify_make(
 def _walk_make_test(root: Path, hits: list[_Hit]) -> None:
     makefile = root / "Makefile"
     if not makefile.is_file():
+        return
+    try:
+        targets, _variables = _parse_make_tree(makefile)
+    except GuardParseError as error:
+        hits.append(_Hit("UNKNOWN_SCRIPT", str(error)))
+        return
+    # A Makefile that does not define test has no make test suite. An
+    # explicit `make test` in a workflow still fails closed below.
+    if "test" not in targets:
         return
     _walk_make_target(root, "test", hits, "", set())
 

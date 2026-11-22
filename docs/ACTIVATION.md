@@ -15,7 +15,7 @@ What the organization workflow does to a repository, in order:
 |---|---|---|---|
 | toolchain alignment | Core | consumer tool pins vs `toolchain-lock.json`, annotated `file:line` | advisory |
 | consumer metadata | Core | optional `.l9/ci.json` (`owner`, `repo_class`, `waiver_refs` only) | fatal if invalid |
-| Biome | Core | `biome ci` against the root `biome.json` / `biome.jsonc` | yes once `org-ci.yml` sets `mode: blocking` (`AGENTS.md` §16) |
+| Biome | Core | its own check, `Biome`: `biome ci` on the files a pull request or merge group changes (the whole tree nightly) against the root `biome.json` / `biome.jsonc`; no configuration or no changed file in scope is a success that says so ([decision](biome-check.md)) | yes (blocking); required once the ruleset lists `Biome` |
 | repository verification | Core | `.l9/repo-workflow.json` → `make setup → validate → check → test` | yes (every profile; a contract or infrastructure failure is fatal) |
 | Core stamp | Core | stamped Core-owned files byte-identical to Core (`.l9/core-stamp.json`) | yes in `required` mode, warning in `migration` |
 | Semgrep | SDK | not on pull requests: `central-semgrep.yml` scans the default branch every night, every planned instance, findings to code scanning and the "Nightly findings" issue ([decision](semgrep-runs-nightly.md)) | no merge verdict; the nightly ratchet fails the night when open findings rise |

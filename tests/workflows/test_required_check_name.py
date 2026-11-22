@@ -56,6 +56,21 @@ class RequiredCheckNameTests(unittest.TestCase):
         job = contract["entrypoint"]["required_check"]["job"]
         self.assertEqual(contract_name(), workflow["jobs"][job]["name"])
 
+    def test_the_push_caller_cannot_reuse_the_required_check_name(self) -> None:
+        caller_path = ROOT / ".github" / "workflows" / "org-ci-default-branch-push.yml"
+        caller = yaml.safe_load(caller_path.read_text(encoding="utf-8"))
+        required = contract_name()
+        self.assertNotEqual(required, caller.get("name"))
+        triggers = caller[True] if True in caller else caller["on"]
+        self.assertIn("push", triggers)
+        self.assertNotIn("pull_request", triggers)
+        for job_id, job in caller["jobs"].items():
+            self.assertNotEqual(required, job.get("name"), job_id)
+            self.assertNotIn("Analyze", job.get("name", ""))
+        org = yaml.safe_load(ORG_CI.read_text(encoding="utf-8"))
+        org_on = org[True] if True in org else org["on"]
+        self.assertNotIn("push", org_on)
+
     def test_no_live_file_writes_the_literal(self) -> None:
         tracked = (
             subprocess.run(
