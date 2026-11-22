@@ -36,6 +36,7 @@ Classes:
 | Refuse a pull-request full-suite fallback | BLOCKING_CORRECTNESS | A pull request must be judged on its own event, never a substitute |
 | Checkout immutable event revision | PLUMBING | Fixes the evaluated revision |
 | Report toolchain alignment (advisory) | HOUSEKEEPING | Tool-version drift; a consumer finding never fails the job, only an unreadable Core lock does |
+| Judge pull-request test expense | BLOCKING_CORRECTNESS | An unresolved diff or an unreadable workflow fails the job; the judge never selects the deep suite |
 | Validate native push event context | BLOCKING_CORRECTNESS | A push evaluation must name the revision it judges |
 | Resolve optional consumer metadata | PLUMBING | |
 | Resolve central governance | PLUMBING | |
