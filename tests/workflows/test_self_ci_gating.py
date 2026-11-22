@@ -111,6 +111,7 @@ UNIT_TEST_MODULES = (
     "tests/workflows/test_phase_3_workflows.py",
     "tests/workflows/test_phase_4_workflows.py",
     "tests/workflows/test_phase_scope.py",
+    "tests/workflows/test_pr_expense_guard.py",
     "tests/workflows/test_private_sdk_read_token.py",
     "tests/workflows/test_promotion_canary.py",
     "tests/workflows/test_registry_required_mode.py",
