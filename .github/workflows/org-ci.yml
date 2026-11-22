@@ -1629,7 +1629,7 @@ jobs:
           steps.biome_scope.outputs.applies == 'true'
           && (steps.biome_scope.outputs.scope == 'full' || steps.biome_scope.outputs.changed != '0')
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
 
       - name: Run Biome check (blocking)
         id: biome_check
@@ -1925,7 +1925,7 @@ jobs:
       - id: toolchain
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
 
       # Trusted Core judge. The only source is this workflow revision's
       # tools/pr_expense_guard.py, checked out beside the consumer. The step
@@ -2001,12 +2001,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -2080,7 +2080,7 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           workspace: .
           # AGENTS.md §27: held only by the registry snapshot and the composer
