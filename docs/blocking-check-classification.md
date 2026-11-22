@@ -9,6 +9,14 @@ Every step of the one required job, `org-ci.yml` `analyze` (its check name is
 below with its class. `tests/workflows/test_blocking_check_classification.py`
 fails when a step is added, renamed or removed without a row here.
 
+Semgrep is not among them. Operator decision 2026-11-21
+([decision record](semgrep-runs-nightly.md), superseding row 23 for
+Semgrep): Semgrep no longer judges pull requests, merge groups or pushes. Its
+chain, with every planned instance, the SDK technical gate and its artifacts,
+moved to `central-semgrep.yml`, which the nightly findings sink runs on each
+repository's default branch; its findings go to code scanning and the rolling
+nightly issue, never to a merge verdict.
+
 Classes:
 
 - **BLOCKING_CORRECTNESS**: protects working code, or the integrity of what is
@@ -32,11 +40,6 @@ Classes:
 | Resolve optional consumer metadata | PLUMBING | |
 | Resolve central governance | PLUMBING | |
 | Validate consumer waiver pointers | BLOCKING_CORRECTNESS | A consumer cannot waive what Core did not make waivable |
-| Resolve artifact name | PLUMBING | |
-| Provision immutable SDK | PLUMBING | |
-| Detect repository language (SDK) | PLUMBING | |
-| Inventory repository capabilities (SDK) | PLUMBING | |
-| Plan required instances (Core) | PLUMBING | |
 | Install Biome (digest-locked central pin) | PLUMBING | |
 | Run Biome check (blocking) | SPLIT | Lint is BLOCKING_CORRECTNESS, formatting is HOUSEKEEPING (CTO, 2026-11-21). `run-biome-check` takes `checks: format` or `lint` from this revision on; org-ci runs them as two steps once its pin reaches this revision (§16, step two) |
 | Route apt package archives to the verification cache | PLUMBING | Cache errors only warn |
@@ -44,29 +47,9 @@ Classes:
 | Run repository verification contract | PLUMBING | Records the result; the enforce step below decides |
 | Inventory apt package archives | PLUMBING | |
 | Save apt package archives | PLUMBING | |
-| Resolve the baseline commit (CENTRAL-DIFF) | PLUMBING | Names the commit findings are classified against (SDK ADR 0023); an unresolvable baseline fails closed in the SDK, so the gate is INCOMPLETE, never PASS |
-| Restore the checkout history for the baseline scan (CENTRAL-DIFF) | PLUMBING | Restores the shallow boundary recorded before the consumer's make ran, so Semgrep's baseline scan can reach the baseline; a moved HEAD or a baseline with no merge base fails the step, never passes it |
-| Check out a clean scan tree of the evaluated commit | PLUMBING | Gives Semgrep, its CENTRAL-DIFF baseline and every instance a clean worktree of the evaluated commit, so the consumer's make cannot break or bias the scan; tracked files the verification changed are named as an advisory warning, never a finding; a scan tree at the wrong revision or not clean fails the step |
-| Set up locked Python for the central toolchain | PLUMBING | |
-| Install Semgrep (hash-locked central pin) | PLUMBING | |
-| Run + normalize Semgrep (SDK) | PLUMBING | Findings are judged by the technical gate |
-| Validate canonical bundle | BLOCKING_CORRECTNESS | A malformed result bundle is not a result |
-| Evaluate SDK technical gate | PLUMBING | Records the gate status; the enforce step decides |
-| Run every planned instance (SDK) | PLUMBING | An instance that cannot conclude is reported incomplete |
-| Aggregate required instances (Core) | PLUMBING | Records pass, fail or incomplete for every required instance; the enforce step decides |
-| Report CENTRAL-DIFF pre-existing findings (advisory) | HOUSEKEEPING | Warns with the SDK's new / pre-existing counts; it changes no verdict, only new blocking findings and incomplete results fail through the gate |
-| Project agent-review payload | PLUMBING | |
-| Project SARIF (SDK-owned) | PLUMBING | |
-| Route artifacts | PLUMBING | |
-| Stage technical gate result | PLUMBING | |
-| Build artifact manifest | PLUMBING | |
-| Upload analysis artifact set | PLUMBING | |
-| Upload instance bundles | PLUMBING | Uploads every planned instance's bundle (secondary languages, the consumer rulepack) beside the central set (SDK ADR 0021) |
-| Create artifact handoff descriptor | PLUMBING | |
 | Write central CI summary | PLUMBING | |
 | Report toolchain alignment drift (advisory) | HOUSEKEEPING | One `::warning` per drifting declaration and a summary line; runs with `always()` and has no failing exit (#302) |
 | Enforce repository verification | BLOCKING_CORRECTNESS | See the repository verification table |
-| Enforce central mode on SDK technical gate | BLOCKING_SECURITY | Semgrep across every required instance in blocking mode; incomplete fails |
 | Enforce security scan (secrets, dependency audit) | BLOCKING_SECURITY | The `security` job (`security.yml`): a gitleaks finding or a pip-audit vulnerability fails; bandit is advisory; a skipped or cancelled scan fails |
 
 ## Repository verification (`run-repository-verification`)

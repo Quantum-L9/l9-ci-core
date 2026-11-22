@@ -1,11 +1,13 @@
-"""The required job plans, runs and aggregates every instance (L9-CI-CORE-003).
+"""The central Semgrep scan plans, runs and aggregates every instance (L9-CI-CORE-003).
 
-The required check (``.l9/org-runtime-contract.yaml``) used to run Semgrep for the one detected language.
-It now inventories the snapshot with the SDK, plans every applicable
-provider/language instance with ``plan-required-instances``, runs each one, and
-enforces the ``aggregate-required-instances`` verdict. These tests execute the
-runner script org-ci.yml embeds, against a fake SDK, with Core's real planner
-and aggregator, and check the wiring of the job itself.
+Semgrep left the required check (operator decision 2026-11-21,
+docs/semgrep-runs-nightly.md); its chain lives in central-semgrep.yml,
+which the nightly sink and the promotion canary's scan legs render. The scan
+inventories the snapshot with the SDK, plans every applicable provider/language
+instance with ``plan-required-instances``, runs each one, and enforces the
+``aggregate-required-instances`` verdict. These tests execute the runner script
+central-semgrep.yml embeds, against a fake SDK, with Core's real planner and
+aggregator, and check the wiring of the job itself.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
+SCAN = ROOT / ".github" / "workflows" / "central-semgrep.yml"
 ACTIONS = ROOT / ".github" / "actions"
 INVENTORY = ROOT / "tests" / "fixtures" / "capability-inventory" / "mixed.json"
 SDK = "d" * 40
@@ -56,7 +58,7 @@ raise SystemExit(64)
 
 
 def workflow() -> dict[str, object]:
-    data = yaml.safe_load(ORG_CI.read_text(encoding="utf-8"))
+    data = yaml.safe_load(SCAN.read_text(encoding="utf-8"))
     assert isinstance(data, dict)
     return data
 
@@ -138,7 +140,7 @@ class RunnerTests(unittest.TestCase):
             "PATH": os.environ["PATH"],
             "FAKE_LOG": str(self.log),
             "L9_INSTANCE_DIR": ".l9/runtime/m/required-instances",
-            "L9_SCAN_ROOT": ".l9/runtime/m/scan-tree",
+            "L9_SCAN_ROOT": ".l9/runtime/m/scan-root",
             "L9_EXECUTABLE": str(self.sdk),
             "L9_PROVIDER_EXECUTABLE": str(self.semgrep),
             "L9_PRIMARY_LANGUAGE": "python",
@@ -201,8 +203,8 @@ class RunnerTests(unittest.TestCase):
             (result["status"], result["exit-code"], result["accounted"]),
         )
 
-    def test_every_instance_scans_the_clean_scan_tree(self) -> None:
-        """Never the work tree the verification may have changed."""
+    def test_every_instance_scans_the_scan_root(self) -> None:
+        """The root it is given, resolved, never the working directory."""
         self.run_instances()
         runs = [
             line
@@ -211,11 +213,11 @@ class RunnerTests(unittest.TestCase):
         ]
         self.assertTrue(runs)
         for run in runs:
-            self.assertIn(f"--root {self.tmp.resolve()}/.l9/runtime/m/scan-tree", run)
+            self.assertIn(f"--root {self.tmp.resolve()}/.l9/runtime/m/scan-root", run)
             self.assertNotIn("--root . ", run + " ")
 
     def test_every_path_the_sdk_receives_is_absolute(self) -> None:
-        """The scan root is not the working directory (CG canary, #340)."""
+        """The scan root need not be the working directory (CG canary, #340)."""
         self.run_instances()
         flags = ("--root", "--output", "--identity-map", "--policy", "--bundle")
         for line in self.log.read_text(encoding="utf-8").splitlines():
@@ -225,14 +227,13 @@ class RunnerTests(unittest.TestCase):
                     with self.subTest(line=line, flag=word):
                         self.assertTrue(Path(words[index + 1]).is_absolute())
 
-    def test_without_a_scan_tree_no_instance_runs(self) -> None:
+    def test_without_a_scan_root_no_instance_runs(self) -> None:
         printed = self.run_instances(expect=1, L9_SCAN_ROOT="")
-        self.assertIn("no clean scan tree", printed)
+        self.assertIn("no scan root", printed)
         self.assertFalse(self.log.exists() and "semgrep run" in self.log.read_text())
 
-    def test_the_baseline_and_ledger_reach_every_language_run(self) -> None:
+    def test_the_ledger_reaches_every_language_run(self) -> None:
         self.run_instances(
-            L9_BASELINE="e" * 40,
             L9_WAIVERS="/runner/finding-waivers.yaml",
             L9_REPOSITORY="Quantum-L9/fixture",
         )
@@ -241,19 +242,20 @@ class RunnerTests(unittest.TestCase):
             for line in self.log.read_text(encoding="utf-8").splitlines()
             if line.startswith("semgrep run")
         )
-        self.assertIn("--baseline-commit " + "e" * 40, run)
         self.assertIn("--waivers /runner/finding-waivers.yaml", run)
         self.assertIn("--repository Quantum-L9/fixture", run)
         self.assertIn(f"--policy {self.tmp.resolve()}/policy.yaml", run)
 
-    def test_without_a_baseline_no_language_run_carries_one(self) -> None:
-        self.run_instances()
+    def test_the_scan_judges_the_whole_tree(self) -> None:
+        """A nightly scan carries no baseline, even when one is in the env."""
+        self.run_instances(L9_BASELINE="e" * 40)
         self.assertNotIn("--baseline-commit", self.log.read_text(encoding="utf-8"))
         self.assertNotIn("--waivers", self.log.read_text(encoding="utf-8"))
+        self.assertNotIn("L9_BASELINE", str(step("instances")))
 
     def test_a_declared_consumer_rulepack_runs_and_is_accounted(self) -> None:
         self.plan(consumer=True)
-        printed = self.run_instances(L9_BASELINE="e" * 40)
+        printed = self.run_instances()
         self.assertIn("instance semgrep:consumer:quantum-l9.fixture: pass", printed)
         consumer = next(
             line
@@ -262,8 +264,6 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertIn(f"--policy {self.tmp.resolve()}/policy.yaml", consumer)
         self.assertIn("--required", consumer)
-        # The consumer run is its own execution; ADR 0023 is not applied to it.
-        self.assertNotIn("--baseline-commit", consumer)
         self.assertTrue(
             (
                 self.directory / "results" / "semgrep-consumer-quantum-l9.fixture.json"
@@ -336,7 +336,6 @@ class WiringTests(unittest.TestCase):
             "language",
             "inventory",
             "plan",
-            "repository_verify",
             "gate",
             "instances",
             "aggregate",
@@ -383,13 +382,13 @@ class WiringTests(unittest.TestCase):
         self.assertIn('exit_code="${AGGREGATE_EXIT:-6}"', run)
         self.assertIn('exit "${exit_code}"', run)
 
-    def test_the_check_name_is_unchanged(self) -> None:
-        self.assertEqual(
-            yaml.safe_load(
-                (ROOT / ".l9" / "org-runtime-contract.yaml").read_text(encoding="utf-8")
-            )["entrypoint"]["required_check"]["name"],
-            workflow()["jobs"]["analyze"]["name"],  # type: ignore[index]
-        )
+    def test_the_scan_is_not_the_required_check(self) -> None:
+        """Semgrep never judges a pull request: nothing triggers the scan."""
+        required = yaml.safe_load(
+            (ROOT / ".l9" / "org-runtime-contract.yaml").read_text(encoding="utf-8")
+        )["entrypoint"]["required_check"]["name"]
+        self.assertNotEqual(required, workflow()["jobs"]["analyze"]["name"])  # type: ignore[index]
+        self.assertEqual(["workflow_call"], list(workflow()[True]))  # type: ignore[index]
 
     def test_the_sdk_fallback_is_the_promoted_revision(self) -> None:
         provision = next(s for s in steps() if s.get("id") == "sdk")

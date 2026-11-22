@@ -6,6 +6,11 @@ only Core's proposed, invariant-binding ADRs
 
 ## Status
 
+**Superseded for Semgrep** by [semgrep-runs-nightly.md](semgrep-runs-nightly.md)
+(operator decision 2026-11-21): Semgrep no longer runs on pull requests, merge
+groups or pushes, so org-ci passes it no baseline; the nightly scan judges the
+whole tree. The record below is kept for audit history.
+
 Accepted 2026-11-21. Operator decision row 23; baselines set by the campaign CTO
 on 2026-11-21. Additive: this record amends l9-ci-sdk ADR 0023 for Core's
 orchestration only. It does not rewrite ADR 0023, which stays the SDK's

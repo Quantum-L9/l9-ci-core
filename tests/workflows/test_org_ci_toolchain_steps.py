@@ -82,16 +82,15 @@ class ToolchainActivationTests(unittest.TestCase):
             checkout + 1, step_index(self.steps, "check-toolchain-alignment")
         )
 
-    def test_biome_follows_language_detection_and_install_precedes_run(self) -> None:
-        language = next(
-            index
-            for index, step in enumerate(self.steps)
-            if step.get("id") == "language"
-        )
+    def test_biome_install_immediately_precedes_its_run(self) -> None:
+        """Biome needs no SDK step: org-ci provisions none since Semgrep left
+        the required check (docs/semgrep-runs-nightly.md)."""
         install = step_index(self.steps, "install-biome")
         run = step_index(self.steps, "run-biome-check")
-        self.assertLess(language, install)
         self.assertEqual(install + 1, run)
+        for step in (self.steps[install], self.steps[run]):
+            self.assertNotIn("steps.language", str(step))
+            self.assertNotIn("steps.sdk", str(step))
 
     def test_biome_is_blocking_and_independent_of_semgrep_governance(self) -> None:
         """Biome blocks on findings fleet-wide (AGENTS.md §16 activation)."""

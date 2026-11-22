@@ -46,12 +46,16 @@ class OrgRepositoryVerificationTests(unittest.TestCase):
         self.assertRegex(PIN, re.compile(r"^[0-9a-f]{40}$"))
         self.assertNotIn("run-repository-verification@main", text)
 
-    def test_repository_verification_result_channel_preserves_semgrep(self) -> None:
+    def test_repository_verification_result_channel_reaches_the_summary(self) -> None:
+        """The result travels as a step output, never continue-on-error, so the
+        summary and the enforce step after it always run."""
         text = WORKFLOW.read_text(encoding="utf-8")
         verify = text.index("id: repository_verify")
-        semgrep = text.index("name: Install Semgrep (hash-locked central pin)")
-        self.assertLess(verify, semgrep)
-        self.assertNotIn("continue-on-error", text[verify:semgrep])
+        summary = text.index("name: Write central CI summary")
+        enforce = text.index("name: Enforce repository verification")
+        self.assertLess(verify, summary)
+        self.assertLess(summary, enforce)
+        self.assertNotIn("continue-on-error", text[verify:enforce])
         runner = RUNNER.read_text(encoding="utf-8")
         self.assertIn('status="fail"', runner)
 

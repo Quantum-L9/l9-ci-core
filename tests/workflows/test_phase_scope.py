@@ -42,6 +42,7 @@ EXPECTED_WORKFLOWS = {
     "sdk-contract-check.yml",
     "normalize-semgrep-report.yml",
     "analyze-semgrep.yml",
+    "central-semgrep.yml",
     "governance-ci.yml",
     "profile-normalize-semgrep.yml",
     "publish-analysis.yml",

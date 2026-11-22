@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 INTERFACE_PATH = ROOT / ".l9" / "org-runtime-interface.yaml"
 CONTRACT_PATH = ROOT / ".l9" / "org-runtime-contract.yaml"
 ENTRYPOINT_PATH = ROOT / ".github" / "workflows" / "org-ci.yml"
+SCAN_PATH = ROOT / ".github" / "workflows" / "central-semgrep.yml"
 DEFAULTS_ROOT = ROOT / ".github" / "actions" / "resolve-governance" / "defaults"
 CONSUMER_SCHEMA_PATH = ROOT / ".l9" / "ci-consumer.schema.json"
 SDK_COMPAT_PATH = ROOT / ".l9" / "sdk-compatibility.yaml"
@@ -100,7 +101,7 @@ class OrgRuntimeInterfaceTests(unittest.TestCase):
         self.assertIn("consumer waiver_refs are not centrally applicable", text)
 
     def test_sdk_capability_claim_matches_execution(self) -> None:
-        text = workflow_text()
+        text = SCAN_PATH.read_text(encoding="utf-8")
         helper = (
             ROOT / ".github" / "actions" / "detect-language" / "detect.py"
         ).read_text(encoding="utf-8")
@@ -139,7 +140,7 @@ class OrgRuntimeInterfaceTests(unittest.TestCase):
     def test_blocking_result_visibility_claim_matches_execution(self) -> None:
         text = workflow_text()
         summary = text.index("name: Write central CI summary")
-        enforce = text.index("name: Enforce central mode on SDK technical gate")
+        enforce = text.index("name: Enforce repository verification")
         self.assertLess(summary, enforce)
         self.assertIn("if: always()", text[summary:enforce])
 

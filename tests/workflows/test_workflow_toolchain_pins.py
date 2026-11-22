@@ -304,7 +304,12 @@ class SemgrepInstallPathTests(unittest.TestCase):
             for path in workflow_sources()
             if "install-semgrep@" in path.read_text(encoding="utf-8")
         }
-        self.assertIn("org-ci.yml", referencing)
+        self.assertIn("central-semgrep.yml", referencing)
+        self.assertNotIn(
+            "org-ci.yml",
+            referencing,
+            "Semgrep runs nightly (docs/semgrep-runs-nightly.md)",
+        )
         self.assertIn("analyze-semgrep.yml", referencing)
         for name in sorted(referencing):
             with self.subTest(workflow=name):
@@ -325,7 +330,7 @@ class SemgrepInstallPathTests(unittest.TestCase):
 
 class ProviderProvenanceTests(unittest.TestCase):
     def test_live_sdk_runs_receive_the_verified_semgrep_executable(self) -> None:
-        for name in ("analyze-semgrep.yml", "org-ci.yml"):
+        for name in ("analyze-semgrep.yml", "central-semgrep.yml"):
             with self.subTest(workflow=name):
                 text = (WORKFLOWS / name).read_text(encoding="utf-8")
                 run_start = text.index("operation: semgrep-run")

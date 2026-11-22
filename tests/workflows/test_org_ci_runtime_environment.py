@@ -27,6 +27,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
+# Semgrep's locked toolchain moved with it (docs/semgrep-runs-nightly.md).
+SCAN = ROOT / ".github" / "workflows" / "central-semgrep.yml"
 LOCKS = ROOT / ".github" / "actions" / "install-semgrep" / "locks"
 
 INSTALL_SEMGREP_REF = re.compile(
@@ -64,9 +66,11 @@ class RunnerFamilyTests(unittest.TestCase):
 
 
 class ToolchainLockTests(unittest.TestCase):
+    """The central Semgrep scan's locked toolchain."""
+
     def setUp(self) -> None:
-        self.text = ORG_CI.read_text(encoding="utf-8")
-        self.steps = load()["jobs"]["analyze"]["steps"]
+        self.text = SCAN.read_text(encoding="utf-8")
+        self.steps = yaml.safe_load(self.text)["jobs"]["analyze"]["steps"]
 
     def step(self, name_fragment: str) -> dict:
         for step in self.steps:
@@ -77,7 +81,7 @@ class ToolchainLockTests(unittest.TestCase):
     def test_semgrep_is_installed_through_the_locked_core_action(self) -> None:
         match = INSTALL_SEMGREP_REF.search(self.text)
         self.assertIsNotNone(
-            match, "org-ci.yml must use the pinned install-semgrep action"
+            match, "central-semgrep.yml must use the pinned install-semgrep action"
         )
         step = self.step("Install Semgrep")
         self.assertEqual(
@@ -87,8 +91,9 @@ class ToolchainLockTests(unittest.TestCase):
         self.assertIn("steps.language.outputs.language != 'none'", step["if"])
 
     def test_no_inline_pip_install_of_semgrep_remains(self) -> None:
-        self.assertNotRegex(self.text, r"pip install[^\n]*semgrep==")
-        self.assertNotRegex(self.text, r"pip install --upgrade pip\b")
+        for text in (self.text, ORG_CI.read_text(encoding="utf-8")):
+            self.assertNotRegex(text, r"pip install[^\n]*semgrep==")
+            self.assertNotRegex(text, r"pip install --upgrade pip\b")
 
     def test_interpreter_is_pinned_before_the_locked_install(self) -> None:
         names = [str(step.get("name", "")) for step in self.steps]
@@ -107,11 +112,9 @@ class ToolchainLockTests(unittest.TestCase):
         self.assertEqual("3.12.14", selected)
 
     def test_default_central_semgrep_version_has_a_lock(self) -> None:
-        document = load()
+        document = yaml.safe_load(self.text)
         triggers = document[True] if True in document else document["on"]
-        version = str(
-            triggers["workflow_dispatch"]["inputs"]["semgrep-version"]["default"]
-        )
+        version = str(triggers["workflow_call"]["inputs"]["semgrep-version"]["default"])
         self.assertTrue(
             (LOCKS / f"semgrep-{version}.txt").is_file(),
             f"install-semgrep ships no lock for the default {version}",
