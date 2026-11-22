@@ -1,4 +1,4 @@
-# Core gitleaks rules for every repository; rule-id collisions fail (2026-11-21)
+# Core gitleaks rules for every repository (2026-11-21)
 
 A decision record, kept outside `docs/adr/` like
 [`security-checks.md`](security-checks.md).
@@ -25,19 +25,21 @@ by the default. `Enrichment.Inference.Engine` lost four rules this way
 
 ## Decision
 
-- **Collisions fail, by name.** The merge refuses a repository rule whose id
-  is a gitleaks default id (read from gitleaks' own `config/gitleaks.toml` at
-  the pinned version, checksum-pinned), a Core rule id, or an id defined twice:
-  one `::error file=.gitleaks.toml,line=<n>` per id, and nothing is scanned.
+- **The scan config is the Core preset plus an allowlist.** The composer
+  writes `[extend] useDefault = true`, the Core `[[rules]]` block, and the
+  repository's `[allowlist]` when `.gitleaks.toml` has one. Repository
+  `[[rules]]` and `[extend].path` are not copied and do not fail the job.
+  gitleaks' defaults stay checksum-pinned and apply through `useDefault`.
+  `.gitleaksignore` stays a file gitleaks reads from the tree.
 - **Core rules for every repository.** Rules that caught what the defaults
   miss move into Core's preset (`presets/security/.gitleaks.toml`, between its
   "Core rules" markers; every id `l9-`). The gitleaks step embeds the same
-  block (a test binds the two) and applies it in every repository: with no
-  `.gitleaks.toml`, with a repository's own, and with the stamped preset
-  (whose identical copies are not doubled).
-- **Tests.** `tests/workflows/test_gitleaks_core_rules.py`: the collisions
-  (EIE's four, a Core id, a duplicate), the injection cases, the binding, and
-  per Core rule a sample it catches; with a real gitleaks, that the 8.24.3
+  block (a test binds the two) and applies it in every repository, including
+  one whose `.gitleaks.toml` still names `openai-api-key`, `generic-api-key`,
+  `slack-bot-token`, or `private-key`.
+- **Tests.** `tests/workflows/test_gitleaks_core_rules.py`: those four ids
+  still produce a scan config, an allowlist is kept, the binding, and per
+  Core rule a sample it catches; with a real gitleaks, that the 8.24.3
   defaults alone find nothing in that sample.
 
 ## Inventory (default branches, 2026-11-21)
@@ -93,10 +95,10 @@ commits, so these surface only nightly (the night they first appear, the
 ratchet fails once); a reviewed one is recorded in the repository's
 `.gitleaksignore` by fingerprint.
 
-## Consequence for two repositories (coordinate before merge)
+## Consequence for two repositories
 
-From the moment this reaches Core `main`, `Enrichment.Inference.Engine` and
-`Cognitive.Engine.Graphs` fail their `gitleaks` check by name until their
-four colliding rules are deleted from `.gitleaks.toml` (each is now a Core
-rule or a default; deleting loses nothing). Line numbers above are EIE's.
-That deletion is each repository's change, not Core's.
+`Enrichment.Inference.Engine` and `Cognitive.Engine.Graphs` keep their
+`.gitleaks.toml` files. Those `[[rules]]` are not copied, so the four default
+ids no longer replace a default and no longer fail the check. The broader
+detections live in the Core rules above. Line numbers in the inventory are
+EIE's. No consumer edit is required for this to go green.

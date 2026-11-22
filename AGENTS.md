@@ -1531,14 +1531,12 @@ bandit advisory) is about to run for every governed repository through
 `org-ci.yml`. Step one (this section) makes it correct for a consumer. Step two
 pins it from `org-ci.yml` at this change's merge commit (§16, §34).
 
-- **Core rules plus the consumer's.** The Core preset
-  (`presets/security/.gitleaks.toml`) is gitleaks' default rule set. A
-  repository's `.gitleaks.toml` is honoured on top of it. A file with no
-  `[extend]` gains `useDefault = true` in a runtime copy, so its own rules and
-  allowlists apply and the defaults are kept. An `[extend]` naming a `path`, or
-  one not setting `useDefault = true`, is refused (no outcome, so
-  `not_executed`), never scanned with fewer rules. Reviewed false positives
-  go in `.gitleaksignore`.
+- **Core rules, plus a consumer allowlist.** The scan config is
+  `[extend] useDefault = true`, the Core rules in
+  `presets/security/.gitleaks.toml`, and the repository's `[allowlist]` when
+  it has one. A repository's `[[rules]]` and `[extend].path` are not copied
+  and do not fail the job (§52). Reviewed false positives go in
+  `.gitleaksignore`.
 - **Scope.** `gitleaks-scope: event` scans what the event adds: base..head
   for a pull request or merge group, before..after for a push (the pushed
   commit alone for a new branch), and full history otherwise.
@@ -2076,25 +2074,73 @@ Operator decisions ("same approach for all tools"; bandit option A). Record:
 Tests: `tests/workflows/test_org_ci_security_checks.py`,
 `tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`.
 
-## 52. Core gitleaks rules for every repository; rule-id collisions fail (2026-11-21) — amends §49
+## 52. Core gitleaks rules for every repository (2026-11-21) — amends §37 and §49
 
 Operator-directed correction. Record:
 [`docs/gitleaks-core-rules.md`](docs/gitleaks-core-rules.md).
 
-- **Collisions.** gitleaks keeps one rule per id, so a repository rule reusing
-  a default id was silently replaced (EIE lost four rules). The merge in the
-  gitleaks step (org-ci.yml and security.yml, the same script) refuses a
-  repository rule whose id is a gitleaks default (gitleaks' own config at the
-  pinned version, checksum-pinned), a Core rule, or a duplicate: one
-  `::error file=.gitleaks.toml,line=<n>` per id; nothing is scanned.
+- **Preset only.** The gitleaks step (org-ci.yml and security.yml, the same
+  script) writes `[extend] useDefault = true`, the Core `[[rules]]` block,
+  and the repository's `[allowlist]` when it has one. Repository `[[rules]]`
+  are not copied, so a default id in `.gitleaks.toml` cannot replace a
+  default rule and does not fail the job. EIE and CEG keep their files.
 - **Core rules.** Consumer rules that caught what the defaults miss are Core
   rules (`l9-*`) in `presets/security/.gitleaks.toml`; the step embeds the
   same block (test-bound) and applies it in every repository.
-- **Coordinate.** EIE and CEG fail `gitleaks` by name until they delete their
-  four colliding rules (now Core rules or defaults).
 
 Tests: `tests/workflows/test_gitleaks_core_rules.py`,
 `tests/workflows/test_security_consumer_scope.py`.
+
+## 50. CodeQL is one org-wide check, judging only what a change introduces (2026-11-21)
+
+Operator decision. Record: [`docs/codeql-check.md`](docs/codeql-check.md).
+
+- **Check.** `org-ci.yml` job `codeql`, named `CodeQL`, beside the other
+  checks; `contents: read` only (L9-CI-CORE-005), so it uploads nothing on a
+  pull request and does not use `codeql-action`. The CodeQL CLI comes from the
+  checksum-pinned official bundle (2.27.5).
+- **Only new results.** The revision and the event's base are both analyzed
+  (build-mode none, `security-extended`; `actions` for workflow or action
+  files, and python, javascript, ruby, java, csharp, rust by their files). A
+  result the base lacks (rule, path, `primaryLocationLineHash`) at level error
+  or security severity 7.0+ fails; other new results warn. No base (dispatch,
+  canary): nothing is new.
+- **Nightly.** `nightly-sink.yml` runs the check's steps on the whole tree and
+  publishes `l9-central/codeql-<language>/`, counted. Default setup blocks
+  CodeQL uploads: the sink publishes every other category first, then fails
+  the night naming the refused CodeQL categories.
+- **Migration.** (a) the check lands, (b) per-repository CodeQL files are
+  deleted, (c) default setup is turned off; file and click lists in the
+  record. Requiredness (ruleset 21895545) is the operator's.
+
+Tests: `tests/workflows/test_org_ci_codeql_job.py`,
+`tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`.
+
+## 51. actionlint is one org-wide check, judging changed workflows (2026-11-21)
+
+Operator decision. Record: [`docs/actionlint-check.md`](docs/actionlint-check.md).
+
+- **Check.** `org-ci.yml` job `actionlint`, named `actionlint`, blocking,
+  `contents: read`. A pull request, merge group or push judges the workflow
+  files it changes (every workflow when an action definition changes);
+  other events and the nightly sink judge every workflow. It always reports.
+- **Pin.** Core's toolchain lock: `toolchain-lock.json` `actionlint` and
+  `install-consumer-ci/locks/actionlint-<version>.json` (sha256), bound to the
+  job's literals by test; `tool-ownership.json` now owns actionlint.
+- **Deterministic.** shellcheck and pyflakes integrations are off (the runner
+  image's copies are unpinned). A repository's `.github/actionlint.yaml`
+  applies; Core's ignores only `job.workflow_sha` in `settings-runner.yml`.
+- **Generated workflows.** The canary and sink renderers write an undeclared
+  `inputs.X || default` as its default and the leg record reads only its own
+  leg's steps, so Core's generated workflows pass actionlint.
+- **Nightly.** `l9-central/actionlint/`, counted.
+
+Tests: `tests/workflows/test_org_ci_actionlint_job.py`,
+`tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`,
+`tests/workflows/test_workflow_toolchain_pins.py`.
+- **No base (amendment, same day).** A dispatch or a promotion-canary leg
+  has no base: actionlint judges every workflow and reports the findings as
+  warnings, never failing, as CodeQL does (§50). Changed files still block.
 
 ## 53. no-bytecode and sha-pins are org-wide checks (2026-11-21)
 

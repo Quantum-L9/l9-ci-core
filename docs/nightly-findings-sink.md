@@ -23,7 +23,14 @@ and where every Semgrep finding a repository carries goes.
    ([biome-check.md](biome-check.md)); its SARIF is one more category,
    `l9-central/biome/`. org-ci.yml's `gitleaks` check's own scan step runs on
    the whole tree (`gitleaks dir`), its findings written as SARIF, category
-   `l9-central/gitleaks/`, and counted like Semgrep's. bandit runs here and nowhere else (it is not a
+   `l9-central/gitleaks/`, and counted like Semgrep's. org-ci.yml's `CodeQL`
+   check's language, install and analyze steps run on the whole tree (no
+   base), one SARIF per language as `l9-central/codeql-<language>/`, counted;
+   a CodeQL upload that code scanning refuses (CodeQL default setup still on)
+   fails the night by name after every other category is published
+   ([codeql-check.md](codeql-check.md)). org-ci.yml's `actionlint` check runs
+   on every workflow, findings as `l9-central/actionlint/`, counted
+   ([actionlint-check.md](actionlint-check.md)). bandit runs here and nowhere else (it is not a
    pull-request check; [security-checks.md](security-checks.md)): the whole
    tree, every severity, tests excluded at any depth, SARIF as category
    `l9-central/bandit/`, and the full JSON report kept as the run's

@@ -39,6 +39,7 @@ Classes:
 |---|---|---|
 | Resolve central runtime class | PLUMBING | Selects the evaluation profile |
 | Refuse a pull-request full-suite fallback | BLOCKING_CORRECTNESS | A pull request must be judged on its own event, never a substitute |
+| Judge pull-request test expense | BLOCKING_CORRECTNESS | A pull request is judged on the tests it would run; an unreadable guard or a non-literal suite blocks |
 | Checkout immutable event revision | PLUMBING | Fixes the evaluated revision |
 | Report toolchain alignment (advisory) | HOUSEKEEPING | Tool-version drift; a consumer finding never fails the job, only an unreadable Core lock does |
 | Validate native push event context | BLOCKING_CORRECTNESS | A push evaluation must name the revision it judges |
@@ -87,7 +88,7 @@ Blocking. Always reports. Incoming code only: the commits the event adds.
 | Step | Class | Why |
 |---|---|---|
 | Checkout (full history) | PLUMBING | The commit range must resolve in the clone |
-| Secret scan (gitleaks) | BLOCKING_SECURITY | gitleaks 8.24.3 (checksum-pinned) over `base..head` of a pull request or merge group, `before..after` of a push, the whole history otherwise; gitleaks' defaults plus the Core rules plus the repository's `.gitleaks.toml`, a repository rule reusing a default or Core rule id refused by name ([gitleaks-core-rules.md](gitleaks-core-rules.md)); each finding annotated at file and line by rule and commit, its value never printed; an unresolvable range or a scanner error fails as INCOMPLETE |
+| Secret scan (gitleaks) | BLOCKING_SECURITY | gitleaks 8.24.3 (checksum-pinned) over `base..head` of a pull request or merge group, `before..after` of a push, the whole history otherwise; gitleaks' defaults plus the Core rules plus the repository's `[allowlist]` (repository `[[rules]]` are not copied; [gitleaks-core-rules.md](gitleaks-core-rules.md)); each finding annotated at file and line by rule and commit, its value never printed; an unresolvable range or a scanner error fails as INCOMPLETE |
 
 ## pip-audit (`org-ci.yml` job `pip-audit`, the `pip-audit` check)
 
@@ -120,6 +121,31 @@ Blocking. Always report. What the event adds or changes ([hygiene-checks.md](hyg
 | Checkout (full history) | PLUMBING | The base must be in the clone |
 | Check for tracked Python bytecode (blocking) | BLOCKING_CORRECTNESS | A tracked `*.pyc` / `*.pyo` / `*.pyd` or `__pycache__/` file the change brings in fails, annotated; no base: reported |
 | Check action pins (blocking) | BLOCKING_SECURITY | A `uses:` in a changed workflow or action file not pinned by full SHA (or `@sha256:` for docker, or a frozen Core tag) fails, annotated at its line; no base: reported |
+
+## CodeQL (`org-ci.yml` job `codeql`, the `CodeQL` check)
+
+Blocking at error / high. Always reports. Only what the event introduces
+([codeql-check.md](codeql-check.md)).
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | The base must be in the clone |
+| Resolve CodeQL's languages and base | PLUMBING | `actions` for workflow or action files, and each build-mode-none language by its files; the event's base, or none; a base outside the clone fails as INCOMPLETE |
+| Install CodeQL (checksum-pinned bundle) | PLUMBING | |
+| Analyze with CodeQL (security-extended) | PLUMBING | Head and base, build-mode none; a language with no source on one side has no results there; any other CodeQL failure fails as INCOMPLETE |
+| Judge new CodeQL results (blocking at error / high) | BLOCKING_SECURITY | A result the base does not have (rule, path, CodeQL line fingerprint) at level error or security severity 7.0+ fails, annotated at file and line; other new results are warnings; no base: nothing is new |
+
+## actionlint (`org-ci.yml` job `actionlint`, the `actionlint` check)
+
+Blocking. Always reports. The workflow files the event changes
+([actionlint-check.md](actionlint-check.md)).
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | The base must be in the clone |
+| Resolve actionlint's scope | PLUMBING | The changed workflow files, every workflow when an action definition changed or there is no base; none changed is a pass that says so, no workflow files is not applicable; an unresolvable base fails as INCOMPLETE |
+| Install actionlint (toolchain-locked) | PLUMBING | |
+| Run actionlint (blocking) | BLOCKING_CORRECTNESS | A finding in a changed file fails, annotated at file, line and column; with no base (dispatch, canary) findings are warnings; an actionlint failure is never a pass |
 
 ## bandit (nightly only)
 

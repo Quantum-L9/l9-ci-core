@@ -23,7 +23,7 @@
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: 586548814f14837fbdffb2ba87702b03f21f15d1f73c2e7527437031467e1f42
+# and issues: write. Analyze steps digest: 6b2b916e5e93ee1909cdd259782fc4a2fd5fda6f47cde4eb1614c3cafa808391
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -68,7 +68,7 @@ jobs:
     name: Nightly ${{ matrix.repository }}
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: read
     strategy:
@@ -80,11 +80,11 @@ jobs:
         env:
           GH_EVENT: ${{ github.event_name }}
           INPUT_EVENT: nightly
-          INPUT_PROFILE: ${{ inputs.profile || '' }}
+          INPUT_PROFILE: ""
           INPUT_MATRIX_ID: nightly-${{ matrix.slug }}
-          INPUT_SDK_REVISION: ${{ inputs.sdk-revision || '' }}
-          INPUT_SEMGREP_VERSION: ${{ inputs.semgrep-version || '1.186.0' }}
-          INPUT_RETENTION: ${{ inputs.artifact-retention-days || 14 }}
+          INPUT_SDK_REVISION: ""
+          INPUT_SEMGREP_VERSION: "1.186.0"
+          INPUT_RETENTION: "14"
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -944,21 +944,17 @@ jobs:
               exit 2
               ;;
           esac
-          # Rules: gitleaks' own defaults (`[extend] useDefault = true`) plus the
-          # Core rules (presets/security/.gitleaks.toml, between its "Core
-          # rules" markers; docs/gitleaks-core-rules.md), for every repository,
-          # whatever its own configuration says. A repository's .gitleaks.toml
-          # is honoured on top: its rules and allowlists apply. A repository
-          # rule whose id is a gitleaks default or a Core rule would replace
-          # that rule silently, so the merge refuses it by name (and a rule
-          # defined twice). A config that extends another file by `path`
-          # cannot also extend the defaults, so it is refused. Reviewed false
-          # positives belong in .gitleaksignore, which gitleaks reads from the
-          # scanned tree.
+          # Rules written for the scan: `[extend] useDefault = true`, the Core
+          # rules (presets/security/.gitleaks.toml, between its "Core rules"
+          # markers; docs/gitleaks-core-rules.md), and the repository's
+          # `[allowlist]` when it has one. A repository's `[[rules]]` and an
+          # `[extend].path` are not copied and do not fail the job. Reviewed
+          # false positives belong in .gitleaksignore, which gitleaks reads
+          # from the scanned tree.
           GITLEAKS_VERSION="8.24.3"
           GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
-          # gitleaks' default rules at that version, by id: the ids a
-          # repository rule must not reuse. Checksum-pinned like the binary.
+          # gitleaks' default rules at that version. Checksum-pinned like
+          # the binary. `[extend] useDefault = true` applies them.
           GITLEAKS_DEFAULTS_SHA256="8f393899dbdc67e4eae580909e496acab9cf3a75aacfb6fac56b6eb16bb9e051"
           config="${RUNNER_TEMP:-/tmp}/l9-gitleaks.toml"
           core_rules="${RUNNER_TEMP:-/tmp}/l9-gitleaks-core-rules.toml"
@@ -1042,78 +1038,63 @@ jobs:
           keywords = ["neo4j_password", "neo4j-password", "neo4jpassword"]
           TOML
           python3 -I - ".gitleaks.toml" "${defaults}" "${core_rules}" "${config}" <<'PY'
-          import re
           import sys
           import tomllib
           from pathlib import Path
 
+          def emit_scalar(value):
+              if isinstance(value, bool):
+                  return "true" if value else "false"
+              if isinstance(value, int):
+                  return str(value)
+              if isinstance(value, str):
+                  return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+              if isinstance(value, list):
+                  return "[" + ", ".join(emit_scalar(item) for item in value) + "]"
+              raise TypeError(type(value).__name__)
+
+          def emit_allowlist(table):
+              if not isinstance(table, dict):
+                  sys.exit("::error::.gitleaks.toml [allowlist] must be a table")
+              lines = ["[allowlist]"]
+              for key, value in table.items():
+                  try:
+                      lines.append(f"{key} = {emit_scalar(value)}")
+                  except TypeError as error:
+                      sys.exit(
+                          f"::error::.gitleaks.toml allowlist.{key} cannot be copied ({error})"
+                      )
+              return "\n".join(lines) + "\n"
+
           source, defaults, core_path, target = (Path(arg) for arg in sys.argv[1:5])
           core_text = core_path.read_text(encoding="utf-8")
+          if not core_text.endswith("\n"):
+              core_text += "\n"
           core = tomllib.loads(core_text)["rules"]
-          core_by_id = {rule["id"]: rule for rule in core}
-          core_blocks = {
-              tomllib.loads(block)["rules"][0]["id"]: block
-              for block in re.split(r"(?m)^(?=\[\[rules\]\])", core_text)
-              if block.startswith("[[rules]]")
-          }
-          default_ids = {rule["id"] for rule in tomllib.loads(defaults.read_text(encoding="utf-8"))["rules"]}
+          # The pinned defaults file is checksummed above. Read it so a missing file
+          # fails here too. [extend] useDefault applies those rules; they are not copied.
+          tomllib.loads(defaults.read_text(encoding="utf-8"))
           text = source.read_text(encoding="utf-8") if source.is_file() else ""
-          try:
-              data = tomllib.loads(text)
-          except tomllib.TOMLDecodeError as error:
-              sys.exit(f"::error::.gitleaks.toml is not valid TOML: {error}")
-          extend = data.get("extend")
-          if extend is None:
-              text += (
-                  "\n\n# Added by Core: keep gitleaks' default rules.\n[extend]\nuseDefault = true\n"
-              )
-          elif not isinstance(extend, dict) or "path" in extend:
-              sys.exit(
-                  "::error::.gitleaks.toml [extend] names a path; it cannot also"
-                  " extend the Core preset rules (gitleaks allows path or"
-                  " useDefault, not both). Inline the rules and use"
-                  " `useDefault = true`."
-              )
-          elif extend.get("useDefault") is not True:
-              sys.exit(
-                  "::error::.gitleaks.toml [extend] must set useDefault = true"
-                  " so the Core preset rules apply."
-              )
-          lines = text.splitlines()
-
-
-          def line_of(rule_id):
-              pattern = re.compile(r"\s*id\s*=\s*[\"']" + re.escape(rule_id) + r"[\"']")
-              return next((n for n, line in enumerate(lines, 1) if pattern.match(line)), 1)
-
-
-          seen, present, collisions = set(), set(), []
-          for rule in data.get("rules", []):
-              rule_id = str(rule.get("id", ""))
-              if core_by_id.get(rule_id) == rule and rule_id not in present:
-                  # The stamped Core preset carries a Core rule as Core wrote it.
-                  present.add(rule_id)
-              elif rule_id in seen or rule_id in present:
-                  collisions.append((rule_id, "is defined twice in .gitleaks.toml"))
-              elif rule_id in core_by_id:
-                  collisions.append((rule_id, "is a Core rule id (Core applies that rule to every repository)"))
-              elif rule_id in default_ids:
-                  collisions.append((rule_id, "is a gitleaks default rule id"))
-              seen.add(rule_id)
-          for rule_id, why in collisions:
-              print(
-                  f"::error file=.gitleaks.toml,line={line_of(rule_id)},title=gitleaks rule id collision::"
-                  f"rule '{rule_id}' {why}; gitleaks would replace one with the other silently."
-                  " Rename the repository rule, or delete it if a Core or default rule already covers it."
-              )
-          if collisions:
-              sys.exit(f"::error::{len(collisions)} gitleaks rule id collision(s) in .gitleaks.toml; nothing was scanned")
-          missing = [core_blocks[rule["id"]] for rule in core if rule["id"] not in present]
-          if missing:
-              text += "\n\n# Added by Core: the Core rules (presets/security/.gitleaks.toml).\n" + "".join(missing)
-          tomllib.loads(text)
-          target.write_text(text, encoding="utf-8")
-          print(f"gitleaks rules: defaults + {len(core)} Core rule(s) + {len(seen) - len(present)} repository rule(s)")
+          data = {}
+          if text.strip():
+              try:
+                  data = tomllib.loads(text)
+              except tomllib.TOMLDecodeError as error:
+                  sys.exit(f"::error::.gitleaks.toml is not valid TOML: {error}")
+          if not isinstance(data, dict):
+              sys.exit("::error::.gitleaks.toml must be a table")
+          parts = ["[extend]\nuseDefault = true\n\n", core_text]
+          allow = data.get("allowlist")
+          if allow:
+              parts.append("\n" + emit_allowlist(allow))
+          produced = "".join(parts)
+          tomllib.loads(produced)
+          target.write_text(produced, encoding="utf-8")
+          ignored = len(data.get("rules") or [])
+          print(
+              f"gitleaks rules: defaults + {len(core)} Core rule(s);"
+              f" {ignored} repository rule(s) not copied"
+          )
           PY
           config_args=(--config "${config}")
           case "${GITLEAKS_TARGET}" in
@@ -1502,6 +1483,301 @@ jobs:
               sys.exit(1)
           PY
 
+
+  # CodeQL is one org-wide check (operator, 2026-11-21; docs/codeql-check.md),
+  # replacing per-repository CodeQL workflows and default setup. Read-only,
+  # like every pull-request job here (L9-CI-CORE-005): nothing is uploaded on
+  # a pull request. The languages the revision contains are analyzed, always
+  # including `actions`, with build-mode none and the security-extended suite,
+  # once at the evaluated revision and once at the event's base; only results
+  # the base does not have are judged (rule, path and CodeQL's own
+  # primaryLocationLineHash), and a new result at error level or security
+  # severity high or above fails the check. An event with no base (a
+  # dispatch, the nightly sink, the promotion canary) has nothing new: it
+  # reports what it found and passes. The nightly sink runs the same steps on
+  # the whole default branch and sends the SARIF to code scanning.
+      # --- org-ci.yml's CodeQL check, whole tree (generated) ---
+      - name: Resolve CodeQL's languages and base
+        if: ${{ !cancelled() }}
+        id: codeql_scope
+        env:
+          EVENT_NAME: nightly
+          PR_BASE: ""
+          MERGE_GROUP_BASE: ""
+          PUSH_BEFORE: ""
+        run: |
+          set -euo pipefail
+          # Languages CodeQL analyzes without a build (build-mode none), by the
+          # files git tracks at the evaluated revision. `actions` runs in every
+          # repository with a workflow or action file, which is every governed
+          # one (org-ci reaches them through a workflow); CodeQL refuses a
+          # database for a language with no source, so a repository without
+          # one has no Actions code to scan.
+          languages=""
+          tracked="$(git ls-files)"
+          has() { grep -Eqi "$1" <<< "${tracked}"; }
+          if has '(^|/)\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$'; then languages="actions"; fi
+          if has '\.py$'; then languages="${languages} python"; fi
+          if has '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$'; then languages="${languages} javascript"; fi
+          if has '\.rb$'; then languages="${languages} ruby"; fi
+          if has '\.java$'; then languages="${languages} java"; fi
+          if has '\.cs$'; then languages="${languages} csharp"; fi
+          if has '\.rs$'; then languages="${languages} rust"; fi
+          case "${EVENT_NAME}" in
+            pull_request|pull_request_target) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            if ! git cat-file -e "${base}^{commit}" 2> /dev/null; then
+              echo "::error title=CodeQL::the event's base ${base} is not in this clone; the check cannot tell what is new"
+              exit 1
+            fi
+          else
+            base=""
+          fi
+          languages="${languages# }"
+          echo "languages=${languages}" >> "$GITHUB_OUTPUT"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "CodeQL languages: ${languages}; base: ${base:-none (nothing is new)}"
+      - name: Install CodeQL (checksum-pinned bundle)
+        if: ${{ !cancelled() }}
+        id: codeql_install
+        run: |
+          set -euo pipefail
+          CODEQL_VERSION="2.27.5"
+          CODEQL_SHA256="141e6eb4e99c8498a1258e282e6f7b59c747b4b1a7eabc7cbf7d1aa92792edf0"
+          bundle="${RUNNER_TEMP}/codeql-bundle.tar.zst"
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${bundle}" \
+            "https://github.com/github/codeql-action/releases/download/codeql-bundle-v${CODEQL_VERSION}/codeql-bundle-linux64.tar.zst"
+          actual="$(sha256sum "${bundle}" | awk '{print $1}')"
+          if [ "${actual}" != "${CODEQL_SHA256}" ]; then
+            echo "::error title=CodeQL::bundle checksum mismatch: got ${actual}"
+            exit 1
+          fi
+          tar --zstd -xf "${bundle}" -C "${RUNNER_TEMP}"
+          rm -f "${bundle}"
+          "${RUNNER_TEMP}/codeql/codeql" version --format=terse
+          echo "executable=${RUNNER_TEMP}/codeql/codeql" >> "$GITHUB_OUTPUT"
+      - name: Analyze with CodeQL (security-extended)
+        if: ${{ !cancelled() }}
+        id: codeql_analyze
+        env:
+          CODEQL: ${{ steps.codeql_install.outputs.executable }}
+          LANGUAGES: ${{ steps.codeql_scope.outputs.languages }}
+          BASE: ${{ steps.codeql_scope.outputs.base }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/codeql-results"
+          mkdir -p "${out}" "${RUNNER_TEMP}/codeql-db"
+          sides=("head=${PWD}")
+          if [ -n "${BASE}" ]; then
+            git worktree add --detach "${RUNNER_TEMP}/codeql-base" "${BASE}" > /dev/null
+            sides+=("base=${RUNNER_TEMP}/codeql-base")
+          fi
+          for side in "${sides[@]}"; do
+            name="${side%%=*}"
+            root="${side#*=}"
+            for language in ${LANGUAGES}; do
+              db="${RUNNER_TEMP}/codeql-db/${name}-${language}"
+              status=0
+              "${CODEQL}" database create "${db}" --language="${language}" \
+                --build-mode=none --source-root="${root}" --threads=0 --overwrite > /dev/null || status=$?
+              if [ "${status}" -eq 32 ]; then
+                # CodeQL's "no source code seen" exit: the language has no code
+                # on this side (a pull request adds the language): no results.
+                echo "CodeQL ${name} ${language}: no source on this side; no results"
+                printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"CodeQL","rules":[]}},"results":[]}]}\n' \
+                  > "${out}/${name}-${language}.sarif"
+                continue
+              elif [ "${status}" -ne 0 ]; then
+                echo "::error title=CodeQL::database create for ${language} (${name}) exited ${status}"
+                exit "${status}"
+              fi
+              "${CODEQL}" database analyze "${db}" \
+                "codeql/${language}-queries:codeql-suites/${language}-security-extended.qls" \
+                --format=sarif-latest --sarif-category="/language:${language}" \
+                --output="${out}/${name}-${language}.sarif" --threads=0 > /dev/null
+              echo "CodeQL ${name} ${language}: analyzed"
+            done
+          done
+          echo "directory=${out}" >> "$GITHUB_OUTPUT"
+
+      # --- org-ci.yml's actionlint check, every workflow (generated) ---
+      - name: Resolve actionlint's scope
+        if: ${{ !cancelled() }}
+        id: actionlint_scope
+        env:
+          EVENT_NAME: nightly
+          PR_BASE: ""
+          MERGE_GROUP_BASE: ""
+          PUSH_BEFORE: ""
+          EVENT_SHA: ${{ matrix.revision }}
+        run: |
+          set -euo pipefail
+          workflows='^\.github/workflows/[^/]+\.ya?ml$'
+          actions='(^|/)action\.ya?ml$'
+          list="${RUNNER_TEMP}/actionlint-files"
+          git ls-files | grep -E "${workflows}" > "${list}.all" || true
+          if [ ! -s "${list}.all" ]; then
+            echo "applies=false" >> "$GITHUB_OUTPUT"
+            echo "actionlint: not applicable: no workflow files"
+            echo "- actionlint (blocking): not applicable: no workflow files" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          case "${EVENT_NAME}" in
+            pull_request|pull_request_target) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          scope="every workflow"
+          judge="report"
+          cp "${list}.all" "${list}"
+          if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            judge="block"
+            if ! changed="$(git diff --name-only --diff-filter=d "${base}" "${EVENT_SHA}" --)"; then
+              echo "::error title=actionlint::the event's base ${base} is not in this clone; the check cannot tell what changed"
+              exit 1
+            fi
+            if grep -Eq "${actions}" <<< "${changed}"; then
+              scope="every workflow (an action definition changed)"
+            else
+              grep -E "${workflows}" <<< "${changed}" > "${list}" || true
+              scope="the workflow files ${base:0:12}..${EVENT_SHA:0:12} changes"
+              if [ ! -s "${list}" ]; then
+                echo "applies=false" >> "$GITHUB_OUTPUT"
+                echo "actionlint: no changed workflow or action files"
+                echo "- actionlint (blocking): pass: no changed workflow or action files" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+          fi
+          {
+            echo "applies=true"
+            echo "files=${list}"
+            echo "scope=${scope}"
+            echo "judge=${judge}"
+          } >> "$GITHUB_OUTPUT"
+          echo "actionlint: $(wc -l < "${list}") workflow file(s): ${scope}"
+      - name: Install actionlint (toolchain-locked)
+        id: actionlint_install
+        if: ${{ !cancelled() && steps.actionlint_scope.outputs.applies == 'true' }}
+        run: |
+          set -euo pipefail
+          ACTIONLINT_VERSION="1.7.12"
+          ACTIONLINT_SHA256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+          archive="${RUNNER_TEMP}/actionlint.tar.gz"
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          actual="$(sha256sum "${archive}" | awk '{print $1}')"
+          if [ "${actual}" != "${ACTIONLINT_SHA256}" ]; then
+            echo "::error title=actionlint::checksum mismatch: got ${actual}"
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/actionlint-bin"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/actionlint-bin" actionlint
+          echo "executable=${RUNNER_TEMP}/actionlint-bin/actionlint" >> "$GITHUB_OUTPUT"
+      - name: Run actionlint (blocking)
+        id: actionlint_check
+        if: ${{ !cancelled() && steps.actionlint_scope.outputs.applies == 'true' }}
+        env:
+          ACTIONLINT: ${{ steps.actionlint_install.outputs.executable }}
+          FILES: ${{ steps.actionlint_scope.outputs.files }}
+          SCOPE: ${{ steps.actionlint_scope.outputs.scope }}
+          JUDGE: ${{ steps.actionlint_scope.outputs.judge }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to ACTIONLINT_SARIF.
+          ACTIONLINT_FINDINGS_FAIL: "false"
+          ACTIONLINT_SARIF: ${{ runner.temp }}/nightly-sarif/actionlint.sarif
+        run: |
+          set -euo pipefail
+          report="${RUNNER_TEMP}/actionlint.json"
+          mapfile -t files < "${FILES}"
+          status=0
+          # The repository's own .github/actionlint.yaml applies (actionlint
+          # finds it from the working directory).
+          "${ACTIONLINT}" -shellcheck= -pyflakes= -format '{{json .}}' "${files[@]}" > "${report}" || status=$?
+          if [ "${status}" -gt 1 ]; then
+            echo "::error title=actionlint::actionlint exited ${status}: the check did not complete"
+            cat "${report}"
+            exit "${status}"
+          fi
+          STATUS="${status}" REPORT="${report}" COUNT="${#files[@]}" python3 -I - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          try:
+              findings = json.loads(Path(env["REPORT"]).read_text(encoding="utf-8") or "[]")
+          except ValueError as error:
+              sys.exit(f"::error title=actionlint::unreadable report ({error})")
+          # Findings block only what an event brings in (a base exists); with
+          # no base, and in the nightly sink, they are reported.
+          nightly = env.get("ACTIONLINT_FINDINGS_FAIL") == "false"
+          reported = nightly or env.get("JUDGE") != "block"
+          label = "nightly, reported" if nightly else ("reported: no base" if reported else "blocking")
+          scope = env["SCOPE"]
+          if not findings:
+              line = f"- actionlint ({label}): pass: {env['COUNT']} workflow file(s), {scope}"
+          else:
+              line = f"- actionlint ({label}): findings: {len(findings)} in {env['COUNT']} workflow file(s), {scope}"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Kind | Message |", "|---|---|---|---|"]
+          for item in findings:
+              path = str(item.get("filepath", "")).replace(",", "%2C").replace(":", "%3A")
+              message = " ".join(str(item.get("message", "")).split())
+              print(
+                  f"::{'warning' if reported else 'error'} file={path},line={item.get('line', 1)},col={item.get('column', 1)},"
+                  f"title=actionlint {item.get('kind', '')}::{message}"
+              )
+          for item in findings[:20]:
+              message = " ".join(str(item.get("message", "")).split()).replace("|", "\\|")
+              lines.append(f"| `{item.get('filepath', '')}` | {item.get('line', '')} | `{item.get('kind', '')}` | {message} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("ACTIONLINT_SARIF"):
+              kinds = sorted({str(item.get("kind", "")) for item in findings})
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {
+                          "name": "actionlint",
+                          "informationUri": "https://github.com/rhysd/actionlint",
+                          "rules": [{"id": kind, "shortDescription": {"text": f"actionlint {kind} check"}} for kind in kinds],
+                      }},
+                      "results": [{
+                          "ruleId": str(item.get("kind", "")),
+                          "level": "error",
+                          "message": {"text": " ".join(str(item.get("message", "")).split())},
+                          "locations": [{"physicalLocation": {
+                              "artifactLocation": {"uri": str(item.get("filepath", "")).removeprefix("./")},
+                              "region": {
+                                  "startLine": max(int(item.get("line") or 1), 1),
+                                  "startColumn": max(int(item.get("column") or 1), 1),
+                              },
+                          }}],
+                      } for item in findings],
+                  }],
+              }
+              target = Path(env["ACTIONLINT_SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title=actionlint::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
   # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
   # beside gitleaks, pip-audit, npm-audit and `analyze`, for every repository the organization
   # ruleset governs, and always reports: no biome.json / biome.jsonc is a
@@ -1513,6 +1789,22 @@ jobs:
   # sink, the promotion canary) on the whole tree. Findings are annotated at
   # their file and line by Biome's GitHub reporter, counted in the job summary
   # with the first of them, and fail the job: the mode is blocking.
+
+      - name: Project CodeQL's SARIF for code scanning
+        if: ${{ !cancelled() && steps.codeql_analyze.outcome == 'success' }}
+        env:
+          LANGUAGES: ${{ steps.codeql_scope.outputs.languages }}
+          RESULTS: ${{ steps.codeql_analyze.outputs.directory }}
+        run: |
+          set -euo pipefail
+          # One category per language, beside each Semgrep instance's:
+          # l9-central/codeql-<language>/. The whole tree, so every result.
+          mkdir -p "${RUNNER_TEMP}/nightly-sarif"
+          for language in ${LANGUAGES}; do
+            cp "${RESULTS}/head-${language}.sarif" "${RUNNER_TEMP}/nightly-sarif/codeql-${language}.sarif"
+            echo "instance codeql-${language}: projected"
+          done
+
       # --- org-ci.yml's pip-audit check, full lock (generated, not copied) ---
       - name: Detect project languages
         id: detect
@@ -1767,10 +2059,11 @@ jobs:
       # partial upload never writes a stale state into its snapshot.
       - id: sink_tool
         name: Fetch the sink tool (Core, this run's revision)
-        # A Biome, gitleaks or bandit run that failed (not one with findings:
-        # here each reports findings instead of failing) would drop its
-        # category and so close its alerts: nothing publishes.
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.no_bytecode.outcome != 'failure' && steps.sha_pins.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
+        # A Biome, gitleaks, no-bytecode, sha-pins, CodeQL, actionlint or
+        # bandit run that failed (not one with findings: here each reports
+        # findings instead of failing) would drop its category and so close
+        # its alerts: nothing publishes.
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.no_bytecode.outcome != 'failure' && steps.sha_pins.outcome != 'failure' && steps.codeql_analyze.outcome != 'failure' && steps.actionlint_check.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}

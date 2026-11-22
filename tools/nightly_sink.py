@@ -56,6 +56,8 @@ import nightly_apply  # noqa: E402
 
 TOKEN_ENV = "L9_NIGHTLY_SINK_TOKEN"
 CATEGORY_PREFIX = "l9-central/"
+# org-ci.yml's CodeQL check publishes one category per language: codeql-<language>.
+CODEQL_PREFIX = "codeql-"
 ISSUE_TITLE = "Nightly findings (Core central scan)"
 ISSUE_MARKER = "<!-- l9-nightly-findings -->"
 SNAPSHOT = re.compile(r"<!-- l9-nightly-snapshot (\{[^}]*\}) -->")
@@ -118,8 +120,18 @@ def publish(
     files: Mapping[str, Mapping[str, Any]],
     sleep: Callable[[float], None] = time.sleep,
 ) -> list[dict[str, str]]:
-    """Upload each named SARIF and wait for code scanning to accept it."""
+    """Upload each named SARIF and wait for code scanning to accept it.
+
+    A refused CodeQL upload (``codeql-<language>``) does not stop the others:
+    code scanning refuses CodeQL analyses while a repository's CodeQL default
+    setup is enabled (docs/codeql-check.md), and that must not cost the
+    repository its Semgrep, gitleaks or Biome findings. Every other category
+    is uploaded first; the refusal then fails the publish, by name, so the
+    night stays red until default setup is turned off. Any other refusal
+    fails at once, as before.
+    """
     results = []
+    refused = []
     for name, sarif in sorted(files.items()):
         body = {
             "commit_sha": commit,
@@ -130,10 +142,20 @@ def publish(
             "POST", f"/repos/{repository}/code-scanning/sarifs", body
         )
         if status != 202 or not isinstance(response, dict) or not response.get("id"):
+            if name.startswith(CODEQL_PREFIX):
+                refused.append(f"{name} (HTTP {status})")
+                continue
             raise SinkError(f"code scanning refused the {name} upload (HTTP {status})")
         upload = str(response["id"])
         state = _await_processing(transport, repository, upload, sleep)
         results.append({"name": name, "upload": upload, "status": state})
+    if refused:
+        raise SinkError(
+            "code scanning refused the CodeQL upload(s) "
+            + ", ".join(refused)
+            + " after every other category was published; turn off the"
+            " repository's CodeQL default setup (docs/codeql-check.md)"
+        )
     return results
 
 
@@ -159,7 +181,8 @@ def retired(
     )
     if not gone:
         return {}
-    first = files[min(files)]
+    plain = [name for name in files if not name.startswith(CODEQL_PREFIX)]
+    first = files[min(plain or files)]
     runs = first.get("runs") or []
     if not runs:
         raise SinkError("tonight's SARIF has no run to take the tool driver from")
@@ -801,7 +824,7 @@ EVENT_LINE = "          INPUT_EVENT: ${{ inputs.event || '' }}\n"
 MATRIX_ID_LINE = "          INPUT_MATRIX_ID: canary-nightly-${{ matrix.slug }}\n"
 MATRIX_ID = "nightly-${{ matrix.slug }}"
 LEFT_OVER = re.compile(r"\bneeds\.|\bsecrets\.(?!L9_GITHUB_READ_TOKEN\b)")
-TIMEOUT = 60
+TIMEOUT = 90
 AUDIT_STEPS = (
     "Detect project languages",
     "Set up Python",
@@ -985,6 +1008,23 @@ SINK = """\
 
 @@GITLEAKS@@
 @@HYGIENE@@
+@@CODEQL@@
+@@ACTIONLINT@@
+      - name: Project CodeQL's SARIF for code scanning
+        if: ${{ !cancelled() && steps.codeql_analyze.outcome == 'success' }}
+        env:
+          LANGUAGES: ${{ steps.codeql_scope.outputs.languages }}
+          RESULTS: ${{ steps.codeql_analyze.outputs.directory }}
+        run: |
+          set -euo pipefail
+          # One category per language, beside each Semgrep instance's:
+          # l9-central/codeql-<language>/. The whole tree, so every result.
+          mkdir -p "${RUNNER_TEMP}/nightly-sarif"
+          for language in ${LANGUAGES}; do
+            cp "${RESULTS}/head-${language}.sarif" "${RUNNER_TEMP}/nightly-sarif/codeql-${language}.sarif"
+            echo "instance codeql-${language}: projected"
+          done
+
 @@AUDIT@@
       - name: Summarize the dependency audit
         if: ${{ !cancelled() }}
@@ -1059,10 +1099,11 @@ SINK = """\
       # partial upload never writes a stale state into its snapshot.
       - id: sink_tool
         name: Fetch the sink tool (Core, this run's revision)
-        # A Biome, gitleaks or bandit run that failed (not one with findings:
-        # here each reports findings instead of failing) would drop its
-        # category and so close its alerts: nothing publishes.
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.no_bytecode.outcome != 'failure' && steps.sha_pins.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
+        # A Biome, gitleaks, no-bytecode, sha-pins, CodeQL, actionlint or
+        # bandit run that failed (not one with findings: here each reports
+        # findings instead of failing) would drop its category and so close
+        # its alerts: nothing publishes.
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.no_bytecode.outcome != 'failure' && steps.sha_pins.outcome != 'failure' && steps.codeql_analyze.outcome != 'failure' && steps.actionlint_check.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
@@ -1179,6 +1220,8 @@ def sink_steps(scan: str) -> str:
     ):
         cut -= 1
     kept = "".join(lines[:cut]).rstrip("\n") + "\n"
+    # The sink declares only `repository`: every other input is its default.
+    kept = pc.undeclared_defaults(kept, frozenset({"repository"}))
     left = [
         line.strip()
         for line in kept.splitlines()
@@ -1414,6 +1457,122 @@ def hygiene_steps(org_ci: str) -> str:
             f"      # --- org-ci.yml's {job} check, every file (generated) ---\n" + text
         )
     return "".join(out).rstrip("\n")
+CODEQL_JOB = "codeql"
+CODEQL_STEPS = ("codeql_scope", "codeql_install", "codeql_analyze")
+
+
+def codeql_steps(org_ci: str) -> str:
+    """org-ci.yml's CodeQL check, run on the whole default branch.
+
+    The check's own language, install and analyze steps, verbatim apart from
+    the event: a night is not a pull request, merge group or push, so there is
+    no base and the analyze step runs once, on the whole tree. Its verdict
+    step is not run (with no base nothing is new); the SARIF goes to code
+    scanning instead, one ``l9-central/codeql-<language>/`` category each.
+    """
+    pc = _canary()
+    blocks = pc.job_blocks(org_ci)
+    if CODEQL_JOB not in blocks:
+        raise SinkError("org-ci.yml has no `codeql` job to run nightly")
+    workflow = "on:\n  workflow_call:\njobs:\n  codeql:\n" + blocks[CODEQL_JOB]
+    try:
+        steps, _, _ = pc._single_job(workflow, "org-ci.yml job 'codeql'")
+    except pc.CanaryError as error:
+        raise SinkError(str(error)) from error
+    items = re.split(r"(?m)^(?= {6}- )", steps)
+    chosen = []
+    for identifier in CODEQL_STEPS:
+        found = [i for i in items if f"        id: {identifier}\n" in i]
+        if len(found) != 1:
+            raise SinkError(f"the CodeQL check no longer has one {identifier!r} step")
+        text = found[0].rstrip("\n") + "\n"
+        name = re.match(r"      - name: [^\n]+\n", text)
+        if name is None:
+            raise SinkError(
+                f"the CodeQL {identifier!r} step no longer starts with its name"
+            )
+        chosen.append(
+            text[: name.end()]
+            + "        if: ${{ !cancelled() }}\n"
+            + text[name.end() :]
+        )
+    text = "".join(chosen)
+    text = text.replace("${{ github.event_name }}", "nightly")
+    text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", '""', text)
+    if "${{ github." in text or "${{ inputs." in text:
+        raise SinkError("the CodeQL steps read an event value the sink cannot supply")
+    return "      # --- org-ci.yml's CodeQL check, whole tree (generated) ---\n" + text
+
+
+ACTIONLINT_JOB = "actionlint"
+ACTIONLINT_STEPS = ("actionlint_scope", "actionlint_install", "actionlint_check")
+ACTIONLINT_SARIF = "${{ runner.temp }}/nightly-sarif/actionlint.sarif"
+# The check's PR-mode settings, each replaced once by its nightly value.
+ACTIONLINT_NIGHTLY = (
+    (
+        '          ACTIONLINT_FINDINGS_FAIL: "true"\n',
+        '          ACTIONLINT_FINDINGS_FAIL: "false"\n',
+    ),
+    (
+        '          ACTIONLINT_SARIF: ""\n',
+        f"          ACTIONLINT_SARIF: {ACTIONLINT_SARIF}\n",
+    ),
+)
+
+
+def actionlint_steps(org_ci: str) -> str:
+    """org-ci.yml's actionlint check, on every workflow, reported.
+
+    The check's own scope, install and run steps, verbatim apart from the
+    event (a night has no base, so every workflow is judged) and its mode:
+    findings are written as SARIF (``l9-central/actionlint/``, counted)
+    instead of failing the step. A run that does not complete still fails it.
+    """
+    pc = _canary()
+    blocks = pc.job_blocks(org_ci)
+    if ACTIONLINT_JOB not in blocks:
+        raise SinkError("org-ci.yml has no `actionlint` job to run nightly")
+    workflow = "on:\n  workflow_call:\njobs:\n  actionlint:\n" + blocks[ACTIONLINT_JOB]
+    try:
+        steps, _, _ = pc._single_job(workflow, "org-ci.yml job 'actionlint'")
+    except pc.CanaryError as error:
+        raise SinkError(str(error)) from error
+    items = re.split(r"(?m)^(?= {6}- )", steps)
+    chosen = []
+    for identifier in ACTIONLINT_STEPS:
+        found = [i for i in items if f"        id: {identifier}\n" in i]
+        if len(found) != 1:
+            raise SinkError(
+                f"the actionlint check no longer has one {identifier!r} step"
+            )
+        chosen.append(found[0].rstrip("\n") + "\n")
+    text = "".join(chosen)
+    # Run whatever an earlier, unrelated step concluded (as the other
+    # inlined checks do): a skipped check would drop its category tonight.
+    gate = "        if: steps.actionlint_scope.outputs.applies == 'true'\n"
+    if text.count(gate) != 2:
+        raise SinkError("the actionlint steps no longer gate on their scope twice")
+    text = text.replace(
+        gate,
+        "        if: ${{ !cancelled() && steps.actionlint_scope.outputs.applies == 'true' }}\n",
+    )
+    scope = "        id: actionlint_scope\n"
+    text = text.replace(scope, "        if: ${{ !cancelled() }}\n" + scope, 1)
+    for old, new in ACTIONLINT_NIGHTLY:
+        if text.count(old) != 1:
+            raise SinkError(f"the actionlint step no longer sets {old.strip()!r} once")
+        text = text.replace(old, new)
+    text = text.replace("${{ github.event_name }}", "nightly")
+    text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", '""', text)
+    text = text.replace("${{ github.sha }}", "${{ matrix.revision }}")
+    if "${{ github." in text or "${{ inputs." in text:
+        raise SinkError(
+            "the actionlint steps read an event value the sink cannot supply"
+        )
+    return (
+        "      # --- org-ci.yml's actionlint check, every workflow (generated) ---\n"
+        + text
+    )
 
 
 def render_workflow(scan: str, org_ci: str) -> str:
@@ -1421,9 +1580,11 @@ def render_workflow(scan: str, org_ci: str) -> str:
     biome = biome_steps(org_ci)
     gitleaks = gitleaks_steps(org_ci)
     hygiene = hygiene_steps(org_ci)
+    codeql = codeql_steps(org_ci)
+    actionlint = actionlint_steps(org_ci)
     audit = audit_steps(pip_audit_workflow(org_ci))
     digest = hashlib.sha256(
-        (steps + biome + gitleaks + hygiene + audit).encode("utf-8")
+        (steps + biome + gitleaks + hygiene + codeql + actionlint + audit).encode("utf-8")
     ).hexdigest()
     header = HEADER.replace("@@DIGEST@@", digest).replace("@@TIMEOUT@@", str(TIMEOUT))
     sink = (
@@ -1431,6 +1592,8 @@ def render_workflow(scan: str, org_ci: str) -> str:
         .replace("@@BIOME@@\n", biome + "\n")
         .replace("@@GITLEAKS@@\n", gitleaks + "\n")
         .replace("@@HYGIENE@@\n", hygiene + "\n")
+        .replace("@@CODEQL@@\n", codeql + "\n")
+        .replace("@@ACTIONLINT@@\n", actionlint + "\n")
         .replace("@@AUDIT@@\n", audit + "\n")
     )
     return header + steps + "\n" + sink

@@ -1,15 +1,16 @@
-"""Core gitleaks rules reach every repository; rule-id collisions fail by name.
+"""Core gitleaks rules reach every repository; repository rules are not copied.
 
-Operator correction (2026-11-21; docs/gitleaks-core-rules.md). gitleaks keeps
-one rule per id: a repository rule whose id equals a default (or a Core rule)
-silently replaces it, which cost Enrichment.Inference.Engine four rules. The
-gitleaks step of org-ci.yml (and of security.yml, the v1 kernel) now merges
-gitleaks' defaults, the Core rules from presets/security/.gitleaks.toml and
-the repository's own .gitleaks.toml, and refuses a colliding id by name.
+Operator correction (2026-11-21; docs/gitleaks-core-rules.md). The gitleaks
+step of org-ci.yml (and of security.yml, the v1 kernel) writes only
+``[extend] useDefault = true``, the Core rules from
+presets/security/.gitleaks.toml, and the repository's ``[allowlist]`` when it
+has one. A repository's ``[[rules]]`` — including the four gitleaks default
+ids Enrichment.Inference.Engine still declares — are not copied and do not
+fail the job.
 
-These tests run the step's own merge script, bind its embedded Core rules to
-the preset, and prove each Core rule catches what it was moved in to catch;
-where a gitleaks executable is installed they also show the defaults miss it.
+These tests run the step's own composer, bind its embedded Core rules to the
+preset, and prove each Core rule catches what it was moved in to catch; where
+a gitleaks executable is installed they also show the defaults miss it.
 """
 
 from __future__ import annotations
@@ -57,7 +58,8 @@ def merge_script() -> str:
     return heredoc(gitleaks_step("org-ci.yml", "gitleaks")["run"], "PY", 0)
 
 
-#: A stand-in for gitleaks' default rules: the ids the merge must refuse.
+#: A stand-in for gitleaks' default rules. The composer reads the file and
+#: applies those rules through ``[extend] useDefault``, not by copying ids.
 DEFAULTS = textwrap.dedent(
     """\
     [[rules]]
@@ -162,8 +164,10 @@ class BindingTests(unittest.TestCase):
         self.assertEqual(core_ids(), [rule["id"] for rule in data["rules"]])
 
 
-class CollisionTests(unittest.TestCase):
-    def test_eie_s_four_colliding_rules_are_refused_by_name_and_line(self) -> None:
+class RepositoryRuleTests(unittest.TestCase):
+    def test_eie_s_four_default_ids_are_not_copied_and_the_scan_config_is_written(
+        self,
+    ) -> None:
         config = textwrap.dedent(
             """\
             title = "EIE"
@@ -191,43 +195,35 @@ class CollisionTests(unittest.TestCase):
         )
         merge = Merge(config)
         try:
-            self.assertNotEqual(0, merge.result.returncode)
-            out = merge.result.stdout
-            for rule_id, line in (
-                ("openai-api-key", 4),
-                ("generic-api-key", 12),
-                ("slack-bot-token", 16),
-                ("private-key", 20),
+            self.assertEqual(0, merge.result.returncode, merge.result.stderr)
+            self.assertEqual(core_ids(), merge.rule_ids())
+            for rule_id in (
+                "openai-api-key",
+                "generic-api-key",
+                "slack-bot-token",
+                "private-key",
+                "perplexity-api-key",
             ):
-                self.assertIn(
-                    f"::error file=.gitleaks.toml,line={line},title=gitleaks rule id collision::"
-                    f"rule '{rule_id}' is a gitleaks default rule id",
-                    out,
-                )
-            self.assertNotIn("perplexity-api-key", out)
-            self.assertIn("4 gitleaks rule id collision(s)", merge.result.stderr)
-            self.assertFalse(
-                (merge.root / "merged.toml").exists(), "nothing is scanned"
-            )
+                self.assertNotIn(rule_id, merge.rule_ids())
         finally:
             merge.close()
 
-    def test_a_repository_rule_reusing_a_core_rule_id_is_refused(self) -> None:
+    def test_a_repository_rule_reusing_a_core_rule_id_is_not_copied(self) -> None:
         merge = Merge("[[rules]]\nid = \"l9-openai-api-key\"\nregex = '''sk-x'''\n")
         try:
-            self.assertNotEqual(0, merge.result.returncode)
-            self.assertIn("is a Core rule id", merge.result.stdout)
+            self.assertEqual(0, merge.result.returncode, merge.result.stderr)
+            self.assertEqual(core_ids(), merge.rule_ids())
         finally:
             merge.close()
 
-    def test_a_rule_defined_twice_is_refused(self) -> None:
+    def test_a_rule_defined_twice_is_not_copied(self) -> None:
         merge = Merge(
             "[[rules]]\nid = \"mine\"\nregex = '''a'''\n\n"
             "[[rules]]\nid = \"mine\"\nregex = '''b'''\n"
         )
         try:
-            self.assertNotEqual(0, merge.result.returncode)
-            self.assertIn("rule 'mine' is defined twice", merge.result.stdout)
+            self.assertEqual(0, merge.result.returncode, merge.result.stderr)
+            self.assertEqual(core_ids(), merge.rule_ids())
         finally:
             merge.close()
 
@@ -244,14 +240,14 @@ class InjectionTests(unittest.TestCase):
         finally:
             merge.close()
 
-    def test_a_repository_s_own_rules_and_allowlists_are_kept(self) -> None:
+    def test_a_repository_allowlist_is_kept_and_its_rules_are_not(self) -> None:
         merge = Merge(
             "[allowlist]\npaths = ['''^docs/''']\n\n"
             "[[rules]]\nid = \"acme-token\"\nregex = '''acme_[0-9]{8}'''\n"
         )
         try:
             self.assertEqual(0, merge.result.returncode, merge.result.stdout)
-            self.assertEqual(["acme-token", *core_ids()], merge.rule_ids())
+            self.assertEqual(core_ids(), merge.rule_ids())
             self.assertEqual(["^docs/"], merge.merged["allowlist"]["paths"])
         finally:
             merge.close()
@@ -272,11 +268,12 @@ class InjectionTests(unittest.TestCase):
         finally:
             merge.close()
 
-    def test_a_path_extend_is_refused(self) -> None:
+    def test_a_path_extend_is_not_copied(self) -> None:
         merge = Merge('[extend]\npath = "other.toml"\n')
         try:
-            self.assertNotEqual(0, merge.result.returncode)
-            self.assertIn("names a path", merge.result.stderr)
+            self.assertEqual(0, merge.result.returncode, merge.result.stderr)
+            self.assertEqual({"useDefault": True}, merge.merged["extend"])
+            self.assertEqual(core_ids(), merge.rule_ids())
         finally:
             merge.close()
 
