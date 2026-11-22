@@ -1531,14 +1531,12 @@ bandit advisory) is about to run for every governed repository through
 `org-ci.yml`. Step one (this section) makes it correct for a consumer. Step two
 pins it from `org-ci.yml` at this change's merge commit (§16, §34).
 
-- **Core rules plus the consumer's.** The Core preset
-  (`presets/security/.gitleaks.toml`) is gitleaks' default rule set. A
-  repository's `.gitleaks.toml` is honoured on top of it. A file with no
-  `[extend]` gains `useDefault = true` in a runtime copy, so its own rules and
-  allowlists apply and the defaults are kept. An `[extend]` naming a `path`, or
-  one not setting `useDefault = true`, is refused (no outcome, so
-  `not_executed`), never scanned with fewer rules. Reviewed false positives
-  go in `.gitleaksignore`.
+- **Core rules, plus a consumer allowlist.** The scan config is
+  `[extend] useDefault = true`, the Core rules in
+  `presets/security/.gitleaks.toml`, and the repository's `[allowlist]` when
+  it has one. A repository's `[[rules]]` and `[extend].path` are not copied
+  and do not fail the job (§52). Reviewed false positives go in
+  `.gitleaksignore`.
 - **Scope.** `gitleaks-scope: event` scans what the event adds: base..head
   for a pull request or merge group, before..after for a push (the pushed
   commit alone for a new branch), and full history otherwise.
@@ -2075,6 +2073,23 @@ Operator decisions ("same approach for all tools"; bandit option A). Record:
 
 Tests: `tests/workflows/test_org_ci_security_checks.py`,
 `tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`.
+
+## 52. Core gitleaks rules for every repository (2026-11-21) — amends §37 and §49
+
+Operator-directed correction. Record:
+[`docs/gitleaks-core-rules.md`](docs/gitleaks-core-rules.md).
+
+- **Preset only.** The gitleaks step (org-ci.yml and security.yml, the same
+  script) writes `[extend] useDefault = true`, the Core `[[rules]]` block,
+  and the repository's `[allowlist]` when it has one. Repository `[[rules]]`
+  are not copied, so a default id in `.gitleaks.toml` cannot replace a
+  default rule and does not fail the job. EIE and CEG keep their files.
+- **Core rules.** Consumer rules that caught what the defaults miss are Core
+  rules (`l9-*`) in `presets/security/.gitleaks.toml`; the step embeds the
+  same block (test-bound) and applies it in every repository.
+
+Tests: `tests/workflows/test_gitleaks_core_rules.py`,
+`tests/workflows/test_security_consumer_scope.py`.
 
 ## 50. CodeQL is one org-wide check, judging only what a change introduces (2026-11-21)
 

@@ -14,7 +14,7 @@
 # apart from the target identity; the scan legs are the nightly sink's scan
 # without its publication, so a Semgrep change is proven before promotion.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 0076de00970e9f52487816f1ce76e397602e44eeb91294dca89ec01075d18bc5
+# worse. Head steps digest: 87fdaef7f40732e3fbb981c8c3b4d46baaba14572c95c1c6c3b8561d1e116334
 name: Promotion canary (Core)
 # One verdict per pushed head (row 22). `make pr` pushes and then edits the
 # pull request's body; that `edited` run used to cancel the push run, whose
@@ -148,51 +148,159 @@ jobs:
               exit 2
               ;;
           esac
-          # Rules: the Core preset (presets/security/.gitleaks.toml) is
-          # gitleaks' own default rule set (`[extend] useDefault = true`). A
-          # repository's own .gitleaks.toml is honoured on top of it: its rules
-          # and allowlists apply, and when it does not already extend the
-          # defaults it is made to, so no repository config can drop the Core
-          # rules. A repository config that extends another file by `path`
-          # cannot also extend the defaults (gitleaks allows one of the two),
-          # so it is refused rather than scanned with fewer rules. Reviewed
+          # Rules written for the scan: `[extend] useDefault = true`, the Core
+          # rules (presets/security/.gitleaks.toml, between its "Core rules"
+          # markers; docs/gitleaks-core-rules.md), and the repository's
+          # `[allowlist]` when it has one. A repository's `[[rules]]` and an
+          # `[extend].path` are not copied and do not fail the job. Reviewed
           # false positives belong in .gitleaksignore, which gitleaks reads
           # from the scanned tree.
+          GITLEAKS_VERSION="8.24.3"
+          GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
+          # gitleaks' default rules at that version. Checksum-pinned like
+          # the binary. `[extend] useDefault = true` applies them.
+          GITLEAKS_DEFAULTS_SHA256="8f393899dbdc67e4eae580909e496acab9cf3a75aacfb6fac56b6eb16bb9e051"
           config="${RUNNER_TEMP:-/tmp}/l9-gitleaks.toml"
-          config_args=()
-          if [ -f ".gitleaks.toml" ]; then
-            python3 -I - ".gitleaks.toml" "${config}" <<'PY'
+          core_rules="${RUNNER_TEMP:-/tmp}/l9-gitleaks-core-rules.toml"
+          defaults="${RUNNER_TEMP:-/tmp}/l9-gitleaks-defaults.toml"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${defaults}" \
+            "https://raw.githubusercontent.com/gitleaks/gitleaks/v${GITLEAKS_VERSION}/config/gitleaks.toml"
+          actual_defaults="$(sha256sum "${defaults}" | awk '{print $1}')"
+          if [ "${actual_defaults}" != "${GITLEAKS_DEFAULTS_SHA256}" ]; then
+            echo "::error::gitleaks default rules checksum mismatch: got ${actual_defaults}"
+            exit 2
+          fi
+          cat > "${core_rules}" <<'TOML'
+          [[rules]]
+          id = "l9-openai-api-key"
+          description = "OpenAI API key without the T3BlbkFJ marker (from Enrichment.Inference.Engine)"
+          regex = '''\bsk-[a-zA-Z0-9]{20,}\b'''
+          keywords = ["sk-"]
+
+          [[rules]]
+          id = "l9-openai-project-key"
+          description = "OpenAI project or service key without the T3BlbkFJ marker (from Cognitive.Engine.Graphs)"
+          regex = '''\bsk-(?:proj|svcacct|admin)-[a-zA-Z0-9_-]{80,}'''
+          keywords = ["sk-proj-", "sk-svcacct-", "sk-admin-"]
+
+          [[rules]]
+          id = "l9-api-key-assignment"
+          description = "An API key or secret key assigned a literal of 20+ characters, at any entropy (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''(?i)(?:api[_-]?key|apikey|api[_-]?secret|secret[_-]?key)\s*[=:]\s*['"][a-zA-Z0-9_\-]{20,}['"]'''
+          keywords = ["api_key", "api-key", "apikey", "api_secret", "api-secret", "secret_key", "secret-key", "secretkey"]
+
+          [[rules]]
+          id = "l9-slack-bot-token"
+          description = "Slack bot token with any digit-group length (from Enrichment.Inference.Engine)"
+          regex = '''xoxb-[0-9]{10,}-[0-9]{10,}-[a-zA-Z0-9]{20,}'''
+          keywords = ["xoxb-"]
+
+          [[rules]]
+          id = "l9-private-key-header"
+          description = "A private key header, even without a full body (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'''
+          keywords = ["private key-----"]
+
+          [[rules]]
+          id = "l9-jwt"
+          description = "A JSON Web Token with short segments (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}'''
+          keywords = ["eyj"]
+
+          [[rules]]
+          id = "l9-perplexity-api-key"
+          description = "Perplexity API key (from Enrichment.Inference.Engine)"
+          regex = '''\bpplx-[a-zA-Z0-9]{40,}'''
+          keywords = ["pplx-"]
+
+          [[rules]]
+          id = "l9-postgres-url-password"
+          description = "PostgreSQL URL with an inline password (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''postgres(?:ql)?://[^:\s/@]+:([^@\s/]+)@[a-zA-Z0-9._-]+'''
+          secretGroup = 1
+          keywords = ["postgres://", "postgresql://"]
+
+          [[rules]]
+          id = "l9-redis-url-password"
+          description = "Redis URL with an inline password (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''rediss?://[^:\s/@]*:([^@\s/]+)@[a-zA-Z0-9._-]+'''
+          secretGroup = 1
+          keywords = ["redis://", "rediss://"]
+
+          [[rules]]
+          id = "l9-neo4j-url-password"
+          description = "Neo4j or Bolt URL with an inline password (from Cognitive.Engine.Graphs)"
+          regex = '''(?:neo4j|bolt)(?:\+s(?:sc)?)?://[a-zA-Z0-9]+:([^@\s]+)@[a-zA-Z0-9._-]+'''
+          secretGroup = 1
+          keywords = ["neo4j://", "neo4j+s://", "neo4j+ssc://", "bolt://", "bolt+s://", "bolt+ssc://"]
+
+          [[rules]]
+          id = "l9-neo4j-password-assignment"
+          description = "A Neo4j password assigned a literal (from Cognitive.Engine.Graphs)"
+          regex = '''(?i)neo4j[_-]?password\s*[=:]\s*['"]?([a-zA-Z0-9!@#$%^&*()_+=-]{8,})['"]?'''
+          secretGroup = 1
+          keywords = ["neo4j_password", "neo4j-password", "neo4jpassword"]
+          TOML
+          python3 -I - ".gitleaks.toml" "${defaults}" "${core_rules}" "${config}" <<'PY'
           import sys
           import tomllib
           from pathlib import Path
 
-          source, target = Path(sys.argv[1]), Path(sys.argv[2])
-          text = source.read_text(encoding="utf-8")
-          try:
-              extend = tomllib.loads(text).get("extend")
-          except tomllib.TOMLDecodeError as error:
-              sys.exit(f"::error::.gitleaks.toml is not valid TOML: {error}")
-          if extend is None:
-              text += (
-                  "\n\n# Added by Core security.yml: keep the Core preset rules"
-                  " (gitleaks defaults).\n[extend]\nuseDefault = true\n"
-              )
-          elif not isinstance(extend, dict) or "path" in extend:
-              sys.exit(
-                  "::error::.gitleaks.toml [extend] names a path; it cannot also"
-                  " extend the Core preset rules (gitleaks allows path or"
-                  " useDefault, not both). Inline the rules and use"
-                  " `useDefault = true`."
-              )
-          elif extend.get("useDefault") is not True:
-              sys.exit(
-                  "::error::.gitleaks.toml [extend] must set useDefault = true"
-                  " so the Core preset rules apply."
-              )
-          target.write_text(text, encoding="utf-8")
+          def emit_scalar(value):
+              if isinstance(value, bool):
+                  return "true" if value else "false"
+              if isinstance(value, int):
+                  return str(value)
+              if isinstance(value, str):
+                  return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+              if isinstance(value, list):
+                  return "[" + ", ".join(emit_scalar(item) for item in value) + "]"
+              raise TypeError(type(value).__name__)
+
+          def emit_allowlist(table):
+              if not isinstance(table, dict):
+                  sys.exit("::error::.gitleaks.toml [allowlist] must be a table")
+              lines = ["[allowlist]"]
+              for key, value in table.items():
+                  try:
+                      lines.append(f"{key} = {emit_scalar(value)}")
+                  except TypeError as error:
+                      sys.exit(
+                          f"::error::.gitleaks.toml allowlist.{key} cannot be copied ({error})"
+                      )
+              return "\n".join(lines) + "\n"
+
+          source, defaults, core_path, target = (Path(arg) for arg in sys.argv[1:5])
+          core_text = core_path.read_text(encoding="utf-8")
+          if not core_text.endswith("\n"):
+              core_text += "\n"
+          core = tomllib.loads(core_text)["rules"]
+          # The pinned defaults file is checksummed above. Read it so a missing file
+          # fails here too. [extend] useDefault applies those rules; they are not copied.
+          tomllib.loads(defaults.read_text(encoding="utf-8"))
+          text = source.read_text(encoding="utf-8") if source.is_file() else ""
+          data = {}
+          if text.strip():
+              try:
+                  data = tomllib.loads(text)
+              except tomllib.TOMLDecodeError as error:
+                  sys.exit(f"::error::.gitleaks.toml is not valid TOML: {error}")
+          if not isinstance(data, dict):
+              sys.exit("::error::.gitleaks.toml must be a table")
+          parts = ["[extend]\nuseDefault = true\n\n", core_text]
+          allow = data.get("allowlist")
+          if allow:
+              parts.append("\n" + emit_allowlist(allow))
+          produced = "".join(parts)
+          tomllib.loads(produced)
+          target.write_text(produced, encoding="utf-8")
+          ignored = len(data.get("rules") or [])
+          print(
+              f"gitleaks rules: defaults + {len(core)} Core rule(s);"
+              f" {ignored} repository rule(s) not copied"
+          )
           PY
-            config_args=(--config "${config}")
-          fi
+          config_args=(--config "${config}")
           case "${GITLEAKS_TARGET}" in
             git) ;;
             dir) GITLEAKS_LOG_OPTS="" ;;
@@ -201,6 +309,13 @@ jobs:
               exit 2
               ;;
           esac
+          # With no range, scan the evaluated revision's own history (HEAD),
+          # never every ref in the clone: gitleaks' default is `git log --all`,
+          # and a fetch-depth 0 checkout holds every branch, so an unrelated
+          # branch would decide this revision's verdict.
+          if [ "${GITLEAKS_TARGET:-git}" = git ] && [ -z "${GITLEAKS_LOG_OPTS}" ]; then
+            GITLEAKS_LOG_OPTS="HEAD"
+          fi
           range_args=()
           if [ -n "${GITLEAKS_LOG_OPTS}" ]; then
             # The range must resolve in this clone before gitleaks runs:
@@ -214,8 +329,6 @@ jobs:
             fi
             range_args=(--log-opts="${GITLEAKS_LOG_OPTS}")
           fi
-          GITLEAKS_VERSION="8.24.3"
-          GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
           # HTTPS only, on every redirect too (the release redirects to a CDN).
           curl --proto '=https' --tlsv1.2 -sSfL -o /tmp/gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
@@ -243,6 +356,7 @@ jobs:
           # match fields are not read).
           scope_text="${GITLEAKS_LOG_OPTS:-the whole history}"
           [ "${GITLEAKS_TARGET}" = dir ] && scope_text="the whole tree"
+          [ "${GITLEAKS_LOG_OPTS}" = HEAD ] && scope_text="the evaluated revision's history"
           SCOPE_TEXT="${scope_text}" STATUS="${status}" REPORT="${report}" \
             python3 -I - <<'PY'
           import json
@@ -1706,7 +1820,7 @@ jobs:
       # does not call a consumer-relative copy and does not paste the module.
       # receipt=static is not a hosted test receipt.
       - name: Judge pull-request test expense
-        if: false
+        if: github.event_name == 'canary-does-not-judge'
         env:
           GH_EVENT: ${{ steps.runtime.outputs.event-class }}
           GUARD_BEFORE: ''
@@ -1994,7 +2108,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 0076de00970e9f52487816f1ce76e397602e44eeb91294dca89ec01075d18bc5
+          DIGEST: 87fdaef7f40732e3fbb981c8c3b4d46baaba14572c95c1c6c3b8561d1e116334
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ""
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -2684,7 +2798,7 @@ jobs:
         if: always()
         env:
           SIDE: scan
-          DIGEST: 0076de00970e9f52487816f1ce76e397602e44eeb91294dca89ec01075d18bc5
+          DIGEST: 87fdaef7f40732e3fbb981c8c3b4d46baaba14572c95c1c6c3b8561d1e116334
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ""
@@ -3384,7 +3498,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 0076de00970e9f52487816f1ce76e397602e44eeb91294dca89ec01075d18bc5
+          DIGEST: 87fdaef7f40732e3fbb981c8c3b4d46baaba14572c95c1c6c3b8561d1e116334
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ""
@@ -4316,17 +4430,18 @@ jobs:
               sys.exit(1)
           PY
 
-  # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
-  # beside gitleaks, pip-audit, npm-audit and `analyze`, for every repository the organization
-  # ruleset governs, and always reports: no biome.json / biome.jsonc is a
-  # success that says "not applicable: no biome configuration"; a pull request
-  # that changes no file in Biome's scope is a success that says so. A pull
-  # request and a merge group are judged on the files they change, never on
-  # the code already there (incoming code only); a push of the default branch
-  # on the files the push changes; any other event (a dispatch, the nightly
-  # sink, the promotion canary) on the whole tree. Findings are annotated at
-  # their file and line by Biome's GitHub reporter, counted in the job summary
-  # with the first of them, and fail the job: the mode is blocking.
+  # actionlint is one org-wide check (operator, 2026-11-21;
+  # docs/actionlint-check.md), blocking, always reporting. A pull request,
+  # merge group or push is judged on the workflow files it changes; a change
+  # to an action definition (action.yml / action.yaml) re-judges every
+  # workflow, since actionlint checks a workflow's use of local actions
+  # through them. An event with no base (a dispatch, the promotion canary)
+  # judges every workflow and reports, never fails: it brings nothing in. The
+  # nightly sink judges every workflow too, to code scanning. The version and
+  # checksum are Core's toolchain lock
+  # (toolchain-lock.json `actionlint`, locks/actionlint-<version>.json).
+  # shellcheck and pyflakes are off: the runner image's copies are not
+  # pinned, so findings would move with the image.
       # --- inlined org-ci job codeql org-ci.yml: end ---
       - name: Record the codeql job result
         if: always()
@@ -4342,6 +4457,228 @@ jobs:
         with:
           name: canary-job-base-codeql-${{ matrix.slug }}
           path: ${{ runner.temp }}/canary-job/codeql.result
+          if-no-files-found: error
+          retention-days: 1
+
+  base__actionlint:
+    name: Canary ${{ matrix.repository }} actionlint job (base pins)
+    needs: plan
+    if: needs.plan.outputs.applies == 'true' && needs.plan.outputs.differential == 'true' && needs.plan.outputs['base-current'] == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      # --- inlined org-ci job actionlint org-ci.yml: begin ---
+      - name: Checkout (full history)
+        id: actionlint__s0
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.revision }}
+          token: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve actionlint's scope
+        id: actionlint__actionlint_scope
+        env:
+          EVENT_NAME: push
+          PR_BASE: ''
+          MERGE_GROUP_BASE: ''
+          PUSH_BEFORE: ''
+          EVENT_SHA: ${{ matrix.revision }}
+        run: |
+          set -euo pipefail
+          workflows='^\.github/workflows/[^/]+\.ya?ml$'
+          actions='(^|/)action\.ya?ml$'
+          list="${RUNNER_TEMP}/actionlint-files"
+          git ls-files | grep -E "${workflows}" > "${list}.all" || true
+          if [ ! -s "${list}.all" ]; then
+            echo "applies=false" >> "$GITHUB_OUTPUT"
+            echo "actionlint: not applicable: no workflow files"
+            echo "- actionlint (blocking): not applicable: no workflow files" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          case "${EVENT_NAME}" in
+            pull_request|pull_request_target) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          scope="every workflow"
+          judge="report"
+          cp "${list}.all" "${list}"
+          if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            judge="block"
+            if ! changed="$(git diff --name-only --diff-filter=d "${base}" "${EVENT_SHA}" --)"; then
+              echo "::error title=actionlint::the event's base ${base} is not in this clone; the check cannot tell what changed"
+              exit 1
+            fi
+            if grep -Eq "${actions}" <<< "${changed}"; then
+              scope="every workflow (an action definition changed)"
+            else
+              grep -E "${workflows}" <<< "${changed}" > "${list}" || true
+              scope="the workflow files ${base:0:12}..${EVENT_SHA:0:12} changes"
+              if [ ! -s "${list}" ]; then
+                echo "applies=false" >> "$GITHUB_OUTPUT"
+                echo "actionlint: no changed workflow or action files"
+                echo "- actionlint (blocking): pass: no changed workflow or action files" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+          fi
+          {
+            echo "applies=true"
+            echo "files=${list}"
+            echo "scope=${scope}"
+            echo "judge=${judge}"
+          } >> "$GITHUB_OUTPUT"
+          echo "actionlint: $(wc -l < "${list}") workflow file(s): ${scope}"
+      - name: Install actionlint (toolchain-locked)
+        id: actionlint__actionlint_install
+        if: steps.actionlint__actionlint_scope.outputs.applies == 'true'
+        run: |
+          set -euo pipefail
+          ACTIONLINT_VERSION="1.7.12"
+          ACTIONLINT_SHA256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+          archive="${RUNNER_TEMP}/actionlint.tar.gz"
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          actual="$(sha256sum "${archive}" | awk '{print $1}')"
+          if [ "${actual}" != "${ACTIONLINT_SHA256}" ]; then
+            echo "::error title=actionlint::checksum mismatch: got ${actual}"
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/actionlint-bin"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/actionlint-bin" actionlint
+          echo "executable=${RUNNER_TEMP}/actionlint-bin/actionlint" >> "$GITHUB_OUTPUT"
+      - name: Run actionlint (blocking)
+        id: actionlint__actionlint_check
+        if: steps.actionlint__actionlint_scope.outputs.applies == 'true'
+        env:
+          ACTIONLINT: ${{ steps.actionlint__actionlint_install.outputs.executable }}
+          FILES: ${{ steps.actionlint__actionlint_scope.outputs.files }}
+          SCOPE: ${{ steps.actionlint__actionlint_scope.outputs.scope }}
+          JUDGE: ${{ steps.actionlint__actionlint_scope.outputs.judge }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to ACTIONLINT_SARIF.
+          ACTIONLINT_FINDINGS_FAIL: "true"
+          ACTIONLINT_SARIF: ""
+        run: |
+          set -euo pipefail
+          report="${RUNNER_TEMP}/actionlint.json"
+          mapfile -t files < "${FILES}"
+          status=0
+          # The repository's own .github/actionlint.yaml applies (actionlint
+          # finds it from the working directory).
+          "${ACTIONLINT}" -shellcheck= -pyflakes= -format '{{json .}}' "${files[@]}" > "${report}" || status=$?
+          if [ "${status}" -gt 1 ]; then
+            echo "::error title=actionlint::actionlint exited ${status}: the check did not complete"
+            cat "${report}"
+            exit "${status}"
+          fi
+          STATUS="${status}" REPORT="${report}" COUNT="${#files[@]}" python3 -I - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          try:
+              findings = json.loads(Path(env["REPORT"]).read_text(encoding="utf-8") or "[]")
+          except ValueError as error:
+              sys.exit(f"::error title=actionlint::unreadable report ({error})")
+          # Findings block only what an event brings in (a base exists); with
+          # no base, and in the nightly sink, they are reported.
+          nightly = env.get("ACTIONLINT_FINDINGS_FAIL") == "false"
+          reported = nightly or env.get("JUDGE") != "block"
+          label = "nightly, reported" if nightly else ("reported: no base" if reported else "blocking")
+          scope = env["SCOPE"]
+          if not findings:
+              line = f"- actionlint ({label}): pass: {env['COUNT']} workflow file(s), {scope}"
+          else:
+              line = f"- actionlint ({label}): findings: {len(findings)} in {env['COUNT']} workflow file(s), {scope}"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Kind | Message |", "|---|---|---|---|"]
+          for item in findings:
+              path = str(item.get("filepath", "")).replace(",", "%2C").replace(":", "%3A")
+              message = " ".join(str(item.get("message", "")).split())
+              print(
+                  f"::{'warning' if reported else 'error'} file={path},line={item.get('line', 1)},col={item.get('column', 1)},"
+                  f"title=actionlint {item.get('kind', '')}::{message}"
+              )
+          for item in findings[:20]:
+              message = " ".join(str(item.get("message", "")).split()).replace("|", "\\|")
+              lines.append(f"| `{item.get('filepath', '')}` | {item.get('line', '')} | `{item.get('kind', '')}` | {message} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("ACTIONLINT_SARIF"):
+              kinds = sorted({str(item.get("kind", "")) for item in findings})
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {
+                          "name": "actionlint",
+                          "informationUri": "https://github.com/rhysd/actionlint",
+                          "rules": [{"id": kind, "shortDescription": {"text": f"actionlint {kind} check"}} for kind in kinds],
+                      }},
+                      "results": [{
+                          "ruleId": str(item.get("kind", "")),
+                          "level": "error",
+                          "message": {"text": " ".join(str(item.get("message", "")).split())},
+                          "locations": [{"physicalLocation": {
+                              "artifactLocation": {"uri": str(item.get("filepath", "")).removeprefix("./")},
+                              "region": {
+                                  "startLine": max(int(item.get("line") or 1), 1),
+                                  "startColumn": max(int(item.get("column") or 1), 1),
+                              },
+                          }}],
+                      } for item in findings],
+                  }],
+              }
+              target = Path(env["ACTIONLINT_SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title=actionlint::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
+  # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
+  # beside gitleaks, pip-audit, npm-audit and `analyze`, for every repository the organization
+  # ruleset governs, and always reports: no biome.json / biome.jsonc is a
+  # success that says "not applicable: no biome configuration"; a pull request
+  # that changes no file in Biome's scope is a success that says so. A pull
+  # request and a merge group are judged on the files they change, never on
+  # the code already there (incoming code only); a push of the default branch
+  # on the files the push changes; any other event (a dispatch, the nightly
+  # sink, the promotion canary) on the whole tree. Findings are annotated at
+  # their file and line by Biome's GitHub reporter, counted in the job summary
+  # with the first of them, and fail the job: the mode is blocking.
+      # --- inlined org-ci job actionlint org-ci.yml: end ---
+      - name: Record the actionlint job result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/canary-job"
+          printf '%s\n' "${JOB_STATUS}" > "${RUNNER_TEMP}/canary-job/actionlint.result"
+      - name: Upload the actionlint job result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canary-job-base-actionlint-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job/actionlint.result
           if-no-files-found: error
           retention-days: 1
 
@@ -4561,7 +4898,7 @@ jobs:
 
   base:
     name: Canary ${{ matrix.repository }} (base pins)
-    needs: [plan, base__gitleaks, base__pip-audit, base__npm-audit, base__codeql, base__biome]
+    needs: [plan, base__gitleaks, base__pip-audit, base__npm-audit, base__codeql, base__actionlint, base__biome]
     if: ${{ !cancelled() && (needs.plan.outputs.applies == 'true' && needs.plan.outputs.differential == 'true' && needs.plan.outputs['base-current'] == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -4666,6 +5003,30 @@ jobs:
             *) result=failure ;;
           esac
           echo "codeql job: ${result}"
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
+      # --- the actionlint job's result for this repository (not part of org-ci.yml) ---
+      - name: Download the actionlint job result
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # A pattern, not a name: a missing result downloads nothing (a name
+          # would fail the step), and the next step reads nothing as failure.
+          pattern: canary-job-base-actionlint-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job
+          merge-multiple: true
+      - name: Result of the actionlint job
+        id: actionlint__result
+        run: |
+          set -euo pipefail
+          file="${RUNNER_TEMP}/canary-job/actionlint.result"
+          result=""
+          if [ -f "${file}" ]; then
+            result="$(tr -d '[:space:]' < "${file}")"
+          fi
+          case "${result}" in
+            success|failure|cancelled) ;;
+            *) result=failure ;;
+          esac
+          echo "actionlint job: ${result}"
           echo "result=${result}" >> "$GITHUB_OUTPUT"
       # --- the biome job's result for this repository (not part of org-ci.yml) ---
       - name: Download the biome job result
@@ -4855,7 +5216,7 @@ jobs:
       # does not call a consumer-relative copy and does not paste the module.
       # receipt=static is not a hosted test receipt.
       - name: Judge pull-request test expense
-        if: false
+        if: github.event_name == 'canary-does-not-judge'
         env:
           GH_EVENT: ${{ steps.runtime.outputs.event-class }}
           GUARD_BEFORE: ''
@@ -5143,12 +5504,12 @@ jobs:
         if: always()
         env:
           SIDE: base
-          DIGEST: 9c4b5aa03d0c5e7d95c356795da18c27ea69987527b85ee09842eed040473284
+          DIGEST: 0076de00970e9f52487816f1ce76e397602e44eeb91294dca89ec01075d18bc5
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ""
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
           # org-ci.yml's own checks beside analyze (Biome): job=result pairs.
-          INDEPENDENT: "gitleaks=${{ steps.gitleaks__result.outputs.result }},pip-audit=${{ steps.pip-audit__result.outputs.result }},npm-audit=${{ steps.npm-audit__result.outputs.result }},codeql=${{ steps.codeql__result.outputs.result }},biome=${{ steps.biome__result.outputs.result }}"
+          INDEPENDENT: "gitleaks=${{ steps.gitleaks__result.outputs.result }},pip-audit=${{ steps.pip-audit__result.outputs.result }},npm-audit=${{ steps.npm-audit__result.outputs.result }},codeql=${{ steps.codeql__result.outputs.result }},actionlint=${{ steps.actionlint__result.outputs.result }},biome=${{ steps.biome__result.outputs.result }}"
           MATRIX_ID: canary-base-${{ matrix.slug }}
           SLUG: ${{ matrix.slug }}
           REPOSITORY: ${{ matrix.repository }}
@@ -5833,7 +6194,7 @@ jobs:
         if: always()
         env:
           SIDE: scanbase
-          DIGEST: 9c4b5aa03d0c5e7d95c356795da18c27ea69987527b85ee09842eed040473284
+          DIGEST: 0076de00970e9f52487816f1ce76e397602e44eeb91294dca89ec01075d18bc5
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ""

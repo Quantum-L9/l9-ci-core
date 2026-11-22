@@ -3,9 +3,9 @@
 Three behaviours the organization workflow relies on, each executed here
 rather than read from the YAML text:
 
-* gitleaks honours the consumer's own ``.gitleaks.toml`` on top of the Core
-  preset rules (gitleaks' defaults, ``presets/security/.gitleaks.toml``),
-  never instead of them;
+* gitleaks writes the Core preset (gitleaks' defaults via ``useDefault``,
+  ``presets/security/.gitleaks.toml``) plus the consumer's ``[allowlist]``;
+  a consumer's ``[[rules]]`` are not copied;
 * gitleaks scans the commit range the caller names, so a consumer is judged
   on what an event changes;
 * pip-audit audits the project's own dependencies, not the runner's
@@ -14,7 +14,9 @@ rather than read from the YAML text:
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -44,12 +46,28 @@ def _compose_source() -> str:
     return run[start : run.index("\nPY\n", start)] + "\n"
 
 
+#: A stand-in for gitleaks' default rules. The composer reads the file;
+#: tests/workflows/test_gitleaks_core_rules.py covers repository rules.
+DEFAULTS = '[[rules]]\nid = "openai-api-key"\nregex = "x"\n'
+
+
+def _core_rules() -> str:
+    """The Core rules the step embeds (its TOML heredoc)."""
+    run = str(_step("gitleaks")["run"])
+    start = run.index("<<'TOML'\n") + len("<<'TOML'\n")
+    return run[start : run.index("\nTOML\n", start)] + "\n"
+
+
 class GitleaksConfigLayeringTests(unittest.TestCase):
     def compose(self, text: str) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / ".gitleaks.toml"
             target = Path(temp) / "runtime.toml"
+            defaults = Path(temp) / "defaults.toml"
+            core = Path(temp) / "core.toml"
             source.write_text(text, encoding="utf-8")
+            defaults.write_text(DEFAULTS, encoding="utf-8")
+            core.write_text(_core_rules(), encoding="utf-8")
             completed = subprocess.run(
                 [
                     sys.executable,
@@ -57,6 +75,8 @@ class GitleaksConfigLayeringTests(unittest.TestCase):
                     "-c",
                     _compose_source(),
                     str(source),
+                    str(defaults),
+                    str(core),
                     str(target),
                 ],
                 capture_output=True,
@@ -75,25 +95,31 @@ class GitleaksConfigLayeringTests(unittest.TestCase):
         self.assertEqual(0, code, output)
         parsed = tomllib.loads(produced)
         self.assertIs(True, parsed["extend"]["useDefault"])
-        self.assertEqual("consumer-token", parsed["rules"][0]["id"])
+        core = [rule["id"] for rule in tomllib.loads(_core_rules())["rules"]]
+        self.assertEqual(core, [rule["id"] for rule in parsed["rules"]])
+        self.assertNotIn("consumer-token", [rule["id"] for rule in parsed["rules"]])
         self.assertEqual(["fixtures/"], parsed["allowlist"]["paths"])
 
-    def test_the_core_preset_itself_passes_through_unchanged(self) -> None:
+    def test_the_core_preset_itself_scans_as_core_rules_only(self) -> None:
         preset = PRESET.read_text(encoding="utf-8")
         code, produced, output = self.compose(preset)
         self.assertEqual(0, code, output)
-        self.assertEqual(preset, produced)
+        parsed = tomllib.loads(produced)
+        self.assertIs(True, parsed["extend"]["useDefault"])
+        core = [rule["id"] for rule in tomllib.loads(_core_rules())["rules"]]
+        self.assertEqual(core, [rule["id"] for rule in parsed["rules"]])
+        self.assertNotIn("allowlist", parsed)
 
-    def test_an_extend_path_is_refused_not_scanned_with_fewer_rules(self) -> None:
+    def test_an_extend_path_is_not_copied(self) -> None:
         code, produced, output = self.compose('[extend]\npath = "base.toml"\n')
-        self.assertNotEqual(0, code)
-        self.assertEqual("", produced)
-        self.assertIn("cannot also extend the Core preset rules", output)
+        self.assertEqual(0, code, output)
+        parsed = tomllib.loads(produced)
+        self.assertEqual({"useDefault": True}, parsed["extend"])
 
-    def test_an_extend_that_drops_the_defaults_is_refused(self) -> None:
-        code, _, output = self.compose("[extend]\nuseDefault = false\n")
-        self.assertNotEqual(0, code)
-        self.assertIn("must set useDefault = true", output)
+    def test_an_extend_that_drops_the_defaults_is_replaced(self) -> None:
+        code, produced, output = self.compose("[extend]\nuseDefault = false\n")
+        self.assertEqual(0, code, output)
+        self.assertIs(True, tomllib.loads(produced)["extend"]["useDefault"])
 
     def test_invalid_toml_is_refused(self) -> None:
         code, _, output = self.compose("[extend\n")
@@ -237,9 +263,18 @@ class GitleaksInvocationTests(unittest.TestCase):
     ) -> tuple[int, str, str]:
         script = str(_step("gitleaks")["run"])
         acquisition, scan = script.split("tar -xzf", 1)
-        # Replace acquisition (download, digest) with a stub binary; keep the
-        # config composition and the scan exactly as written.
-        composition = acquisition.split('GITLEAKS_VERSION="', 1)[0]
+        # Replace the binary's acquisition (download, digest) with a stub
+        # binary; keep the config composition and the scan exactly as written.
+        # The default rules' download is served a stand-in by a curl stub,
+        # its pinned checksum replaced by the stand-in's.
+        composition = acquisition.split("# HTTPS only, on every redirect too", 1)[0]
+        composition = re.sub(
+            r'GITLEAKS_DEFAULTS_SHA256="[0-9a-f]{64}"',
+            'GITLEAKS_DEFAULTS_SHA256="'
+            + hashlib.sha256(DEFAULTS.encode("utf-8")).hexdigest()
+            + '"',
+            composition,
+        )
         scan_part = scan.split("\n", 1)[1]
         with tempfile.TemporaryDirectory() as temp:
             workdir = Path(temp) / "repo"
@@ -261,6 +296,16 @@ class GitleaksInvocationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             gitleaks.chmod(0o755)
+            stand_in = Path(temp) / "defaults.toml"
+            stand_in.write_text(DEFAULTS, encoding="utf-8")
+            curl = stub_dir / "curl"
+            curl.write_text(
+                "#!/usr/bin/env bash\n"
+                'while [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done\n'
+                f'cp "{stand_in}" "$out"\n',
+                encoding="utf-8",
+            )
+            curl.chmod(0o755)
             body = (composition + scan_part).replace("/tmp/gitleaks", str(gitleaks))
             code, _, output = _run_with_recording_stubs(
                 body, workdir, {"GITLEAKS_LOG_OPTS": log_opts, **event}, {}
@@ -281,13 +326,20 @@ class GitleaksInvocationTests(unittest.TestCase):
         self.assertTrue(config.endswith("l9-gitleaks.toml"), config)
         self.assertIn("outcome=executed_pass", output)
 
-    def test_no_range_and_no_config_scan_everything_with_the_defaults(self) -> None:
+    def test_no_range_and_no_config_scan_the_revisions_history_with_core_rules(
+        self,
+    ) -> None:
+        # A repository without a .gitleaks.toml still gets the Core rules
+        # (docs/gitleaks-core-rules.md): the composed config is always passed.
+        # With no range the scan is the evaluated revision's own history
+        # (HEAD), never gitleaks' default `git log --all`: a fetch-depth 0
+        # checkout holds every branch, and an unrelated one must not decide
+        # this revision's verdict.
         code, argv, output = self.scan({}, "")
         self.assertEqual(0, code, output)
-        self.assertNotIn("--config", argv)
-        self.assertFalse(
-            any(line.startswith("--log-opts") for line in argv.splitlines())
-        )
+        lines = argv.splitlines()
+        self.assertTrue(lines[lines.index("--config") + 1].endswith("l9-gitleaks.toml"))
+        self.assertIn("--log-opts=HEAD", lines)
 
     def log_opts(self, **event: str) -> str:
         code, argv, output = self.scan({}, "", GITLEAKS_SCOPE="event", **event)
@@ -312,7 +364,7 @@ class GitleaksInvocationTests(unittest.TestCase):
             EVENT_NAME="push", PUSH_BEFORE="0" * 40, EVENT_SHA="SECOND"
         )
         self.assertRegex(new_branch, r"^-1 [0-9a-f]{40}$")
-        self.assertEqual("", self.log_opts(EVENT_NAME="workflow_dispatch"))
+        self.assertEqual("HEAD", self.log_opts(EVENT_NAME="workflow_dispatch"))
 
     def test_an_unknown_scope_is_refused(self) -> None:
         code, argv, output = self.scan({}, "", GITLEAKS_SCOPE="everything")
@@ -326,11 +378,12 @@ class GitleaksInvocationTests(unittest.TestCase):
         self.assertIn("does not resolve in this clone", output)
         self.assertNotIn("outcome=", output)
 
-    def test_a_refused_config_never_scans_and_states_no_outcome(self) -> None:
+    def test_a_path_extend_still_scans_the_core_config(self) -> None:
         code, argv, output = self.scan({".gitleaks.toml": '[extend]\npath = "x"\n'}, "")
-        self.assertNotEqual(0, code)
-        self.assertEqual("", argv)
-        self.assertNotIn("outcome=", output)
+        self.assertEqual(0, code, output)
+        self.assertIn("--config", argv)
+        self.assertIn("outcome=executed_pass", output)
+        self.assertIn("0 repository rule(s) not copied", output)
 
 
 if __name__ == "__main__":

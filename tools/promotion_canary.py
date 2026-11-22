@@ -194,7 +194,9 @@ OPTIONAL_REPLACEMENTS = (
     ("${{ github.event.before || '' }}", "''"),
     # A leg checks out a consumer. The judge would read that checkout as the
     # Core pull request and fail the leg. The consumer's own pull requests
-    # run the judge through org-ci.yml.
+    # run the judge through org-ci.yml. The condition names an event that
+    # never happens, so the step is skipped. A literal `if: false` is an
+    # actionlint finding.
     (
         "      - name: Judge pull-request test expense\n"
         "        if: >-\n"
@@ -204,7 +206,8 @@ OPTIONAL_REPLACEMENTS = (
         "          || steps.runtime.outputs.event-class == 'pull_request'\n"
         "          || steps.runtime.outputs.event-class == 'merge'\n"
         "          || steps.runtime.outputs.event-class == 'push'\n",
-        "      - name: Judge pull-request test expense\n        if: false\n",
+        "      - name: Judge pull-request test expense\n"
+        "        if: github.event_name == 'canary-does-not-judge'\n",
     ),
 )
 TARGET_SHAPED = re.compile(

@@ -299,8 +299,12 @@ class RequiredScanOutcomeTests(unittest.TestCase):
         # Every request, redirects included, is HTTPS with TLS 1.2 or later;
         # the checksum then pins the bytes.
         script = str(_step("Secret scan (gitleaks)")["run"])
+        # Two downloads: gitleaks' default rules at the pinned version (their
+        # ids are the ones a repository rule must not reuse) and the binary.
         downloads = [line for line in script.splitlines() if "curl " in line]
-        self.assertEqual(1, len(downloads))
-        self.assertIn("--proto '=https'", downloads[0])
-        self.assertIn("--tlsv1.2", downloads[0])
+        self.assertEqual(2, len(downloads))
+        for download in downloads:
+            self.assertIn("--proto '=https'", download)
+            self.assertIn("--tlsv1.2", download)
         self.assertIn("GITLEAKS_SHA256", script)
+        self.assertIn("GITLEAKS_DEFAULTS_SHA256", script)
