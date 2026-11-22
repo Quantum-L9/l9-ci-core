@@ -491,7 +491,7 @@ def snapshot_of(body: str) -> dict[str, Any] | None:
 #: Categories whose tool is advisory (docs/biome-check.md): their alerts are
 #: listed in the issue but never counted, so a first night or a rise cannot
 #: fail the ratchet that guards the blocking categories.
-ADVISORY_CATEGORIES = frozenset({"biome"})
+ADVISORY_CATEGORIES = frozenset({"biome", "bandit"})
 
 
 def advisory_alerts(alerts: Mapping[int, Mapping[str, str]]) -> set[int]:
@@ -802,13 +802,12 @@ MATRIX_ID_LINE = "          INPUT_MATRIX_ID: canary-nightly-${{ matrix.slug }}\n
 MATRIX_ID = "nightly-${{ matrix.slug }}"
 LEFT_OVER = re.compile(r"\bneeds\.|\bsecrets\.(?!L9_GITHUB_READ_TOKEN\b)")
 TIMEOUT = 60
-SECURITY = Path(".github/workflows/security.yml")
 AUDIT_STEPS = (
     "Detect project languages",
     "Set up Python",
     "Python dependency audit (pip-audit)",
 )
-AUDIT_REPORT = "${{ runner.temp }}/nightly-pip-audit.json"
+AUDIT_REPORT = "${{ runner.temp }}/pip-audit.json"
 AUDIT_ID = "        id: pip_audit\n"
 AUDIT_LEFT_OVER = re.compile(r"\b(inputs|needs)\.|github\.(event|sha|repository)\b")
 
@@ -828,10 +827,12 @@ HEADER = """\
 # judges the findings. Every instance bundle is projected to
 # SARIF by the SDK and uploaded to that repository's code scanning (one
 # category per instance), and one rolling "Nightly findings" issue is updated
-# with the new, fixed and still-open alerts. security.yml's own pip-audit step
-# (inlined from security.yml, not copied) audits each repository's full
-# resolved lock, and its known vulnerabilities go to the same issue. An open
-# count (either tool) that rises, or an incomplete audit, fails
+# with the new, fixed and still-open alerts. org-ci.yml's `pip-audit` check
+# (inlined, not copied) audits each repository's full resolved lock, and its
+# known vulnerabilities go to the same issue. org-ci.yml's `Biome` check runs
+# on the whole tree, and bandit runs only here (nightly only, operator
+# 2026-11-21), both advisory: their alerts are listed, never counted. An open
+# Semgrep or dependency count that rises, or an incomplete audit, fails
 # the run; findings a live entry of Core's central finding-waiver ledger
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
@@ -982,6 +983,7 @@ SINK = """\
           print("instance biome: projected")
           PY
 
+@@GITLEAKS@@
 @@AUDIT@@
       - name: Summarize the dependency audit
         if: ${{ !cancelled() }}
@@ -996,14 +998,70 @@ SINK = """\
           echo "${line}"
           echo "- ${line}" >> "${GITHUB_STEP_SUMMARY}"
 
+      # bandit runs nightly only, advisory (operator, 2026-11-21; it is not a
+      # pull-request check). The whole default branch, every severity and
+      # confidence; tests are excluded at any depth (a measured 3,581 of
+      # 4,694 Cursor-Governance findings sat in nested test paths). Findings
+      # go to code scanning (l9-central/bandit/, listed, never counted) and
+      # the complete JSON report is kept as an artifact, so bandit can be
+      # compared with SonarCloud before it is promoted or retired. Exit 0 (no
+      # finding) and 1 (findings) are both a completed scan; anything else is
+      # a scan that did not complete and fails the step.
+      - id: bandit
+        name: Python static security scan (bandit, nightly, advisory)
+        if: ${{ !cancelled() && steps.detect.outputs.python == 'true' }}
+        run: |
+          set -euo pipefail
+          python -m pip install --only-binary :all: "bandit[sarif]==1.8.6"
+          exclude="./venv,./.venv,./tests,./build,./dist,*/tests/*,*/test_*.py"
+          sarif_dir="${RUNNER_TEMP}/nightly-sarif"
+          mkdir -p "${sarif_dir}"
+          for format in json sarif; do
+            target="${RUNNER_TEMP}/bandit.json"
+            [ "${format}" = "sarif" ] && target="${sarif_dir}/bandit.sarif"
+            status=0
+            bandit -q -r . -f "${format}" -o "${target}" --exclude "${exclude}" || status=$?
+            if [ "${status}" -gt 1 ]; then
+              echo "::error title=bandit::bandit -f ${format} exited ${status}: the scan did not complete"
+              exit "${status}"
+            fi
+          done
+          python3 -I - "${RUNNER_TEMP}/bandit.json" <<'PY'
+          import json
+          import os
+          import sys
+          from collections import Counter
+
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          results = data.get("results", [])
+          by = Counter((r.get("issue_severity", "?"), r.get("issue_confidence", "?")) for r in results)
+          line = (
+              f"- bandit (nightly, advisory): {len(results)} finding(s); "
+              + ", ".join(f"{s}/{c}: {n}" for (s, c), n in sorted(by.items()))
+          )
+          print(line)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write(line + "\\n")
+          PY
+
+      - name: Keep bandit's full JSON report
+        if: ${{ !cancelled() && steps.bandit.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bandit-${{ matrix.slug }}
+          path: ${{ runner.temp }}/bandit.json
+          if-no-files-found: error
+          retention-days: 30
+
       # Each sink step runs only when the one it depends on succeeded, so a
       # failed dependency audit still reaches the issue, while a failed or
       # partial upload never writes a stale state into its snapshot.
       - id: sink_tool
         name: Fetch the sink tool (Core, this run's revision)
-        # A Biome run that failed (not one with findings: it is advisory here)
-        # would drop its category and so close its alerts: nothing publishes.
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' }}
+        # A Biome, gitleaks or bandit run that failed (not one with findings:
+        # here each reports findings instead of failing) would drop its
+        # category and so close its alerts: nothing publishes.
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
@@ -1083,7 +1141,7 @@ SINK = """\
             --python-project "${PYTHON_PROJECT}" \\
             --pip-audit-outcome "${PIP_AUDIT_OUTCOME}" \\
             --pip-audit-packages "${PIP_AUDIT_PACKAGES}" \\
-            --pip-audit-report "${RUNNER_TEMP}/nightly-pip-audit.json" \\
+            --pip-audit-report "${RUNNER_TEMP}/pip-audit.json" \\
             --lock-dir "${GITHUB_WORKSPACE}" \\
             --run-url "${RUN_URL}"
 """
@@ -1132,12 +1190,21 @@ def sink_steps(scan: str) -> str:
     return kept
 
 
-def audit_steps(security: str) -> str:
-    """security.yml's dependency audit, as the nightly runs it.
+def pip_audit_workflow(org_ci: str) -> str:
+    """org-ci.yml's `pip-audit` check as a one-job workflow (its source)."""
+    blocks = _canary().job_blocks(org_ci)
+    if "pip-audit" not in blocks:
+        raise SinkError("org-ci.yml has no `pip-audit` job to audit nightly")
+    return "on:\n  workflow_call:\njobs:\n  pip-audit:\n" + blocks["pip-audit"]
 
-    The detection, Python and pip-audit steps of security.yml's job are taken
-    verbatim, never copied by hand, so the nightly audits exactly what the
-    pull-request gate audits. Only the event identity is resolved: the nightly
+
+def audit_steps(security: str) -> str:
+    """The `pip-audit` check's dependency audit, as the nightly runs it.
+
+    ``security`` is the one-job workflow of org-ci.yml's `pip-audit` check
+    (``pip_audit_workflow``). Its detection, Python and pip-audit steps are
+    taken verbatim, never copied by hand, so the nightly audits exactly what
+    the pull-request gate audits. Only the event identity is resolved: the nightly
     is not a pull request, merge group or push, so the step audits the full
     resolved lock (row 23), and the ``pip-audit-report`` input asks it for a
     JSON report. With a report path the step ends cleanly on pip-audit's
@@ -1148,7 +1215,7 @@ def audit_steps(security: str) -> str:
     """
     pc = _canary()
     try:
-        steps, _, _ = pc._single_job(security, "security.yml")
+        steps, _, _ = pc._single_job(security, "org-ci.yml job 'pip-audit'")
     except pc.CanaryError as error:
         raise SinkError(str(error)) from error
     items = re.split(r"(?m)^(?= {6}- )", steps)
@@ -1160,7 +1227,7 @@ def audit_steps(security: str) -> str:
             if re.search(rf"(?m)^ {{6,8}}(- )?name: {re.escape(name)}$", i)
         ]
         if len(found) != 1:
-            raise SinkError(f"security.yml no longer has one {name!r} step")
+            raise SinkError(f"the pip-audit check no longer has one {name!r} step")
         chosen.append(found[0].rstrip("\n") + "\n")
     text = "".join(chosen)
     defaults = {**pc._inputs(security), "pip-audit-report": AUDIT_REPORT}
@@ -1168,7 +1235,9 @@ def audit_steps(security: str) -> str:
     def value(match: re.Match[str]) -> str:
         key = match.group(1)
         if key not in defaults:
-            raise SinkError(f"security.yml input {key!r} has no value")
+            raise SinkError(
+                f"the pip-audit check reads input {key!r}, which has no value"
+            )
         return json.dumps(defaults[key])
 
     text = re.sub(r"\$\{\{\s*inputs\.([a-z0-9-]+)\s*\}\}", value, text)
@@ -1176,7 +1245,7 @@ def audit_steps(security: str) -> str:
     text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", '""', text)
     text = text.replace("${{ github.sha }}", "${{ matrix.revision }}")
     if text.count(AUDIT_ID) != 1:
-        raise SinkError("security.yml's pip-audit step no longer has id pip_audit")
+        raise SinkError("the pip-audit check's audit step no longer has id pip_audit")
     left = [
         line.strip()
         for line in text.splitlines()
@@ -1184,10 +1253,11 @@ def audit_steps(security: str) -> str:
     ]
     if left:
         raise SinkError(
-            "security.yml references the sink cannot satisfy: " + "; ".join(left)
+            "the pip-audit check references what the sink cannot satisfy: "
+            + "; ".join(left)
         )
     return (
-        "      # --- security.yml's dependency audit (generated, not copied) ---\n"
+        "      # --- org-ci.yml's pip-audit check, full lock (generated, not copied) ---\n"
         + text
     )
 
@@ -1236,15 +1306,74 @@ def biome_steps(org_ci: str) -> str:
     )
 
 
-def render_workflow(scan: str, security: str, org_ci: str) -> str:
+GITLEAKS_JOB = "gitleaks"
+GITLEAKS_STEP = "Secret scan (gitleaks)"
+GITLEAKS_SARIF = "${{ runner.temp }}/nightly-sarif/gitleaks.sarif"
+# The step's PR-mode settings, each replaced once by its nightly value.
+GITLEAKS_NIGHTLY = (
+    ("          GITLEAKS_SCOPE: event\n", "          GITLEAKS_SCOPE: history\n"),
+    ("          GITLEAKS_TARGET: git\n", "          GITLEAKS_TARGET: dir\n"),
+    (
+        '          GITLEAKS_FINDINGS_FAIL: "true"\n',
+        '          GITLEAKS_FINDINGS_FAIL: "false"\n',
+    ),
+    ('          GITLEAKS_SARIF: ""\n', f"          GITLEAKS_SARIF: {GITLEAKS_SARIF}\n"),
+)
+
+
+def gitleaks_steps(org_ci: str) -> str:
+    """org-ci.yml's `gitleaks` check, run on the whole tree and reported.
+
+    The check's own scan step, verbatim apart from its mode: the whole tree of
+    the default branch (``gitleaks dir``; the sink's checkout is shallow, and a
+    secret that is still in the code is the one to fix), findings written as
+    SARIF for code scanning (``l9-central/gitleaks/``, counted by the ratchet)
+    instead of failing the step. A scan that does not complete still fails it.
+    """
+    pc = _canary()
+    blocks = pc.job_blocks(org_ci)
+    if GITLEAKS_JOB not in blocks:
+        raise SinkError("org-ci.yml has no `gitleaks` job to run nightly")
+    workflow = "on:\n  workflow_call:\njobs:\n  gitleaks:\n" + blocks[GITLEAKS_JOB]
+    try:
+        steps, _, _ = pc._single_job(workflow, "org-ci.yml job 'gitleaks'")
+    except pc.CanaryError as error:
+        raise SinkError(str(error)) from error
+    items = re.split(r"(?m)^(?= {6}- )", steps)
+    found = [i for i in items if f"name: {GITLEAKS_STEP}\n" in i]
+    if len(found) != 1:
+        raise SinkError(f"the gitleaks check no longer has one {GITLEAKS_STEP!r} step")
+    text = found[0].rstrip("\n") + "\n"
+    for old, new in GITLEAKS_NIGHTLY:
+        if text.count(old) != 1:
+            raise SinkError(f"the gitleaks step no longer sets {old.strip()!r} once")
+        text = text.replace(old, new)
+    text = text.replace("${{ github.event_name }}", "nightly")
+    text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", '""', text)
+    text = text.replace("${{ github.sha }}", "${{ matrix.revision }}")
+    head = f"      - name: {GITLEAKS_STEP}\n"
+    if not text.startswith(head) or "        id: gitleaks\n" not in text:
+        raise SinkError("the gitleaks step no longer starts with its name and id")
+    text = text.replace(head, head + "        if: ${{ !cancelled() }}\n", 1)
+    return (
+        "      # --- org-ci.yml's gitleaks check, whole tree, reported (generated) ---\n"
+        + text
+    )
+
+
+def render_workflow(scan: str, org_ci: str) -> str:
     steps = sink_steps(scan)
     biome = biome_steps(org_ci)
-    audit = audit_steps(security)
-    digest = hashlib.sha256((steps + biome + audit).encode("utf-8")).hexdigest()
+    gitleaks = gitleaks_steps(org_ci)
+    audit = audit_steps(pip_audit_workflow(org_ci))
+    digest = hashlib.sha256(
+        (steps + biome + gitleaks + audit).encode("utf-8")
+    ).hexdigest()
     header = HEADER.replace("@@DIGEST@@", digest).replace("@@TIMEOUT@@", str(TIMEOUT))
     sink = (
         SINK.replace("@@MATRIX_ID@@", MATRIX_ID)
         .replace("@@BIOME@@\n", biome + "\n")
+        .replace("@@GITLEAKS@@\n", gitleaks + "\n")
         .replace("@@AUDIT@@\n", audit + "\n")
     )
     return header + steps + "\n" + sink
@@ -1362,9 +1491,8 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 def _cmd_render(args: argparse.Namespace) -> int:
     scan = (ROOT / SCAN).read_text(encoding="utf-8")
-    security = (ROOT / SECURITY).read_text(encoding="utf-8")
     org_ci = (ROOT / ORG_CI).read_text(encoding="utf-8")
-    rendered = render_workflow(scan, security, org_ci)
+    rendered = render_workflow(scan, org_ci)
     target = ROOT / WORKFLOW
     if args.check:
         current = target.read_text(encoding="utf-8") if target.is_file() else ""

@@ -14,7 +14,7 @@
 # apart from the target identity; the scan legs are the nightly sink's scan
 # without its publication, so a Semgrep change is proven before promotion.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 664668e9785c844115dab6ac9ee697a12fef2ad88d2be514cb27840d09f29bdd
+# worse. Head steps digest: b6eba832fb8352519c678d1a0bc40842c222e23994e3c6eff9b91b1d9d2e3b64
 name: Promotion canary (Core)
 # One verdict per pushed head (row 22). `make pr` pushes and then edits the
 # pull request's body; that `edited` run used to cancel the push run, whose
@@ -79,8 +79,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  head__security:
-    name: Canary ${{ matrix.repository }} security job
+  head__gitleaks:
+    name: Canary ${{ matrix.repository }} gitleaks job
     needs: plan
     if: needs.plan.outputs.applies == 'true' && needs.plan.outputs['head-current'] == 'true'
     runs-on: ubuntu-24.04
@@ -91,35 +91,31 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      # --- inlined org-ci job security .github/workflows/security.yml@802ffda7da59892cce9107f865d9d9afb99f7739: begin ---
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
-        id: security__s0
+      # --- inlined org-ci job gitleaks org-ci.yml: begin ---
+      - name: Checkout (full history)
+        id: gitleaks__s0
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
         with:
           repository: ${{ matrix.repository }}
           ref: ${{ matrix.revision }}
           token: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Detect project languages
-        id: security__detect
-        run: |
-          set -euo pipefail
-          python_project=false
-          node_project=false
-          if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ] || [ -f "setup.py" ]; then
-            python_project=true
-          fi
-          if [ -f "package.json" ]; then
-            node_project=true
-          fi
-          echo "python=${python_project}" >> "$GITHUB_OUTPUT"
-          echo "node=${node_project}" >> "$GITHUB_OUTPUT"
-          echo "Detected: python=${python_project} node=${node_project}"
       - name: Secret scan (gitleaks)
-        id: security__gitleaks
+        id: gitleaks__gitleaks
         env:
-          GITLEAKS_LOG_OPTS: ''
+          # Incoming code only: the commits the event adds (base..head for a
+          # pull request or merge group, before..after for a push); every other
+          # event scans the whole history.
+          GITLEAKS_LOG_OPTS: ""
           GITLEAKS_SCOPE: event
+          # `git`: the commits in scope. The nightly sink inlines this step
+          # with `dir` (the whole tree of the default branch), findings
+          # reported rather than failing (`GITLEAKS_FINDINGS_FAIL: "false"`)
+          # and written as SARIF to GITLEAKS_SARIF for code scanning.
+          GITLEAKS_TARGET: git
+          GITLEAKS_FINDINGS_FAIL: "true"
+          GITLEAKS_SARIF: ""
           EVENT_NAME: push
           PR_BASE: ''
           PR_HEAD: ''
@@ -197,6 +193,14 @@ jobs:
           PY
             config_args=(--config "${config}")
           fi
+          case "${GITLEAKS_TARGET}" in
+            git) ;;
+            dir) GITLEAKS_LOG_OPTS="" ;;
+            *)
+              echo "::error::GITLEAKS_TARGET must be git or dir (got '${GITLEAKS_TARGET}')"
+              exit 2
+              ;;
+          esac
           range_args=()
           if [ -n "${GITLEAKS_LOG_OPTS}" ]; then
             # The range must resolve in this clone before gitleaks runs:
@@ -225,25 +229,161 @@ jobs:
           # no outcome, which the report labels not_executed. From here the
           # scanner itself runs and its exit code is the outcome.
           status=0
-          /tmp/gitleaks git "${config_args[@]}" "${range_args[@]}" \
-            --no-banner --redact --exit-code 1 . || status=$?
+          report="${RUNNER_TEMP:-/tmp}/gitleaks-report.json"
+          /tmp/gitleaks "${GITLEAKS_TARGET}" "${config_args[@]}" "${range_args[@]}" \
+            --no-banner --redact --exit-code 1 \
+            --report-format json --report-path "${report}" . || status=$?
           case "${status}" in
             0) echo "outcome=executed_pass" >> "$GITHUB_OUTPUT" ;;
             1) echo "outcome=executed_fail" >> "$GITHUB_OUTPUT" ;;
             *) echo "outcome=not_executed" >> "$GITHUB_OUTPUT" ;;
           esac
+          # Signal law: every finding named by file, line, rule and commit,
+          # never by its value (the report is redacted and the secret and
+          # match fields are not read).
+          scope_text="${GITLEAKS_LOG_OPTS:-the whole history}"
+          [ "${GITLEAKS_TARGET}" = dir ] && scope_text="the whole tree"
+          SCOPE_TEXT="${scope_text}" STATUS="${status}" REPORT="${report}" \
+            python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          env = os.environ
+          status = int(env["STATUS"])
+          try:
+              findings = json.loads(Path(env["REPORT"]).read_text(encoding="utf-8")) or []
+          except (OSError, ValueError):
+              findings = []
+          scope = env["SCOPE_TEXT"]
+          label = "nightly, reported" if env.get("GITLEAKS_FINDINGS_FAIL") == "false" else "blocking"
+          if status == 0:
+              line = f"- gitleaks ({label}): pass: no secret in {scope}"
+          elif status == 1:
+              line = f"- gitleaks ({label}): findings: {len(findings)} secret(s) in {scope} (values never printed)"
+          else:
+              line = f"- gitleaks ({label}): error: gitleaks exited {status}; no result for {scope}"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Rule | Commit |", "|---|---|---|---|"]
+          for item in findings[:20]:
+              path = str(item.get("File", "")).replace(",", "%2C").replace(":", "%3A")
+              rule = str(item.get("RuleID", ""))
+              commit = str(item.get("Commit", ""))[:12]
+              print(
+                  f"::error file={path},line={item.get('StartLine', 1)},title=gitleaks {rule}::"
+                  f"a {rule} secret is {'committed in ' + commit if commit else 'in the tree'}; the value is redacted"
+              )
+              lines.append(f"| `{item.get('File', '')}` | {item.get('StartLine', '')} | `{rule}` | `{commit}` |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the job log")
+          with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          if env.get("GITLEAKS_SARIF") and status in (0, 1):
+              # Code scanning's copy (nightly): file, line and rule only.
+              rules = sorted({str(item.get("RuleID", "")) for item in findings})
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {
+                          "name": "gitleaks",
+                          "informationUri": "https://github.com/gitleaks/gitleaks",
+                          "rules": [{"id": rule, "shortDescription": {"text": f"{rule} secret"}} for rule in rules],
+                      }},
+                      "results": [{
+                          "ruleId": str(item.get("RuleID", "")),
+                          "level": "error",
+                          "message": {"text": f"a {item.get('RuleID', '')} secret is committed here; the value is redacted"},
+                          "locations": [{"physicalLocation": {
+                              "artifactLocation": {"uri": str(item.get("File", "")).removeprefix("./")},
+                              "region": {"startLine": max(int(item.get("StartLine") or 1), 1)},
+                          }}],
+                      } for item in findings],
+                  }],
+              }
+              Path(env["GITLEAKS_SARIF"]).parent.mkdir(parents=True, exist_ok=True)
+              Path(env["GITLEAKS_SARIF"]).write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if status == 1 and env.get("GITLEAKS_FINDINGS_FAIL") == "false":
+              print(f"gitleaks: {len(findings)} secret(s) in {scope}, reported to code scanning")
+          elif status == 1:
+              print(f"::error title=gitleaks::{len(findings)} secret(s) in {scope}; each is annotated at its file and line")
+          elif status != 0:
+              print(f"::error title=gitleaks::gitleaks exited {status}: an infrastructure failure, not a finding")
+          PY
+          if [ "${status}" -eq 1 ] && [ "${GITLEAKS_FINDINGS_FAIL}" = "false" ]; then
+            exit 0
+          fi
           exit "${status}"
+      # --- inlined org-ci job gitleaks org-ci.yml: end ---
+      - name: Record the gitleaks job result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/canary-job"
+          printf '%s\n' "${JOB_STATUS}" > "${RUNNER_TEMP}/canary-job/gitleaks.result"
+      - name: Upload the gitleaks job result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canary-job-head-gitleaks-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job/gitleaks.result
+          if-no-files-found: error
+          retention-days: 1
+
+  head__pip-audit:
+    name: Canary ${{ matrix.repository }} pip-audit job
+    needs: plan
+    if: needs.plan.outputs.applies == 'true' && needs.plan.outputs['head-current'] == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      # --- inlined org-ci job pip-audit org-ci.yml: begin ---
+      - name: Checkout (full history)
+        id: pip-audit__s0
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.revision }}
+          token: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect project languages
+        id: pip-audit__detect
+        run: |
+          set -euo pipefail
+          python_project=false
+          node_project=false
+          if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ] || [ -f "setup.py" ]; then
+            python_project=true
+          fi
+          if [ -f "package.json" ]; then
+            node_project=true
+          fi
+          echo "python=${python_project}" >> "$GITHUB_OUTPUT"
+          echo "node=${node_project}" >> "$GITHUB_OUTPUT"
+          echo "Detected: python=${python_project} node=${node_project}"
+          if [ "${python_project}" != "true" ]; then
+            echo "- pip-audit (blocking): not applicable: no Python project (no pyproject.toml, requirements.txt or setup.py)" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Set up Python
-        id: security__s3
-        if: steps.security__detect.outputs.python == 'true'
+        id: pip-audit__s2
+        if: steps.pip-audit__detect.outputs.python == 'true'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: 3.12
+          python-version: "3.12"
       - name: Python dependency audit (pip-audit)
-        id: security__pip_audit
-        if: steps.security__detect.outputs.python == 'true'
+        id: pip-audit__pip_audit
+        if: steps.pip-audit__detect.outputs.python == 'true'
         env:
-          L9_CI_INSTALL_COMMAND: ''
+          L9_CI_INSTALL_COMMAND: ""
           EVENT_NAME: push
           PR_BASE: ''
           PR_HEAD: ''
@@ -251,6 +391,7 @@ jobs:
           MERGE_GROUP_HEAD: ''
           PUSH_BEFORE: ''
           EVENT_SHA: ${{ matrix.revision }}
+          PIP_AUDIT_REPORT: ${{ runner.temp }}/pip-audit.json
         run: |
           set -euo pipefail
           # Scope (operator decision 2026-11-21, row 23): a pull request,
@@ -357,170 +498,204 @@ jobs:
             total=$((total + count))
           done
           echo "pip-audit: ${total} pinned package(s) audited in all"
+          echo "packages=${total}" >> "$GITHUB_OUTPUT"
           # Acquisition and the lock are settled; from here pip-audit runs.
           status=0
+          report=()
+          if [ -n "${PIP_AUDIT_REPORT:-}" ]; then
+            report=(--format json --output "${PIP_AUDIT_REPORT}")
+          fi
           # `--desc` takes an optional value; it is given explicitly so the
           # next argument is never read as that value (`--desc .` is a usage
           # error, exit 2, and audits nothing). An exported lock is fully
           # pinned, so it is audited as written (--no-deps).
           if [ "${locked[0]}" = "requirements.txt" ]; then
-            pip-audit --desc on -r requirements.txt || status=$?
+            pip-audit --desc on ${report[@]+"${report[@]}"} -r requirements.txt || status=$?
           else
             requirements=()
             for file in "${locked[@]}"; do
               requirements+=(-r "${file}")
             done
-            pip-audit --desc on --no-deps "${requirements[@]}" || status=$?
+            pip-audit --desc on --no-deps ${report[@]+"${report[@]}"} "${requirements[@]}" || status=$?
           fi
           if [ "${status}" -eq 0 ]; then
             echo "outcome=executed_pass" >> "$GITHUB_OUTPUT"
           else
             echo "outcome=executed_fail" >> "$GITHUB_OUTPUT"
           fi
-          exit "${status}"
-      # Advisory by existing policy: no Bandit result fails this job. The exit
-      # code is still read, because "no findings", "findings" and "the scanner
-      # did not complete" are three different facts. Bandit exits 0 with no
-      # issue at the selected level, 1 with issues, and anything else when it
-      # could not scan.
-      - name: Python static security scan (bandit)
-        id: security__bandit
-        if: steps.security__detect.outputs.python == 'true'
-        env:
-          SOURCE_DIR: .
-        run: |
-          set -euo pipefail
-          pip install --only-binary :all: "bandit==1.8.6"
-          status=0
-          bandit -r "$SOURCE_DIR" -ll -f screen \
-            --exclude ./venv,./.venv,./tests,./build,./dist \
-            || status=$?
-          case "${status}" in
-            0)
-              outcome="executed_no_findings"
-              echo "::notice::Bandit (advisory) completed with no findings at medium severity or above"
-              ;;
-            1)
-              outcome="executed_findings"
-              echo "::warning::Bandit (advisory) reported findings; an advisory scan does not fail this job"
-              ;;
-            *)
-              outcome="not_executed"
-              echo "::warning::Bandit (advisory) did not complete (exit ${status}); no Bandit result exists for this revision"
-              ;;
-          esac
-          echo "outcome=${outcome}" >> "$GITHUB_OUTPUT"
-      - name: Node dependency audit (npm audit)
-        id: security__npm_audit
-        if: steps.security__detect.outputs.node == 'true' && false
-        run: |
-          set -euo pipefail
-          if [ ! -f "package-lock.json" ]; then
-            echo "::error::run-npm-audit=true requires package-lock.json in the working directory"
-            exit 1
-          fi
-          # The lockfile check above is a contract failure, not a scan: it
-          # leaves no outcome. From here npm audit itself runs.
-          status=0
-          npm audit --audit-level=high || status=$?
-          if [ "${status}" -eq 0 ]; then
-            echo "outcome=executed_pass" >> "$GITHUB_OUTPUT"
-          else
-            echo "outcome=executed_fail" >> "$GITHUB_OUTPUT"
+          # A caller that asked for a report judges the vulnerabilities it
+          # lists (the nightly sink's ratchet): pip-audit's "vulnerabilities
+          # found" exit (1) then ends this step cleanly. Any other failure
+          # still fails it, and without a report path nothing changes.
+          if [ -n "${PIP_AUDIT_REPORT:-}" ] && [ "${status}" -eq 1 ]; then
+            echo "pip-audit: known vulnerabilities written to ${PIP_AUDIT_REPORT}; the caller judges them"
+            exit 0
           fi
           exit "${status}"
-      - name: Non-applicable gates
-        id: security__s7
-        if: steps.security__detect.outputs.python != 'true' && steps.security__detect.outputs.node != 'true'
-        run: echo "::notice::No Python or Node project detected; only the secret scan ran"
-      # One row per scan: what policy says about it and what actually happened.
-      # Each scan step states its own outcome once its scanner has run. A step
-      # that never ran, or that failed before its scanner ran, has no outcome
-      # and is reported not_executed, never as a pass or as a scan failure.
-      # The step runs from the workspace root: the job default is the caller's
-      # working-directory, and if that does not exist no step could start there.
-      - name: Report scan requiredness and outcomes
-        id: security__s8
-        if: always()
-        working-directory: ${{ github.workspace }}
+      # The audit step ends cleanly on "vulnerabilities found" because it
+      # wrote a report (the nightly sink inlines it the same way); this step
+      # judges that report: a known vulnerability fails the check, named.
+      - name: Judge the dependency audit
+        id: pip-audit__pip_audit_verdict
+        if: steps.pip-audit__detect.outputs.python == 'true' && steps.pip-audit__pip_audit.outcome == 'success'
         env:
-          DETECT_OUTCOME: ${{ steps.security__detect.outcome }}
-          PYTHON_PROJECT: ${{ steps.security__detect.outputs.python }}
-          NODE_PROJECT: ${{ steps.security__detect.outputs.node }}
-          NPM_AUDIT_REQUESTED: false
-          GITLEAKS_STEP: ${{ steps.security__gitleaks.outcome }}
-          GITLEAKS_OUTCOME: ${{ steps.security__gitleaks.outputs.outcome }}
-          PIP_AUDIT_STEP: ${{ steps.security__pip_audit.outcome }}
-          PIP_AUDIT_OUTCOME: ${{ steps.security__pip_audit.outputs.outcome }}
-          BANDIT_STEP: ${{ steps.security__bandit.outcome }}
-          BANDIT_OUTCOME: ${{ steps.security__bandit.outputs.outcome }}
-          NPM_AUDIT_STEP: ${{ steps.security__npm_audit.outcome }}
-          NPM_AUDIT_OUTCOME: ${{ steps.security__npm_audit.outputs.outcome }}
+          OUTCOME: ${{ steps.pip-audit__pip_audit.outputs.outcome }}
+          REPORT: ${{ runner.temp }}/pip-audit.json
         run: |
           set -euo pipefail
-          required_outcome() {
-            local conclusion="$1"  # the step's conclusion
-            local stated="$2"      # the outcome the step stated itself
-            if [ -n "${stated}" ]; then
-              echo "${stated}"
-            elif [ "${conclusion}" = "failure" ]; then
-              echo "not_executed (the step failed before its scanner ran)"
-            else
-              echo "not_executed"
-            fi
-          }
-          gitleaks="$(required_outcome "${GITLEAKS_STEP}" "${GITLEAKS_OUTCOME}")"
-          if [ "${DETECT_OUTCOME}" != "success" ]; then
-            pip_audit="not_executed (language detection did not complete)"
-            bandit="not_executed (language detection did not complete)"
-            npm_audit="not_executed (language detection did not complete)"
-          else
-            if [ "${PYTHON_PROJECT}" = "true" ]; then
-              pip_audit="$(required_outcome "${PIP_AUDIT_STEP}" "${PIP_AUDIT_OUTCOME}")"
-              bandit="${BANDIT_OUTCOME:-not_executed}"
-            else
-              pip_audit="not_applicable (no Python project detected)"
-              bandit="not_applicable (no Python project detected)"
-            fi
-            if [ "${NPM_AUDIT_REQUESTED}" != "true" ]; then
-              npm_audit="not_run (run-npm-audit is false)"
-            elif [ "${NODE_PROJECT}" != "true" ]; then
-              npm_audit="not_applicable (no Node project detected)"
-            else
-              npm_audit="$(required_outcome "${NPM_AUDIT_STEP}" "${NPM_AUDIT_OUTCOME}")"
-            fi
-          fi
-          npm_requiredness="not run"
-          if [ "${NPM_AUDIT_REQUESTED}" = "true" ]; then
-            npm_requiredness="required"
-          fi
-          {
-            echo "### L9 Security scan outcomes"
-            echo
-            echo "| Scan | Requiredness | Outcome |"
-            echo "| --- | --- | --- |"
-            echo "| gitleaks | required | ${gitleaks} |"
-            echo "| pip-audit | required when Python is detected | ${pip_audit} |"
-            echo "| bandit | advisory | ${bandit} |"
-            echo "| npm audit | ${npm_requiredness} | ${npm_audit} |"
-            echo
-            echo "Advisory, not_run, not_applicable and not_executed are not passes."
-          } | tee -a "$GITHUB_STEP_SUMMARY"
-      # --- inlined org-ci job security .github/workflows/security.yml@802ffda7da59892cce9107f865d9d9afb99f7739: end ---
-      - name: Record the security job result
+          python3 -I - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          outcome = env.get("OUTCOME", "")
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          if outcome.startswith("not_applicable"):
+              summary.open("a", encoding="utf-8").write(
+                  "- pip-audit (blocking): pass: dependencies unchanged (no manifest or lock changed)\n"
+              )
+              sys.exit(0)
+          if outcome == "executed_pass":
+              summary.open("a", encoding="utf-8").write("- pip-audit (blocking): pass: no known vulnerability\n")
+              sys.exit(0)
+          try:
+              data = json.loads(Path(env["REPORT"]).read_text(encoding="utf-8"))
+          except (OSError, ValueError) as error:
+              sys.exit(f"::error title=pip-audit::pip-audit reported vulnerabilities but its report is unreadable ({error})")
+          vulnerable = [
+              (dep["name"], dep.get("version", "?"), vuln["id"])
+              for dep in data.get("dependencies", [])
+              for vuln in dep.get("vulns", [])
+          ]
+          lock = "uv.lock" if Path("uv.lock").is_file() else "requirements.txt"
+          lines = [f"- pip-audit (blocking): findings: {len(vulnerable)} known vulnerability(ies)", "",
+                   "| Package | Version | Advisory |", "|---|---|---|"]
+          for name, version, ident in vulnerable[:20]:
+              print(f"::error file={lock},title=pip-audit {ident}::{name} {version} has known vulnerability {ident}")
+              lines.append(f"| `{name}` | {version} | {ident} |")
+          if len(vulnerable) > 20:
+              lines.append(f"\n+{len(vulnerable) - 20} more: see the job log")
+          summary.open("a", encoding="utf-8").write("\n".join(lines) + "\n")
+          print(f"::error title=pip-audit::{len(vulnerable)} known vulnerability(ies) in the locked dependencies; each is annotated")
+          sys.exit(1)
+          PY
+      # --- inlined org-ci job pip-audit org-ci.yml: end ---
+      - name: Record the pip-audit job result
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/canary-job"
-          printf '%s\n' "${JOB_STATUS}" > "${RUNNER_TEMP}/canary-job/security.result"
-      - name: Upload the security job result
+          printf '%s\n' "${JOB_STATUS}" > "${RUNNER_TEMP}/canary-job/pip-audit.result"
+      - name: Upload the pip-audit job result
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: canary-job-head-security-${{ matrix.slug }}
-          path: ${{ runner.temp }}/canary-job/security.result
+          name: canary-job-head-pip-audit-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job/pip-audit.result
+          if-no-files-found: error
+          retention-days: 1
+
+  head__npm-audit:
+    name: Canary ${{ matrix.repository }} npm-audit job
+    needs: plan
+    if: needs.plan.outputs.applies == 'true' && needs.plan.outputs['head-current'] == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      # --- inlined org-ci job npm-audit org-ci.yml: begin ---
+      - name: Checkout (full history)
+        id: npm-audit__s0
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.revision }}
+          token: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Node dependency audit (npm audit)
+        id: npm-audit__npm_audit
+        env:
+          # Opt-in, as before the split (operator, 2026-11-21: modes stay as
+          # they are): org-ci never enabled it, so the check reports not
+          # applicable until Core sets this to "true".
+          L9_NPM_AUDIT: "false"
+          EVENT_NAME: push
+          PR_BASE: ''
+          MERGE_GROUP_BASE: ''
+          PUSH_BEFORE: ''
+          EVENT_SHA: ${{ matrix.revision }}
+        run: |
+          set -euo pipefail
+          summary() { echo "- npm-audit (opt-in, blocking when enabled): $1" >> "$GITHUB_STEP_SUMMARY"; echo "npm-audit: $1"; }
+          if [ "${L9_NPM_AUDIT}" != "true" ]; then
+            summary "not applicable: npm audit is opt-in and not enabled"
+            exit 0
+          fi
+          if [ ! -f package.json ]; then
+            summary "not applicable: no Node project (no package.json)"
+            exit 0
+          fi
+          case "${EVENT_NAME}" in
+            pull_request) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            if ! git diff --name-only "${base}" "${EVENT_SHA}" -- | grep -Eq '(^|/)(package\.json|package-lock\.json)$'; then
+              summary "pass: dependencies unchanged (package.json and package-lock.json untouched)"
+              exit 0
+            fi
+          fi
+          if [ ! -f package-lock.json ]; then
+            echo "::error file=package.json,title=npm-audit::npm audit needs package-lock.json beside package.json"
+            exit 1
+          fi
+          status=0
+          npm audit --audit-level=high || status=$?
+          if [ "${status}" -eq 0 ]; then
+            summary "pass: no high or critical advisory"
+          else
+            summary "findings: npm audit exited ${status} at --audit-level=high"
+            echo "::error file=package-lock.json,title=npm-audit::npm audit found high or critical advisories (exit ${status}); see the log"
+          fi
+          exit "${status}"
+
+  # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
+  # beside gitleaks, pip-audit, npm-audit and `analyze`, for every repository the organization
+  # ruleset governs, and always reports: no biome.json / biome.jsonc is a
+  # success that says "not applicable: no biome configuration"; a pull request
+  # that changes no file in Biome's scope is a success that says so. A pull
+  # request and a merge group are judged on the files they change, never on
+  # the code already there (incoming code only); a push of the default branch
+  # on the files the push changes; any other event (a dispatch, the nightly
+  # sink, the promotion canary) on the whole tree. Findings are annotated at
+  # their file and line by Biome's GitHub reporter, counted in the job summary
+  # with the first of them, and fail the job: the mode is blocking.
+      # --- inlined org-ci job npm-audit org-ci.yml: end ---
+      - name: Record the npm-audit job result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/canary-job"
+          printf '%s\n' "${JOB_STATUS}" > "${RUNNER_TEMP}/canary-job/npm-audit.result"
+      - name: Upload the npm-audit job result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canary-job-head-npm-audit-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job/npm-audit.result
           if-no-files-found: error
           retention-days: 1
 
@@ -740,7 +915,7 @@ jobs:
 
   head:
     name: Canary ${{ matrix.repository }}
-    needs: [plan, head__security, head__biome]
+    needs: [plan, head__gitleaks, head__pip-audit, head__npm-audit, head__biome]
     if: ${{ !cancelled() && (needs.plan.outputs.applies == 'true' && needs.plan.outputs['head-current'] == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -750,20 +925,20 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      # --- the security job's result for this repository (not part of org-ci.yml) ---
-      - name: Download the security job result
+      # --- the gitleaks job's result for this repository (not part of org-ci.yml) ---
+      - name: Download the gitleaks job result
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           # A pattern, not a name: a missing result downloads nothing (a name
           # would fail the step), and the next step reads nothing as failure.
-          pattern: canary-job-head-security-${{ matrix.slug }}
+          pattern: canary-job-head-gitleaks-${{ matrix.slug }}
           path: ${{ runner.temp }}/canary-job
           merge-multiple: true
-      - name: Result of the security job
-        id: security__result
+      - name: Result of the gitleaks job
+        id: gitleaks__result
         run: |
           set -euo pipefail
-          file="${RUNNER_TEMP}/canary-job/security.result"
+          file="${RUNNER_TEMP}/canary-job/gitleaks.result"
           result=""
           if [ -f "${file}" ]; then
             result="$(tr -d '[:space:]' < "${file}")"
@@ -772,7 +947,55 @@ jobs:
             success|failure|cancelled) ;;
             *) result=failure ;;
           esac
-          echo "security job: ${result}"
+          echo "gitleaks job: ${result}"
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
+      # --- the pip-audit job's result for this repository (not part of org-ci.yml) ---
+      - name: Download the pip-audit job result
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # A pattern, not a name: a missing result downloads nothing (a name
+          # would fail the step), and the next step reads nothing as failure.
+          pattern: canary-job-head-pip-audit-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job
+          merge-multiple: true
+      - name: Result of the pip-audit job
+        id: pip-audit__result
+        run: |
+          set -euo pipefail
+          file="${RUNNER_TEMP}/canary-job/pip-audit.result"
+          result=""
+          if [ -f "${file}" ]; then
+            result="$(tr -d '[:space:]' < "${file}")"
+          fi
+          case "${result}" in
+            success|failure|cancelled) ;;
+            *) result=failure ;;
+          esac
+          echo "pip-audit job: ${result}"
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
+      # --- the npm-audit job's result for this repository (not part of org-ci.yml) ---
+      - name: Download the npm-audit job result
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # A pattern, not a name: a missing result downloads nothing (a name
+          # would fail the step), and the next step reads nothing as failure.
+          pattern: canary-job-head-npm-audit-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job
+          merge-multiple: true
+      - name: Result of the npm-audit job
+        id: npm-audit__result
+        run: |
+          set -euo pipefail
+          file="${RUNNER_TEMP}/canary-job/npm-audit.result"
+          result=""
+          if [ -f "${file}" ]; then
+            result="$(tr -d '[:space:]' < "${file}")"
+          fi
+          case "${result}" in
+            success|failure|cancelled) ;;
+            *) result=failure ;;
+          esac
+          echo "npm-audit job: ${result}"
           echo "result=${result}" >> "$GITHUB_OUTPUT"
       # --- the biome job's result for this repository (not part of org-ci.yml) ---
       - name: Download the biome job result
@@ -1245,32 +1468,17 @@ jobs:
                       stream.write(line + "\n")
               print(line)
           PY
-
-      # The security job's result, enforced in the required context. Anything
-      # but success fails, skipped and cancelled included: an INCOMPLETE scan
-      # never passes.
-      - name: Enforce security scan (secrets, dependency audit)
-        if: always()
-        env:
-          SECURITY_RESULT: ${{ steps.security__result.outputs.result }}
-        run: |
-          set -euo pipefail
-          echo "Security scan (gitleaks, pip-audit; bandit advisory): ${SECURITY_RESULT:-unavailable}"
-          if [ "${SECURITY_RESULT}" != "success" ]; then
-            echo "::error title=Security scan::the security job concluded '${SECURITY_RESULT:-unavailable}'; a secret or a vulnerable dependency blocks the merge (see the security job)"
-            exit 1
-          fi
       # --- canary record (not part of org-ci.yml) ---
       - name: Record the canary leg
         if: always()
         env:
           SIDE: head
-          DIGEST: 664668e9785c844115dab6ac9ee697a12fef2ad88d2be514cb27840d09f29bdd
+          DIGEST: b6eba832fb8352519c678d1a0bc40842c222e23994e3c6eff9b91b1d9d2e3b64
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
           # org-ci.yml's own checks beside analyze (Biome): job=result pairs.
-          INDEPENDENT: "biome=${{ steps.biome__result.outputs.result }}"
+          INDEPENDENT: "gitleaks=${{ steps.gitleaks__result.outputs.result }},pip-audit=${{ steps.pip-audit__result.outputs.result }},npm-audit=${{ steps.npm-audit__result.outputs.result }},biome=${{ steps.biome__result.outputs.result }}"
           MATRIX_ID: canary-head-${{ matrix.slug }}
           SLUG: ${{ matrix.slug }}
           REPOSITORY: ${{ matrix.repository }}
@@ -1955,7 +2163,7 @@ jobs:
         if: always()
         env:
           SIDE: scan
-          DIGEST: 664668e9785c844115dab6ac9ee697a12fef2ad88d2be514cb27840d09f29bdd
+          DIGEST: b6eba832fb8352519c678d1a0bc40842c222e23994e3c6eff9b91b1d9d2e3b64
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -2655,7 +2863,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 664668e9785c844115dab6ac9ee697a12fef2ad88d2be514cb27840d09f29bdd
+          DIGEST: b6eba832fb8352519c678d1a0bc40842c222e23994e3c6eff9b91b1d9d2e3b64
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -3191,9 +3399,223 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  base__biome:
+    name: Canary ${{ matrix.repository }} biome job (base pins)
+    needs: plan
+    if: needs.plan.outputs.applies == 'true' && needs.plan.outputs.differential == 'true' && needs.plan.outputs['base-current'] == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      # --- inlined org-ci job biome org-ci.yml: begin ---
+      - name: Checkout immutable event revision
+        id: biome__s0
+        env:
+          REPOSITORY: ${{ matrix.repository }}
+          REVISION: ${{ matrix.revision }}
+          TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=2 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${REPOSITORY}.git"
+
+      # What Biome judges: the files the event changes, or the whole tree.
+      # `biome ci --changed --since` needs the merge base in local history,
+      # which a shallow CI checkout cannot promise; a diff of the two fetched
+      # commits names the same files exactly, and the paths go to `biome ci`,
+      # which still applies the repository's own files.includes.
+      - name: Resolve Biome's scope
+        id: biome__biome_scope
+        env:
+          REPOSITORY: ${{ matrix.repository }}
+          REVISION: ${{ matrix.revision }}
+          TOKEN: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+          EVENT_NAME: push
+          PR_BASE: ''
+          MERGE_GROUP_BASE: ''
+          PUSH_BEFORE: ''
+        run: |
+          set -euo pipefail
+          paths="${RUNNER_TEMP}/biome-paths"
+          : > "${paths}"
+          echo "paths=${paths}" >> "$GITHUB_OUTPUT"
+          if [ ! -f biome.json ] && [ ! -f biome.jsonc ]; then
+            echo "applies=false" >> "$GITHUB_OUTPUT"
+            echo "Biome: not applicable: no biome configuration"
+            echo "- Biome (blocking): not applicable: no biome configuration (no biome.json or biome.jsonc at the repository root)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "applies=true" >> "$GITHUB_OUTPUT"
+          case "${EVENT_NAME}" in
+            pull_request) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          if [ "${EVENT_NAME}" = "push" ] && { [ -z "${base}" ] || [ -z "${base//0/}" ]; }; then
+            # A new branch or a first push has no previous revision.
+            base=""
+          fi
+          if [ -z "${base}" ]; then
+            echo "scope=full" >> "$GITHUB_OUTPUT"
+            echo "Biome scope: the whole tree (${EVENT_NAME})"
+            exit 0
+          fi
+          if ! printf '%s' "${base}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error title=Biome scope::the ${EVENT_NAME} base '${base}' is not a full commit id, so the changed files cannot be named"
+            exit 1
+          fi
+          auth="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            if ! git -c "http.https://github.com/.extraheader=${auth}" \
+                -c protocol.version=2 fetch -q --depth=1 origin "${base}"; then
+              echo "::error title=Biome scope::the ${EVENT_NAME} base ${base} could not be fetched from ${REPOSITORY}, so the changed files cannot be named"
+              exit 1
+            fi
+          fi
+          git diff --name-only --diff-filter=d -z "${base}" "${REVISION}" > "${paths}"
+          count="$(tr -cd '\0' < "${paths}" | wc -c | tr -d ' ')"
+          echo "scope=changed" >> "$GITHUB_OUTPUT"
+          echo "changed=${count}" >> "$GITHUB_OUTPUT"
+          echo "Biome scope: ${count} file(s) the ${EVENT_NAME} changes since ${base}"
+
+      - id: biome__biome
+        name: Install Biome (digest-locked central pin)
+        if: >-
+          steps.biome__biome_scope.outputs.applies == 'true'
+          && (steps.biome__biome_scope.outputs.scope == 'full' || steps.biome__biome_scope.outputs.changed != '0')
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ee1720b9863bec15fdfebac13b220aeb699d781
+
+      - name: Run Biome check (blocking)
+        id: biome__biome_check
+        if: steps.biome__biome_scope.outputs.applies == 'true'
+        env:
+          # Blocking here; the nightly sink renders this step advisory, so a
+          # finding reaches code scanning instead of stopping the night.
+          L9_BIOME_MODE: blocking
+          L9_BIOME_EXECUTABLE: ${{ steps.biome__biome.outputs.executable }}
+          L9_BIOME_VERSION: ${{ steps.biome__biome.outputs['provider-version'] }}
+          L9_BIOME_SCOPE: ${{ steps.biome__biome_scope.outputs.scope }}
+          L9_BIOME_PATHS: ${{ steps.biome__biome_scope.outputs.paths }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          temp = Path(env["RUNNER_TEMP"])
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          scope = env.get("L9_BIOME_SCOPE", "")
+          paths = [p for p in Path(env["L9_BIOME_PATHS"]).read_bytes().decode().split("\0") if p]
+          mode = env.get("L9_BIOME_MODE", "blocking")
+          if mode not in ("blocking", "advisory"):
+              sys.exit(f"::error title=Biome::unknown mode {mode!r}: the check cannot decide")
+          header = f"- Biome ({mode})"
+
+          def write(lines):
+              with summary.open("a", encoding="utf-8") as stream:
+                  stream.write("\n".join(lines) + "\n")
+
+          if scope == "changed" and not paths:
+              print("Biome: no changed files in Biome's scope")
+              write([f"{header}: pass: no changed files in Biome's scope"])
+              sys.exit(0)
+          executable = env.get("L9_BIOME_EXECUTABLE", "")
+          if not executable or not Path(executable).is_file():
+              sys.exit("::error title=Biome::the verified Biome executable is missing; the check cannot run")
+          report = temp / "biome-report.json"
+          sarif = temp / "biome.sarif"
+          command = [
+              executable, "ci", "--no-errors-on-unmatched",
+              "--reporter=github",
+              "--reporter=json", f"--reporter-file={report}",
+              "--reporter=sarif", f"--reporter-file={sarif}",
+          ]
+          command += ["--", *paths] if scope == "changed" else ["."]
+          code = subprocess.run(command, check=False).returncode
+          try:
+              data = json.loads(report.read_text(encoding="utf-8"))
+              counts = data["summary"]
+              diagnostics = data.get("diagnostics", [])
+          except (OSError, ValueError, KeyError) as error:
+              sys.exit(
+                  f"::error title=Biome::biome ci exited {code} and wrote no readable "
+                  f"report ({error}): `{' '.join(command[:2])} ...` failed before judging any file"
+              )
+          checked = int(counts.get("changed", 0)) + int(counts.get("unchanged", 0))
+          errors = int(counts.get("errors", 0))
+          warnings = int(counts.get("warnings", 0))
+          where = "the files this change touches" if scope == "changed" else "the whole tree"
+          if scope == "changed" and checked == 0 and code == 0:
+              print("Biome: no changed files in Biome's scope")
+              write([f"{header}: pass: no changed files in Biome's scope ({len(paths)} changed file(s), none Biome handles)"])
+              sys.exit(0)
+          status = "pass" if code == 0 else "findings" if code == 1 else "error"
+          lines = [
+              f"{header}: {status}: {checked} file(s) of {where}, "
+              f"{errors} error(s), {warnings} warning(s) (Biome {env.get('L9_BIOME_VERSION', '?')})"
+          ]
+          shown = [d for d in diagnostics if d.get("severity") in ("error", "fatal")][:20]
+          if shown:
+              lines += ["", "| File | Line | Rule | Message |", "|---|---|---|---|"]
+              for item in shown:
+                  location = item.get("location") or {}
+                  # 0 is Biome's file-level position (a format diagnostic).
+                  start = (location.get("start") or {}).get("line") or "—"
+                  message = str(item.get("message", "")).replace("|", "\\|")[:200]
+                  lines.append(
+                      f"| `{location.get('path', '')}` | {start} | `{item.get('category', '')}` | {message} |"
+                  )
+              more = errors - len(shown)
+              if more > 0:
+                  lines.append(f"\n+{more} more error(s): see the annotations")
+          write(lines)
+          if code == 1 and mode == "advisory":
+              print(f"Biome (advisory): {errors} error(s) in {where}; reported, not enforced")
+              sys.exit(0)
+          if code == 1:
+              print(
+                  f"::error title=Biome::{errors} error(s) in {where}; each is annotated at its "
+                  "file and line above, and the first are listed in the job summary"
+              )
+          elif code != 0:
+              print(f"::error title=Biome::biome ci exited {code}: an infrastructure failure, not a finding")
+          sys.exit(code)
+          PY
+      # --- inlined org-ci job biome org-ci.yml: end ---
+      - name: Record the biome job result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/canary-job"
+          printf '%s\n' "${JOB_STATUS}" > "${RUNNER_TEMP}/canary-job/biome.result"
+      - name: Upload the biome job result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canary-job-base-biome-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job/biome.result
+          if-no-files-found: error
+          retention-days: 1
+
   base:
     name: Canary ${{ matrix.repository }} (base pins)
-    needs: [plan, base__security]
+    needs: [plan, base__security, base__biome]
     if: ${{ !cancelled() && (needs.plan.outputs.applies == 'true' && needs.plan.outputs.differential == 'true' && needs.plan.outputs['base-current'] == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -3226,6 +3648,30 @@ jobs:
             *) result=failure ;;
           esac
           echo "security job: ${result}"
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
+      # --- the biome job's result for this repository (not part of org-ci.yml) ---
+      - name: Download the biome job result
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # A pattern, not a name: a missing result downloads nothing (a name
+          # would fail the step), and the next step reads nothing as failure.
+          pattern: canary-job-base-biome-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job
+          merge-multiple: true
+      - name: Result of the biome job
+        id: biome__result
+        run: |
+          set -euo pipefail
+          file="${RUNNER_TEMP}/canary-job/biome.result"
+          result=""
+          if [ -f "${file}" ]; then
+            result="$(tr -d '[:space:]' < "${file}")"
+          fi
+          case "${result}" in
+            success|failure|cancelled) ;;
+            *) result=failure ;;
+          esac
+          echo "biome job: ${result}"
           echo "result=${result}" >> "$GITHUB_OUTPUT"
       - id: runtime
         name: Resolve central runtime class
@@ -3483,27 +3929,6 @@ jobs:
               raise SystemExit(f"consumer waiver_refs are not centrally applicable: {unknown}")
           PY
 
-      # Core owns the consumer-facing Biome check end to end: the version is
-      # the `biome` key of Core's toolchain lock, the binary is digest-locked,
-      # and the run is blocking (findings annotate, then fail the step;
-      # infrastructure failures are fatal). It is independent of Semgrep
-      # governance; a consumer without biome.json or biome.jsonc is
-      # not_applicable and nothing is downloaded.
-      - id: biome
-        name: Install Biome (digest-locked central pin)
-        if: hashFiles('biome.json', 'biome.jsonc') != ''
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ee1720b9863bec15fdfebac13b220aeb699d781
-
-      - id: biome_check
-        name: Run Biome check (blocking)
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          executable: ${{ steps.biome.outputs.executable }}
-          provider-version: ${{ steps.biome.outputs['provider-version'] }}
-          mode: blocking
-
       # Repository verification runs the consumer's `make setup`, which may
       # install OS packages with apt (e.g. Playwright's Chromium libraries and
       # fonts). Their downloaded .deb archives are cached per repository so an
@@ -3616,7 +4041,6 @@ jobs:
           MODE: ${{ steps.gov.outputs.mode }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status || steps.repository_verify.outcome }}
           TOOLCHAIN_ALIGNMENT: ${{ steps.toolchain.outcome }}
-          BIOME_STATUS: ${{ steps.biome_check.outputs.status || steps.biome_check.outcome }}
         run: |
           {
             echo "### L9 central CI"
@@ -3626,7 +4050,7 @@ jobs:
             echo "- Mode: \`${MODE:-unknown}\`"
             echo "- Repository verification: \`${REPOSITORY_VERIFY:-unavailable}\`"
             echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
-            echo "- Biome (blocking): \`${BIOME_STATUS:-unavailable}\`"
+            echo "- Biome: its own check, \`Biome\` (docs/biome-check.md)"
             echo "- Semgrep: not run on pull requests; central-semgrep.yml runs it nightly (docs/semgrep-runs-nightly.md)"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -3716,12 +4140,12 @@ jobs:
         if: always()
         env:
           SIDE: base
-          DIGEST: 683e97efc0fe196a62583edb0b7bf4464f36b250788b447b4bab0637b0525bdb
+          DIGEST: 664668e9785c844115dab6ac9ee697a12fef2ad88d2be514cb27840d09f29bdd
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
           # org-ci.yml's own checks beside analyze (Biome): job=result pairs.
-          INDEPENDENT: ""
+          INDEPENDENT: "biome=${{ steps.biome__result.outputs.result }}"
           MATRIX_ID: canary-base-${{ matrix.slug }}
           SLUG: ${{ matrix.slug }}
           REPOSITORY: ${{ matrix.repository }}
@@ -4406,7 +4830,7 @@ jobs:
         if: always()
         env:
           SIDE: scanbase
-          DIGEST: 683e97efc0fe196a62583edb0b7bf4464f36b250788b447b4bab0637b0525bdb
+          DIGEST: 664668e9785c844115dab6ac9ee697a12fef2ad88d2be514cb27840d09f29bdd
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}

@@ -21,7 +21,13 @@ and where every Semgrep finding a repository carries goes.
    run, so a repository that is already red is still scanned and published.
    org-ci.yml's `Biome` check then runs on the whole tree, advisory
    ([biome-check.md](biome-check.md)); its SARIF is one more category,
-   `l9-central/biome/`.
+   `l9-central/biome/`. org-ci.yml's `gitleaks` check's own scan step runs on
+   the whole tree (`gitleaks dir`), its findings written as SARIF, category
+   `l9-central/gitleaks/`, and counted like Semgrep's. bandit runs here and nowhere else (it is not a
+   pull-request check; [security-checks.md](security-checks.md)): the whole
+   tree, every severity, tests excluded at any depth, SARIF as category
+   `l9-central/bandit/`, and the full JSON report kept as the run's
+   `bandit-<repository>` artifact.
 2. **Project.** The primary language's SARIF comes from the analyze steps; every
    other instance bundle (secondary languages, the declared consumer rulepack)
    is projected by the same SDK (`bundle project-sarif`). One file per instance.
@@ -35,19 +41,20 @@ and where every Semgrep finding a repository carries goes.
    scan)", is created once and updated in place. It names the CODEOWNERS owner
    and lists new, fixed and still-open alerts against the previous night, with
    links. The previous night is the snapshot the issue carries.
-5. **Dependency audit.** security.yml's own detection, Python and pip-audit
-   steps are inlined into the sink job by the renderer (not copied by hand;
+5. **Dependency audit.** org-ci.yml's `pip-audit` check's own detection,
+   Python and pip-audit steps are inlined into the sink job by the renderer (not copied by hand;
    `render --check` fails when they drift). As a nightly event the step audits
    the full resolved lock: `uv export --frozen --all-packages
    --no-emit-workspace --no-hashes --all-groups --all-extras` (each selection
    on its own when `[tool.uv].conflicts` is declared), else `requirements.txt`,
-   with Core's pinned pip-audit, and writes a JSON report through
-   security.yml's `pip-audit-report` input. The issue gets a pip-audit section:
+   with Core's pinned pip-audit, and writes a JSON report to the step's
+   `PIP_AUDIT_REPORT` path. The issue gets a pip-audit section:
    packages audited, known vulnerabilities with advisory links and fixed
    versions, new and fixed against the previous night. A job-summary line per
    repository records the outcome and the package count.
 6. **Ratchet.** Per tool, the open count may not rise night over night:
    Semgrep alerts in code scanning, and known vulnerabilities from pip-audit.
+   Advisory tools (Biome, bandit) are listed in the issue and never counted.
    An incomplete audit (no lock, an export that fails, no report) also fails
    the night; an unknown set is not an empty one. Findings that a live entry
    of the central finding-waiver ledger matches are listed as waived and not

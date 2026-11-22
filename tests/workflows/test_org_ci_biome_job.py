@@ -258,10 +258,13 @@ class WiringTests(unittest.TestCase):
         self.workflow = yaml.safe_load(ORG_CI.read_text(encoding="utf-8"))
         self.jobs = self.workflow["jobs"]
 
-    def test_biome_is_its_own_check_beside_security_and_analyze(self) -> None:
+    def test_biome_is_its_own_check_beside_the_security_checks_and_analyze(
+        self,
+    ) -> None:
         self.assertEqual("Biome", self.jobs["biome"]["name"])
         self.assertNotIn("needs", self.jobs["biome"])
-        self.assertEqual(self.jobs["security"]["if"], self.jobs["biome"]["if"])
+        for name in ("gitleaks", "pip-audit", "npm-audit"):
+            self.assertEqual(self.jobs[name]["if"], self.jobs["biome"]["if"])
         self.assertEqual({"contents": "read"}, self.jobs["biome"]["permissions"])
         analyze = str(self.jobs["analyze"])
         self.assertNotIn("biome", self.jobs["analyze"].get("needs", ""))

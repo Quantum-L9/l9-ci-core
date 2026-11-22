@@ -17,6 +17,11 @@ moved to `central-semgrep.yml`, which the nightly findings sink runs on each
 repository's default branch; its findings go to code scanning and the rolling
 nightly issue, never to a merge verdict.
 
+Neither is the security scan. Operator decision 2026-11-21
+([security-checks.md](security-checks.md)): `analyze` no longer waits for or
+enforces a security job. gitleaks, pip-audit and npm-audit are checks of their
+own (sections below), and bandit runs only in the nightly sink, advisory.
+
 Classes:
 
 - **BLOCKING_CORRECTNESS**: protects working code, or the integrity of what is
@@ -49,7 +54,6 @@ Classes:
 | Write central CI summary | PLUMBING | |
 | Report toolchain alignment drift (advisory) | HOUSEKEEPING | One `::warning` per drifting declaration and a summary line; runs with `always()` and has no failing exit (#302) |
 | Enforce repository verification | BLOCKING_CORRECTNESS | See the repository verification table |
-| Enforce security scan (secrets, dependency audit) | BLOCKING_SECURITY | The `security` job (`security.yml`): a gitleaks finding or a pip-audit vulnerability fails; bandit is advisory; a skipped or cancelled scan fails |
 
 ## Repository verification (`run-repository-verification`)
 
@@ -76,6 +80,44 @@ succeed and say so.
 | Resolve Biome's scope | PLUMBING | Names the files the event changes (pull request: against its base; merge group: against the group base; push: against the previous revision) or the whole tree; an unresolvable base fails the step, never widens or narrows the scope silently |
 | Install Biome (digest-locked central pin) | PLUMBING | Only when there is something to judge |
 | Run Biome check (blocking) | BLOCKING_CORRECTNESS | `biome ci` lint and format of the changed files; findings are annotated at file and line and fail the job; an infrastructure failure is never a pass. Splitting formatting out as housekeeping stays in the backlog below |
+
+## gitleaks (`org-ci.yml` job `gitleaks`, the `gitleaks` check)
+
+Blocking. Always reports. Incoming code only: the commits the event adds.
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | The commit range must resolve in the clone |
+| Secret scan (gitleaks) | BLOCKING_SECURITY | gitleaks 8.24.3 (checksum-pinned) over `base..head` of a pull request or merge group, `before..after` of a push, the whole history otherwise; the Core preset plus the repository's `.gitleaks.toml`; each finding annotated at file and line by rule and commit, its value never printed; an unresolvable range or a scanner error fails as INCOMPLETE |
+
+## pip-audit (`org-ci.yml` job `pip-audit`, the `pip-audit` check)
+
+Blocking. Always reports. Runs only when a dependency manifest or lock changes.
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | |
+| Detect project languages | PLUMBING | No Python project: success, "not applicable: no Python project" |
+| Set up Python | PLUMBING | |
+| Python dependency audit (pip-audit) | PLUMBING | A change that touches no manifest or lock ends here as "dependencies unchanged"; otherwise the full resolved lock is audited to a JSON report; an export or lock failure fails as INCOMPLETE |
+| Judge the dependency audit | BLOCKING_SECURITY | A known vulnerability fails, each annotated at the lock file by package and advisory; an unreadable report fails |
+
+## npm-audit (`org-ci.yml` job `npm-audit`, the `npm-audit` check)
+
+Opt-in, as before the split (`L9_NPM_AUDIT`, off): until Core enables it, the
+check succeeds with "not applicable: npm audit is opt-in and not enabled".
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | |
+| Node dependency audit (npm audit) | BLOCKING_SECURITY | When enabled: no `package.json` is not applicable; unchanged `package.json` / `package-lock.json` passes as "dependencies unchanged"; otherwise `npm audit --audit-level=high` fails on a high or critical advisory, and a manifest without a lock fails named |
+
+## bandit (nightly only)
+
+Advisory, not a pull-request check: `nightly-sink.yml` runs bandit 1.8.6 on the
+whole default branch (tests excluded at any depth), sends its SARIF to code
+scanning (`l9-central/bandit/`, listed in the rolling issue and never counted
+by the ratchet) and keeps the full JSON report as an artifact.
 
 ## Backlog (rollout campaign)
 
