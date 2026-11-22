@@ -611,8 +611,17 @@ def _classify_argv(
     seen: set[str],
     test_recipe: bool = False,
 ) -> None:
+    argv = _strip_command_prefix(argv)
+    if not argv:
+        return
     command = argv[0]
-    if "=" in command and not command.startswith(("./", "/")):
+    if _MAKE_FUNCTION_TOKEN in command:
+        # The command word came from a GNU make function the judge cannot
+        # evaluate. It is not "no test": it is an undecided command.
+        if test_recipe:
+            hits.append(
+                _Hit("UNKNOWN_SCRIPT", f"make function in command word {command}")
+            )
         return
     base = Path(command).name
     if base in {"pytest", "py.test"}:
@@ -672,6 +681,40 @@ def _classify_argv(
         if "RUNNER_TEMP" in command or "runner.temp" in command:
             return
         hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {command}"))
+
+
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _strip_command_prefix(argv: Sequence[str]) -> list[str]:
+    """Drop leading ``NAME=value`` words and an ``env`` wrapper.
+
+    ``PYTHONPATH=. pytest tests/`` runs pytest. Dropping the whole statement
+    because its first word is an assignment made the judge blind to it.
+    """
+
+    words = list(argv)
+    if words and (
+        "+=" in words[0].split("=", 1)[0] + "="
+        or (_ASSIGNMENT.match(words[0]) and ("$(" in words[0] or "`" in words[0]))
+    ):
+        # An array append or a command-substitution assignment. The
+        # tokenizer cannot split nested quotes in a substitution, so the
+        # statement is not read as a command; this is what the judge did
+        # before prefix assignments were stripped.
+        return []
+    while words:
+        if _ASSIGNMENT.match(words[0]):
+            words = words[1:]
+            continue
+        if words[0] == "env":
+            words = words[1:]
+            while words and words[0].startswith("-"):
+                takes_value = words[0] in {"-u", "--unset", "-C", "--chdir"}
+                words = words[2:] if takes_value else words[1:]
+            continue
+        break
+    return words
 
 
 def _retag(hit: _Hit, via: str) -> _Hit:
@@ -1077,7 +1120,36 @@ def _walk_make_test(root: Path, hits: list[_Hit]) -> None:
     # explicit `make test` in a workflow still fails closed below.
     if "test" not in targets:
         return
+    before = len(hits)
     _walk_make_target(root, "test", hits, "", set())
+    if len(hits) == before:
+        recipe = _first_recipe_line(targets, "test", set())
+        if recipe is not None:
+            # make test runs something, and nothing in it classified. That is
+            # an undecided suite, not zero tests.
+            hits.append(
+                _Hit(
+                    "UNKNOWN_SCRIPT",
+                    f"make test runs no command the judge can classify: {recipe}",
+                )
+            )
+
+
+def _first_recipe_line(
+    targets: Mapping[str, _Target], name: str, seen: set[str]
+) -> str | None:
+    if name in seen or name not in targets:
+        return None
+    seen.add(name)
+    target = targets[name]
+    for dep in target.deps:
+        line = _first_recipe_line(targets, dep, seen)
+        if line is not None:
+            return line
+    for line in target.recipe:
+        if line.strip():
+            return line.strip()
+    return None
 
 
 def _walk_make_target(
@@ -1220,6 +1292,10 @@ def _strip_make_comment(text: str) -> str:
 
 
 _MAKE_FUNCTIONS = frozenset({"if", "wildcard", "shell"})
+# What an unevaluated make function expands to. It is never empty: deleting
+# the call erased the command word of `$(PY) -m pytest tests/` and the judge
+# then saw no test command at all.
+_MAKE_FUNCTION_TOKEN = "$(make-function)"
 
 
 def _is_test_target(name: str) -> bool:
@@ -1258,6 +1334,7 @@ def _expand_make(value: str, variables: Mapping[str, str], depth: int = 0) -> st
             continue
         name = value[index + 2 : end].strip()
         if _is_make_function(name):
+            output.append(_expand_make_function(name, variables, depth))
             index = end + 1
             continue
         if name not in variables:
@@ -1266,6 +1343,43 @@ def _expand_make(value: str, variables: Mapping[str, str], depth: int = 0) -> st
             output.append(_expand_make(variables[name], variables, depth + 1))
         index = end + 1
     return "".join(output)
+
+
+def _interpreter_family(word: str) -> str | None:
+    base = Path(word.strip().strip("'\"")).name
+    if base in {"python", "python3"} or re.fullmatch(r"python3\.\d+", base):
+        return "python"
+    return None
+
+
+def _expand_make_function(name: str, variables: Mapping[str, str], depth: int) -> str:
+    """Evaluate the one shape that is decidable without running make.
+
+    ``$(if COND,THEN,ELSE)`` resolves when both branches expand to the same
+    text, or to the same Python interpreter (``.venv/bin/python`` vs
+    ``python3``). Anything else stays an explicit unevaluated token.
+    """
+
+    head, _, rest = name.partition(" ")
+    if head == "if":
+        arguments = _split_top(rest, ",")
+        if len(arguments) in {2, 3}:
+            then = _expand_make(arguments[1], variables, depth + 1).strip()
+            other = (
+                _expand_make(arguments[2], variables, depth + 1).strip()
+                if len(arguments) == 3
+                else ""
+            )
+            if then == other:
+                return then
+            if (
+                " " not in then
+                and " " not in other
+                and _interpreter_family(then) == "python"
+                and _interpreter_family(other) == "python"
+            ):
+                return other
+    return _MAKE_FUNCTION_TOKEN
 
 
 def _matching_closer(value: str, start: int, opener: str, closer: str) -> int | None:
