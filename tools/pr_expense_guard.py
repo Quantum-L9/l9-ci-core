@@ -615,7 +615,7 @@ def _classify_argv(
     if not argv:
         return
     command = argv[0]
-    if _MAKE_FUNCTION_TOKEN in command:
+    if _MAKE_FUNCTION_PLACEHOLDER in command:
         # The command word came from a GNU make function the judge cannot
         # evaluate. It is not "no test": it is an undecided command.
         if test_recipe:
@@ -1295,7 +1295,7 @@ _MAKE_FUNCTIONS = frozenset({"if", "wildcard", "shell"})
 # What an unevaluated make function expands to. It is never empty: deleting
 # the call erased the command word of `$(PY) -m pytest tests/` and the judge
 # then saw no test command at all.
-_MAKE_FUNCTION_TOKEN = "$(make-function)"
+_MAKE_FUNCTION_PLACEHOLDER = "$(make-function)"
 
 
 def _is_test_target(name: str) -> bool:
@@ -1379,7 +1379,7 @@ def _expand_make_function(name: str, variables: Mapping[str, str], depth: int) -
                 and _interpreter_family(other) == "python"
             ):
                 return other
-    return _MAKE_FUNCTION_TOKEN
+    return _MAKE_FUNCTION_PLACEHOLDER
 
 
 def _matching_closer(value: str, start: int, opener: str, closer: str) -> int | None:
