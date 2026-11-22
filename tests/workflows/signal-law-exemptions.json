@@ -253,6 +253,204 @@
       "line": "[[ \"${CORE_REF}\" =~ ^[0-9a-f]{40}$ ]] || { echo \"core-ref must be a 40-hex commit: '${CORE_REF}'\" >&2; exit 1; }",
       "occurrences": 1,
       "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/central-semgrep.yml",
+      "line": "*) echo \"gate evaluate failed with unexpected exit ${exit_code}\" >&2; exit \"${exit_code}\" ;;",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/central-semgrep.yml",
+      "line": "raise SystemExit(",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/central-semgrep.yml",
+      "line": "raise SystemExit(\"artifact-retention-days must be between 1 and 90\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/central-semgrep.yml",
+      "line": "raise SystemExit(\"invalid matrix-id\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/central-semgrep.yml",
+      "line": "raise SystemExit(\"sdk-revision must be a full 40-character lowercase SHA\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/central-semgrep.yml",
+      "line": "raise SystemExit(\"semgrep-version must be an exact x.y.z version\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/central-semgrep.yml",
+      "line": "raise SystemExit(\"workflow_call requires event\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/central-semgrep.yml",
+      "line": "raise SystemExit(f\"consumer waiver_refs are not centrally applicable: {unknown}\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/central-semgrep.yml",
+      "line": "raise SystemExit(f\"unsupported event class: {event_class}\")",
+      "occurrences": 2,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/central-semgrep.yml",
+      "line": "raise SystemExit(f\"unsupported trigger: {gh_event}\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/nightly-sink.yml",
+      "line": "*) echo \"gate evaluate failed with unexpected exit ${exit_code}\" >&2; exit \"${exit_code}\" ;;",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/nightly-sink.yml",
+      "line": "exit \"${status}\"",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/nightly-sink.yml",
+      "line": "raise SystemExit(",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/nightly-sink.yml",
+      "line": "raise SystemExit(\"artifact-retention-days must be between 1 and 90\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/nightly-sink.yml",
+      "line": "raise SystemExit(\"invalid matrix-id\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/nightly-sink.yml",
+      "line": "raise SystemExit(\"sdk-revision must be a full 40-character lowercase SHA\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/nightly-sink.yml",
+      "line": "raise SystemExit(\"semgrep-version must be an exact x.y.z version\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/nightly-sink.yml",
+      "line": "raise SystemExit(\"workflow_call requires event\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/nightly-sink.yml",
+      "line": "raise SystemExit(f\"consumer waiver_refs are not centrally applicable: {unknown}\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/nightly-sink.yml",
+      "line": "raise SystemExit(f\"unsupported event class: {event_class}\")",
+      "occurrences": 2,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/nightly-sink.yml",
+      "line": "raise SystemExit(f\"unsupported trigger: {gh_event}\")",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/nightly-sink.yml",
+      "line": "sys.exit(",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/promotion-canary.yml",
+      "line": "*) echo \"gate evaluate failed with unexpected exit ${exit_code}\" >&2; exit \"${exit_code}\" ;;",
+      "occurrences": 2,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/promotion-canary.yml",
+      "line": "raise SystemExit(",
+      "occurrences": 2,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/promotion-canary.yml",
+      "line": "raise SystemExit(\"artifact-retention-days must be between 1 and 90\")",
+      "occurrences": 2,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/promotion-canary.yml",
+      "line": "raise SystemExit(\"invalid matrix-id\")",
+      "occurrences": 2,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/promotion-canary.yml",
+      "line": "raise SystemExit(\"sdk-revision must be a full 40-character lowercase SHA\")",
+      "occurrences": 2,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/promotion-canary.yml",
+      "line": "raise SystemExit(\"semgrep-version must be an exact x.y.z version\")",
+      "occurrences": 2,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/promotion-canary.yml",
+      "line": "raise SystemExit(\"workflow_call requires event\")",
+      "occurrences": 2,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/promotion-canary.yml",
+      "line": "raise SystemExit(f\"consumer waiver_refs are not centrally applicable: {unknown}\")",
+      "occurrences": 2,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/promotion-canary.yml",
+      "line": "raise SystemExit(f\"unsupported event class: {event_class}\")",
+      "occurrences": 4,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/promotion-canary.yml",
+      "line": "raise SystemExit(f\"unsupported trigger: {gh_event}\")",
+      "occurrences": 2,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
+    },
+    {
+      "file": ".github/workflows/promotion-canary.yml",
+      "line": "sys.exit(",
+      "occurrences": 1,
+      "reason": "open: a pre-existing failing exit that names no subject; remediation pending under L9-SIGNAL-001 (CTO directive 2026-11-21)"
     }
   ]
 }

@@ -1531,14 +1531,12 @@ bandit advisory) is about to run for every governed repository through
 `org-ci.yml`. Step one (this section) makes it correct for a consumer. Step two
 pins it from `org-ci.yml` at this change's merge commit (§16, §34).
 
-- **Core rules plus the consumer's.** The Core preset
-  (`presets/security/.gitleaks.toml`) is gitleaks' default rule set. A
-  repository's `.gitleaks.toml` is honoured on top of it. A file with no
-  `[extend]` gains `useDefault = true` in a runtime copy, so its own rules and
-  allowlists apply and the defaults are kept. An `[extend]` naming a `path`, or
-  one not setting `useDefault = true`, is refused (no outcome, so
-  `not_executed`), never scanned with fewer rules. Reviewed false positives
-  go in `.gitleaksignore`.
+- **Core rules, plus a consumer allowlist.** The scan config is
+  `[extend] useDefault = true`, the Core rules in
+  `presets/security/.gitleaks.toml`, and the repository's `[allowlist]` when
+  it has one. A repository's `[[rules]]` and `[extend].path` are not copied
+  and do not fail the job (§52). Reviewed false positives go in
+  `.gitleaksignore`.
 - **Scope.** `gitleaks-scope: event` scans what the event adds: base..head
   for a pull request or merge group, before..after for a push (the pushed
   commit alone for a new branch), and full history otherwise.
@@ -1992,3 +1990,169 @@ The exception is removed when Semgrep allows wcmatch 11.2 or later.
   `origin/main` and so carries main's version during a version change.
 
 `locks/semgrep-1.171.0.txt` stays for rollback.
+
+## 47. Semgrep runs nightly, not on pull requests (2026-11-21) — amends §35, §40, §44
+
+Operator decision: "the semgrep scan inside analyze must be removed and the
+semgrep check moved to nightly". It supersedes row 23 for Semgrep. Record:
+[`docs/semgrep-runs-nightly.md`](docs/semgrep-runs-nightly.md).
+
+- **Required check.** `org-ci.yml` `Analyze (central Core)` runs repository
+  verification, Biome, toolchain alignment and the security scan. It does not
+  provision the SDK or run Semgrep, so no Semgrep result reaches a merge
+  verdict. The scan tree and the CENTRAL-DIFF baseline (§44) left with it.
+- **One Semgrep source.** `.github/workflows/central-semgrep.yml`
+  (`workflow_call`, called by nothing) holds the whole chain: every planned
+  instance (§35, L9-CI-CORE-003), the SDK gate, SARIF and artifacts.
+- **Nightly.** `nightly-sink.yml` renders its scan from `central-semgrep.yml`
+  (`python3 tools/nightly_sink.py render`): default branch, clean checkout,
+  whole tree, findings to code scanning and the rolling issue.
+- **Canary (§40).** `promotion-canary.yml` keeps the org-ci head and base legs
+  and adds the nightly-scan legs `scan` and `scanbase`; the admitted-SDK leg
+  (§43) is a scan leg. Scan legs run as a `nightly` event, as the sink does
+  (whole tree, advisory), and are judged on concluding and on the findings the
+  pull request adds. The verdict prints and judges both tables.
+
+Tests: `tests/workflows/test_central_semgrep_required_instances.py`,
+`tests/workflows/test_instance_runner_scan_root_paths.py`,
+`tests/workflows/test_promotion_canary.py` (`ScanVerdictTests`),
+`tests/tools/test_nightly_sink.py`.
+
+## 48. Biome is its own check, judging incoming code only (2026-11-21) — amends §16
+
+Operator decision. Record: [`docs/biome-check.md`](docs/biome-check.md).
+
+- **Check.** `org-ci.yml` job `biome`, named `Biome`, beside `security` and
+  `analyze`; `analyze` no longer installs or runs Biome. Blocking. It always
+  reports: no `biome.json` / `biome.jsonc`, or no changed file in Biome's
+  scope, is a success that says so.
+- **Incoming code only.** A pull request is judged on the files it changes
+  against its base, a merge group against `merge_group.base_sha`, a
+  default-branch push against `before`; other events judge the whole tree.
+  The paths come from `git diff --name-only --diff-filter=d <base> <revision>`
+  and go to `biome ci` as arguments (Biome 2.5.8; `--changed --since` needs a
+  merge base a shallow checkout cannot promise).
+- **Nightly.** `nightly-sink.yml` renders the job's steps on the whole default
+  branch, advisory, to code scanning category `l9-central/biome/`.
+- **Canary (§40).** org-ci.yml jobs that run their own steps are siblings of
+  every leg; their result is part of the leg record (`checks`).
+- **Required.** Adding `Biome` to ruleset 21895545 is the operator's; GitHub
+  lists the check only after it has reported once.
+
+Tests: `tests/workflows/test_org_ci_biome_job.py`,
+`tests/workflows/test_promotion_canary.py` (`StepJobTests`),
+`tests/tools/test_nightly_sink.py`.
+
+## 49. gitleaks, pip-audit and npm-audit are checks of their own; bandit is nightly (2026-11-21) — amends §47, §48
+
+Operator decisions ("same approach for all tools"; bandit option A). Record:
+[`docs/security-checks.md`](docs/security-checks.md).
+
+- **Checks.** `org-ci.yml` jobs `gitleaks`, `pip-audit` and `npm-audit`, each
+  named as its job, beside `Biome` and `analyze`. `analyze` no longer `needs`
+  a security job and has no "Enforce security scan" step; `org-ci.yml` no
+  longer calls `security.yml` (kept for `self-security.yml`). Each check
+  always reports.
+- **Incoming code only.** gitleaks scans the commits the event adds;
+  pip-audit audits the full resolved lock only when a dependency manifest or
+  lock changes, otherwise "dependencies unchanged"; npm-audit stays opt-in
+  (off: "not applicable"), and when enabled audits only when `package.json` /
+  `package-lock.json` change.
+- **Modes unchanged.** gitleaks and pip-audit block; npm-audit is opt-in.
+- **Nightly.** `nightly-sink.yml` runs the `gitleaks` check's step on the whole
+  tree (`gitleaks dir`, SARIF `l9-central/gitleaks/`, counted), the
+  `pip-audit` check's audit (ratcheted), and bandit: nightly only, advisory,
+  SARIF `l9-central/bandit/` listed and never counted, the full JSON report
+  kept as an artifact, tests excluded at any depth.
+- **Signal.** Findings are annotated at file and line; a secret's value is
+  never printed (gitleaks `--redact`; only file, line, rule and commit read).
+- **Canary (§40, §48).** Each check is a sibling step job of every leg; its
+  result is part of the leg record.
+- **Required.** Adding `gitleaks`, `pip-audit` and `npm-audit` to ruleset
+  21895545 is the operator's; each must report once first.
+
+Tests: `tests/workflows/test_org_ci_security_checks.py`,
+`tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`.
+
+## 52. Core gitleaks rules for every repository (2026-11-21) — amends §37 and §49
+
+Operator-directed correction. Record:
+[`docs/gitleaks-core-rules.md`](docs/gitleaks-core-rules.md).
+
+- **Preset only.** The gitleaks step (org-ci.yml and security.yml, the same
+  script) writes `[extend] useDefault = true`, the Core `[[rules]]` block,
+  and the repository's `[allowlist]` when it has one. Repository `[[rules]]`
+  are not copied, so a default id in `.gitleaks.toml` cannot replace a
+  default rule and does not fail the job. EIE and CEG keep their files.
+- **Core rules.** Consumer rules that caught what the defaults miss are Core
+  rules (`l9-*`) in `presets/security/.gitleaks.toml`; the step embeds the
+  same block (test-bound) and applies it in every repository.
+
+Tests: `tests/workflows/test_gitleaks_core_rules.py`,
+`tests/workflows/test_security_consumer_scope.py`.
+
+## 50. CodeQL is one org-wide check, judging only what a change introduces (2026-11-21)
+
+Operator decision. Record: [`docs/codeql-check.md`](docs/codeql-check.md).
+
+- **Check.** `org-ci.yml` job `codeql`, named `CodeQL`, beside the other
+  checks; `contents: read` only (L9-CI-CORE-005), so it uploads nothing on a
+  pull request and does not use `codeql-action`. The CodeQL CLI comes from the
+  checksum-pinned official bundle (2.27.5).
+- **Only new results.** The revision and the event's base are both analyzed
+  (build-mode none, `security-extended`; `actions` for workflow or action
+  files, and python, javascript, ruby, java, csharp, rust by their files). A
+  result the base lacks (rule, path, `primaryLocationLineHash`) at level error
+  or security severity 7.0+ fails; other new results warn. No base (dispatch,
+  canary): nothing is new.
+- **Nightly.** `nightly-sink.yml` runs the check's steps on the whole tree and
+  publishes `l9-central/codeql-<language>/`, counted. Default setup blocks
+  CodeQL uploads: the sink publishes every other category first, then fails
+  the night naming the refused CodeQL categories.
+- **Migration.** (a) the check lands, (b) per-repository CodeQL files are
+  deleted, (c) default setup is turned off; file and click lists in the
+  record. Requiredness (ruleset 21895545) is the operator's.
+
+Tests: `tests/workflows/test_org_ci_codeql_job.py`,
+`tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`.
+
+## 51. actionlint is one org-wide check, judging changed workflows (2026-11-21)
+
+Operator decision. Record: [`docs/actionlint-check.md`](docs/actionlint-check.md).
+
+- **Check.** `org-ci.yml` job `actionlint`, named `actionlint`, blocking,
+  `contents: read`. A pull request, merge group or push judges the workflow
+  files it changes (every workflow when an action definition changes);
+  other events and the nightly sink judge every workflow. It always reports.
+- **Pin.** Core's toolchain lock: `toolchain-lock.json` `actionlint` and
+  `install-consumer-ci/locks/actionlint-<version>.json` (sha256), bound to the
+  job's literals by test; `tool-ownership.json` now owns actionlint.
+- **Deterministic.** shellcheck and pyflakes integrations are off (the runner
+  image's copies are unpinned). A repository's `.github/actionlint.yaml`
+  applies; Core's ignores only `job.workflow_sha` in `settings-runner.yml`.
+- **Generated workflows.** The canary and sink renderers write an undeclared
+  `inputs.X || default` as its default and the leg record reads only its own
+  leg's steps, so Core's generated workflows pass actionlint.
+- **Nightly.** `l9-central/actionlint/`, counted.
+
+Tests: `tests/workflows/test_org_ci_actionlint_job.py`,
+`tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`,
+`tests/workflows/test_workflow_toolchain_pins.py`.
+- **No base (amendment, same day).** A dispatch or a promotion-canary leg
+  has no base: actionlint judges every workflow and reports the findings as
+  warnings, never failing, as CodeQL does (§50). Changed files still block.
+
+## 53. no-bytecode and sha-pins are org-wide checks (2026-11-21)
+
+Operator-directed correction. Record: [`docs/hygiene-checks.md`](docs/hygiene-checks.md).
+
+- **Checks.** `org-ci.yml` jobs `no-bytecode` and `sha-pins`, blocking,
+  `contents: read`, always reporting: what a pull request, merge group or push
+  adds or changes; with no base (dispatch, canary) every file, reported; the
+  nightly sink every file, to code scanning, counted.
+- **sha-pins** ports `.github` `ops/audit-sha-pins.sh` (full 40-character SHA,
+  frozen Core tags `@v1`/`@v2`/`@v2.0.0`), adding action definitions and
+  docker digests. **no-bytecode** is new: the named `.github` script does not
+  exist.
+
+Tests: `tests/workflows/test_org_ci_hygiene_checks.py`, `tests/tools/test_nightly_sink.py`.

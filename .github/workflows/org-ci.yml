@@ -19,25 +19,23 @@
 # remains outside this untrusted PR trigger and can be reintroduced through a
 # trusted post-analysis lane when Assurance is the authoritative decision source.
 #
-# `push` is a first-class canonical event, declared without a `branches:` selector.
-# GitHub Actions cannot express "this repository's default branch" symbolically in
-# `on.push.branches`, and Quantum-L9 repositories do not all use `main`; hardcoding
-# a branch name here would silently exclude them.
+# `push` is not a trigger of this file. A job skipped by `if:` still creates a
+# check under that job's name, and this file's `analyze` job is the required
+# check. A feature-branch push that reached this workflow therefore left the
+# required check pending. The push trigger lives in
+# org-ci-default-branch-push.yml: it runs on every push and calls this workflow
+# with `event: push` only when `github.ref_name` is the repository's default
+# branch. A feature-branch push skips that caller, whose job is not the
+# required check. No branch name is written here: the caller compares the ref
+# to `github.event.repository.default_branch`, so a repository on `trunk` or
+# `master` is governed like one on `main`.
 #
-# The trigger is therefore broad and the ref decision is made at runtime, where the
-# repository's own `default_branch` is readable from the event payload. A push is
-# evaluated only on the branch that repository itself declares default, so a repo
-# on `trunk` or `master` is governed exactly like one on `main` and no branch name
-# is written into Core. Feature-branch pushes skip before a runner is claimed;
-# their pull_request evaluation is unaffected. This gates a ref against a property
-# the repository states about itself — it does not decide which repositories are
-# governed, which remains the organization ruleset's.
-#
-# A push resolves to event class `push` and execution profile `merge`, the same
-# analysis engine the merge queue uses. It carries no new authority: the job stays
-# `contents: read`, the target is `github.repository` at `github.sha` from the
-# GitHub event context only, and no caller-supplied repository, ref, or SHA can
-# redirect it. A push trigger is an evaluation lane, not a trusted write lane.
+# A called push resolves to event class `push` and execution profile `merge`,
+# the same analysis engine the merge queue uses. It carries no new authority:
+# the job stays `contents: read`, the target is `github.repository` at
+# `github.sha` from the GitHub event context only, and no caller-supplied
+# repository, ref, or SHA can redirect it. A push trigger is an evaluation
+# lane, not a trusted write lane.
 #
 # Core deliberately holds no lifecycle or genesis logic. Whether an observed push
 # run is a genesis attestation is decided by the birth control plane, by comparing
@@ -62,7 +60,6 @@ name: Organization CI (Core)
 # immutable head SHA. The cost is one analysis per edit, and the verdict is
 # never masked.
 on:
-  push:
   pull_request:
     types: [opened, synchronize, reopened, edited]
   merge_group:
@@ -129,24 +126,12 @@ on:
         required: false
         default: 14
     outputs:
-      artifact-name:
-        description: Uploaded analysis artifact set name.
-        value: ${{ jobs.analyze.outputs.artifact-name }}
-      artifact-handoff:
-        description: Canonical cross-run artifact handoff descriptor JSON.
-        value: ${{ jobs.analyze.outputs.artifact-handoff }}
-      gate-status:
-        description: SDK technical gate result (pass, fail, incomplete).
-        value: ${{ jobs.analyze.outputs.gate-status }}
       mode:
         description: Resolved central governance mode.
         value: ${{ jobs.analyze.outputs.mode }}
       enabled:
         description: Whether central governance enabled this provider.
         value: ${{ jobs.analyze.outputs.enabled }}
-      sdk-revision:
-        description: Provisioned immutable SDK revision.
-        value: ${{ jobs.analyze.outputs.sdk-revision }}
     secrets:
       L9_GITHUB_READ_TOKEN:
         description: Read-only org token for the private l9-ci-sdk (AGENTS.md §27). Optional.
@@ -164,35 +149,1593 @@ permissions:
   contents: read
 
 jobs:
-  # Secret scan (gitleaks, the consumer's .gitleaks.toml layered on the Core
-  # preset), Python dependency audit (pip-audit) and advisory bandit, scoped to
-  # what the event changed (L2-closeout item 1). Its result is enforced inside
-  # the required job below, so the one required context carries it: a secret or
-  # a vulnerable dependency blocks, bandit never does. The same ref gate as
-  # `analyze`, so a narrowed native push runs neither.
-  security:
+  # gitleaks, pip-audit and npm-audit are each their own check (operator,
+  # 2026-11-21; docs/security-checks.md), beside Biome and analyze, judging
+  # incoming code only and always reporting. bandit is nightly only
+  # (nightly-sink.yml). security.yml stays the v1 compatibility kernel for
+  # its own callers.
+  gitleaks:
+    name: gitleaks
     if: >-
       github.event_name != 'push'
       || inputs.event != ''
       || github.ref_name == github.event.repository.default_branch
-    # Inherits the workflow's `contents: read`; security.yml asks for no more.
-    # CORE_ACTIONS_PIN — security.yml at #334's merge revision: #329's HTTPS-only
-    # gitleaks download, #330's full-lock pip-audit and #334's printed uv export
-    # and audited package count (AGENTS.md §16)
-    uses: Quantum-L9/l9-ci-core/.github/workflows/security.yml@802ffda7da59892cce9107f865d9d9afb99f7739
-    with:
-      gitleaks-scope: event
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Secret scan (gitleaks)
+        id: gitleaks
+        env:
+          # Incoming code only: the commits the event adds (base..head for a
+          # pull request or merge group, before..after for a push); every other
+          # event scans the whole history.
+          GITLEAKS_LOG_OPTS: ""
+          GITLEAKS_SCOPE: event
+          # `git`: the commits in scope. The nightly sink inlines this step
+          # with `dir` (the whole tree of the default branch), findings
+          # reported rather than failing (`GITLEAKS_FINDINGS_FAIL: "false"`)
+          # and written as SARIF to GITLEAKS_SARIF for code scanning.
+          GITLEAKS_TARGET: git
+          GITLEAKS_FINDINGS_FAIL: "true"
+          GITLEAKS_SARIF: ""
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          case "${GITLEAKS_SCOPE:-history}" in
+            history) ;;
+            event)
+              if [ -z "${GITLEAKS_LOG_OPTS}" ]; then
+                case "${EVENT_NAME}" in
+                  pull_request|pull_request_target) GITLEAKS_LOG_OPTS="${PR_BASE}..${PR_HEAD}" ;;
+                  merge_group) GITLEAKS_LOG_OPTS="${MERGE_GROUP_BASE}..${MERGE_GROUP_HEAD}" ;;
+                  push)
+                    if [ -z "${PUSH_BEFORE}" ] || [ "${PUSH_BEFORE}" = "0000000000000000000000000000000000000000" ]; then
+                      GITLEAKS_LOG_OPTS="-1 ${EVENT_SHA}"
+                    else
+                      GITLEAKS_LOG_OPTS="${PUSH_BEFORE}..${EVENT_SHA}"
+                    fi
+                    ;;
+                  *) ;;
+                esac
+              fi
+              ;;
+            *)
+              echo "::error::gitleaks-scope must be history or event (got '${GITLEAKS_SCOPE}')"
+              exit 2
+              ;;
+          esac
+          # Rules written for the scan: `[extend] useDefault = true`, the Core
+          # rules (presets/security/.gitleaks.toml, between its "Core rules"
+          # markers; docs/gitleaks-core-rules.md), and the repository's
+          # `[allowlist]` when it has one. A repository's `[[rules]]` and an
+          # `[extend].path` are not copied and do not fail the job. Reviewed
+          # false positives belong in .gitleaksignore, which gitleaks reads
+          # from the scanned tree.
+          GITLEAKS_VERSION="8.24.3"
+          GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
+          # gitleaks' default rules at that version. Checksum-pinned like
+          # the binary. `[extend] useDefault = true` applies them.
+          GITLEAKS_DEFAULTS_SHA256="8f393899dbdc67e4eae580909e496acab9cf3a75aacfb6fac56b6eb16bb9e051"
+          config="${RUNNER_TEMP:-/tmp}/l9-gitleaks.toml"
+          core_rules="${RUNNER_TEMP:-/tmp}/l9-gitleaks-core-rules.toml"
+          defaults="${RUNNER_TEMP:-/tmp}/l9-gitleaks-defaults.toml"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${defaults}" \
+            "https://raw.githubusercontent.com/gitleaks/gitleaks/v${GITLEAKS_VERSION}/config/gitleaks.toml"
+          actual_defaults="$(sha256sum "${defaults}" | awk '{print $1}')"
+          if [ "${actual_defaults}" != "${GITLEAKS_DEFAULTS_SHA256}" ]; then
+            echo "::error::gitleaks default rules checksum mismatch: got ${actual_defaults}"
+            exit 2
+          fi
+          cat > "${core_rules}" <<'TOML'
+          [[rules]]
+          id = "l9-openai-api-key"
+          description = "OpenAI API key without the T3BlbkFJ marker (from Enrichment.Inference.Engine)"
+          regex = '''\bsk-[a-zA-Z0-9]{20,}\b'''
+          keywords = ["sk-"]
+
+          [[rules]]
+          id = "l9-openai-project-key"
+          description = "OpenAI project or service key without the T3BlbkFJ marker (from Cognitive.Engine.Graphs)"
+          regex = '''\bsk-(?:proj|svcacct|admin)-[a-zA-Z0-9_-]{80,}'''
+          keywords = ["sk-proj-", "sk-svcacct-", "sk-admin-"]
+
+          [[rules]]
+          id = "l9-api-key-assignment"
+          description = "An API key or secret key assigned a literal of 20+ characters, at any entropy (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''(?i)(?:api[_-]?key|apikey|api[_-]?secret|secret[_-]?key)\s*[=:]\s*['"][a-zA-Z0-9_\-]{20,}['"]'''
+          keywords = ["api_key", "api-key", "apikey", "api_secret", "api-secret", "secret_key", "secret-key", "secretkey"]
+
+          [[rules]]
+          id = "l9-slack-bot-token"
+          description = "Slack bot token with any digit-group length (from Enrichment.Inference.Engine)"
+          regex = '''xoxb-[0-9]{10,}-[0-9]{10,}-[a-zA-Z0-9]{20,}'''
+          keywords = ["xoxb-"]
+
+          [[rules]]
+          id = "l9-private-key-header"
+          description = "A private key header, even without a full body (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'''
+          keywords = ["private key-----"]
+
+          [[rules]]
+          id = "l9-jwt"
+          description = "A JSON Web Token with short segments (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}'''
+          keywords = ["eyj"]
+
+          [[rules]]
+          id = "l9-perplexity-api-key"
+          description = "Perplexity API key (from Enrichment.Inference.Engine)"
+          regex = '''\bpplx-[a-zA-Z0-9]{40,}'''
+          keywords = ["pplx-"]
+
+          [[rules]]
+          id = "l9-postgres-url-password"
+          description = "PostgreSQL URL with an inline password (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''postgres(?:ql)?://[^:\s/@]+:([^@\s/]+)@[a-zA-Z0-9._-]+'''
+          secretGroup = 1
+          keywords = ["postgres://", "postgresql://"]
+
+          [[rules]]
+          id = "l9-redis-url-password"
+          description = "Redis URL with an inline password (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+          regex = '''rediss?://[^:\s/@]*:([^@\s/]+)@[a-zA-Z0-9._-]+'''
+          secretGroup = 1
+          keywords = ["redis://", "rediss://"]
+
+          [[rules]]
+          id = "l9-neo4j-url-password"
+          description = "Neo4j or Bolt URL with an inline password (from Cognitive.Engine.Graphs)"
+          regex = '''(?:neo4j|bolt)(?:\+s(?:sc)?)?://[a-zA-Z0-9]+:([^@\s]+)@[a-zA-Z0-9._-]+'''
+          secretGroup = 1
+          keywords = ["neo4j://", "neo4j+s://", "neo4j+ssc://", "bolt://", "bolt+s://", "bolt+ssc://"]
+
+          [[rules]]
+          id = "l9-neo4j-password-assignment"
+          description = "A Neo4j password assigned a literal (from Cognitive.Engine.Graphs)"
+          regex = '''(?i)neo4j[_-]?password\s*[=:]\s*['"]?([a-zA-Z0-9!@#$%^&*()_+=-]{8,})['"]?'''
+          secretGroup = 1
+          keywords = ["neo4j_password", "neo4j-password", "neo4jpassword"]
+          TOML
+          python3 -I - ".gitleaks.toml" "${defaults}" "${core_rules}" "${config}" <<'PY'
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          def emit_scalar(value):
+              if isinstance(value, bool):
+                  return "true" if value else "false"
+              if isinstance(value, int):
+                  return str(value)
+              if isinstance(value, str):
+                  return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+              if isinstance(value, list):
+                  return "[" + ", ".join(emit_scalar(item) for item in value) + "]"
+              raise TypeError(type(value).__name__)
+
+          def emit_allowlist(table):
+              if not isinstance(table, dict):
+                  sys.exit("::error::.gitleaks.toml [allowlist] must be a table")
+              lines = ["[allowlist]"]
+              for key, value in table.items():
+                  try:
+                      lines.append(f"{key} = {emit_scalar(value)}")
+                  except TypeError as error:
+                      sys.exit(
+                          f"::error::.gitleaks.toml allowlist.{key} cannot be copied ({error})"
+                      )
+              return "\n".join(lines) + "\n"
+
+          source, defaults, core_path, target = (Path(arg) for arg in sys.argv[1:5])
+          core_text = core_path.read_text(encoding="utf-8")
+          if not core_text.endswith("\n"):
+              core_text += "\n"
+          core = tomllib.loads(core_text)["rules"]
+          # The pinned defaults file is checksummed above. Read it so a missing file
+          # fails here too. [extend] useDefault applies those rules; they are not copied.
+          tomllib.loads(defaults.read_text(encoding="utf-8"))
+          text = source.read_text(encoding="utf-8") if source.is_file() else ""
+          data = {}
+          if text.strip():
+              try:
+                  data = tomllib.loads(text)
+              except tomllib.TOMLDecodeError as error:
+                  sys.exit(f"::error::.gitleaks.toml is not valid TOML: {error}")
+          if not isinstance(data, dict):
+              sys.exit("::error::.gitleaks.toml must be a table")
+          parts = ["[extend]\nuseDefault = true\n\n", core_text]
+          allow = data.get("allowlist")
+          if allow:
+              parts.append("\n" + emit_allowlist(allow))
+          produced = "".join(parts)
+          tomllib.loads(produced)
+          target.write_text(produced, encoding="utf-8")
+          ignored = len(data.get("rules") or [])
+          print(
+              f"gitleaks rules: defaults + {len(core)} Core rule(s);"
+              f" {ignored} repository rule(s) not copied"
+          )
+          PY
+          config_args=(--config "${config}")
+          case "${GITLEAKS_TARGET}" in
+            git) ;;
+            dir) GITLEAKS_LOG_OPTS="" ;;
+            *)
+              echo "::error::GITLEAKS_TARGET must be git or dir (got '${GITLEAKS_TARGET}')"
+              exit 2
+              ;;
+          esac
+          # With no range, scan the evaluated revision's own history (HEAD),
+          # never every ref in the clone: gitleaks' default is `git log --all`,
+          # and a fetch-depth 0 checkout holds every branch, so an unrelated
+          # branch would decide this revision's verdict.
+          if [ "${GITLEAKS_TARGET:-git}" = git ] && [ -z "${GITLEAKS_LOG_OPTS}" ]; then
+            GITLEAKS_LOG_OPTS="HEAD"
+          fi
+          range_args=()
+          if [ -n "${GITLEAKS_LOG_OPTS}" ]; then
+            # The range must resolve in this clone before gitleaks runs:
+            # gitleaks exits 1 both for findings and for a git log error, so an
+            # unresolvable range would otherwise read as a failed scan. The
+            # options are word-split on purpose; they are git log arguments.
+            # shellcheck disable=SC2086
+            if ! git log --format=%H ${GITLEAKS_LOG_OPTS} -- > /dev/null; then
+              echo "::error::gitleaks range '${GITLEAKS_LOG_OPTS}' does not resolve in this clone; fetch its history"
+              exit 2
+            fi
+            range_args=(--log-opts="${GITLEAKS_LOG_OPTS}")
+          fi
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          actual_sha="$(sha256sum /tmp/gitleaks.tar.gz | awk '{print $1}')"
+          if [ "${actual_sha}" != "${GITLEAKS_SHA256}" ]; then
+            echo "::error::gitleaks checksum mismatch: got ${actual_sha}"
+            exit 1
+          fi
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          # Everything above is acquisition. A failure there ends the step with
+          # no outcome, which the report labels not_executed. From here the
+          # scanner itself runs and its exit code is the outcome.
+          status=0
+          report="${RUNNER_TEMP:-/tmp}/gitleaks-report.json"
+          /tmp/gitleaks "${GITLEAKS_TARGET}" "${config_args[@]}" "${range_args[@]}" \
+            --no-banner --redact --exit-code 1 \
+            --report-format json --report-path "${report}" . || status=$?
+          case "${status}" in
+            0) echo "outcome=executed_pass" >> "$GITHUB_OUTPUT" ;;
+            1) echo "outcome=executed_fail" >> "$GITHUB_OUTPUT" ;;
+            *) echo "outcome=not_executed" >> "$GITHUB_OUTPUT" ;;
+          esac
+          # Signal law: every finding named by file, line, rule and commit,
+          # never by its value (the report is redacted and the secret and
+          # match fields are not read).
+          scope_text="${GITLEAKS_LOG_OPTS:-the whole history}"
+          [ "${GITLEAKS_TARGET}" = dir ] && scope_text="the whole tree"
+          [ "${GITLEAKS_LOG_OPTS}" = HEAD ] && scope_text="the evaluated revision's history"
+          SCOPE_TEXT="${scope_text}" STATUS="${status}" REPORT="${report}" \
+            python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          env = os.environ
+          status = int(env["STATUS"])
+          try:
+              findings = json.loads(Path(env["REPORT"]).read_text(encoding="utf-8")) or []
+          except (OSError, ValueError):
+              findings = []
+          scope = env["SCOPE_TEXT"]
+          label = "nightly, reported" if env.get("GITLEAKS_FINDINGS_FAIL") == "false" else "blocking"
+          if status == 0:
+              line = f"- gitleaks ({label}): pass: no secret in {scope}"
+          elif status == 1:
+              line = f"- gitleaks ({label}): findings: {len(findings)} secret(s) in {scope} (values never printed)"
+          else:
+              line = f"- gitleaks ({label}): error: gitleaks exited {status}; no result for {scope}"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Rule | Commit |", "|---|---|---|---|"]
+          for item in findings[:20]:
+              path = str(item.get("File", "")).replace(",", "%2C").replace(":", "%3A")
+              rule = str(item.get("RuleID", ""))
+              commit = str(item.get("Commit", ""))[:12]
+              print(
+                  f"::error file={path},line={item.get('StartLine', 1)},title=gitleaks {rule}::"
+                  f"a {rule} secret is {'committed in ' + commit if commit else 'in the tree'}; the value is redacted"
+              )
+              lines.append(f"| `{item.get('File', '')}` | {item.get('StartLine', '')} | `{rule}` | `{commit}` |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the job log")
+          with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          if env.get("GITLEAKS_SARIF") and status in (0, 1):
+              # Code scanning's copy (nightly): file, line and rule only.
+              rules = sorted({str(item.get("RuleID", "")) for item in findings})
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {
+                          "name": "gitleaks",
+                          "informationUri": "https://github.com/gitleaks/gitleaks",
+                          "rules": [{"id": rule, "shortDescription": {"text": f"{rule} secret"}} for rule in rules],
+                      }},
+                      "results": [{
+                          "ruleId": str(item.get("RuleID", "")),
+                          "level": "error",
+                          "message": {"text": f"a {item.get('RuleID', '')} secret is committed here; the value is redacted"},
+                          "locations": [{"physicalLocation": {
+                              "artifactLocation": {"uri": str(item.get("File", "")).removeprefix("./")},
+                              "region": {"startLine": max(int(item.get("StartLine") or 1), 1)},
+                          }}],
+                      } for item in findings],
+                  }],
+              }
+              Path(env["GITLEAKS_SARIF"]).parent.mkdir(parents=True, exist_ok=True)
+              Path(env["GITLEAKS_SARIF"]).write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if status == 1 and env.get("GITLEAKS_FINDINGS_FAIL") == "false":
+              print(f"gitleaks: {len(findings)} secret(s) in {scope}, reported to code scanning")
+          elif status == 1:
+              print(f"::error title=gitleaks::{len(findings)} secret(s) in {scope}; each is annotated at its file and line")
+          elif status != 0:
+              print(f"::error title=gitleaks::gitleaks exited {status}: an infrastructure failure, not a finding")
+          PY
+          if [ "${status}" -eq 1 ] && [ "${GITLEAKS_FINDINGS_FAIL}" = "false" ]; then
+            exit 0
+          fi
+          exit "${status}"
+
+  pip-audit:
+    name: pip-audit
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect project languages
+        id: detect
+        run: |
+          set -euo pipefail
+          python_project=false
+          node_project=false
+          if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ] || [ -f "setup.py" ]; then
+            python_project=true
+          fi
+          if [ -f "package.json" ]; then
+            node_project=true
+          fi
+          echo "python=${python_project}" >> "$GITHUB_OUTPUT"
+          echo "node=${node_project}" >> "$GITHUB_OUTPUT"
+          echo "Detected: python=${python_project} node=${node_project}"
+          if [ "${python_project}" != "true" ]; then
+            echo "- pip-audit (blocking): not applicable: no Python project (no pyproject.toml, requirements.txt or setup.py)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Set up Python
+        if: steps.detect.outputs.python == 'true'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Python dependency audit (pip-audit)
+        id: pip_audit
+        if: steps.detect.outputs.python == 'true'
+        env:
+          L9_CI_INSTALL_COMMAND: ""
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+          PIP_AUDIT_REPORT: ${{ runner.temp }}/pip-audit.json
+        run: |
+          set -euo pipefail
+          # Scope (operator decision 2026-11-21, row 23): a pull request,
+          # merge group or push audits only when it changes a dependency
+          # manifest or lock. Every other event audits. A range that cannot be
+          # read audits too: not running needs a positive proof.
+          is_sha() {
+            local candidate="$1"
+            [[ "${candidate}" =~ ^[0-9a-f]{40}$ ]]
+          }
+          base=""
+          head=""
+          case "${EVENT_NAME:-}" in
+            pull_request|pull_request_target) base="${PR_BASE:-}"; head="${PR_HEAD:-}" ;;
+            merge_group) base="${MERGE_GROUP_BASE:-}"; head="${MERGE_GROUP_HEAD:-}" ;;
+            push) base="${PUSH_BEFORE:-}"; head="${EVENT_SHA:-}" ;;
+            *) ;;
+          esac
+          if is_sha "${base}" && is_sha "${head}" \
+            && [ "${base}" != "0000000000000000000000000000000000000000" ]; then
+            # --no-renames: a renamed or deleted lock shows its old path too.
+            if changed="$(git diff --no-renames --name-only "${base}" "${head}" --)"; then
+              manifests='(^|/)(pyproject\.toml|uv\.lock|setup\.py|setup\.cfg|requirements[^/]*\.txt|constraints[^/]*\.txt|Pipfile(\.lock)?|poetry\.lock|pdm\.lock)$'
+              if ! grep -Eq "${manifests}" <<< "${changed}"; then
+                echo "pip-audit: no dependency manifest or lock changed in ${base}..${head}; nothing new to audit"
+                echo "outcome=not_applicable (no dependency manifest or lock changed)" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            else
+              echo "::warning::pip-audit: the change range ${base}..${head} cannot be read; auditing"
+            fi
+          fi
+          python -m pip install --upgrade --only-binary :all: "pip==26.2.1"
+          pip install --only-binary :all: "pip-audit==2.9.0"
+          if [ -n "$L9_CI_INSTALL_COMMAND" ]; then
+            bash -c "$L9_CI_INSTALL_COMMAND" || echo "::notice::l9-ci install command failed; continuing"
+          fi
+          # The full resolved lock, not the runner's environment: uv.lock
+          # exported with every dependency group, extra and workspace package
+          # (the project's own workspace members are local code, not
+          # packages, and are left out), else requirements.txt. uv is Core's
+          # locked version (install-consumer-ci/toolchain-lock.json).
+          locked=()
+          if [ -f "uv.lock" ]; then
+            pip install --only-binary :all: "uv==0.13.8"
+            out="${RUNNER_TEMP:-/tmp}/l9-locked"
+            mkdir -p "${out}"
+            export_lock() {
+              local name="$1"
+              shift
+              echo "pip-audit: uv export --frozen --all-packages --no-emit-workspace --no-hashes --format requirements.txt $* (${name})"
+              uv export --frozen --all-packages --no-emit-workspace --no-hashes \
+                --format requirements.txt --output-file "${out}/${name}.txt" "$@" > /dev/null
+            }
+            if export_lock all --all-groups --all-extras; then
+              locked+=("${out}/all.txt")
+            elif [ "$(python3 -I -c 'import tomllib; d = tomllib.load(open("pyproject.toml", "rb")); print("yes" if d.get("tool", {}).get("uv", {}).get("conflicts") else "no")' 2> /dev/null)" = yes ]; then
+              # Declared conflicts ([tool.uv].conflicts) make the union of
+              # every extra and group unresolvable by design. Each selection
+              # is exported and audited on its own: the base set, then every
+              # extra and every group. Any selection that cannot be exported
+              # leaves the locked set unknown.
+              echo "pip-audit: uv.lock declares conflicting extras or groups; auditing each selection"
+              selections="$(python3 -I -c 'import tomllib; d = tomllib.load(open("pyproject.toml", "rb")); [print("extra", n) for n in d.get("project", {}).get("optional-dependencies", {})]; [print("group", n) for n in d.get("dependency-groups", {})]')"
+              if ! export_lock base --no-default-groups; then
+                echo "::error::pip-audit: the base set of uv.lock cannot be exported; the audit is incomplete"
+                echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+              locked+=("${out}/base.txt")
+              while read -r kind name; do
+                [ -n "${kind}" ] || continue
+                if ! export_lock "${kind}-${name}" --no-default-groups "--${kind}" "${name}"; then
+                  echo "::error::pip-audit: the ${kind} ${name} of uv.lock cannot be exported; the audit is incomplete"
+                  echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+                  exit 1
+                fi
+                locked+=("${out}/${kind}-${name}.txt")
+              done <<< "${selections}"
+            else
+              echo "::error::pip-audit: uv.lock cannot be exported; the locked set is unknown, so the audit is incomplete"
+              echo "outcome=not_executed (uv.lock could not be exported)" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          elif [ -f "requirements.txt" ]; then
+            locked=("requirements.txt")
+          else
+            echo "::error::pip-audit: a Python project with no uv.lock or requirements.txt has no locked set to audit; the audit is incomplete"
+            echo "outcome=not_executed (no lock file)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          # The audited set, named in the log: each file's pinned packages
+          # and the total. A file the export did not write is not an empty
+          # set; the audit is incomplete.
+          total=0
+          for file in "${locked[@]}"; do
+            if [ ! -f "${file}" ]; then
+              echo "::error::pip-audit: ${file} was not written; the audit is incomplete"
+              echo "outcome=not_executed (the locked set was not written)" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            count="$(awk '/^[A-Za-z0-9][A-Za-z0-9._-]*(\[[^]]*\])?[[:space:]]*==/ { n++ } END { print n + 0 }' "${file}")"
+            echo "pip-audit: auditing ${count} pinned package(s) from ${file}"
+            total=$((total + count))
+          done
+          echo "pip-audit: ${total} pinned package(s) audited in all"
+          echo "packages=${total}" >> "$GITHUB_OUTPUT"
+          # Acquisition and the lock are settled; from here pip-audit runs.
+          status=0
+          report=()
+          if [ -n "${PIP_AUDIT_REPORT:-}" ]; then
+            report=(--format json --output "${PIP_AUDIT_REPORT}")
+          fi
+          # `--desc` takes an optional value; it is given explicitly so the
+          # next argument is never read as that value (`--desc .` is a usage
+          # error, exit 2, and audits nothing). An exported lock is fully
+          # pinned, so it is audited as written (--no-deps).
+          if [ "${locked[0]}" = "requirements.txt" ]; then
+            pip-audit --desc on ${report[@]+"${report[@]}"} -r requirements.txt || status=$?
+          else
+            requirements=()
+            for file in "${locked[@]}"; do
+              requirements+=(-r "${file}")
+            done
+            pip-audit --desc on --no-deps ${report[@]+"${report[@]}"} "${requirements[@]}" || status=$?
+          fi
+          if [ "${status}" -eq 0 ]; then
+            echo "outcome=executed_pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "outcome=executed_fail" >> "$GITHUB_OUTPUT"
+          fi
+          # A caller that asked for a report judges the vulnerabilities it
+          # lists (the nightly sink's ratchet): pip-audit's "vulnerabilities
+          # found" exit (1) then ends this step cleanly. Any other failure
+          # still fails it, and without a report path nothing changes.
+          if [ -n "${PIP_AUDIT_REPORT:-}" ] && [ "${status}" -eq 1 ]; then
+            echo "pip-audit: known vulnerabilities written to ${PIP_AUDIT_REPORT}; the caller judges them"
+            exit 0
+          fi
+          if [ "${status}" -ne 0 ]; then
+            echo "::error title=pip-audit::pip-audit exited ${status}; the audit did not complete"
+          fi
+          exit "${status}"
+      # The audit step ends cleanly on "vulnerabilities found" because it
+      # wrote a report (the nightly sink inlines it the same way); this step
+      # judges that report: a known vulnerability fails the check, named.
+      - name: Judge the dependency audit
+        id: pip_audit_verdict
+        if: steps.detect.outputs.python == 'true' && steps.pip_audit.outcome == 'success'
+        env:
+          OUTCOME: ${{ steps.pip_audit.outputs.outcome }}
+          REPORT: ${{ runner.temp }}/pip-audit.json
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          outcome = env.get("OUTCOME", "")
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          if outcome.startswith("not_applicable"):
+              summary.open("a", encoding="utf-8").write(
+                  "- pip-audit (blocking): pass: dependencies unchanged (no manifest or lock changed)\n"
+              )
+              sys.exit(0)
+          if outcome == "executed_pass":
+              summary.open("a", encoding="utf-8").write("- pip-audit (blocking): pass: no known vulnerability\n")
+              sys.exit(0)
+          try:
+              data = json.loads(Path(env["REPORT"]).read_text(encoding="utf-8"))
+          except (OSError, ValueError) as error:
+              sys.exit(f"::error title=pip-audit::pip-audit reported vulnerabilities but its report is unreadable ({error})")
+          vulnerable = [
+              (dep["name"], dep.get("version", "?"), vuln["id"])
+              for dep in data.get("dependencies", [])
+              for vuln in dep.get("vulns", [])
+          ]
+          lock = "uv.lock" if Path("uv.lock").is_file() else "requirements.txt"
+          lines = [f"- pip-audit (blocking): findings: {len(vulnerable)} known vulnerability(ies)", "",
+                   "| Package | Version | Advisory |", "|---|---|---|"]
+          for name, version, ident in vulnerable[:20]:
+              print(f"::error file={lock},title=pip-audit {ident}::{name} {version} has known vulnerability {ident}")
+              lines.append(f"| `{name}` | {version} | {ident} |")
+          if len(vulnerable) > 20:
+              lines.append(f"\n+{len(vulnerable) - 20} more: see the job log")
+          summary.open("a", encoding="utf-8").write("\n".join(lines) + "\n")
+          print(f"::error title=pip-audit::{len(vulnerable)} known vulnerability(ies) in the locked dependencies; each is annotated")
+          sys.exit(1)
+          PY
+
+  npm-audit:
+    name: npm-audit
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Node dependency audit (npm audit)
+        id: npm_audit
+        env:
+          # Opt-in, as before the split (operator, 2026-11-21: modes stay as
+          # they are): org-ci never enabled it, so the check reports not
+          # applicable until Core sets this to "true".
+          L9_NPM_AUDIT: "false"
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          summary() { echo "- npm-audit (opt-in, blocking when enabled): $1" >> "$GITHUB_STEP_SUMMARY"; echo "npm-audit: $1"; }
+          if [ "${L9_NPM_AUDIT}" != "true" ]; then
+            summary "not applicable: npm audit is opt-in and not enabled"
+            exit 0
+          fi
+          if [ ! -f package.json ]; then
+            summary "not applicable: no Node project (no package.json)"
+            exit 0
+          fi
+          case "${EVENT_NAME}" in
+            pull_request) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            if ! git diff --name-only "${base}" "${EVENT_SHA}" -- | grep -Eq '(^|/)(package\.json|package-lock\.json)$'; then
+              summary "pass: dependencies unchanged (package.json and package-lock.json untouched)"
+              exit 0
+            fi
+          fi
+          if [ ! -f package-lock.json ]; then
+            echo "::error file=package.json,title=npm-audit::npm audit needs package-lock.json beside package.json"
+            exit 1
+          fi
+          status=0
+          npm audit --audit-level=high || status=$?
+          if [ "${status}" -eq 0 ]; then
+            summary "pass: no high or critical advisory"
+          else
+            summary "findings: npm audit exited ${status} at --audit-level=high"
+            echo "::error file=package-lock.json,title=npm-audit::npm audit found high or critical advisories (exit ${status}); see the log"
+          fi
+          exit "${status}"
+
+  # no-bytecode and sha-pins are org-wide checks (operator, 2026-11-21;
+  # docs/hygiene-checks.md), blocking, always reporting: a pull request, merge
+  # group or push is judged on the files it adds or changes; an event with no
+  # base (a dispatch, the promotion canary) on every tracked file, reported,
+  # never failing; the nightly sink on every file, to code scanning.
+  # no-bytecode: no tracked *.pyc / *.pyo / *.pyd or __pycache__/ file.
+  no-bytecode:
+    name: no-bytecode
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check for tracked Python bytecode (blocking)
+        id: no_bytecode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to SARIF.
+          FINDINGS_FAIL: "true"
+          SARIF: ""
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          CHECK = "no-bytecode"
+          RULE = "Python bytecode is never tracked"
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+
+
+          def git(*args):
+              return subprocess.run(["git", *args], capture_output=True, text=True, check=False)
+
+
+          bases = {
+              "pull_request": "PR_BASE",
+              "pull_request_target": "PR_BASE",
+              "merge_group": "MERGE_GROUP_BASE",
+              "push": "PUSH_BEFORE",
+          }
+          base = env.get(bases.get(env.get("EVENT_NAME", ""), ""), "")
+          if not re.fullmatch(r"[0-9a-f]{40}", base) or not base.strip("0"):
+              base = ""
+          tracked = git("ls-files", "-z").stdout.split("\0")
+          if base:
+              if git("cat-file", "-e", f"{base}^{{commit}}").returncode != 0:
+                  print(f"::error title={CHECK}::the event's base {base} is not in this clone; the check cannot tell what changed")
+                  sys.exit(2)
+              diff = git("diff", "--name-only", "-z", "--diff-filter=AMR", base, env["EVENT_SHA"], "--")
+              if diff.returncode != 0:
+                  sys.exit(f"::error title={CHECK}::git diff against {base} failed: {diff.stderr.strip()}")
+              scope = [p for p in diff.stdout.split("\0") if p]
+              scope_text = f"the files {base[:12]}..{env['EVENT_SHA'][:12]} changes"
+          else:
+              scope = [p for p in tracked if p]
+              scope_text = "every tracked file"
+          nightly = env.get("FINDINGS_FAIL") == "false"
+          reported = nightly or not base
+          label = "nightly, reported" if nightly else ("reported: no base" if not base else "blocking")
+
+          bytecode = re.compile(r"(^|/)__pycache__/|\.py[cod]$")
+          findings = [
+              (path, 1, "Python bytecode is tracked; delete it from git (git rm --cached) and let .gitignore keep it out")
+              for path in scope
+              if bytecode.search(path)
+          ]
+          applicable = True
+          not_applicable = ""
+          passed = f"no tracked bytecode in {len(scope)} file(s)"
+
+
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          if not applicable:
+              line = f"- {CHECK} ({label}): {not_applicable}"
+          elif not findings:
+              line = f"- {CHECK} ({label}): pass: {passed} ({scope_text})"
+          else:
+              line = f"- {CHECK} ({label}): findings: {len(findings)} ({scope_text})"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Finding |", "|---|---|---|"]
+          for path, number, message in findings:
+              kind = "warning" if reported else "error"
+              safe = path.replace(",", "%2C").replace(":", "%3A")
+              print(f"::{kind} file={safe},line={number},title={CHECK}::{message}")
+          for path, number, message in findings[:20]:
+              lines.append(f"| `{path}` | {number} | {message.replace('|', chr(92) + '|')} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with summary.open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("SARIF"):
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {"name": CHECK, "informationUri": "https://github.com/Quantum-L9/l9-ci-core", "rules": [{"id": CHECK, "shortDescription": {"text": RULE}}]}},
+                      "results": [{
+                          "ruleId": CHECK,
+                          "level": "error",
+                          "message": {"text": message},
+                          "locations": [{"physicalLocation": {"artifactLocation": {"uri": path}, "region": {"startLine": number}}}],
+                      } for path, number, message in findings],
+                  }],
+              }
+              target = Path(env["SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title={CHECK}::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
+  # sha-pins: every `uses:` in a workflow file or action definition is pinned
+  # by a full 40-character commit SHA (a docker:// image by @sha256: digest),
+  # or is a documented, frozen Core major tag (Quantum-L9/l9-ci-core@v1, @v2,
+  # @v2.0.0); local ./ actions have no ref.
+  sha-pins:
+    name: sha-pins
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check action pins (blocking)
+        id: sha_pins
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to SARIF.
+          FINDINGS_FAIL: "true"
+          SARIF: ""
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          CHECK = "sha-pins"
+          RULE = "Every uses: is pinned by a full commit SHA or a documented frozen Core tag"
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+
+
+          def git(*args):
+              return subprocess.run(["git", *args], capture_output=True, text=True, check=False)
+
+
+          bases = {
+              "pull_request": "PR_BASE",
+              "pull_request_target": "PR_BASE",
+              "merge_group": "MERGE_GROUP_BASE",
+              "push": "PUSH_BEFORE",
+          }
+          base = env.get(bases.get(env.get("EVENT_NAME", ""), ""), "")
+          if not re.fullmatch(r"[0-9a-f]{40}", base) or not base.strip("0"):
+              base = ""
+          tracked = git("ls-files", "-z").stdout.split("\0")
+          if base:
+              if git("cat-file", "-e", f"{base}^{{commit}}").returncode != 0:
+                  print(f"::error title={CHECK}::the event's base {base} is not in this clone; the check cannot tell what changed")
+                  sys.exit(2)
+              diff = git("diff", "--name-only", "-z", "--diff-filter=AMR", base, env["EVENT_SHA"], "--")
+              if diff.returncode != 0:
+                  sys.exit(f"::error title={CHECK}::git diff against {base} failed: {diff.stderr.strip()}")
+              scope = [p for p in diff.stdout.split("\0") if p]
+              scope_text = f"the files {base[:12]}..{env['EVENT_SHA'][:12]} changes"
+          else:
+              scope = [p for p in tracked if p]
+              scope_text = "every tracked file"
+          nightly = env.get("FINDINGS_FAIL") == "false"
+          reported = nightly or not base
+          label = "nightly, reported" if nightly else ("reported: no base" if not base else "blocking")
+
+          # Workflow files, and action definitions (a composite action has uses: steps).
+          definition = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$")
+          files = [path for path in scope if definition.search(path) and Path(path).is_file()]
+          uses = re.compile(r"""^\s*(?:-\s+)?uses:\s*(['"]?)([^'"\s#]+)\1\s*(?:#.*)?$""")
+          sha = re.compile(r"[0-9a-f]{40}")
+          frozen = re.compile(r"v1|v2|v2\.0\.0")
+          findings, checked = [], 0
+          for path in files:
+              for number, text in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+                  match = uses.match(text)
+                  if not match:
+                      continue
+                  spec = match.group(2)
+                  if spec.startswith("./"):
+                      continue  # a local action: no ref to pin
+                  checked += 1
+                  if spec.startswith("docker://"):
+                      if "@sha256:" not in spec:
+                          findings.append((path, number, f"'{spec}' is not pinned by image digest (docker://image@sha256:...)"))
+                      continue
+                  if "@" not in spec:
+                      findings.append((path, number, f"'{spec}' names no ref; pin it by full 40-character commit SHA"))
+                      continue
+                  repository, ref = spec.rsplit("@", 1)
+                  if sha.fullmatch(ref):
+                      continue
+                  if repository.startswith("Quantum-L9/l9-ci-core") and frozen.fullmatch(ref):
+                      continue  # a documented, frozen Core major tag
+                  findings.append((path, number, f"floating ref '{ref}' on '{repository}'; pin it by full 40-character commit SHA"))
+          applicable = bool(files) or bool(base)
+          not_applicable = "not applicable: no workflow or action files"
+          if base and not files:
+              passed = "no changed workflow or action files"
+              applicable = True
+          else:
+              passed = f"{checked} uses: reference(s) in {len(files)} file(s) pinned"
+
+
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          if not applicable:
+              line = f"- {CHECK} ({label}): {not_applicable}"
+          elif not findings:
+              line = f"- {CHECK} ({label}): pass: {passed} ({scope_text})"
+          else:
+              line = f"- {CHECK} ({label}): findings: {len(findings)} ({scope_text})"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Finding |", "|---|---|---|"]
+          for path, number, message in findings:
+              kind = "warning" if reported else "error"
+              safe = path.replace(",", "%2C").replace(":", "%3A")
+              print(f"::{kind} file={safe},line={number},title={CHECK}::{message}")
+          for path, number, message in findings[:20]:
+              lines.append(f"| `{path}` | {number} | {message.replace('|', chr(92) + '|')} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with summary.open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("SARIF"):
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {"name": CHECK, "informationUri": "https://github.com/Quantum-L9/l9-ci-core", "rules": [{"id": CHECK, "shortDescription": {"text": RULE}}]}},
+                      "results": [{
+                          "ruleId": CHECK,
+                          "level": "error",
+                          "message": {"text": message},
+                          "locations": [{"physicalLocation": {"artifactLocation": {"uri": path}, "region": {"startLine": number}}}],
+                      } for path, number, message in findings],
+                  }],
+              }
+              target = Path(env["SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title={CHECK}::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
+
+  # CodeQL is one org-wide check (operator, 2026-11-21; docs/codeql-check.md),
+  # replacing per-repository CodeQL workflows and default setup. Read-only,
+  # like every pull-request job here (L9-CI-CORE-005): nothing is uploaded on
+  # a pull request. The languages the revision contains are analyzed, always
+  # including `actions`, with build-mode none and the security-extended suite,
+  # once at the evaluated revision and once at the event's base; only results
+  # the base does not have are judged (rule, path and CodeQL's own
+  # primaryLocationLineHash), and a new result at error level or security
+  # severity high or above fails the check. An event with no base (a
+  # dispatch, the nightly sink, the promotion canary) has nothing new: it
+  # reports what it found and passes. The nightly sink runs the same steps on
+  # the whole default branch and sends the SARIF to code scanning.
+  codeql:
+    name: CodeQL
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve CodeQL's languages and base
+        id: codeql_scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # Languages CodeQL analyzes without a build (build-mode none), by the
+          # files git tracks at the evaluated revision. `actions` runs in every
+          # repository with a workflow or action file, which is every governed
+          # one (org-ci reaches them through a workflow); CodeQL refuses a
+          # database for a language with no source, so a repository without
+          # one has no Actions code to scan.
+          languages=""
+          tracked="$(git ls-files)"
+          has() { grep -Eqi "$1" <<< "${tracked}"; }
+          if has '(^|/)\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$'; then languages="actions"; fi
+          if has '\.py$'; then languages="${languages} python"; fi
+          if has '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$'; then languages="${languages} javascript"; fi
+          if has '\.rb$'; then languages="${languages} ruby"; fi
+          if has '\.java$'; then languages="${languages} java"; fi
+          if has '\.cs$'; then languages="${languages} csharp"; fi
+          if has '\.rs$'; then languages="${languages} rust"; fi
+          case "${EVENT_NAME}" in
+            pull_request|pull_request_target) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            if ! git cat-file -e "${base}^{commit}" 2> /dev/null; then
+              echo "::error title=CodeQL::the event's base ${base} is not in this clone; the check cannot tell what is new"
+              exit 1
+            fi
+          else
+            base=""
+          fi
+          languages="${languages# }"
+          echo "languages=${languages}" >> "$GITHUB_OUTPUT"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "CodeQL languages: ${languages}; base: ${base:-none (nothing is new)}"
+      - name: Install CodeQL (checksum-pinned bundle)
+        id: codeql_install
+        run: |
+          set -euo pipefail
+          CODEQL_VERSION="2.27.5"
+          CODEQL_SHA256="141e6eb4e99c8498a1258e282e6f7b59c747b4b1a7eabc7cbf7d1aa92792edf0"
+          bundle="${RUNNER_TEMP}/codeql-bundle.tar.zst"
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${bundle}" \
+            "https://github.com/github/codeql-action/releases/download/codeql-bundle-v${CODEQL_VERSION}/codeql-bundle-linux64.tar.zst"
+          actual="$(sha256sum "${bundle}" | awk '{print $1}')"
+          if [ "${actual}" != "${CODEQL_SHA256}" ]; then
+            echo "::error title=CodeQL::bundle checksum mismatch: got ${actual}"
+            exit 1
+          fi
+          tar --zstd -xf "${bundle}" -C "${RUNNER_TEMP}"
+          rm -f "${bundle}"
+          "${RUNNER_TEMP}/codeql/codeql" version --format=terse
+          echo "executable=${RUNNER_TEMP}/codeql/codeql" >> "$GITHUB_OUTPUT"
+      - name: Analyze with CodeQL (security-extended)
+        id: codeql_analyze
+        env:
+          CODEQL: ${{ steps.codeql_install.outputs.executable }}
+          LANGUAGES: ${{ steps.codeql_scope.outputs.languages }}
+          BASE: ${{ steps.codeql_scope.outputs.base }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/codeql-results"
+          mkdir -p "${out}" "${RUNNER_TEMP}/codeql-db"
+          sides=("head=${PWD}")
+          if [ -n "${BASE}" ]; then
+            git worktree add --detach "${RUNNER_TEMP}/codeql-base" "${BASE}" > /dev/null
+            sides+=("base=${RUNNER_TEMP}/codeql-base")
+          fi
+          for side in "${sides[@]}"; do
+            name="${side%%=*}"
+            root="${side#*=}"
+            for language in ${LANGUAGES}; do
+              db="${RUNNER_TEMP}/codeql-db/${name}-${language}"
+              status=0
+              "${CODEQL}" database create "${db}" --language="${language}" \
+                --build-mode=none --source-root="${root}" --threads=0 --overwrite > /dev/null || status=$?
+              if [ "${status}" -eq 32 ]; then
+                # CodeQL's "no source code seen" exit: the language has no code
+                # on this side (a pull request adds the language): no results.
+                echo "CodeQL ${name} ${language}: no source on this side; no results"
+                printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"CodeQL","rules":[]}},"results":[]}]}\n' \
+                  > "${out}/${name}-${language}.sarif"
+                continue
+              elif [ "${status}" -ne 0 ]; then
+                echo "::error title=CodeQL::database create for ${language} (${name}) exited ${status}"
+                exit "${status}"
+              fi
+              "${CODEQL}" database analyze "${db}" \
+                "codeql/${language}-queries:codeql-suites/${language}-security-extended.qls" \
+                --format=sarif-latest --sarif-category="/language:${language}" \
+                --output="${out}/${name}-${language}.sarif" --threads=0 > /dev/null
+              echo "CodeQL ${name} ${language}: analyzed"
+            done
+          done
+          echo "directory=${out}" >> "$GITHUB_OUTPUT"
+      - name: Judge new CodeQL results (blocking at error / high)
+        id: codeql_verdict
+        env:
+          RESULTS: ${{ steps.codeql_analyze.outputs.directory }}
+          LANGUAGES: ${{ steps.codeql_scope.outputs.languages }}
+          BASE: ${{ steps.codeql_scope.outputs.base }}
+          L9_CODEQL_MODE: blocking
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import collections
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          results = Path(env["RESULTS"])
+          # SARIF message links ("[a user-provided value](1)") read as their text.
+          link = re.compile(r"\[([^\]]*)\]\(\d+\)")
+          base = env.get("BASE", "")
+          blocking = env.get("L9_CODEQL_MODE", "blocking") == "blocking"
+
+
+          def load(name):
+              run = json.loads((results / name).read_text(encoding="utf-8"))["runs"][0]
+              rules = {rule["id"]: rule for rule in run.get("tool", {}).get("driver", {}).get("rules", [])}
+              found = []
+              for result in run.get("results", []):
+                  rule = rules.get(result.get("ruleId", ""), {})
+                  location = (result.get("locations") or [{}])[0].get("physicalLocation", {})
+                  level = result.get("level") or rule.get("defaultConfiguration", {}).get("level", "warning")
+                  try:
+                      severity = float(rule.get("properties", {}).get("security-severity", 0))
+                  except (TypeError, ValueError):
+                      severity = 0.0
+                  found.append({
+                      "rule": result.get("ruleId", ""),
+                      "path": location.get("artifactLocation", {}).get("uri", ""),
+                      "line": location.get("region", {}).get("startLine", 1),
+                      "hash": result.get("partialFingerprints", {}).get("primaryLocationLineHash", ""),
+                      "message": link.sub(r"\1", " ".join(result.get("message", {}).get("text", "").split())),
+                      "level": level,
+                      "severity": severity,
+                      "blocks": level == "error" or severity >= 7.0,
+                  })
+              return found
+
+
+          new, total = [], 0
+          for language in env["LANGUAGES"].split():
+              head = load(f"head-{language}.sarif")
+              total += len(head)
+              if not base:
+                  continue
+              known = collections.Counter(
+                  (r["rule"], r["path"], r["hash"]) for r in load(f"base-{language}.sarif")
+              )
+              for result in head:
+                  key = (result["rule"], result["path"], result["hash"])
+                  if known[key]:
+                      known[key] -= 1
+                  else:
+                      new.append({**result, "language": language})
+
+          failing = [r for r in new if r["blocks"]]
+          for r in new:
+              kind = "error" if r["blocks"] and blocking else "warning"
+              path = r["path"].replace(",", "%2C").replace(":", "%3A")
+              print(f"::{kind} file={path},line={r['line']},title=CodeQL {r['rule']}::{r['message']}")
+          mode = "blocking at error / high" if blocking else "advisory"
+          if not base:
+              head_line = f"- CodeQL ({mode}): no base for this event, so nothing is new; {total} result(s) on the whole tree"
+          elif failing:
+              head_line = f"- CodeQL ({mode}): findings: {len(failing)} new result(s) at error / high or above ({len(new)} new in all)"
+          else:
+              head_line = f"- CodeQL ({mode}): pass: {len(new)} new result(s), none at error / high or above"
+          lines = [head_line, f"- languages: `{env['LANGUAGES']}`; base: `{base or 'none'}`"]
+          if new:
+              lines += ["", "| Severity | Rule | File | Line |", "|---|---|---|---|"]
+              for r in sorted(new, key=lambda r: (not r["blocks"], -r["severity"]))[:20]:
+                  grade = f"{r['level']} {r['severity']:g}" if r["severity"] else r["level"]
+                  lines.append(f"| {grade} | `{r['rule']}` | `{r['path']}` | {r['line']} |")
+              if len(new) > 20:
+                  lines.append(f"\n+{len(new) - 20} more: see the annotations")
+          with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(head_line)
+          if failing and blocking:
+              print(f"::error title=CodeQL::{len(failing)} new result(s) at error / high or above; each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
+  # actionlint is one org-wide check (operator, 2026-11-21;
+  # docs/actionlint-check.md), blocking, always reporting. A pull request,
+  # merge group or push is judged on the workflow files it changes; a change
+  # to an action definition (action.yml / action.yaml) re-judges every
+  # workflow, since actionlint checks a workflow's use of local actions
+  # through them. An event with no base (a dispatch, the promotion canary)
+  # judges every workflow and reports, never fails: it brings nothing in. The
+  # nightly sink judges every workflow too, to code scanning. The version and
+  # checksum are Core's toolchain lock
+  # (toolchain-lock.json `actionlint`, locks/actionlint-<version>.json).
+  # shellcheck and pyflakes are off: the runner image's copies are not
+  # pinned, so findings would move with the image.
+  actionlint:
+    name: actionlint
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve actionlint's scope
+        id: actionlint_scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          workflows='^\.github/workflows/[^/]+\.ya?ml$'
+          actions='(^|/)action\.ya?ml$'
+          list="${RUNNER_TEMP}/actionlint-files"
+          git ls-files | grep -E "${workflows}" > "${list}.all" || true
+          if [ ! -s "${list}.all" ]; then
+            echo "applies=false" >> "$GITHUB_OUTPUT"
+            echo "actionlint: not applicable: no workflow files"
+            echo "- actionlint (blocking): not applicable: no workflow files" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          case "${EVENT_NAME}" in
+            pull_request|pull_request_target) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          scope="every workflow"
+          judge="report"
+          cp "${list}.all" "${list}"
+          if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            judge="block"
+            if ! changed="$(git diff --name-only --diff-filter=d "${base}" "${EVENT_SHA}" --)"; then
+              echo "::error title=actionlint::the event's base ${base} is not in this clone; the check cannot tell what changed"
+              exit 1
+            fi
+            if grep -Eq "${actions}" <<< "${changed}"; then
+              scope="every workflow (an action definition changed)"
+            else
+              grep -E "${workflows}" <<< "${changed}" > "${list}" || true
+              scope="the workflow files ${base:0:12}..${EVENT_SHA:0:12} changes"
+              if [ ! -s "${list}" ]; then
+                echo "applies=false" >> "$GITHUB_OUTPUT"
+                echo "actionlint: no changed workflow or action files"
+                echo "- actionlint (blocking): pass: no changed workflow or action files" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+          fi
+          {
+            echo "applies=true"
+            echo "files=${list}"
+            echo "scope=${scope}"
+            echo "judge=${judge}"
+          } >> "$GITHUB_OUTPUT"
+          echo "actionlint: $(wc -l < "${list}") workflow file(s): ${scope}"
+      - name: Install actionlint (toolchain-locked)
+        id: actionlint_install
+        if: steps.actionlint_scope.outputs.applies == 'true'
+        run: |
+          set -euo pipefail
+          ACTIONLINT_VERSION="1.7.12"
+          ACTIONLINT_SHA256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+          archive="${RUNNER_TEMP}/actionlint.tar.gz"
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          actual="$(sha256sum "${archive}" | awk '{print $1}')"
+          if [ "${actual}" != "${ACTIONLINT_SHA256}" ]; then
+            echo "::error title=actionlint::checksum mismatch: got ${actual}"
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/actionlint-bin"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/actionlint-bin" actionlint
+          echo "executable=${RUNNER_TEMP}/actionlint-bin/actionlint" >> "$GITHUB_OUTPUT"
+      - name: Run actionlint (blocking)
+        id: actionlint_check
+        if: steps.actionlint_scope.outputs.applies == 'true'
+        env:
+          ACTIONLINT: ${{ steps.actionlint_install.outputs.executable }}
+          FILES: ${{ steps.actionlint_scope.outputs.files }}
+          SCOPE: ${{ steps.actionlint_scope.outputs.scope }}
+          JUDGE: ${{ steps.actionlint_scope.outputs.judge }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to ACTIONLINT_SARIF.
+          ACTIONLINT_FINDINGS_FAIL: "true"
+          ACTIONLINT_SARIF: ""
+        run: |
+          set -euo pipefail
+          report="${RUNNER_TEMP}/actionlint.json"
+          mapfile -t files < "${FILES}"
+          status=0
+          # The repository's own .github/actionlint.yaml applies (actionlint
+          # finds it from the working directory).
+          "${ACTIONLINT}" -shellcheck= -pyflakes= -format '{{json .}}' "${files[@]}" > "${report}" || status=$?
+          if [ "${status}" -gt 1 ]; then
+            echo "::error title=actionlint::actionlint exited ${status}: the check did not complete"
+            cat "${report}"
+            exit "${status}"
+          fi
+          STATUS="${status}" REPORT="${report}" COUNT="${#files[@]}" python3 -I - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          try:
+              findings = json.loads(Path(env["REPORT"]).read_text(encoding="utf-8") or "[]")
+          except ValueError as error:
+              sys.exit(f"::error title=actionlint::unreadable report ({error})")
+          # Findings block only what an event brings in (a base exists); with
+          # no base, and in the nightly sink, they are reported.
+          nightly = env.get("ACTIONLINT_FINDINGS_FAIL") == "false"
+          reported = nightly or env.get("JUDGE") != "block"
+          label = "nightly, reported" if nightly else ("reported: no base" if reported else "blocking")
+          scope = env["SCOPE"]
+          if not findings:
+              line = f"- actionlint ({label}): pass: {env['COUNT']} workflow file(s), {scope}"
+          else:
+              line = f"- actionlint ({label}): findings: {len(findings)} in {env['COUNT']} workflow file(s), {scope}"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Kind | Message |", "|---|---|---|---|"]
+          for item in findings:
+              path = str(item.get("filepath", "")).replace(",", "%2C").replace(":", "%3A")
+              message = " ".join(str(item.get("message", "")).split())
+              print(
+                  f"::{'warning' if reported else 'error'} file={path},line={item.get('line', 1)},col={item.get('column', 1)},"
+                  f"title=actionlint {item.get('kind', '')}::{message}"
+              )
+          for item in findings[:20]:
+              message = " ".join(str(item.get("message", "")).split()).replace("|", "\\|")
+              lines.append(f"| `{item.get('filepath', '')}` | {item.get('line', '')} | `{item.get('kind', '')}` | {message} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("ACTIONLINT_SARIF"):
+              kinds = sorted({str(item.get("kind", "")) for item in findings})
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {
+                          "name": "actionlint",
+                          "informationUri": "https://github.com/rhysd/actionlint",
+                          "rules": [{"id": kind, "shortDescription": {"text": f"actionlint {kind} check"}} for kind in kinds],
+                      }},
+                      "results": [{
+                          "ruleId": str(item.get("kind", "")),
+                          "level": "error",
+                          "message": {"text": " ".join(str(item.get("message", "")).split())},
+                          "locations": [{"physicalLocation": {
+                              "artifactLocation": {"uri": str(item.get("filepath", "")).removeprefix("./")},
+                              "region": {
+                                  "startLine": max(int(item.get("line") or 1), 1),
+                                  "startColumn": max(int(item.get("column") or 1), 1),
+                              },
+                          }}],
+                      } for item in findings],
+                  }],
+              }
+              target = Path(env["ACTIONLINT_SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title=actionlint::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
+  # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
+  # beside gitleaks, pip-audit, npm-audit and `analyze`, for every repository the organization
+  # ruleset governs, and always reports: no biome.json / biome.jsonc is a
+  # success that says "not applicable: no biome configuration"; a pull request
+  # that changes no file in Biome's scope is a success that says so. A pull
+  # request and a merge group are judged on the files they change, never on
+  # the code already there (incoming code only); a push of the default branch
+  # on the files the push changes; any other event (a dispatch, the nightly
+  # sink, the promotion canary) on the whole tree. Findings are annotated at
+  # their file and line by Biome's GitHub reporter, counted in the job summary
+  # with the first of them, and fail the job: the mode is blocking.
+  biome:
+    name: Biome
+    # The same ref gate as the other checks and `analyze`.
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout immutable event revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin \
+            "https://x-access-token:${TOKEN}@github.com/${REPOSITORY}.git"
+          git -c protocol.version=2 fetch --depth=2 origin "${REVISION}"
+          git checkout --detach FETCH_HEAD
+          git remote set-url origin "https://github.com/${REPOSITORY}.git"
+
+      # What Biome judges: the files the event changes, or the whole tree.
+      # `biome ci --changed --since` needs the merge base in local history,
+      # which a shallow CI checkout cannot promise; a diff of the two fetched
+      # commits names the same files exactly, and the paths go to `biome ci`,
+      # which still applies the repository's own files.includes.
+      - name: Resolve Biome's scope
+        id: biome_scope
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          paths="${RUNNER_TEMP}/biome-paths"
+          : > "${paths}"
+          echo "paths=${paths}" >> "$GITHUB_OUTPUT"
+          if [ ! -f biome.json ] && [ ! -f biome.jsonc ]; then
+            echo "applies=false" >> "$GITHUB_OUTPUT"
+            echo "Biome: not applicable: no biome configuration"
+            echo "- Biome (blocking): not applicable: no biome configuration (no biome.json or biome.jsonc at the repository root)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "applies=true" >> "$GITHUB_OUTPUT"
+          case "${EVENT_NAME}" in
+            pull_request) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          if [ "${EVENT_NAME}" = "push" ] && { [ -z "${base}" ] || [ -z "${base//0/}" ]; }; then
+            # A new branch or a first push has no previous revision.
+            base=""
+          fi
+          if [ -z "${base}" ]; then
+            echo "scope=full" >> "$GITHUB_OUTPUT"
+            echo "Biome scope: the whole tree (${EVENT_NAME})"
+            exit 0
+          fi
+          if ! printf '%s' "${base}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error title=Biome scope::the ${EVENT_NAME} base '${base}' is not a full commit id, so the changed files cannot be named"
+            exit 1
+          fi
+          auth="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            if ! git -c "http.https://github.com/.extraheader=${auth}" \
+                -c protocol.version=2 fetch -q --depth=1 origin "${base}"; then
+              echo "::error title=Biome scope::the ${EVENT_NAME} base ${base} could not be fetched from ${REPOSITORY}, so the changed files cannot be named"
+              exit 1
+            fi
+          fi
+          git diff --name-only --diff-filter=d -z "${base}" "${REVISION}" > "${paths}"
+          count="$(tr -cd '\0' < "${paths}" | wc -c | tr -d ' ')"
+          echo "scope=changed" >> "$GITHUB_OUTPUT"
+          echo "changed=${count}" >> "$GITHUB_OUTPUT"
+          echo "Biome scope: ${count} file(s) the ${EVENT_NAME} changes since ${base}"
+
+      - id: biome
+        name: Install Biome (digest-locked central pin)
+        if: >-
+          steps.biome_scope.outputs.applies == 'true'
+          && (steps.biome_scope.outputs.scope == 'full' || steps.biome_scope.outputs.changed != '0')
+        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ee1720b9863bec15fdfebac13b220aeb699d781
+
+      - name: Run Biome check (blocking)
+        id: biome_check
+        if: steps.biome_scope.outputs.applies == 'true'
+        env:
+          # Blocking here; the nightly sink renders this step advisory, so a
+          # finding reaches code scanning instead of stopping the night.
+          L9_BIOME_MODE: blocking
+          L9_BIOME_EXECUTABLE: ${{ steps.biome.outputs.executable }}
+          L9_BIOME_VERSION: ${{ steps.biome.outputs['provider-version'] }}
+          L9_BIOME_SCOPE: ${{ steps.biome_scope.outputs.scope }}
+          L9_BIOME_PATHS: ${{ steps.biome_scope.outputs.paths }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          temp = Path(env["RUNNER_TEMP"])
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          scope = env.get("L9_BIOME_SCOPE", "")
+          paths = [p for p in Path(env["L9_BIOME_PATHS"]).read_bytes().decode().split("\0") if p]
+          mode = env.get("L9_BIOME_MODE", "blocking")
+          if mode not in ("blocking", "advisory"):
+              sys.exit(f"::error title=Biome::unknown mode {mode!r}: the check cannot decide")
+          header = f"- Biome ({mode})"
+
+          def write(lines):
+              with summary.open("a", encoding="utf-8") as stream:
+                  stream.write("\n".join(lines) + "\n")
+
+          if scope == "changed" and not paths:
+              print("Biome: no changed files in Biome's scope")
+              write([f"{header}: pass: no changed files in Biome's scope"])
+              sys.exit(0)
+          executable = env.get("L9_BIOME_EXECUTABLE", "")
+          if not executable or not Path(executable).is_file():
+              sys.exit("::error title=Biome::the verified Biome executable is missing; the check cannot run")
+          report = temp / "biome-report.json"
+          sarif = temp / "biome.sarif"
+          command = [
+              executable, "ci", "--no-errors-on-unmatched",
+              "--reporter=github",
+              "--reporter=json", f"--reporter-file={report}",
+              "--reporter=sarif", f"--reporter-file={sarif}",
+          ]
+          command += ["--", *paths] if scope == "changed" else ["."]
+          code = subprocess.run(command, check=False).returncode
+          try:
+              data = json.loads(report.read_text(encoding="utf-8"))
+              counts = data["summary"]
+              diagnostics = data.get("diagnostics", [])
+          except (OSError, ValueError, KeyError) as error:
+              sys.exit(f"::error title=Biome::biome ci exited {code} and wrote no readable report ({error}): `{' '.join(command[:2])} ...` failed before judging any file")
+          checked = int(counts.get("changed", 0)) + int(counts.get("unchanged", 0))
+          errors = int(counts.get("errors", 0))
+          warnings = int(counts.get("warnings", 0))
+          where = "the files this change touches" if scope == "changed" else "the whole tree"
+          if scope == "changed" and checked == 0 and code == 0:
+              print("Biome: no changed files in Biome's scope")
+              write([f"{header}: pass: no changed files in Biome's scope ({len(paths)} changed file(s), none Biome handles)"])
+              sys.exit(0)
+          status = "pass" if code == 0 else "findings" if code == 1 else "error"
+          lines = [
+              f"{header}: {status}: {checked} file(s) of {where}, "
+              f"{errors} error(s), {warnings} warning(s) (Biome {env.get('L9_BIOME_VERSION', '?')})"
+          ]
+          shown = [d for d in diagnostics if d.get("severity") in ("error", "fatal")][:20]
+          if shown:
+              lines += ["", "| File | Line | Rule | Message |", "|---|---|---|---|"]
+              for item in shown:
+                  location = item.get("location") or {}
+                  # 0 is Biome's file-level position (a format diagnostic).
+                  start = (location.get("start") or {}).get("line") or "—"
+                  message = str(item.get("message", "")).replace("|", "\\|")[:200]
+                  lines.append(
+                      f"| `{location.get('path', '')}` | {start} | `{item.get('category', '')}` | {message} |"
+                  )
+              more = errors - len(shown)
+              if more > 0:
+                  lines.append(f"\n+{more} more error(s): see the annotations")
+          write(lines)
+          if code == 1 and mode == "advisory":
+              print(f"Biome (advisory): {errors} error(s) in {where}; reported, not enforced")
+              sys.exit(0)
+          if code == 1:
+              print(
+                  f"::error title=Biome::{errors} error(s) in {where}; each is annotated at its "
+                  "file and line above, and the first are listed in the job summary"
+              )
+          elif code != 0:
+              print(f"::error title=Biome::biome ci exited {code}: an infrastructure failure, not a finding")
+          sys.exit(code)
+          PY
 
   analyze:
     # The required check name. Its one source is .l9/org-runtime-contract.yaml
     # (entrypoint.required_check.name); tests/workflows/test_required_check_name.py
     # holds this value equal to it, and the organization ruleset must list it.
     name: Analyze (central Core)
-    # `analyze` waits for `security` and runs whatever its result (!cancelled()),
-    # then enforces it in its last step. GitHub skips a job whose dependency
-    # failed unless its `if` says otherwise, and a skipped required check would
-    # read as passing.
-    needs: security
+    # `analyze` needs no other job: gitleaks, pip-audit, npm-audit and Biome are
+    # checks of their own and run beside it (docs/security-checks.md).
     # Non-push triggers are unaffected. A reusable invocation always carries the
     # required `event` input, so a caller that is itself on a push keeps its own
     # governed evaluation instead of inheriting this ref gate. Only a native push
@@ -206,9 +1749,9 @@ jobs:
     # the OS family so a `-latest` family jump cannot re-base the fleet's
     # evaluation; GitHub still rolls hosted image builds within that family on
     # its own schedule, which Core does not control. What Core does control is
-    # the toolchain below: the setup-python action SHA, the exact Python
-    # version, the exact Semgrep version, and the hash-locked Semgrep
-    # dependency bytes (workflow audit 2026-09-13, F-005).
+    # the toolchain below: pinned action SHAs and the exact Biome binary.
+    # Semgrep's locked toolchain moved with it to central-semgrep.yml
+    # (docs/semgrep-runs-nightly.md).
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -220,11 +1763,6 @@ jobs:
       mode: ${{ steps.gov.outputs.mode }}
       enabled: ${{ steps.gov.outputs.enabled }}
       governance-digest: ${{ steps.gov.outputs['governance-digest'] }}
-      artifact-name: ${{ steps.names.outputs['artifact-name'] }}
-      artifact-handoff: ${{ steps.handoff.outputs.descriptor }}
-      sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
-      gate-status: ${{ steps.gate.outputs['gate-status'] }}
-      language: ${{ steps.language.outputs.language }}
     steps:
       - id: runtime
         name: Resolve central runtime class
@@ -360,6 +1898,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before || '' }}
         run: |
           set -euo pipefail
           git init .
@@ -370,6 +1909,12 @@ jobs:
           # once origin is reset to an anonymous URL below.
           git -c protocol.version=2 fetch --depth=2 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
+          # A multi-commit push is not in that depth. Fetch the previous
+          # commit while the remote still has the checkout token, then drop
+          # the token. The expense judge only diffs objects already local.
+          if [[ "${BEFORE}" =~ ^[0-9a-f]{40}$ && "${BEFORE}" != 0000000000000000000000000000000000000000 ]]; then
+            git -c protocol.version=2 fetch --depth=1 origin "${BEFORE}"
+          fi
           git remote set-url origin "https://github.com/${REPOSITORY}.git"
 
       # Reports consumer declarations of Core-owned tools that drift from
@@ -381,6 +1926,46 @@ jobs:
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
         uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2ee1720b9863bec15fdfebac13b220aeb699d781
+
+      # Trusted Core judge. The only source is this workflow revision's
+      # tools/pr_expense_guard.py, checked out beside the consumer. The step
+      # does not call a consumer-relative copy and does not paste the module.
+      # receipt=static is not a hosted test receipt.
+      - name: Judge pull-request test expense
+        if: >-
+          github.event_name == 'pull_request'
+          || github.event_name == 'merge_group'
+          || github.event_name == 'push'
+          || steps.runtime.outputs.event-class == 'pull_request'
+          || steps.runtime.outputs.event-class == 'merge'
+          || steps.runtime.outputs.event-class == 'push'
+        env:
+          GH_EVENT: ${{ steps.runtime.outputs.event-class }}
+          GUARD_BEFORE: ${{ github.event.before || '' }}
+          GUARD_WORKSPACE: ${{ github.workspace }}
+          CORE_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          sha_ok=false
+          case "${CORE_SHA}" in
+            *[!0-9a-f]* | "") sha_ok=false ;;
+            ????????????????????????????????????????) sha_ok=true ;;
+            *) sha_ok=false ;;
+          esac
+          if [ "${sha_ok}" != "true" ]; then
+            echo "::error::workflow SHA is not a full lowercase revision" >&2
+            exit 1
+          fi
+          core="${RUNNER_TEMP}/l9-ci-core-expense-guard"
+          rm -rf "${core}"
+          git init "${core}"
+          git -C "${core}" remote add origin https://github.com/Quantum-L9/l9-ci-core.git
+          git -C "${core}" -c protocol.version=2 fetch --depth=1 origin "${CORE_SHA}"
+          git -C "${core}" checkout --detach FETCH_HEAD
+          test -f "${core}/tools/pr_expense_guard.py"
+          CORE_GUARD="${core}/tools/pr_expense_guard.py"
+          export CORE_GUARD
+          python3 -c 'import os, runpy; runpy.run_path(os.environ["CORE_GUARD"], run_name="__main__")'
 
       - name: Validate native push event context
         if: github.event_name == 'push'
@@ -444,189 +2029,6 @@ jobs:
           if unknown:
               raise SystemExit(f"::error::consumer waiver_refs are not centrally applicable: {unknown}")
           PY
-
-      - id: names
-        name: Resolve artifact name
-        env:
-          MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
-        run: |
-          set -euo pipefail
-          echo "artifact-name=l9-semgrep-${MATRIX_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
-
-      - id: sdk
-        name: Provision immutable SDK
-        if: steps.gov.outputs.enabled == 'true'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          sdk-source: git
-          sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
-          sdk-revision: ${{ steps.runtime.outputs['sdk-revision'] || '4a887396990a59ffb4a7108790b2fa1005c7865d' }}
-          # AGENTS.md §27: l9-ci-sdk is private. Read-only org secret; the
-          # action passes it to git only as a per-command header.
-          github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
-
-      - id: language
-        name: Detect repository language (SDK)
-        if: steps.gov.outputs.enabled == 'true'
-        # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          repo-class: ${{ steps.consumer.outputs['repo-class'] }}
-          root: .
-
-      # L9-CI-CORE-003: every applicable provider/language instance is planned,
-      # run and accounted for, so a second language is never silently dropped
-      # in favour of the detected one. The SDK states the facts (capability
-      # inventory of this exact snapshot, taken before repository verification
-      # can touch the tree); requiredness is Core's (plan-required-instances).
-      - id: inventory
-        name: Inventory repository capabilities (SDK)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
-          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
-        run: |
-          set -euo pipefail
-          directory=".l9/runtime/${L9_MATRIX_ID}/required-instances"
-          mkdir -p "${directory}"
-          "${L9_EXECUTABLE}" providers inventory --root . --format json \
-            --consumer-rules --output "${directory}/inventory.json"
-          echo "path=${directory}/inventory.json" >> "$GITHUB_OUTPUT"
-
-      - id: plan
-        name: Plan required instances (Core)
-        if: steps.inventory.outcome == 'success'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          inventory: ${{ steps.inventory.outputs.path }}
-          repository: ${{ github.repository }}
-          revision: ${{ github.sha }}
-          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
-          required-providers: ${{ steps.gov.outputs['required-provider'] == 'true' && 'semgrep' || '' }}
-          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
-
-      # Core owns the consumer-facing Biome check end to end: the version is
-      # the `biome` key of Core's toolchain lock, the binary is digest-locked,
-      # and the run is blocking (findings annotate, then fail the step;
-      # infrastructure failures are fatal). It is independent of Semgrep
-      # governance; a consumer without biome.json or biome.jsonc is
-      # not_applicable and nothing is downloaded.
-      - id: biome
-        name: Install Biome (digest-locked central pin)
-        if: hashFiles('biome.json', 'biome.jsonc') != ''
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ee1720b9863bec15fdfebac13b220aeb699d781
-
-      - id: biome_check
-        name: Run Biome check (blocking)
-        # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-biome-check@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          executable: ${{ steps.biome.outputs.executable }}
-          provider-version: ${{ steps.biome.outputs['provider-version'] }}
-          mode: blocking
-
-      # SDK ADR 0023 (CENTRAL-DIFF): findings are classified new or
-      # pre-existing against a baseline commit; only new blocking findings and
-      # incomplete results fail, pre-existing ones are reported as advisory
-      # with counts (docs/central-diff-baseline.md). pull_request and push
-      # judge against the evaluated revision's first parent (on a pull
-      # request GitHub's merge commit, so the target tip; on a push the
-      # previous tip; fetched at depth 2 above), a merge group against
-      # merge_group.base_sha; nightly, release and supply_chain pass none, so
-      # the whole tree is judged by policy alone. It is resolved here, before
-      # repository verification runs any consumer code, and held by a ref:
-      # a consumer's make can rewrite .git (a re-shallowed checkout has no
-      # HEAD^1), and nothing it does may move the baseline. A baseline that
-      # does not resolve blocks; tracked changes or an incomplete baseline
-      # scan make the SDK fail closed.
-      - id: baseline
-        name: Resolve the baseline commit (CENTRAL-DIFF)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
-          POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
-          # A merge group's base (docs/central-diff-baseline.md): HEAD^1 is
-          # that base only for the first group in the queue.
-          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
-          REPOSITORY: ${{ github.repository }}
-          TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          commit=""
-          case "${EVENT_CLASS}" in
-            merge)
-              if [ -z "${POLICY}" ]; then
-                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
-              elif [ -n "${MERGE_GROUP_BASE}" ]; then
-                if ! printf '%s' "${MERGE_GROUP_BASE}" | grep -Eq '^[0-9a-f]{40}$'; then
-                  echo "::error::no baseline: merge group base '${MERGE_GROUP_BASE}' is not a full commit id"
-                  exit 1
-                fi
-                auth_header="Authorization: Basic $(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
-                if ! git -c protocol.version=2 \
-                    -c "http.https://github.com/.extraheader=${auth_header}" \
-                    fetch --depth=1 --no-tags "https://github.com/${REPOSITORY}.git" "${MERGE_GROUP_BASE}"; then
-                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} could not be fetched"
-                  exit 1
-                fi
-                commit="$(git rev-parse --verify --quiet "${MERGE_GROUP_BASE}^{commit}")"
-                if [ "${commit}" != "${MERGE_GROUP_BASE}" ]; then
-                  echo "::error::no baseline: the merge group base ${MERGE_GROUP_BASE} does not resolve"
-                  exit 1
-                fi
-                echo "Baseline commit: ${commit} (merge group base of $(git rev-parse HEAD))"
-              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
-                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
-              else
-                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
-                exit 1
-              fi
-              ;;
-            pull_request|push)
-              if [ -z "${POLICY}" ]; then
-                echo "::notice::no SDK policy for this profile: findings are judged by policy alone"
-              elif commit="$(git rev-parse --verify --quiet 'HEAD^1^{commit}')"; then
-                echo "Baseline commit: ${commit} (first parent of $(git rev-parse HEAD))"
-              else
-                # Operator decision 2026-11-21 (row 23): a run judges only the
-                # code it brings in, so a baseline it cannot resolve blocks.
-                echo "::error::no baseline: the evaluated revision $(git rev-parse HEAD) has no fetched first parent"
-                exit 1
-              fi
-              ;;
-            *)
-              echo "Event class ${EVENT_CLASS}: no baseline, findings are judged by policy alone"
-              ;;
-          esac
-          # No consumer code has run yet, so the checkout should be clean. The
-          # scan itself uses a clean tree of the evaluated commit (the
-          # scan-tree step), so a change here is named but cannot bias it.
-          changed="$(git status --porcelain --untracked-files=no)"
-          if [ -n "${commit}" ] && [ -n "${changed}" ]; then
-            echo "::warning::tracked files differ from HEAD before repository verification:"
-            printf '%s\n' "${changed}"
-          fi
-          if [ -n "${commit}" ]; then
-            # A ref keeps the baseline reachable whatever the consumer's make
-            # later does to the checkout's history; the shallow boundary and
-            # HEAD are recorded so the step before Semgrep can restore and
-            # check them.
-            git update-ref refs/l9/central-diff-baseline "${commit}"
-            state="${RUNNER_TEMP}/l9-central-diff"
-            mkdir -p "${state}"
-            shallow="$(git rev-parse --path-format=absolute --git-path shallow)"
-            if [ -f "${shallow}" ]; then
-              cp -- "${shallow}" "${state}/shallow"
-            else
-              : > "${state}/shallow"
-            fi
-            git rev-parse HEAD > "${state}/head"
-          fi
-          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
 
       # Repository verification runs the consumer's `make setup`, which may
       # install OS packages with apt (e.g. Playwright's Chromium libraries and
@@ -732,510 +2134,14 @@ jobs:
           path: ${{ steps.apt_archive_cache_dir.outputs.path }}/*.deb
           key: ${{ steps.apt_archive_inventory.outputs.key }}
 
-      # Repository verification ran the consumer's make, which may rewrite the
-      # checkout's history: on Cursor-Governance it re-shallowed it, leaving no
-      # merge base, so Semgrep's baseline scan failed and every language run
-      # was incomplete (#328). Restore the shallow boundary recorded before any
-      # consumer code ran. The baseline is not changed here, only made
-      # reachable again: HEAD must be the evaluated revision and must reach
-      # the baseline, or the run blocks.
-      - name: Restore the checkout history for the baseline scan (CENTRAL-DIFF)
-        if: steps.baseline.outputs.commit != ''
-        env:
-          BASELINE: ${{ steps.baseline.outputs.commit }}
-        run: |
-          set -euo pipefail
-          state="${RUNNER_TEMP}/l9-central-diff"
-          shallow="$(git rev-parse --path-format=absolute --git-path shallow)"
-          if [ -s "${state}/shallow" ]; then
-            cp -- "${state}/shallow" "${shallow}"
-          else
-            rm -f -- "${shallow}"
-          fi
-          head="$(git rev-parse HEAD)"
-          if [ "${head}" != "$(cat "${state}/head")" ]; then
-            echo "::error::the consumer's make moved HEAD from $(cat "${state}/head") to ${head}; the baseline scan cannot judge this revision"
-            exit 1
-          fi
-          if ! merge_base="$(git merge-base HEAD "${BASELINE}")"; then
-            echo "::error::no baseline: ${BASELINE} has no merge base with ${head} after repository verification"
-            exit 1
-          fi
-          echo "Baseline ${BASELINE} reachable from ${head} (merge base ${merge_base})"
-
-      # The scan judges the committed code under review, never the work tree
-      # the consumer's make left behind (operator decision 2026-11-21: the
-      # check fails only when the repository does). Semgrep, its CENTRAL-DIFF
-      # baseline and every planned instance run in a clean worktree of the
-      # evaluated commit, inside .l9/runtime (untracked runtime state), so a
-      # make that rewrites a tracked file can neither break nor bias the scan.
-      # Each tracked file the verification changed is still named, as an
-      # advisory warning and in the summary, so the consumer can fix its
-      # test hygiene; it is not a finding and does not block.
-      - id: scan_tree
-        name: Check out a clean scan tree of the evaluated commit
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
-          REVISION: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          mutated=()
-          while IFS= read -r -d '' entry; do
-            path="${entry:3}"
-            mutated+=("${path}")
-            echo "::warning file=${path}::repository verification (make setup/validate/check/test) changed this tracked file; the scan uses a clean tree of ${REVISION} (advisory, not a finding)"
-          done < <(git status --porcelain=v1 -z --untracked-files=no --no-renames)
-          if [ "${#mutated[@]}" -gt 0 ]; then
-            # Signal law (L9-SIGNAL-001): name the producer, the paths and the
-            # change itself, so the consumer can fix its test hygiene without
-            # re-running: the diff stat, then the first 40 lines per file.
-            diffs="${RUNNER_TEMP:-/tmp}/l9-verification-diff"
-            mkdir -p "${diffs}"
-            git diff --stat -- "${mutated[@]}" > "${diffs}/stat"
-            echo "Repository verification (make setup/validate/check/test) changed ${#mutated[@]} tracked file(s):"
-            cat "${diffs}/stat"
-            {
-              echo "### Tracked files changed by repository verification (advisory)"
-              echo
-              echo "Producer: repository verification (make setup/validate/check/test)."
-              echo "The scan used a clean tree of \`${REVISION}\`, so these changes are not judged."
-              echo
-              echo "~~~~"
-              cat "${diffs}/stat"
-              echo "~~~~"
-              for path in "${mutated[@]}"; do
-                git diff -- "${path}" > "${diffs}/one"
-                echo
-                echo "<details><summary><code>${path}</code> (first 40 lines of the diff)</summary>"
-                echo
-                echo "~~~~diff"
-                head -n 40 "${diffs}/one"
-                echo "~~~~"
-                echo "</details>"
-              done
-            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-          fi
-          tree=".l9/runtime/${L9_MATRIX_ID}/scan-tree"
-          git worktree add --detach --force "${tree}" "${REVISION}"
-          if [ "$(git -C "${tree}" rev-parse HEAD)" != "${REVISION}" ]; then
-            echo "::error::the scan tree is not at the evaluated revision ${REVISION}"
-            exit 1
-          fi
-          if [ -n "$(git -C "${tree}" status --porcelain --untracked-files=no)" ]; then
-            echo "::error::the scan tree of ${REVISION} is not clean"
-            exit 1
-          fi
-          {
-            echo "root=${tree}"
-            echo "mutated-count=${#mutated[@]}"
-            echo "mutated-files=$(IFS=,; echo "${mutated[*]}")"
-          } >> "$GITHUB_OUTPUT"
-
-      # The provider toolchain is a locked contract, not a resolution. Core
-      # selects the setup-python action by full SHA, the interpreter by exact
-      # version (major.minor.patch, so a patch release cannot float in), the
-      # Semgrep version exactly, and the Semgrep dependency closure by digest
-      # inside the pinned Core action. Those selections change only with a
-      # Core revision; the hosted runner image underneath them is GitHub's,
-      # not Core's (workflow audit 2026-09-13, F-005). The SDK venv provisioned
-      # above is untouched; only the provider install rides this interpreter.
-      - name: Set up locked Python for the central toolchain
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.12.14"
-
-      - id: semgrep
-        name: Install Semgrep (hash-locked central pin)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
-
-      - name: Run + normalize Semgrep (SDK)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          operation: semgrep-run
-          language: ${{ steps.language.outputs.language }}
-          raw-output: artifacts/raw/semgrep/${{ steps.runtime.outputs['matrix-id'] }}/report.json
-          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
-          # The clean tree of the evaluated commit (scan-tree step).
-          root: ${{ steps.scan_tree.outputs.root }}
-          snapshot-id: ${{ github.sha }}
-          revision: ${{ github.sha }}
-          provider-executable: ${{ steps.semgrep.outputs.executable }}
-          strict: ${{ steps.gov.outputs.strict }}
-          required: ${{ steps.gov.outputs['required-provider'] }}
-          policy: ${{ steps.gov.outputs['sdk-policy'] }}
-          baseline-commit: ${{ steps.baseline.outputs.commit }}
-          waivers: ${{ steps.gov.outputs['finding-waivers'] }}
-          waiver-repository: ${{ github.repository }}
-          # The Core-staged identity map for the detected language. Without it
-          # a strict profile (`release`) cannot resolve third-party rule
-          # identities and `semgrep run --strict` refuses the run outright.
-          identity-map: ${{ steps.gov.outputs['identity-map-directory'] }}/${{ steps.language.outputs.language }}.yaml
-
-      - name: Validate canonical bundle
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
-
-      - id: gate
-        name: Evaluate SDK technical gate
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
-          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
-          L9_STRICT: ${{ steps.gov.outputs.strict }}
-        run: |
-          set -euo pipefail
-          args=(
-            gate evaluate
-            --bundle ".l9/runtime/${L9_MATRIX_ID}/finding-bundle.json"
-            --output ".l9/runtime/${L9_MATRIX_ID}/gate-result.json"
-          )
-          if [ "${L9_STRICT:-}" = "true" ]; then
-            args+=(--strict-unresolved)
-          else
-            args+=(--no-strict-unresolved)
-          fi
-          exit_code=0
-          "${L9_EXECUTABLE}" "${args[@]}" || exit_code=$?
-          case "${exit_code}" in
-            0) status="pass" ;;
-            1) status="fail" ;;
-            6) status="incomplete" ;;
-            *) echo "::error title=SDK technical gate::gate evaluate failed with unexpected exit ${exit_code}"; exit "${exit_code}" ;;
-          esac
-          {
-            echo "gate-status=${status}"
-            echo "gate-exit-code=${exit_code}"
-          } >> "$GITHUB_OUTPUT"
-          echo "SDK technical gate: ${status} (exit ${exit_code})"
-
-      - id: instances
-        name: Run every planned instance (SDK)
-        if: steps.plan.outcome == 'success'
-        env:
-          L9_INSTANCE_DIR: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances
-          L9_SCAN_ROOT: ${{ steps.scan_tree.outputs.root }}
-          L9_EXECUTABLE: ${{ steps.sdk.outputs.executable }}
-          L9_PROVIDER_EXECUTABLE: ${{ steps.semgrep.outputs.executable }}
-          L9_PRIMARY_LANGUAGE: ${{ steps.language.outputs.language }}
-          L9_PRIMARY_STATUS: ${{ steps.gate.outputs['gate-status'] }}
-          L9_STRICT: ${{ steps.gov.outputs.strict }}
-          L9_REQUIRED: ${{ steps.gov.outputs['required-provider'] }}
-          L9_POLICY: ${{ steps.gov.outputs['sdk-policy'] }}
-          L9_IDENTITY_DIR: ${{ steps.gov.outputs['identity-map-directory'] }}
-          L9_BASELINE: ${{ steps.baseline.outputs.commit }}
-          L9_WAIVERS: ${{ steps.gov.outputs['finding-waivers'] }}
-          L9_REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          python3 -I - <<'PY'
-          import json
-          import os
-          import subprocess
-          import sys
-          from pathlib import Path
-
-          # One record per planned semgrep instance (l9.core-instance-result/v1). The
-          # primary language already ran through the full pipeline above, so its gate
-          # status is reused; every other planned language runs the SDK now. An instance
-          # that cannot conclude gets no record, so the aggregate reports it incomplete,
-          # and an SDK execution error (run, bundle validation, or a gate exit outside
-          # 0/1/6) fails this step in every mode, exactly as it does for the primary
-          # language's own steps: infrastructure failure is never advisory.
-          env = os.environ
-          # Every path the SDK receives is absolute: the scan root is the clean
-          # tree, not the working directory, so a relative output, policy or
-          # identity-map path would resolve under the scan tree and Semgrep
-          # would write no report there.
-          directory = Path(env["L9_INSTANCE_DIR"]).resolve()
-          # Every instance scans the clean tree of the evaluated commit, never
-          # the work tree the verification may have changed (scan-tree step).
-          scan_root = env.get("L9_SCAN_ROOT", "")
-          if not scan_root:
-              sys.exit("::error::no clean scan tree: the instances cannot run")
-          scan_root = str(Path(scan_root).resolve())
-          plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
-          results = directory / "results"
-          results.mkdir(parents=True, exist_ok=True)
-          executable = env["L9_EXECUTABLE"]
-          provider_dir = str(Path(env["L9_PROVIDER_EXECUTABLE"]).parent)
-          run_env = dict(env, PATH=provider_dir + os.pathsep + env.get("PATH", ""))
-          gate_status = {0: "pass", 1: "fail", 6: "incomplete"}
-          errors = []
-
-
-          def record(target, status):
-              body = {
-                  "schema": "l9.core-instance-result/v1",
-                  "repository": plan["repository"],
-                  "provider": "semgrep",
-                  "target": target,
-                  "revision": plan["revision"],
-                  "sdk_revision": plan["sdk_revision"],
-                  "status": status,
-              }
-              kind, _, name = target.partition(":")
-              stem = name if kind == "language" else kind + "-" + name
-              path = results / ("semgrep-" + stem + ".json")
-              path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
-              print("instance semgrep:" + target + ": " + status)
-
-
-          def sdk(*args):
-              return subprocess.run([executable, *args], env=run_env, check=False).returncode
-
-
-          def shared(command):
-              """The flags every instance run shares with the primary run."""
-              command += ["--policy", str(Path(env["L9_POLICY"]).resolve())]
-              if env.get("L9_WAIVERS"):
-                  command += ["--waivers", env["L9_WAIVERS"], "--repository", env["L9_REPOSITORY"]]
-              if env.get("L9_STRICT") == "true":
-                  command.append("--strict")
-              if env.get("L9_REQUIRED") == "true":
-                  command.append("--required")
-              return command
-
-
-          def conclude(target, work, run):
-              """Run, validate and gate one instance; record it or note the error."""
-              bundle = str(work / "finding-bundle.json")
-              work.mkdir(parents=True, exist_ok=True)
-              code = sdk(*run, "--output", bundle)
-              if code == 0:
-                  code = sdk("bundle", "validate", bundle)
-              if code != 0:
-                  errors.append("instance semgrep:" + target + ": SDK run failed (exit " + str(code) + ")")
-                  return
-              gate = ["gate", "evaluate", "--bundle", bundle, "--output", str(work / "gate-result.json")]
-              gate.append("--strict-unresolved" if env.get("L9_STRICT") == "true" else "--no-strict-unresolved")
-              code = sdk(*gate)
-              if code in gate_status:
-                  record(target, gate_status[code])
-              else:
-                  errors.append("instance semgrep:" + target + ": gate exited " + str(code))
-
-
-          for instance in plan["instances"]:
-              if instance["provider"] != "semgrep" or instance["prerequisite"] != "applicable":
-                  continue
-              target = instance["target"]
-              kind, _, name = target.partition(":")
-              if kind == "consumer":
-                  # The repository's declared consumer rulepack (SDK ADR 0021):
-                  # its own execution and bundle; central evidence is untouched.
-                  run = ["semgrep", "consumer-run", "--root", scan_root,
-                         "--snapshot-id", plan["revision"], "--revision", plan["revision"]]
-                  conclude(target, directory / ("consumer-" + name), shared(run))
-                  continue
-              if kind != "language" or name not in ("python", "typescript"):
-                  continue
-              if name == env.get("L9_PRIMARY_LANGUAGE"):
-                  primary = env.get("L9_PRIMARY_STATUS", "")
-                  if primary in ("pass", "fail", "incomplete"):
-                      record(target, primary)
-                  else:
-                      print("instance semgrep:" + target + ": no primary gate status", file=sys.stderr)
-                  continue
-              run = [
-                  "semgrep", "run", "--language", name,
-                  "--root", scan_root, "--snapshot-id", plan["revision"],
-                  "--revision", plan["revision"],
-                  "--identity-map", str(Path(env["L9_IDENTITY_DIR"]).resolve() / (name + ".yaml")),
-              ]
-              shared(run)
-              if env.get("L9_BASELINE"):
-                  run += ["--baseline-commit", env["L9_BASELINE"]]
-              conclude(target, directory / name, run)
-
-          for error in errors:
-              print("::error::" + error, file=sys.stderr)
-          sys.exit(1 if errors else 0)
-          PY
-
-      - id: aggregate
-        name: Aggregate required instances (Core)
-        if: always() && steps.plan.outcome == 'success'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
-          results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
-          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/aggregate.json
-
-      # CENTRAL-DIFF counts: each bundle the SDK classified against the
-      # baseline carries one `baseline <sha>: N new, M pre-existing (K
-      # blocking reported as advisory), U unknown` limitation (ADR 0023).
-      # Pre-existing findings warn here; only new ones and incomplete results
-      # fail, through the gate. Observational: it changes no verdict.
-      - name: Report CENTRAL-DIFF pre-existing findings (advisory)
-        if: always() && steps.baseline.outputs.commit != ''
-        env:
-          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
-        run: |
-          set -euo pipefail
-          python3 -I - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          root = Path(".l9/runtime", os.environ["L9_MATRIX_ID"])
-          lines = []
-          for bundle in sorted(root.rglob("finding-bundle.json")):
-              try:
-                  limitations = json.loads(bundle.read_text(encoding="utf-8")).get("limitations", [])
-              except (OSError, ValueError):
-                  continue
-              for item in limitations:
-                  if isinstance(item, str) and item.startswith("baseline "):
-                      lines.append(str(bundle.parent.relative_to(root)) + ": " + item)
-          for line in lines:
-              print("::warning::CENTRAL-DIFF " + line)
-          summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
-          if summary and lines:
-              with open(summary, "a", encoding="utf-8") as stream:
-                  stream.write("### Pre-existing findings (CENTRAL-DIFF)\n\n")
-                  stream.writelines("- " + line + "\n" for line in lines)
-          PY
-
-      - name: Project agent-review payload
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          operation: bundle-project-agent-payload
-          input: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
-          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/agent-review-payload.json
-          strict: ${{ steps.gov.outputs.strict }}
-
-      - name: Project SARIF (SDK-owned)
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          executable: ${{ steps.sdk.outputs.executable }}
-          operation: bundle-project-sarif
-          input: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
-          output: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/results.sarif
-          strict: ${{ steps.gov.outputs.strict }}
-
-      - id: route
-        name: Route artifacts
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          provider: semgrep
-          matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
-          raw-report: artifacts/raw/semgrep/${{ steps.runtime.outputs['matrix-id'] }}/report.json
-          bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
-          agent-payload: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/agent-review-payload.json
-          sarif: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/results.sarif
-          destination-root: artifacts
-
-      - name: Stage technical gate result
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
-        run: |
-          set -euo pipefail
-          cp ".l9/runtime/${L9_MATRIX_ID}/gate-result.json" "artifacts/l9/${L9_MATRIX_ID}/gate-result.json"
-          cp .l9/runtime/capabilities.json "artifacts/l9/${L9_MATRIX_ID}/repository-capabilities.json"
-
-      - name: Build artifact manifest
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          provider: semgrep
-          matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
-          artifact-name: ${{ steps.names.outputs['artifact-name'] }}
-          repository: ${{ github.repository }}
-          repository-revision: ${{ github.sha }}
-          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
-          artifact-root: artifacts
-          bundle: ${{ steps.route.outputs.bundle }}
-          agent-payload: ${{ steps.route.outputs['agent-payload'] }}
-          raw-directory: ${{ steps.route.outputs['raw-directory'] }}
-          routing-record: ${{ steps.route.outputs['routing-record'] }}
-          output: artifacts/metadata/${{ steps.runtime.outputs['matrix-id'] }}/artifact-index.json
-
-      - id: upload
-        name: Upload analysis artifact set
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ${{ steps.names.outputs['artifact-name'] }}
-          path: |
-            artifacts/raw/semgrep/${{ steps.runtime.outputs['matrix-id'] }}/
-            artifacts/l9/${{ steps.runtime.outputs['matrix-id'] }}/
-            artifacts/metadata/${{ steps.runtime.outputs['matrix-id'] }}/
-          if-no-files-found: error
-          retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
-
-      # Every planned instance's own bundle beside the central artifact set
-      # (SDK ADR 0021, Core change 2): secondary languages and the declared
-      # consumer rulepack, whose bundle names the consumer rule files and the
-      # rules evaluated. A separate artifact, so the central set, its manifest
-      # and its handoff are unchanged. .l9/runtime is untracked workspace
-      # state written by this job only.
-      - name: Upload instance bundles
-        if: always() && steps.plan.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: l9-instance-bundles-${{ steps.runtime.outputs['matrix-id'] }}-${{ github.run_attempt }}
-          path: |
-            .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/
-          include-hidden-files: true
-          if-no-files-found: warn
-          retention-days: ${{ steps.runtime.outputs['artifact-retention-days'] }}
-
-      - id: handoff
-        name: Create artifact handoff descriptor
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@2ee1720b9863bec15fdfebac13b220aeb699d781
-        with:
-          artifact-id: ${{ steps.upload.outputs.artifact-id }}
-          artifact-name: ${{ steps.names.outputs['artifact-name'] }}
-          artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
-          provider: semgrep
-          matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
-          repository: ${{ github.repository }}
-          repository-revision: ${{ github.sha }}
-          workflow-head-sha: ${{ github.event.pull_request.head.sha || github.sha }}
-          sdk-revision: ${{ steps.sdk.outputs['sdk-revision'] }}
-          output: .l9/runtime/handoffs/${{ steps.runtime.outputs['matrix-id'] }}.json
-
       - name: Write central CI summary
         if: always()
         env:
           EVENT_CLASS: ${{ steps.runtime.outputs['event-class'] }}
           PROFILE: ${{ steps.runtime.outputs.profile }}
           MODE: ${{ steps.gov.outputs.mode }}
-          SDK_REVISION: ${{ steps.sdk.outputs['sdk-revision'] }}
-          LANGUAGE: ${{ steps.language.outputs.language }}
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status || steps.repository_verify.outcome }}
-          GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
-          INSTANCES_STATUS: ${{ steps.aggregate.outputs.status }}
-          ARTIFACT_NAME: ${{ steps.names.outputs['artifact-name'] }}
           TOOLCHAIN_ALIGNMENT: ${{ steps.toolchain.outcome }}
-          BIOME_STATUS: ${{ steps.biome_check.outputs.status || steps.biome_check.outcome }}
-          MUTATED_COUNT: ${{ steps.scan_tree.outputs['mutated-count'] }}
-          MUTATED_FILES: ${{ steps.scan_tree.outputs['mutated-files'] }}
         run: |
           {
             echo "### L9 central CI"
@@ -1243,15 +2149,10 @@ jobs:
             echo "- Event: \`${EVENT_CLASS:-unknown}\`"
             echo "- Profile: \`${PROFILE:-unknown}\`"
             echo "- Mode: \`${MODE:-unknown}\`"
-            echo "- SDK revision: \`${SDK_REVISION:-unknown}\`"
-            echo "- Detected language: \`${LANGUAGE:-unknown}\`"
             echo "- Repository verification: \`${REPOSITORY_VERIFY:-unavailable}\`"
-            echo "- Technical gate: \`${GATE_STATUS:-unavailable}\`"
-            echo "- Required instances: \`${INSTANCES_STATUS:-unavailable}\`"
-            echo "- Artifact set: \`${ARTIFACT_NAME:-unavailable}\`"
             echo "- Toolchain alignment (advisory): \`${TOOLCHAIN_ALIGNMENT:-unavailable}\`"
-            echo "- Biome (blocking): \`${BIOME_STATUS:-unavailable}\`"
-            echo "- Tracked files changed by verification (advisory; the scan used a clean tree): \`${MUTATED_COUNT:-unavailable}\`${MUTATED_FILES:+ (${MUTATED_FILES})}"
+            echo "- Biome: its own check, \`Biome\` (docs/biome-check.md)"
+            echo "- Semgrep: not run on pull requests; central-semgrep.yml runs it nightly (docs/semgrep-runs-nightly.md)"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce repository verification
@@ -1351,160 +2252,3 @@ jobs:
                       stream.write(line + "\n")
               print(line)
           PY
-
-      - name: Enforce central mode on SDK technical gate
-        if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
-        env:
-          GATE_STATUS: ${{ steps.gate.outputs['gate-status'] }}
-          AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
-          AGGREGATE_EXIT: ${{ steps.aggregate.outputs['exit-code'] }}
-          ACCOUNTED: ${{ steps.aggregate.outputs.accounted }}
-          MODE: ${{ steps.gov.outputs.mode }}
-          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
-          L9_PRIMARY_LANGUAGE: ${{ steps.language.outputs.language }}
-          # Snippets come from the clean tree of the evaluated commit.
-          L9_SCAN_ROOT: ${{ steps.scan_tree.outputs.root }}
-        run: |
-          set -euo pipefail
-          status="${AGGREGATE_STATUS:-incomplete}"
-          exit_code="${AGGREGATE_EXIT:-6}"
-          echo "SDK technical gate (primary language): ${GATE_STATUS:-unavailable}"
-          echo "Required instances: ${status} (exit ${exit_code}; accounted ${ACCOUNTED:-false}); central mode: ${MODE}"
-          if [ "${status}" != "pass" ]; then
-            # Signal law (L9-SIGNAL-001): name every instance that did not
-            # pass, its reasons, and each blocking finding by rule and
-            # file:line, so the verdict is actionable without a re-run.
-            python3 -I - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          CAP = 20
-          env = os.environ
-          runtime = Path(".l9/runtime", env["L9_MATRIX_ID"])
-          instances = runtime / "required-instances"
-          primary = env.get("L9_PRIMARY_LANGUAGE", "")
-          lines = []
-
-
-          def escape(text, prop=False):
-              text = str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-              return text.replace(":", "%3A").replace(",", "%2C") if prop else text
-
-
-          def load(path):
-              try:
-                  return json.loads(path.read_text(encoding="utf-8"))
-              except (OSError, ValueError):
-                  return None
-
-
-          def directory(instance):
-              kind, _, name = instance.partition(":")[2].partition(":")
-              if kind == "language" and name == primary:
-                  return runtime
-              return instances / (name if kind == "language" else kind + "-" + name)
-
-
-          def emit(props, message):
-              line = "::error " + ",".join(f"{k}={escape(v, True)}" for k, v in props.items()) + "::" + escape(message)
-              print(line)
-              lines.append(message)
-
-
-          # Providers whose findings are secrets: never print their source.
-          SENSITIVE = {"gitleaks", "trufflehog", "detect-secrets"}
-          snippets = []
-
-
-          def snippet(path, start, end, provider):
-              """The offending lines and 2 either side, numbered, marked."""
-              root = Path(env.get("L9_SCAN_ROOT") or ".")
-              try:
-                  source = (root / path).read_text(encoding="utf-8", errors="replace").splitlines()
-              except OSError:
-                  return [f"    (source unavailable: {path})"]
-              first, last = max(1, start - 2), min(len(source), end + 2)
-              rendered = []
-              for number in range(first, last + 1):
-                  marker = ">" if start <= number <= end else " "
-                  text = source[number - 1]
-                  if provider in SENSITIVE and marker == ">":
-                      text = "*" * 8 + " (masked: secret finding)"
-                  elif provider in SENSITIVE:
-                      continue
-                  rendered.append(f"{marker} {number:>5} | {text}")
-              return rendered
-
-
-          aggregate = load(instances / "aggregate.json") or {}
-          if not aggregate:
-              emit({"title": "Required instances"}, "no aggregate was written: the planned instances did not all run")
-          named = 0
-          hidden = 0
-          for instance in aggregate.get("instances", []):
-              if instance.get("status") == "pass":
-                  continue
-              ident = instance.get("id", "?")
-              emit({"title": f"Required instance {ident}"}, f"{instance.get('status')}: {instance.get('reason', '')}")
-              where = directory(ident)
-              gate = load(where / "gate-result.json") or {}
-              bundle = load(where / "finding-bundle.json") or {}
-              for reason in gate.get("reasons", []):
-                  emit({"title": f"Gate {ident}"}, reason)
-              for failure in bundle.get("provider_failures", []):
-                  emit({"title": f"Provider {failure.get('provider_id', '?')} ({ident})"},
-                       f"{failure.get('failure_type', '?')}: {failure.get('message', '')}")
-              findings = {f.get("finding_id"): f for f in bundle.get("findings", [])}
-              for kind in ("blocking_finding_ids", "unresolved_finding_ids"):
-                  for finding_id in gate.get(kind, []):
-                      if named >= CAP:
-                          hidden += 1
-                          continue
-                      finding = findings.get(finding_id, {})
-                      rule = finding.get("canonical_rule_id") or finding.get("provider_rule_id") or finding_id
-                      where_ = (finding.get("locations") or [{}])[0]
-                      props = {"title": f"{rule} ({kind.split('_')[0]}, {ident})"}
-                      path = where_.get("normalized_path")
-                      if path:
-                          start = int(where_.get("start_line") or 1)
-                          end = int(where_.get("end_line") or start)
-                          props = {"file": path, "line": start, "endLine": end, **props}
-                          provider = finding.get("provider_id", "")
-                          snippets.append((f"{path}:{start} {rule}", snippet(path, start, end, provider)))
-                      emit(props, finding.get("message") or finding_id)
-                      named += 1
-          if hidden:
-              emit({"title": "Required instances"}, f"+{hidden} more finding(s) not listed; see the instance bundles artifact")
-          for heading, body in snippets:
-              print(f"::group::{heading}")
-              print("\n".join(body))
-              print("::endgroup::")
-          summary = env.get("GITHUB_STEP_SUMMARY")
-          if summary and lines:
-              with open(summary, "a", encoding="utf-8") as stream:
-                  stream.write("\n### Why the required instances did not pass\n\n")
-                  stream.writelines(f"- {line}\n" for line in lines)
-                  for heading, body in snippets:
-                      stream.write(f"\n`{heading}`\n\n~~~~\n" + "\n".join(body) + "\n~~~~\n")
-          PY
-          fi
-          if [ "${status}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
-            echo "::error title=Required instances::${status} (exit ${exit_code}); the instances, reasons and findings are named above"
-            exit "${exit_code}"
-          fi
-
-      # The security job's result, enforced in the required context. Anything
-      # but success fails, skipped and cancelled included: an INCOMPLETE scan
-      # never passes.
-      - name: Enforce security scan (secrets, dependency audit)
-        if: always()
-        env:
-          SECURITY_RESULT: ${{ needs.security.result }}
-        run: |
-          set -euo pipefail
-          echo "Security scan (gitleaks, pip-audit; bandit advisory): ${SECURITY_RESULT:-unavailable}"
-          if [ "${SECURITY_RESULT}" != "success" ]; then
-            echo "::error title=Security scan::the security job concluded '${SECURITY_RESULT:-unavailable}'; a secret or a vulnerable dependency blocks the merge (see the security job)"
-            exit 1
-          fi

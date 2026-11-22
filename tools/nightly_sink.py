@@ -45,7 +45,7 @@ import os
 import re
 import sys
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Set, Callable, Mapping, Sequence
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -56,6 +56,8 @@ import nightly_apply  # noqa: E402
 
 TOKEN_ENV = "L9_NIGHTLY_SINK_TOKEN"
 CATEGORY_PREFIX = "l9-central/"
+# org-ci.yml's CodeQL check publishes one category per language: codeql-<language>.
+CODEQL_PREFIX = "codeql-"
 ISSUE_TITLE = "Nightly findings (Core central scan)"
 ISSUE_MARKER = "<!-- l9-nightly-findings -->"
 SNAPSHOT = re.compile(r"<!-- l9-nightly-snapshot (\{[^}]*\}) -->")
@@ -118,8 +120,18 @@ def publish(
     files: Mapping[str, Mapping[str, Any]],
     sleep: Callable[[float], None] = time.sleep,
 ) -> list[dict[str, str]]:
-    """Upload each named SARIF and wait for code scanning to accept it."""
+    """Upload each named SARIF and wait for code scanning to accept it.
+
+    A refused CodeQL upload (``codeql-<language>``) does not stop the others:
+    code scanning refuses CodeQL analyses while a repository's CodeQL default
+    setup is enabled (docs/codeql-check.md), and that must not cost the
+    repository its Semgrep, gitleaks or Biome findings. Every other category
+    is uploaded first; the refusal then fails the publish, by name, so the
+    night stays red until default setup is turned off. Any other refusal
+    fails at once, as before.
+    """
     results = []
+    refused = []
     for name, sarif in sorted(files.items()):
         body = {
             "commit_sha": commit,
@@ -130,10 +142,20 @@ def publish(
             "POST", f"/repos/{repository}/code-scanning/sarifs", body
         )
         if status != 202 or not isinstance(response, dict) or not response.get("id"):
+            if name.startswith(CODEQL_PREFIX):
+                refused.append(f"{name} (HTTP {status})")
+                continue
             raise SinkError(f"code scanning refused the {name} upload (HTTP {status})")
         upload = str(response["id"])
         state = _await_processing(transport, repository, upload, sleep)
         results.append({"name": name, "upload": upload, "status": state})
+    if refused:
+        raise SinkError(
+            "code scanning refused the CodeQL upload(s) "
+            + ", ".join(refused)
+            + " after every other category was published; turn off the"
+            " repository's CodeQL default setup (docs/codeql-check.md)"
+        )
     return results
 
 
@@ -159,7 +181,8 @@ def retired(
     )
     if not gone:
         return {}
-    first = files[min(files)]
+    plain = [name for name in files if not name.startswith(CODEQL_PREFIX)]
+    first = files[min(plain or files)]
     runs = first.get("runs") or []
     if not runs:
         raise SinkError("tonight's SARIF has no run to take the tool driver from")
@@ -488,18 +511,33 @@ def snapshot_of(body: str) -> dict[str, Any] | None:
     return data if data.get("schema") == SNAPSHOT_SCHEMA else None
 
 
+#: Categories whose tool is advisory (docs/biome-check.md): their alerts are
+#: listed in the issue but never counted, so a first night or a rise cannot
+#: fail the ratchet that guards the blocking categories.
+ADVISORY_CATEGORIES = frozenset({"biome", "bandit"})
+
+
+def advisory_alerts(alerts: Mapping[int, Mapping[str, str]]) -> set[int]:
+    """Alert numbers whose category belongs to an advisory tool."""
+    names = {f"{CATEGORY_PREFIX}{name}/" for name in ADVISORY_CATEGORIES}
+    return {n for n, alert in alerts.items() if alert.get("category") in names}
+
+
 def judge(
     previous: Mapping[str, Any] | None,
     current: Mapping[int, Mapping[str, str]],
     waived: Mapping[int, str],
+    advisory: Set[int] = frozenset(),
 ) -> dict[str, Any]:
     """New, fixed, still-open and waived alerts, and the ratchet verdict.
 
     Waived alerts are open in code scanning but are not counted: the ratchet
-    compares tonight's counted alerts with last night's.
+    compares tonight's counted alerts with last night's. Advisory alerts are
+    neither counted nor waived: they are listed apart.
     """
     before = set(previous.get("alerts", [])) if previous else set()
-    now = set(current) - set(waived)
+    listed = set(current) - set(waived)
+    now = listed - set(advisory)
     previous_open = len(before) if previous else None
     rose = previous_open is not None and len(now) > previous_open
     return {
@@ -511,6 +549,7 @@ def judge(
         # re-running or waiting a night cannot clear a rise.
         "accepted": sorted(before) if rose else sorted(now),
         "waived": dict(sorted(waived.items())),
+        "advisory": sorted(listed & set(advisory)),
         "previous_open": previous_open,
         "rose": rose,
         "ratchet": "fail" if rose else "pass",
@@ -540,6 +579,7 @@ def render(
         + ("" if previous is None else f" (previous night {previous})"),
         f"- New: {len(verdict['new'])} · Fixed: {len(verdict['fixed'])}",
         f"- Waived (central finding-waiver ledger, not counted): {len(verdict['waived'])}",
+        f"- Advisory tools (reported, never counted): {len(verdict.get('advisory', []))}",
         f"- Ratchet: **{verdict['ratchet']}**"
         + (" (first night sets the baseline)" if previous is None else ""),
         "",
@@ -565,6 +605,10 @@ def render(
             _alert_line(n, alerts[n]) + f" — waiver `{waiver}`"
             for n, waiver in verdict["waived"].items()
         ]
+        lines.append("")
+    if verdict.get("advisory"):
+        lines += ["### Advisory (not counted)", ""]
+        lines += [_alert_line(n, alerts[n]) for n in verdict["advisory"]]
         lines.append("")
     if audited:
         lines += _dependency_section(dependencies, audit)
@@ -697,7 +741,7 @@ def report(
     owners = codeowners(transport, repository, ref)
     issue = find_issue(transport, repository, creator)
     previous = snapshot_of(str(issue.get("body") or "")) if issue else None
-    verdict = judge(previous, alerts, waived)
+    verdict = judge(previous, alerts, waived, advisory_alerts(alerts))
     dependencies = judge_dependencies(
         previous, audit, waived_dependencies(audit, ledger)
     )
@@ -772,42 +816,46 @@ def _ratchet_notes(
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = Path(".github/workflows/nightly-sink.yml")
-CUT = "      - name: Enforce repository verification\n"
-BIOME_STEP = "        name: Run Biome check (blocking)\n"
-BIOME_MODE = "          mode: blocking\n"
+SCAN = Path(".github/workflows/central-semgrep.yml")
+# The scan's own enforcement is not run: the sink judges the findings (the
+# ratchet), and a blocking gate would stop the job before the publication.
+CUT = "      - name: Enforce central mode on SDK technical gate\n"
 EVENT_LINE = "          INPUT_EVENT: ${{ inputs.event || '' }}\n"
 MATRIX_ID_LINE = "          INPUT_MATRIX_ID: canary-nightly-${{ matrix.slug }}\n"
 MATRIX_ID = "nightly-${{ matrix.slug }}"
 LEFT_OVER = re.compile(r"\bneeds\.|\bsecrets\.(?!L9_GITHUB_READ_TOKEN\b)")
-TIMEOUT = 60
-SECURITY = Path(".github/workflows/security.yml")
+TIMEOUT = 90
 AUDIT_STEPS = (
     "Detect project languages",
     "Set up Python",
     "Python dependency audit (pip-audit)",
 )
-AUDIT_REPORT = "${{ runner.temp }}/nightly-pip-audit.json"
+AUDIT_REPORT = "${{ runner.temp }}/pip-audit.json"
 AUDIT_ID = "        id: pip_audit\n"
 AUDIT_LEFT_OVER = re.compile(r"\b(inputs|needs)\.|github\.(event|sha|repository)\b")
 
 HEADER = """\
-# GENERATED by tools/nightly_sink.py render from org-ci.yml. Do not edit:
-# change org-ci.yml (or the tool) and run `python3 tools/nightly_sink.py
-# render`. tests/tools/test_nightly_sink.py fails while this file and
-# org-ci.yml disagree.
+# GENERATED by tools/nightly_sink.py render from central-semgrep.yml. Do not
+# edit: change central-semgrep.yml (or the tool) and run `python3
+# tools/nightly_sink.py render`. tests/tools/test_nightly_sink.py fails while
+# this file and central-semgrep.yml disagree.
 #
-# The nightly findings sink (X4). Each night every repository declared in
-# .l9/promotion-canary.json is checked out at its main head and scanned by
-# org-ci.yml's `analyze` steps, verbatim apart from the target identity, as a
-# `nightly` event: the whole tree, no baseline. The steps from "Enforce
-# repository verification" on are not run; the sink judges the findings, not
-# the repository's pull-request gate. Every instance bundle is projected to
+# The nightly findings sink (X4), and since the operator decision of 2026-11-21
+# the only place Semgrep runs (docs/semgrep-runs-nightly.md). Each
+# night every repository declared in .l9/promotion-canary.json (nightly not
+# false) is checked out at its main head and scanned by central-semgrep.yml's
+# steps, verbatim apart from the target identity, as a `nightly` event: a clean
+# checkout, the whole tree, no baseline, every planned instance (languages and
+# the consumer rulepack). The scan's own enforcement step is not run; the sink
+# judges the findings. Every instance bundle is projected to
 # SARIF by the SDK and uploaded to that repository's code scanning (one
 # category per instance), and one rolling "Nightly findings" issue is updated
-# with the new, fixed and still-open alerts. security.yml's own pip-audit step
-# (inlined from security.yml, not copied) audits each repository's full
-# resolved lock, and its known vulnerabilities go to the same issue. An open
-# count (either tool) that rises, or an incomplete audit, fails
+# with the new, fixed and still-open alerts. org-ci.yml's `pip-audit` check
+# (inlined, not copied) audits each repository's full resolved lock, and its
+# known vulnerabilities go to the same issue. org-ci.yml's `Biome` check runs
+# on the whole tree, and bandit runs only here (nightly only, operator
+# 2026-11-21), both advisory: their alerts are listed, never counted. An open
+# Semgrep or dependency count that rises, or an incomplete audit, fails
 # the run; findings a live entry of Core's central finding-waiver ledger
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
@@ -867,7 +915,7 @@ jobs:
 """
 
 SINK = """\
-      # --- nightly sink (not part of org-ci.yml) ---
+      # --- nightly sink (not part of central-semgrep.yml) ---
       - id: project_sarif
         name: Project every instance bundle to SARIF (SDK)
         env:
@@ -924,6 +972,59 @@ SINK = """\
           sys.exit(1 if errors else 0)
           PY
 
+@@BIOME@@
+      - name: Project Biome's SARIF for code scanning
+        if: ${{ !cancelled() && steps.biome_check.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          # Biome writes absolute file URIs; code scanning needs them relative
+          # to the repository. Its alerts are one more category, beside each
+          # Semgrep instance's: l9-central/biome/.
+          source = Path(os.environ["RUNNER_TEMP"], "biome.sarif")
+          if not source.is_file():
+              print("Biome wrote no SARIF (no Biome configuration): no biome category tonight")
+              raise SystemExit(0)
+          root = Path(os.environ["GITHUB_WORKSPACE"]).resolve().as_uri() + "/"
+          sarif = json.loads(source.read_text(encoding="utf-8"))
+          for run in sarif.get("runs", []):
+              for result in run.get("results", []):
+                  for location in result.get("locations", []):
+                      artifact = location.get("physicalLocation", {}).get("artifactLocation", {})
+                      uri = str(artifact.get("uri", ""))
+                      if uri.startswith(root):
+                          artifact["uri"] = uri[len(root):]
+                      elif uri.startswith("/"):
+                          artifact["uri"] = os.path.relpath(uri, os.environ["GITHUB_WORKSPACE"])
+          out = Path(os.environ["RUNNER_TEMP"], "nightly-sarif", "biome.sarif")
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(json.dumps(sarif), encoding="utf-8")
+          print("instance biome: projected")
+          PY
+
+@@GITLEAKS@@
+@@HYGIENE@@
+@@CODEQL@@
+@@ACTIONLINT@@
+      - name: Project CodeQL's SARIF for code scanning
+        if: ${{ !cancelled() && steps.codeql_analyze.outcome == 'success' }}
+        env:
+          LANGUAGES: ${{ steps.codeql_scope.outputs.languages }}
+          RESULTS: ${{ steps.codeql_analyze.outputs.directory }}
+        run: |
+          set -euo pipefail
+          # One category per language, beside each Semgrep instance's:
+          # l9-central/codeql-<language>/. The whole tree, so every result.
+          mkdir -p "${RUNNER_TEMP}/nightly-sarif"
+          for language in ${LANGUAGES}; do
+            cp "${RESULTS}/head-${language}.sarif" "${RUNNER_TEMP}/nightly-sarif/codeql-${language}.sarif"
+            echo "instance codeql-${language}: projected"
+          done
+
 @@AUDIT@@
       - name: Summarize the dependency audit
         if: ${{ !cancelled() }}
@@ -938,12 +1039,71 @@ SINK = """\
           echo "${line}"
           echo "- ${line}" >> "${GITHUB_STEP_SUMMARY}"
 
+      # bandit runs nightly only, advisory (operator, 2026-11-21; it is not a
+      # pull-request check). The whole default branch, every severity and
+      # confidence; tests are excluded at any depth (a measured 3,581 of
+      # 4,694 Cursor-Governance findings sat in nested test paths). Findings
+      # go to code scanning (l9-central/bandit/, listed, never counted) and
+      # the complete JSON report is kept as an artifact, so bandit can be
+      # compared with SonarCloud before it is promoted or retired. Exit 0 (no
+      # finding) and 1 (findings) are both a completed scan; anything else is
+      # a scan that did not complete and fails the step.
+      - id: bandit
+        name: Python static security scan (bandit, nightly, advisory)
+        if: ${{ !cancelled() && steps.detect.outputs.python == 'true' }}
+        run: |
+          set -euo pipefail
+          python -m pip install --only-binary :all: "bandit[sarif]==1.8.6"
+          exclude="./venv,./.venv,./tests,./build,./dist,*/tests/*,*/test_*.py"
+          sarif_dir="${RUNNER_TEMP}/nightly-sarif"
+          mkdir -p "${sarif_dir}"
+          for format in json sarif; do
+            target="${RUNNER_TEMP}/bandit.json"
+            [ "${format}" = "sarif" ] && target="${sarif_dir}/bandit.sarif"
+            status=0
+            bandit -q -r . -f "${format}" -o "${target}" --exclude "${exclude}" || status=$?
+            if [ "${status}" -gt 1 ]; then
+              echo "::error title=bandit::bandit -f ${format} exited ${status}: the scan did not complete"
+              exit "${status}"
+            fi
+          done
+          python3 -I - "${RUNNER_TEMP}/bandit.json" <<'PY'
+          import json
+          import os
+          import sys
+          from collections import Counter
+
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          results = data.get("results", [])
+          by = Counter((r.get("issue_severity", "?"), r.get("issue_confidence", "?")) for r in results)
+          line = (
+              f"- bandit (nightly, advisory): {len(results)} finding(s); "
+              + ", ".join(f"{s}/{c}: {n}" for (s, c), n in sorted(by.items()))
+          )
+          print(line)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write(line + "\\n")
+          PY
+
+      - name: Keep bandit's full JSON report
+        if: ${{ !cancelled() && steps.bandit.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bandit-${{ matrix.slug }}
+          path: ${{ runner.temp }}/bandit.json
+          if-no-files-found: error
+          retention-days: 30
+
       # Each sink step runs only when the one it depends on succeeded, so a
       # failed dependency audit still reaches the issue, while a failed or
       # partial upload never writes a stale state into its snapshot.
       - id: sink_tool
         name: Fetch the sink tool (Core, this run's revision)
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' }}
+        # A Biome, gitleaks, no-bytecode, sha-pins, CodeQL, actionlint or
+        # bandit run that failed (not one with findings: here each reports
+        # findings instead of failing) would drop its category and so close
+        # its alerts: nothing publishes.
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.no_bytecode.outcome != 'failure' && steps.sha_pins.outcome != 'failure' && steps.codeql_analyze.outcome != 'failure' && steps.actionlint_check.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
@@ -1023,7 +1183,7 @@ SINK = """\
             --python-project "${PYTHON_PROJECT}" \\
             --pip-audit-outcome "${PIP_AUDIT_OUTCOME}" \\
             --pip-audit-packages "${PIP_AUDIT_PACKAGES}" \\
-            --pip-audit-report "${RUNNER_TEMP}/nightly-pip-audit.json" \\
+            --pip-audit-report "${RUNNER_TEMP}/pip-audit.json" \\
             --lock-dir "${GITHUB_WORKSPACE}" \\
             --run-url "${RUN_URL}"
 """
@@ -1035,11 +1195,12 @@ def _canary() -> Any:
     return promotion_canary
 
 
-def sink_steps(org_ci: str) -> str:
-    """org-ci.yml's analyze steps as a nightly scan of the matrix repository."""
+def sink_steps(scan: str) -> str:
+    """The scan's steps (central-semgrep.yml) as a nightly scan of the matrix
+    repository, up to its own enforcement."""
     pc = _canary()
     try:
-        steps = pc.retarget(pc.analyze_steps(org_ci), "nightly")
+        steps = pc.retarget(pc.analyze_steps(scan), "nightly")
     except pc.CanaryError as error:
         raise SinkError(str(error)) from error
     for old, new in (
@@ -1047,40 +1208,20 @@ def sink_steps(org_ci: str) -> str:
         (MATRIX_ID_LINE, f"          INPUT_MATRIX_ID: {MATRIX_ID}\n"),
     ):
         if steps.count(old) != 1:
-            raise SinkError(
-                f"org-ci.yml's analyze steps no longer contain {old.strip()!r} once"
-            )
+            raise SinkError(f"{SCAN}'s steps no longer contain {old.strip()!r} once")
         steps = steps.replace(old, new)
-    # The sink judges Semgrep's findings; Biome's own blocking verdict belongs
-    # to the pull-request gate, and in blocking mode it would stop the job
-    # before the Semgrep scan and the publication.
-    if steps.count(BIOME_STEP) != 1:
-        raise SinkError(
-            f"org-ci.yml's analyze steps no longer contain {BIOME_STEP.strip()!r} once"
-        )
-    head, _, tail = steps.partition(BIOME_STEP)
-    step, separator, rest = tail.partition("\n      - ")
-    if step.count(BIOME_MODE) != 1:
-        raise SinkError("the Biome check step no longer sets `mode: blocking` once")
-    steps = (
-        head
-        + "        name: Run Biome check (advisory in the nightly sink)\n"
-        + step.replace(BIOME_MODE, "          mode: advisory\n")
-        + separator
-        + rest
-    )
     lines = steps.splitlines(keepends=True)
     try:
         cut = lines.index(CUT)
     except ValueError as error:
-        raise SinkError(
-            f"org-ci.yml's analyze steps have no {CUT.strip()!r} step"
-        ) from error
+        raise SinkError(f"{SCAN}'s steps have no {CUT.strip()!r} step") from error
     while cut and (
         not lines[cut - 1].strip() or lines[cut - 1].lstrip().startswith("#")
     ):
         cut -= 1
     kept = "".join(lines[:cut]).rstrip("\n") + "\n"
+    # The sink declares only `repository`: every other input is its default.
+    kept = pc.undeclared_defaults(kept, frozenset({"repository"}))
     left = [
         line.strip()
         for line in kept.splitlines()
@@ -1093,12 +1234,21 @@ def sink_steps(org_ci: str) -> str:
     return kept
 
 
-def audit_steps(security: str) -> str:
-    """security.yml's dependency audit, as the nightly runs it.
+def pip_audit_workflow(org_ci: str) -> str:
+    """org-ci.yml's `pip-audit` check as a one-job workflow (its source)."""
+    blocks = _canary().job_blocks(org_ci)
+    if "pip-audit" not in blocks:
+        raise SinkError("org-ci.yml has no `pip-audit` job to audit nightly")
+    return "on:\n  workflow_call:\njobs:\n  pip-audit:\n" + blocks["pip-audit"]
 
-    The detection, Python and pip-audit steps of security.yml's job are taken
-    verbatim, never copied by hand, so the nightly audits exactly what the
-    pull-request gate audits. Only the event identity is resolved: the nightly
+
+def audit_steps(security: str) -> str:
+    """The `pip-audit` check's dependency audit, as the nightly runs it.
+
+    ``security`` is the one-job workflow of org-ci.yml's `pip-audit` check
+    (``pip_audit_workflow``). Its detection, Python and pip-audit steps are
+    taken verbatim, never copied by hand, so the nightly audits exactly what
+    the pull-request gate audits. Only the event identity is resolved: the nightly
     is not a pull request, merge group or push, so the step audits the full
     resolved lock (row 23), and the ``pip-audit-report`` input asks it for a
     JSON report. With a report path the step ends cleanly on pip-audit's
@@ -1109,7 +1259,7 @@ def audit_steps(security: str) -> str:
     """
     pc = _canary()
     try:
-        steps, _, _ = pc._single_job(security, "security.yml")
+        steps, _, _ = pc._single_job(security, "org-ci.yml job 'pip-audit'")
     except pc.CanaryError as error:
         raise SinkError(str(error)) from error
     items = re.split(r"(?m)^(?= {6}- )", steps)
@@ -1121,7 +1271,7 @@ def audit_steps(security: str) -> str:
             if re.search(rf"(?m)^ {{6,8}}(- )?name: {re.escape(name)}$", i)
         ]
         if len(found) != 1:
-            raise SinkError(f"security.yml no longer has one {name!r} step")
+            raise SinkError(f"the pip-audit check no longer has one {name!r} step")
         chosen.append(found[0].rstrip("\n") + "\n")
     text = "".join(chosen)
     defaults = {**pc._inputs(security), "pip-audit-report": AUDIT_REPORT}
@@ -1129,7 +1279,9 @@ def audit_steps(security: str) -> str:
     def value(match: re.Match[str]) -> str:
         key = match.group(1)
         if key not in defaults:
-            raise SinkError(f"security.yml input {key!r} has no value")
+            raise SinkError(
+                f"the pip-audit check reads input {key!r}, which has no value"
+            )
         return json.dumps(defaults[key])
 
     text = re.sub(r"\$\{\{\s*inputs\.([a-z0-9-]+)\s*\}\}", value, text)
@@ -1137,7 +1289,7 @@ def audit_steps(security: str) -> str:
     text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", '""', text)
     text = text.replace("${{ github.sha }}", "${{ matrix.revision }}")
     if text.count(AUDIT_ID) != 1:
-        raise SinkError("security.yml's pip-audit step no longer has id pip_audit")
+        raise SinkError("the pip-audit check's audit step no longer has id pip_audit")
     left = [
         line.strip()
         for line in text.splitlines()
@@ -1145,20 +1297,309 @@ def audit_steps(security: str) -> str:
     ]
     if left:
         raise SinkError(
-            "security.yml references the sink cannot satisfy: " + "; ".join(left)
+            "the pip-audit check references what the sink cannot satisfy: "
+            + "; ".join(left)
         )
     return (
-        "      # --- security.yml's dependency audit (generated, not copied) ---\n"
+        "      # --- org-ci.yml's pip-audit check, full lock (generated, not copied) ---\n"
         + text
     )
 
 
-def render_workflow(org_ci: str, security: str) -> str:
-    steps = sink_steps(org_ci)
-    audit = audit_steps(security)
-    digest = hashlib.sha256((steps + audit).encode("utf-8")).hexdigest()
+BIOME_JOB = "biome"
+BIOME_MODE_LINE = "          L9_BIOME_MODE: blocking\n"
+ORG_CI = Path(".github/workflows/org-ci.yml")
+
+
+def biome_steps(org_ci: str) -> str:
+    """org-ci.yml's `Biome` job, run on the whole tree and advisory.
+
+    The job's own steps after its checkout (the sink's scan already checked
+    the repository out at its main head), retargeted like any canary sibling:
+    a schedule is not a pull request, so Biome judges the whole tree. Advisory,
+    so a finding reaches code scanning and the issue instead of failing the
+    night; an infrastructure failure still fails the step.
+    """
+    pc = _canary()
+    blocks = pc.job_blocks(org_ci)
+    if BIOME_JOB not in blocks:
+        raise SinkError("org-ci.yml has no `biome` job to run nightly")
+    workflow = "on:\n  workflow_call:\njobs:\n  biome:\n" + blocks[BIOME_JOB]
+    try:
+        steps, _, _ = pc._single_job(workflow, "org-ci.yml job 'biome'")
+        steps = pc._substitute(steps, {}, "org-ci.yml job 'biome'")
+    except pc.CanaryError as error:
+        raise SinkError(str(error)) from error
+    items = [i for i in re.split(r"(?m)^(?= {6}- )", steps) if i.strip()]
+    if not items or "name: Checkout immutable event revision" not in items[0]:
+        raise SinkError("org-ci.yml's biome job no longer starts with its checkout")
+    text = "".join(items[1:])
+    if text.count(BIOME_MODE_LINE) != 1:
+        raise SinkError("org-ci.yml's biome job no longer sets L9_BIOME_MODE once")
+    text = text.replace(BIOME_MODE_LINE, "          L9_BIOME_MODE: advisory\n")
+    name = "      - name: Run Biome check (blocking)\n"
+    if text.count(name) != 1:
+        raise SinkError("org-ci.yml's biome job no longer names its run step once")
+    text = text.replace(
+        name, "      - name: Run Biome check (advisory in the nightly sink)\n"
+    )
+    return (
+        "      # --- org-ci.yml's Biome check, whole tree, advisory (generated) ---\n"
+        + text.rstrip("\n")
+        + "\n"
+    )
+
+
+GITLEAKS_JOB = "gitleaks"
+GITLEAKS_STEP = "Secret scan (gitleaks)"
+GITLEAKS_SARIF = "${{ runner.temp }}/nightly-sarif/gitleaks.sarif"
+# The step's PR-mode settings, each replaced once by its nightly value.
+GITLEAKS_NIGHTLY = (
+    ("          GITLEAKS_SCOPE: event\n", "          GITLEAKS_SCOPE: history\n"),
+    ("          GITLEAKS_TARGET: git\n", "          GITLEAKS_TARGET: dir\n"),
+    (
+        '          GITLEAKS_FINDINGS_FAIL: "true"\n',
+        '          GITLEAKS_FINDINGS_FAIL: "false"\n',
+    ),
+    ('          GITLEAKS_SARIF: ""\n', f"          GITLEAKS_SARIF: {GITLEAKS_SARIF}\n"),
+)
+
+
+def gitleaks_steps(org_ci: str) -> str:
+    """org-ci.yml's `gitleaks` check, run on the whole tree and reported.
+
+    The check's own scan step, verbatim apart from its mode: the whole tree of
+    the default branch (``gitleaks dir``; the sink's checkout is shallow, and a
+    secret that is still in the code is the one to fix), findings written as
+    SARIF for code scanning (``l9-central/gitleaks/``, counted by the ratchet)
+    instead of failing the step. A scan that does not complete still fails it.
+    """
+    pc = _canary()
+    blocks = pc.job_blocks(org_ci)
+    if GITLEAKS_JOB not in blocks:
+        raise SinkError("org-ci.yml has no `gitleaks` job to run nightly")
+    workflow = "on:\n  workflow_call:\njobs:\n  gitleaks:\n" + blocks[GITLEAKS_JOB]
+    try:
+        steps, _, _ = pc._single_job(workflow, "org-ci.yml job 'gitleaks'")
+    except pc.CanaryError as error:
+        raise SinkError(str(error)) from error
+    items = re.split(r"(?m)^(?= {6}- )", steps)
+    found = [i for i in items if f"name: {GITLEAKS_STEP}\n" in i]
+    if len(found) != 1:
+        raise SinkError(f"the gitleaks check no longer has one {GITLEAKS_STEP!r} step")
+    text = found[0].rstrip("\n") + "\n"
+    for old, new in GITLEAKS_NIGHTLY:
+        if text.count(old) != 1:
+            raise SinkError(f"the gitleaks step no longer sets {old.strip()!r} once")
+        text = text.replace(old, new)
+    text = text.replace("${{ github.event_name }}", "nightly")
+    text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", '""', text)
+    text = text.replace("${{ github.sha }}", "${{ matrix.revision }}")
+    head = f"      - name: {GITLEAKS_STEP}\n"
+    if not text.startswith(head) or "        id: gitleaks\n" not in text:
+        raise SinkError("the gitleaks step no longer starts with its name and id")
+    text = text.replace(head, head + "        if: ${{ !cancelled() }}\n", 1)
+    return (
+        "      # --- org-ci.yml's gitleaks check, whole tree, reported (generated) ---\n"
+        + text
+    )
+
+
+#: org-ci.yml's no-bytecode and sha-pins checks: (job, step id).
+HYGIENE_CHECKS = (("no-bytecode", "no_bytecode"), ("sha-pins", "sha_pins"))
+
+
+def hygiene_steps(org_ci: str) -> str:
+    """org-ci.yml's no-bytecode and sha-pins checks, on every file, reported.
+
+    Each check's own step, verbatim apart from the event (a night has no base,
+    so every tracked file is judged) and its mode: findings go to code
+    scanning as ``l9-central/<check>/`` (counted) instead of failing the step.
+    """
+    pc = _canary()
+    blocks = pc.job_blocks(org_ci)
+    out = []
+    for job, identifier in HYGIENE_CHECKS:
+        if job not in blocks:
+            raise SinkError(f"org-ci.yml has no `{job}` job to run nightly")
+        workflow = f"on:\n  workflow_call:\njobs:\n  {job}:\n" + blocks[job]
+        try:
+            steps, _, _ = pc._single_job(workflow, f"org-ci.yml job {job!r}")
+        except pc.CanaryError as error:
+            raise SinkError(str(error)) from error
+        items = re.split(r"(?m)^(?= {6}- )", steps)
+        found = [i for i in items if f"        id: {identifier}\n" in i]
+        if len(found) != 1:
+            raise SinkError(f"the {job} check no longer has one {identifier!r} step")
+        text = found[0].rstrip("\n") + "\n"
+        for old, new in (
+            ('          FINDINGS_FAIL: "true"\n', '          FINDINGS_FAIL: "false"\n'),
+            (
+                '          SARIF: ""\n',
+                f"          SARIF: ${{{{ runner.temp }}}}/nightly-sarif/{job}.sarif\n",
+            ),
+        ):
+            if text.count(old) != 1:
+                raise SinkError(f"the {job} step no longer sets {old.strip()!r} once")
+            text = text.replace(old, new)
+        text = text.replace("${{ github.event_name }}", "nightly")
+        text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", '""', text)
+        text = text.replace("${{ github.sha }}", "${{ matrix.revision }}")
+        head = re.match(r"      - name: [^\n]+\n", text)
+        if head is None or "${{ github." in text or "${{ inputs." in text:
+            raise SinkError(f"the {job} step cannot be run nightly as written")
+        text = (
+            text[: head.end()]
+            + "        if: ${{ !cancelled() }}\n"
+            + text[head.end() :]
+        )
+        out.append(
+            f"      # --- org-ci.yml's {job} check, every file (generated) ---\n" + text
+        )
+    return "".join(out).rstrip("\n")
+
+
+CODEQL_JOB = "codeql"
+CODEQL_STEPS = ("codeql_scope", "codeql_install", "codeql_analyze")
+
+
+def codeql_steps(org_ci: str) -> str:
+    """org-ci.yml's CodeQL check, run on the whole default branch.
+
+    The check's own language, install and analyze steps, verbatim apart from
+    the event: a night is not a pull request, merge group or push, so there is
+    no base and the analyze step runs once, on the whole tree. Its verdict
+    step is not run (with no base nothing is new); the SARIF goes to code
+    scanning instead, one ``l9-central/codeql-<language>/`` category each.
+    """
+    pc = _canary()
+    blocks = pc.job_blocks(org_ci)
+    if CODEQL_JOB not in blocks:
+        raise SinkError("org-ci.yml has no `codeql` job to run nightly")
+    workflow = "on:\n  workflow_call:\njobs:\n  codeql:\n" + blocks[CODEQL_JOB]
+    try:
+        steps, _, _ = pc._single_job(workflow, "org-ci.yml job 'codeql'")
+    except pc.CanaryError as error:
+        raise SinkError(str(error)) from error
+    items = re.split(r"(?m)^(?= {6}- )", steps)
+    chosen = []
+    for identifier in CODEQL_STEPS:
+        found = [i for i in items if f"        id: {identifier}\n" in i]
+        if len(found) != 1:
+            raise SinkError(f"the CodeQL check no longer has one {identifier!r} step")
+        text = found[0].rstrip("\n") + "\n"
+        name = re.match(r"      - name: [^\n]+\n", text)
+        if name is None:
+            raise SinkError(
+                f"the CodeQL {identifier!r} step no longer starts with its name"
+            )
+        chosen.append(
+            text[: name.end()]
+            + "        if: ${{ !cancelled() }}\n"
+            + text[name.end() :]
+        )
+    text = "".join(chosen)
+    text = text.replace("${{ github.event_name }}", "nightly")
+    text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", '""', text)
+    if "${{ github." in text or "${{ inputs." in text:
+        raise SinkError("the CodeQL steps read an event value the sink cannot supply")
+    return "      # --- org-ci.yml's CodeQL check, whole tree (generated) ---\n" + text
+
+
+ACTIONLINT_JOB = "actionlint"
+ACTIONLINT_STEPS = ("actionlint_scope", "actionlint_install", "actionlint_check")
+ACTIONLINT_SARIF = "${{ runner.temp }}/nightly-sarif/actionlint.sarif"
+# The check's PR-mode settings, each replaced once by its nightly value.
+ACTIONLINT_NIGHTLY = (
+    (
+        '          ACTIONLINT_FINDINGS_FAIL: "true"\n',
+        '          ACTIONLINT_FINDINGS_FAIL: "false"\n',
+    ),
+    (
+        '          ACTIONLINT_SARIF: ""\n',
+        f"          ACTIONLINT_SARIF: {ACTIONLINT_SARIF}\n",
+    ),
+)
+
+
+def actionlint_steps(org_ci: str) -> str:
+    """org-ci.yml's actionlint check, on every workflow, reported.
+
+    The check's own scope, install and run steps, verbatim apart from the
+    event (a night has no base, so every workflow is judged) and its mode:
+    findings are written as SARIF (``l9-central/actionlint/``, counted)
+    instead of failing the step. A run that does not complete still fails it.
+    """
+    pc = _canary()
+    blocks = pc.job_blocks(org_ci)
+    if ACTIONLINT_JOB not in blocks:
+        raise SinkError("org-ci.yml has no `actionlint` job to run nightly")
+    workflow = "on:\n  workflow_call:\njobs:\n  actionlint:\n" + blocks[ACTIONLINT_JOB]
+    try:
+        steps, _, _ = pc._single_job(workflow, "org-ci.yml job 'actionlint'")
+    except pc.CanaryError as error:
+        raise SinkError(str(error)) from error
+    items = re.split(r"(?m)^(?= {6}- )", steps)
+    chosen = []
+    for identifier in ACTIONLINT_STEPS:
+        found = [i for i in items if f"        id: {identifier}\n" in i]
+        if len(found) != 1:
+            raise SinkError(
+                f"the actionlint check no longer has one {identifier!r} step"
+            )
+        chosen.append(found[0].rstrip("\n") + "\n")
+    text = "".join(chosen)
+    # Run whatever an earlier, unrelated step concluded (as the other
+    # inlined checks do): a skipped check would drop its category tonight.
+    gate = "        if: steps.actionlint_scope.outputs.applies == 'true'\n"
+    if text.count(gate) != 2:
+        raise SinkError("the actionlint steps no longer gate on their scope twice")
+    text = text.replace(
+        gate,
+        "        if: ${{ !cancelled() && steps.actionlint_scope.outputs.applies == 'true' }}\n",
+    )
+    scope = "        id: actionlint_scope\n"
+    text = text.replace(scope, "        if: ${{ !cancelled() }}\n" + scope, 1)
+    for old, new in ACTIONLINT_NIGHTLY:
+        if text.count(old) != 1:
+            raise SinkError(f"the actionlint step no longer sets {old.strip()!r} once")
+        text = text.replace(old, new)
+    text = text.replace("${{ github.event_name }}", "nightly")
+    text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", '""', text)
+    text = text.replace("${{ github.sha }}", "${{ matrix.revision }}")
+    if "${{ github." in text or "${{ inputs." in text:
+        raise SinkError(
+            "the actionlint steps read an event value the sink cannot supply"
+        )
+    return (
+        "      # --- org-ci.yml's actionlint check, every workflow (generated) ---\n"
+        + text
+    )
+
+
+def render_workflow(scan: str, org_ci: str) -> str:
+    steps = sink_steps(scan)
+    biome = biome_steps(org_ci)
+    gitleaks = gitleaks_steps(org_ci)
+    hygiene = hygiene_steps(org_ci)
+    codeql = codeql_steps(org_ci)
+    actionlint = actionlint_steps(org_ci)
+    audit = audit_steps(pip_audit_workflow(org_ci))
+    digest = hashlib.sha256(
+        (steps + biome + gitleaks + hygiene + codeql + actionlint + audit).encode(
+            "utf-8"
+        )
+    ).hexdigest()
     header = HEADER.replace("@@DIGEST@@", digest).replace("@@TIMEOUT@@", str(TIMEOUT))
-    sink = SINK.replace("@@MATRIX_ID@@", MATRIX_ID).replace("@@AUDIT@@\n", audit + "\n")
+    sink = (
+        SINK.replace("@@MATRIX_ID@@", MATRIX_ID)
+        .replace("@@BIOME@@\n", biome + "\n")
+        .replace("@@GITLEAKS@@\n", gitleaks + "\n")
+        .replace("@@HYGIENE@@\n", hygiene + "\n")
+        .replace("@@CODEQL@@\n", codeql + "\n")
+        .replace("@@ACTIONLINT@@\n", actionlint + "\n")
+        .replace("@@AUDIT@@\n", audit + "\n")
+    )
     return header + steps + "\n" + sink
 
 
@@ -1280,9 +1721,9 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
-    org_ci = (ROOT / ".github/workflows/org-ci.yml").read_text(encoding="utf-8")
-    security = (ROOT / SECURITY).read_text(encoding="utf-8")
-    rendered = render_workflow(org_ci, security)
+    scan = (ROOT / SCAN).read_text(encoding="utf-8")
+    org_ci = (ROOT / ORG_CI).read_text(encoding="utf-8")
+    rendered = render_workflow(scan, org_ci)
     target = ROOT / WORKFLOW
     if args.check:
         current = target.read_text(encoding="utf-8") if target.is_file() else ""

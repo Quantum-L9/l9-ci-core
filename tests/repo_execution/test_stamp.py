@@ -376,12 +376,17 @@ class RenderedContentTests(unittest.TestCase):
         config = tomllib.loads(render_file("uv.toml").decode())
         self.assertEqual({"required-version": f"=={lock['uv']}"}, config)
 
-    def test_gitleaks_config_extends_the_pinned_defaults_only(self) -> None:
+    def test_gitleaks_config_extends_the_pinned_defaults_with_core_rules(
+        self,
+    ) -> None:
         import tomllib
 
         config = tomllib.loads(render_file(".gitleaks.toml").decode())
-        self.assertEqual({"title", "extend"}, set(config))
+        self.assertEqual({"title", "extend", "rules"}, set(config))
         self.assertEqual({"useDefault": True}, config["extend"])
+        # Core rules only (docs/gitleaks-core-rules.md), never an allowlist.
+        for rule in config["rules"]:
+            self.assertTrue(rule["id"].startswith("l9-"), rule["id"])
 
     def test_pre_commit_config_parses_as_yaml(self) -> None:
         import yaml  # Core dev dependency (requirements-ci.txt)

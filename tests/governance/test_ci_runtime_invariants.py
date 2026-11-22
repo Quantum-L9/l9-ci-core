@@ -4,8 +4,10 @@ One known-good and one known-bad witness per invariant, named by ID. The
 statements are Proposed (``docs/adr/``); a passing witness proves the gate
 logic it names and nothing about admission, rollout or a hosted run.
 
-The required-workflow half of ``L9-CI-CORE-003`` is witnessed against
-org-ci.yml itself (AGENTS.md §35), with a known-bad single-language variant.
+The scheduling half of ``L9-CI-CORE-003`` is witnessed against
+central-semgrep.yml, the Semgrep chain the nightly scan runs since it left the
+required check (docs/semgrep-runs-nightly.md; AGENTS.md §35), with a
+known-bad single-language variant.
 ``L9-CI-CORE-004`` and ``L9-CI-CORE-006`` prove gate logic only; no live canary, ruleset read or
 hosted run observation has been made by these tests.
 """
@@ -32,6 +34,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import ci_runtime_invariants as invariants  # noqa: E402
 
 ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
+SCAN = ROOT / ".github" / "workflows" / "central-semgrep.yml"
 METADATA = ROOT / ".github" / "actions" / "resolve-consumer-metadata" / "metadata.py"
 ADR_DIR = ROOT / "docs" / "adr"
 
@@ -307,17 +310,17 @@ class RuntimeInvariantWitnessTests(unittest.TestCase):
     def test_L9_CI_CORE_003_known_good_required_job_schedules_every_instance(
         self,
     ) -> None:
-        """The required job plans, runs, aggregates and enforces every instance."""
+        """The Semgrep scan plans, runs, aggregates and enforces every instance."""
         invariants.require_capability("required-instance-scheduling")
-        text = ORG_CI.read_text(encoding="utf-8")
+        text = SCAN.read_text(encoding="utf-8")
         self.assertIn("plan-required-instances@", text)
         self.assertIn("aggregate-required-instances@", text)
 
     def test_L9_CI_CORE_003_known_bad_single_language_job_fails_closed(
         self,
     ) -> None:
-        """The pre-§35 required job (one detected language) lacks the capability."""
-        text = ORG_CI.read_text(encoding="utf-8")
+        """The pre-§35 scan (one detected language) lacks the capability."""
+        text = SCAN.read_text(encoding="utf-8")
         for marker in (
             "aggregate-required-instances@",
             "plan-required-instances@",
@@ -394,7 +397,10 @@ class RuntimeInvariantWitnessTests(unittest.TestCase):
     def test_L9_CI_CORE_005_known_bad_privileged_scope_is_reported(self) -> None:
         text = ORG_CI.read_text(encoding="utf-8")
         job_permissions = "    permissions:\n      contents: read\n"
-        self.assertEqual(1, text.count(job_permissions))
+        # One per job: gitleaks, pip-audit, npm-audit, no-bytecode, sha-pins,
+        # CodeQL, actionlint, Biome and analyze, each a step job; each
+        # mutation widens every one.
+        self.assertEqual(9, text.count(job_permissions))
         token = "${{ secrets.L9_GITHUB_READ_TOKEN }}"
         self.assertIn(token, text)
         cases = {

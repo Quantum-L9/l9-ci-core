@@ -164,7 +164,6 @@ jobs:
             tests/workflows/test_container_release_action.py
             tests/workflows/test_org_ci_apt_archive_cache.py
             tests/workflows/test_org_ci_base_retarget.py
-            tests/workflows/test_org_ci_central_diff_baseline.py
             tests/workflows/test_org_ci_event_resolution.py
             tests/workflows/test_org_ci_runtime_environment.py
             tests/workflows/test_org_ci_toolchain_steps.py
@@ -177,6 +176,7 @@ jobs:
             tests/workflows/test_phase_3_workflows.py
             tests/workflows/test_phase_4_workflows.py
             tests/workflows/test_phase_scope.py
+            tests/workflows/test_pr_expense_guard.py
             tests/workflows/test_private_sdk_read_token.py
             tests/workflows/test_promotion_canary.py
             tests/workflows/test_registry_required_mode.py

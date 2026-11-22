@@ -59,7 +59,19 @@ NON_TOOL_FILES: tuple[str, ...] = (".l9/repo-workflow.json", "Makefile")
 #: by the stamp; ``runs`` are ``(workflow, job, step name)`` triples that exist
 #: in Core's workflows (test-verified); ``formats`` / ``lints`` /
 #: ``type_checks`` feed ``languages``.
+#: The central Semgrep scan (docs/semgrep-runs-nightly.md): Semgrep left the
+#: required check, so its locked Python and Semgrep runs live there.
+SCAN_WORKFLOW = "central-semgrep.yml"
+
+ORG_CI_WORKFLOW = "org-ci.yml"
+
 TOOLS: Mapping[str, Mapping[str, Any]] = {
+    # The org-wide actionlint check (docs/actionlint-check.md). A repository's
+    # own .github/actionlint.yaml is its own, so Core stamps no config.
+    "actionlint": {
+        "configs": (),
+        "runs": ((ORG_CI_WORKFLOW, "actionlint", "Run actionlint (blocking)"),),
+    },
     "bandit": {
         "configs": (),
         "runs": (("security.yml", "security", "Python static security scan (bandit)"),),
@@ -67,8 +79,8 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
     "biome": {
         "configs": ("biome.json", ".biomeignore", ".editorconfig"),
         "runs": (
-            ("org-ci.yml", "analyze", "Install Biome (digest-locked central pin)"),
-            ("org-ci.yml", "analyze", "Run Biome check (blocking)"),
+            (ORG_CI_WORKFLOW, "biome", "Install Biome (digest-locked central pin)"),
+            (ORG_CI_WORKFLOW, "biome", "Run Biome check (blocking)"),
         ),
         "formats": JS_TS_JSON,
         "lints": JS_TS_JSON,
@@ -102,7 +114,11 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
     "python": {
         "configs": (".python-version",),
         "runs": (
-            ("org-ci.yml", "analyze", "Set up locked Python for the central toolchain"),
+            (
+                SCAN_WORKFLOW,
+                "analyze",
+                "Set up locked Python for the central toolchain",
+            ),
         ),
     },
     "ruff": {
@@ -121,8 +137,12 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
     "semgrep": {
         "configs": (),
         "runs": (
-            ("org-ci.yml", "analyze", "Install Semgrep (hash-locked central pin)"),
-            ("org-ci.yml", "analyze", "Run + normalize Semgrep (SDK)"),
+            (
+                SCAN_WORKFLOW,
+                "analyze",
+                "Install Semgrep (hash-locked central pin)",
+            ),
+            (SCAN_WORKFLOW, "analyze", "Run + normalize Semgrep (SDK)"),
         ),
     },
 }
@@ -131,11 +151,6 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
 #: (``AGENTS.md`` §26). A tool moves to ``TOOLS`` only together with a lock key
 #: and something Core runs.
 NOT_OWNED: Mapping[str, Mapping[str, str]] = {
-    "actionlint": {
-        "decision": "not locked: no Core workflow or stamped profile runs it",
-        "evidence": "l9-ci-sdk runs actionlint in its own reusable workflow, not enforced",
-        "adopt_when": "Core runs actionlint in a workflow or a stamped hook",
-    },
     "eslint": {
         "decision": "not locked: Biome is the organization's JS/TS linter and formatter",
         "evidence": (
@@ -197,7 +212,7 @@ NOT_OWNED: Mapping[str, Mapping[str, str]] = {
 #: pytest, pre-commit): it executes the consumer's make-v1 phases, and which
 #: stamped tool a phase invokes is the product's ``Repo.mk``.
 CONSUMER_EXECUTION: Mapping[str, str] = {
-    "workflow": "org-ci.yml",
+    "workflow": ORG_CI_WORKFLOW,
     "job": "analyze",
     "step": "Run repository verification contract",
     "phases": "setup validate check test",

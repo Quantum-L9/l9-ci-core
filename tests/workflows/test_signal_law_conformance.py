@@ -102,8 +102,11 @@ class ConformanceTests(unittest.TestCase):
     def test_the_operator_named_counter_examples_name_their_subject(self) -> None:
         """CEG #529, CEG #532 and .github #278 (L9-SIGNAL-001 directive)."""
         org_ci = (ROOT / ".github/workflows/org-ci.yml").read_text(encoding="utf-8")
-        self.assertIn("::error title=Required instances::", org_ci)
-        self.assertIn('{"title": f"Required instance {ident}"}', org_ci)
+        semgrep = (ROOT / ".github/workflows/central-semgrep.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("::error title=Required instances::", semgrep)
+        self.assertIn('{"title": f"Required instance {ident}"}', semgrep)
         self.assertIn("::error title=Repository verification::${subject}", org_ci)
         violations = Counter(
             file for file, _ in signal_law.violations(ROOT / REQUIRED_PATH[0])

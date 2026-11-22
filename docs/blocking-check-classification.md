@@ -9,6 +9,19 @@ Every step of the one required job, `org-ci.yml` `analyze` (its check name is
 below with its class. `tests/workflows/test_blocking_check_classification.py`
 fails when a step is added, renamed or removed without a row here.
 
+Semgrep is not among them. Operator decision 2026-11-21
+([decision record](semgrep-runs-nightly.md), superseding row 23 for
+Semgrep): Semgrep no longer judges pull requests, merge groups or pushes. Its
+chain, with every planned instance, the SDK technical gate and its artifacts,
+moved to `central-semgrep.yml`, which the nightly findings sink runs on each
+repository's default branch; its findings go to code scanning and the rolling
+nightly issue, never to a merge verdict.
+
+Neither is the security scan. Operator decision 2026-11-21
+([security-checks.md](security-checks.md)): `analyze` no longer waits for or
+enforces a security job. gitleaks, pip-audit and npm-audit are checks of their
+own (sections below), and bandit runs only in the nightly sink, advisory.
+
 Classes:
 
 - **BLOCKING_CORRECTNESS**: protects working code, or the integrity of what is
@@ -26,48 +39,21 @@ Classes:
 |---|---|---|
 | Resolve central runtime class | PLUMBING | Selects the evaluation profile |
 | Refuse a pull-request full-suite fallback | BLOCKING_CORRECTNESS | A pull request must be judged on its own event, never a substitute |
+| Judge pull-request test expense | BLOCKING_CORRECTNESS | A pull request is judged on the tests it would run; an unreadable guard or a non-literal suite blocks |
 | Checkout immutable event revision | PLUMBING | Fixes the evaluated revision |
 | Report toolchain alignment (advisory) | HOUSEKEEPING | Tool-version drift; a consumer finding never fails the job, only an unreadable Core lock does |
 | Validate native push event context | BLOCKING_CORRECTNESS | A push evaluation must name the revision it judges |
 | Resolve optional consumer metadata | PLUMBING | |
 | Resolve central governance | PLUMBING | |
 | Validate consumer waiver pointers | BLOCKING_CORRECTNESS | A consumer cannot waive what Core did not make waivable |
-| Resolve artifact name | PLUMBING | |
-| Provision immutable SDK | PLUMBING | |
-| Detect repository language (SDK) | PLUMBING | |
-| Inventory repository capabilities (SDK) | PLUMBING | |
-| Plan required instances (Core) | PLUMBING | |
-| Install Biome (digest-locked central pin) | PLUMBING | |
-| Run Biome check (blocking) | SPLIT | Lint is BLOCKING_CORRECTNESS, formatting is HOUSEKEEPING (CTO, 2026-11-21). `run-biome-check` takes `checks: format` or `lint` from this revision on; org-ci runs them as two steps once its pin reaches this revision (§16, step two) |
 | Route apt package archives to the verification cache | PLUMBING | Cache errors only warn |
 | Restore cached apt package archives | PLUMBING | |
 | Run repository verification contract | PLUMBING | Records the result; the enforce step below decides |
 | Inventory apt package archives | PLUMBING | |
 | Save apt package archives | PLUMBING | |
-| Resolve the baseline commit (CENTRAL-DIFF) | PLUMBING | Names the commit findings are classified against (SDK ADR 0023); an unresolvable baseline fails closed in the SDK, so the gate is INCOMPLETE, never PASS |
-| Restore the checkout history for the baseline scan (CENTRAL-DIFF) | PLUMBING | Restores the shallow boundary recorded before the consumer's make ran, so Semgrep's baseline scan can reach the baseline; a moved HEAD or a baseline with no merge base fails the step, never passes it |
-| Check out a clean scan tree of the evaluated commit | PLUMBING | Gives Semgrep, its CENTRAL-DIFF baseline and every instance a clean worktree of the evaluated commit, so the consumer's make cannot break or bias the scan; tracked files the verification changed are named as an advisory warning, never a finding; a scan tree at the wrong revision or not clean fails the step |
-| Set up locked Python for the central toolchain | PLUMBING | |
-| Install Semgrep (hash-locked central pin) | PLUMBING | |
-| Run + normalize Semgrep (SDK) | PLUMBING | Findings are judged by the technical gate |
-| Validate canonical bundle | BLOCKING_CORRECTNESS | A malformed result bundle is not a result |
-| Evaluate SDK technical gate | PLUMBING | Records the gate status; the enforce step decides |
-| Run every planned instance (SDK) | PLUMBING | An instance that cannot conclude is reported incomplete |
-| Aggregate required instances (Core) | PLUMBING | Records pass, fail or incomplete for every required instance; the enforce step decides |
-| Report CENTRAL-DIFF pre-existing findings (advisory) | HOUSEKEEPING | Warns with the SDK's new / pre-existing counts; it changes no verdict, only new blocking findings and incomplete results fail through the gate |
-| Project agent-review payload | PLUMBING | |
-| Project SARIF (SDK-owned) | PLUMBING | |
-| Route artifacts | PLUMBING | |
-| Stage technical gate result | PLUMBING | |
-| Build artifact manifest | PLUMBING | |
-| Upload analysis artifact set | PLUMBING | |
-| Upload instance bundles | PLUMBING | Uploads every planned instance's bundle (secondary languages, the consumer rulepack) beside the central set (SDK ADR 0021) |
-| Create artifact handoff descriptor | PLUMBING | |
 | Write central CI summary | PLUMBING | |
 | Report toolchain alignment drift (advisory) | HOUSEKEEPING | One `::warning` per drifting declaration and a summary line; runs with `always()` and has no failing exit (#302) |
 | Enforce repository verification | BLOCKING_CORRECTNESS | See the repository verification table |
-| Enforce central mode on SDK technical gate | BLOCKING_SECURITY | Semgrep across every required instance in blocking mode; incomplete fails |
-| Enforce security scan (secrets, dependency audit) | BLOCKING_SECURITY | The `security` job (`security.yml`): a gitleaks finding or a pip-audit vulnerability fails; bandit is advisory; a skipped or cancelled scan fails |
 
 ## Repository verification (`run-repository-verification`)
 
@@ -79,6 +65,94 @@ Classes:
 | Core-stamp: a Core-owned file modified or removed locally | BLOCKING_CORRECTNESS | Integrity: its bytes match neither Core nor the digest the record holds (`tools/l9_repo/stamp.py` `classify_stamp`) |
 | Core-stamp: a Core-owned file merely behind Core | HOUSEKEEPING | Drift: the file still carries the bytes it was stamped with, Core added a file after the stamp, or the record is stale; reported as `::warning`, never fails |
 | Infrastructure failure (registry unreadable, tool unavailable) | BLOCKING_CORRECTNESS | INCOMPLETE never passes |
+
+## Biome (`org-ci.yml` job `biome`, the `Biome` check)
+
+Operator decision 2026-11-21 ([biome-check.md](biome-check.md)): Biome is its
+own check beside `analyze`, blocking, and meant to be required by the
+organization ruleset. It always reports: a repository without a Biome
+configuration, and a change that touches no file in Biome's scope, both
+succeed and say so.
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout immutable event revision | PLUMBING | Fixes the evaluated revision |
+| Resolve Biome's scope | PLUMBING | Names the files the event changes (pull request: against its base; merge group: against the group base; push: against the previous revision) or the whole tree; an unresolvable base fails the step, never widens or narrows the scope silently |
+| Install Biome (digest-locked central pin) | PLUMBING | Only when there is something to judge |
+| Run Biome check (blocking) | BLOCKING_CORRECTNESS | `biome ci` lint and format of the changed files; findings are annotated at file and line and fail the job; an infrastructure failure is never a pass. Splitting formatting out as housekeeping stays in the backlog below |
+
+## gitleaks (`org-ci.yml` job `gitleaks`, the `gitleaks` check)
+
+Blocking. Always reports. Incoming code only: the commits the event adds.
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | The commit range must resolve in the clone |
+| Secret scan (gitleaks) | BLOCKING_SECURITY | gitleaks 8.24.3 (checksum-pinned) over `base..head` of a pull request or merge group, `before..after` of a push, the whole history otherwise; gitleaks' defaults plus the Core rules plus the repository's `[allowlist]` (repository `[[rules]]` are not copied; [gitleaks-core-rules.md](gitleaks-core-rules.md)); each finding annotated at file and line by rule and commit, its value never printed; an unresolvable range or a scanner error fails as INCOMPLETE |
+
+## pip-audit (`org-ci.yml` job `pip-audit`, the `pip-audit` check)
+
+Blocking. Always reports. Runs only when a dependency manifest or lock changes.
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | |
+| Detect project languages | PLUMBING | No Python project: success, "not applicable: no Python project" |
+| Set up Python | PLUMBING | |
+| Python dependency audit (pip-audit) | PLUMBING | A change that touches no manifest or lock ends here as "dependencies unchanged"; otherwise the full resolved lock is audited to a JSON report; an export or lock failure fails as INCOMPLETE |
+| Judge the dependency audit | BLOCKING_SECURITY | A known vulnerability fails, each annotated at the lock file by package and advisory; an unreadable report fails |
+
+## npm-audit (`org-ci.yml` job `npm-audit`, the `npm-audit` check)
+
+Opt-in, as before the split (`L9_NPM_AUDIT`, off): until Core enables it, the
+check succeeds with "not applicable: npm audit is opt-in and not enabled".
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | |
+| Node dependency audit (npm audit) | BLOCKING_SECURITY | When enabled: no `package.json` is not applicable; unchanged `package.json` / `package-lock.json` passes as "dependencies unchanged"; otherwise `npm audit --audit-level=high` fails on a high or critical advisory, and a manifest without a lock fails named |
+
+## no-bytecode and sha-pins (`org-ci.yml` jobs, the `no-bytecode` and `sha-pins` checks)
+
+Blocking. Always report. What the event adds or changes ([hygiene-checks.md](hygiene-checks.md)).
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | The base must be in the clone |
+| Check for tracked Python bytecode (blocking) | BLOCKING_CORRECTNESS | A tracked `*.pyc` / `*.pyo` / `*.pyd` or `__pycache__/` file the change brings in fails, annotated; no base: reported |
+| Check action pins (blocking) | BLOCKING_SECURITY | A `uses:` in a changed workflow or action file not pinned by full SHA (or `@sha256:` for docker, or a frozen Core tag) fails, annotated at its line; no base: reported |
+
+## CodeQL (`org-ci.yml` job `codeql`, the `CodeQL` check)
+
+Blocking at error / high. Always reports. Only what the event introduces
+([codeql-check.md](codeql-check.md)).
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | The base must be in the clone |
+| Resolve CodeQL's languages and base | PLUMBING | `actions` for workflow or action files, and each build-mode-none language by its files; the event's base, or none; a base outside the clone fails as INCOMPLETE |
+| Install CodeQL (checksum-pinned bundle) | PLUMBING | |
+| Analyze with CodeQL (security-extended) | PLUMBING | Head and base, build-mode none; a language with no source on one side has no results there; any other CodeQL failure fails as INCOMPLETE |
+| Judge new CodeQL results (blocking at error / high) | BLOCKING_SECURITY | A result the base does not have (rule, path, CodeQL line fingerprint) at level error or security severity 7.0+ fails, annotated at file and line; other new results are warnings; no base: nothing is new |
+
+## actionlint (`org-ci.yml` job `actionlint`, the `actionlint` check)
+
+Blocking. Always reports. The workflow files the event changes
+([actionlint-check.md](actionlint-check.md)).
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | The base must be in the clone |
+| Resolve actionlint's scope | PLUMBING | The changed workflow files, every workflow when an action definition changed or there is no base; none changed is a pass that says so, no workflow files is not applicable; an unresolvable base fails as INCOMPLETE |
+| Install actionlint (toolchain-locked) | PLUMBING | |
+| Run actionlint (blocking) | BLOCKING_CORRECTNESS | A finding in a changed file fails, annotated at file, line and column; with no base (dispatch, canary) findings are warnings; an actionlint failure is never a pass |
+
+## bandit (nightly only)
+
+Advisory, not a pull-request check: `nightly-sink.yml` runs bandit 1.8.6 on the
+whole default branch (tests excluded at any depth), sends its SARIF to code
+scanning (`l9-central/bandit/`, listed in the rolling issue and never counted
+by the ratchet) and keeps the full JSON report as an artifact.
 
 ## Backlog (rollout campaign)
 

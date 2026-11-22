@@ -42,6 +42,7 @@ EXPECTED_WORKFLOWS = {
     "sdk-contract-check.yml",
     "normalize-semgrep-report.yml",
     "analyze-semgrep.yml",
+    "central-semgrep.yml",
     "governance-ci.yml",
     "profile-normalize-semgrep.yml",
     "publish-analysis.yml",
@@ -74,6 +75,9 @@ EXPECTED_WORKFLOWS = {
     # rulesets target repositories and require this workflow directly;
     # consumers do not copy an L9 workflow or governance pack.
     "org-ci.yml",
+    # Push caller. Its job is not the required check; it calls org-ci.yml
+    # only on the repository's default branch.
+    "org-ci-default-branch-push.yml",
     # Core's promotion canary: generated from org-ci.yml's analyze job by
     # tools/promotion_canary.py; runs a Core pull request's org-ci revision
     # against the main heads in .l9/promotion-canary.json (AGENTS.md §40).

@@ -17,7 +17,7 @@ installs Core actually performs, each at its pinned versions:
 Every tool ``core-owned-tools.json`` lists under the ``pip`` ecosystem must be
 covered at the version ``toolchain-lock.json`` pins, or the set is refused: a
 tool the audit cannot see is not a clean result (L9-UNKNOWN-001). biome (npm),
-gitleaks (a binary) and the interpreter are not Python packages, so pip-audit
+gitleaks and actionlint (binaries) and the interpreter are not Python packages, so pip-audit
 cannot judge them; they are out of this audit's scope.
 
 Resolution uses Core's pinned uv for the exact CPython the lock pins

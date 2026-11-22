@@ -11,6 +11,8 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT_PATH = ROOT / ".l9" / "org-runtime-contract.yaml"
 ENTRYPOINT_PATH = ROOT / ".github" / "workflows" / "org-ci.yml"
+# Semgrep's central chain, off the required check (docs/semgrep-runs-nightly.md).
+SCAN_PATH = ROOT / ".github" / "workflows" / "central-semgrep.yml"
 CONSUMER_SCHEMA_PATH = ROOT / ".l9" / "ci-consumer.schema.json"
 PROFILES_PATH = (
     ROOT
@@ -44,15 +46,20 @@ class OrgRuntimeContractTests(unittest.TestCase):
         text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
         header = text.split("permissions:", 1)[0]
         for trigger in (
-            "push:",
             "pull_request:",
             "merge_group:",
             "workflow_dispatch:",
             "workflow_call:",
         ):
             self.assertIn(trigger, header)
+        # A skipped job inside org-ci.yml would still create the required
+        # check, so push lives on the caller, not here.
+        self.assertNotIn("\n  push:", header)
         self.assertNotIn("schedule:", header)
-        self.assertRegex(header, r"(?m)^\s{2}push:\s*$")
+        caller = (ENTRYPOINT_PATH.parent / "org-ci-default-branch-push.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertRegex(caller.split("permissions:", 1)[0], r"(?m)^\s{2}push:\s*$")
 
     def test_push_trigger_declares_no_branch_selector(self) -> None:
         """`push` must stay unfiltered — no hardcoded default branch.
@@ -65,15 +72,19 @@ class OrgRuntimeContractTests(unittest.TestCase):
         belongs to the organization ruleset; Core only decides how a governed
         evaluation executes.
         """
-        document = yaml.safe_load(ENTRYPOINT_PATH.read_text(encoding="utf-8"))
+        caller = ENTRYPOINT_PATH.parent / "org-ci-default-branch-push.yml"
+        document = yaml.safe_load(caller.read_text(encoding="utf-8"))
         # PyYAML resolves the bare `on:` key to the boolean True.
         triggers = document[True] if True in document else document["on"]
         self.assertIn("push", triggers)
         self.assertIsNone(
             triggers["push"],
-            "on.push must carry no filters; branch selection is the "
-            "organization ruleset's, not Core's",
+            "on.push must carry no filters; the default-branch decision is "
+            "the caller job's if, not a branch name",
         )
+        job = next(iter(document["jobs"].values()))
+        self.assertIn("github.event.repository.default_branch", job["if"])
+        self.assertNotIn("main", job["if"])
 
     def test_push_evaluation_is_serialized_but_never_cancelled(self) -> None:
         """A canonical evaluation of an immutable SHA must complete.
@@ -148,7 +159,10 @@ class OrgRuntimeContractTests(unittest.TestCase):
         self.assertNotIn("governance-root", text)
 
     def test_entrypoint_composes_only_full_sha_core_primitives(self) -> None:
-        text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
+        """The entrypoint and the central scan compose one Core revision."""
+        text = ENTRYPOINT_PATH.read_text(encoding="utf-8") + SCAN_PATH.read_text(
+            encoding="utf-8"
+        )
         actions = (
             "resolve-consumer-metadata",
             "resolve-governance",
@@ -179,7 +193,8 @@ class OrgRuntimeContractTests(unittest.TestCase):
         self.assertNotIn("publish-analysis.yml@", text)
 
     def test_sdk_owns_capability_detection(self) -> None:
-        text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
+        text = SCAN_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("detect-language@", ENTRYPOINT_PATH.read_text("utf-8"))
         helper = (
             ROOT / ".github" / "actions" / "detect-language" / "detect.py"
         ).read_text(encoding="utf-8")
@@ -199,11 +214,24 @@ class OrgRuntimeContractTests(unittest.TestCase):
         )
 
     def test_blocking_gate_summary_precedes_enforcement(self) -> None:
-        text = ENTRYPOINT_PATH.read_text(encoding="utf-8")
-        summary = text.index("name: Write central CI summary")
-        enforce = text.index("name: Enforce central mode on SDK technical gate")
-        self.assertLess(summary, enforce)
-        self.assertIn("if: always()", text[summary:enforce])
+        for path, summary_name, enforce_name in (
+            (
+                ENTRYPOINT_PATH,
+                "Write central CI summary",
+                "Enforce repository verification",
+            ),
+            (
+                SCAN_PATH,
+                "Write central Semgrep summary",
+                "Enforce central mode on SDK technical gate",
+            ),
+        ):
+            with self.subTest(workflow=path.name):
+                text = path.read_text(encoding="utf-8")
+                summary = text.index(f"name: {summary_name}")
+                enforce = text.index(f"name: {enforce_name}")
+                self.assertLess(summary, enforce)
+                self.assertIn("if: always()", text[summary:enforce])
 
     def test_required_workflow_has_no_write_scopes(self) -> None:
         text = ENTRYPOINT_PATH.read_text(encoding="utf-8")

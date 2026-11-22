@@ -2,8 +2,13 @@
 #
 # Stamped by `python3 -m tools.l9_repo --workspace <repo> stamp --profile <p>`
 # for every profile and verified byte-for-byte by `... validate`. Detection
-# rules are gitleaks' own defaults for the version toolchain-lock.json pins;
-# Core's security workflow passes this file with --config. A reviewed false
+# rules are gitleaks' own defaults for the version toolchain-lock.json pins,
+# plus the Core rules below: consumer rules that caught what the defaults miss,
+# moved here (docs/gitleaks-core-rules.md) so every repository has them with
+# no configuration of its own. Core's gitleaks check applies these rules to
+# every repository whatever its .gitleaks.toml says. A repository's [[rules]]
+# are not copied, so a default id cannot replace a default rule. Every Core
+# rule id starts with `l9-`. A reviewed false
 # positive is recorded by fingerprint in the repository's own .gitleaksignore,
 # never as a rule or path allowlist here.
 
@@ -11,3 +16,75 @@ title = "Quantum-L9 repository (Core-owned)"
 
 [extend]
 useDefault = true
+
+# --- Core rules (begin) ---
+[[rules]]
+id = "l9-openai-api-key"
+description = "OpenAI API key without the T3BlbkFJ marker (from Enrichment.Inference.Engine)"
+regex = '''\bsk-[a-zA-Z0-9]{20,}\b'''
+keywords = ["sk-"]
+
+[[rules]]
+id = "l9-openai-project-key"
+description = "OpenAI project or service key without the T3BlbkFJ marker (from Cognitive.Engine.Graphs)"
+regex = '''\bsk-(?:proj|svcacct|admin)-[a-zA-Z0-9_-]{80,}'''
+keywords = ["sk-proj-", "sk-svcacct-", "sk-admin-"]
+
+[[rules]]
+id = "l9-api-key-assignment"
+description = "An API key or secret key assigned a literal of 20+ characters, at any entropy (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+regex = '''(?i)(?:api[_-]?key|apikey|api[_-]?secret|secret[_-]?key)\s*[=:]\s*['"][a-zA-Z0-9_\-]{20,}['"]'''
+keywords = ["api_key", "api-key", "apikey", "api_secret", "api-secret", "secret_key", "secret-key", "secretkey"]
+
+[[rules]]
+id = "l9-slack-bot-token"
+description = "Slack bot token with any digit-group length (from Enrichment.Inference.Engine)"
+regex = '''xoxb-[0-9]{10,}-[0-9]{10,}-[a-zA-Z0-9]{20,}'''
+keywords = ["xoxb-"]
+
+[[rules]]
+id = "l9-private-key-header"
+description = "A private key header, even without a full body (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+regex = '''-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'''
+keywords = ["private key-----"]
+
+[[rules]]
+id = "l9-jwt"
+description = "A JSON Web Token with short segments (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+regex = '''\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}'''
+keywords = ["eyj"]
+
+[[rules]]
+id = "l9-perplexity-api-key"
+description = "Perplexity API key (from Enrichment.Inference.Engine)"
+regex = '''\bpplx-[a-zA-Z0-9]{40,}'''
+keywords = ["pplx-"]
+
+[[rules]]
+id = "l9-postgres-url-password"
+description = "PostgreSQL URL with an inline password (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+regex = '''postgres(?:ql)?://[^:\s/@]+:([^@\s/]+)@[a-zA-Z0-9._-]+'''
+secretGroup = 1
+keywords = ["postgres://", "postgresql://"]
+
+[[rules]]
+id = "l9-redis-url-password"
+description = "Redis URL with an inline password (from Enrichment.Inference.Engine, Cognitive.Engine.Graphs)"
+regex = '''rediss?://[^:\s/@]*:([^@\s/]+)@[a-zA-Z0-9._-]+'''
+secretGroup = 1
+keywords = ["redis://", "rediss://"]
+
+[[rules]]
+id = "l9-neo4j-url-password"
+description = "Neo4j or Bolt URL with an inline password (from Cognitive.Engine.Graphs)"
+regex = '''(?:neo4j|bolt)(?:\+s(?:sc)?)?://[a-zA-Z0-9]+:([^@\s]+)@[a-zA-Z0-9._-]+'''
+secretGroup = 1
+keywords = ["neo4j://", "neo4j+s://", "neo4j+ssc://", "bolt://", "bolt+s://", "bolt+ssc://"]
+
+[[rules]]
+id = "l9-neo4j-password-assignment"
+description = "A Neo4j password assigned a literal (from Cognitive.Engine.Graphs)"
+regex = '''(?i)neo4j[_-]?password\s*[=:]\s*['"]?([a-zA-Z0-9!@#$%^&*()_+=-]{8,})['"]?'''
+secretGroup = 1
+keywords = ["neo4j_password", "neo4j-password", "neo4jpassword"]
+# --- Core rules (end) ---

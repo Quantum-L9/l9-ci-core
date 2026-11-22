@@ -11,6 +11,8 @@ import base64
 import gzip
 import io
 import json
+import subprocess
+import os
 import sys
 import tempfile
 import unittest
@@ -193,6 +195,61 @@ class PublishTests(unittest.TestCase):
                         sleep=lambda _: None,
                     )
 
+    def test_a_refused_codeql_upload_fails_only_after_the_others_publish(self) -> None:
+        """Default setup refuses CodeQL analyses; Semgrep's must still land."""
+
+        class RefusesCodeQL(FakeGitHub):
+            def __call__(self, method: str, path: str, body: Any) -> tuple[int, Any]:
+                if method == "POST" and path.endswith("/code-scanning/sarifs"):
+                    sent = json.loads(gzip.decompress(base64.b64decode(body["sarif"])))
+                    category = sent["runs"][0]["automationDetails"]["id"]
+                    if category.startswith("l9-central/codeql-"):
+                        self.calls.append((method, path, body))
+                        return 403, {"message": "default setup is enabled"}
+                return super().__call__(method, path, body)
+
+        github = RefusesCodeQL()
+        github.processing = ["complete", "complete"]
+        files = {"codeql-actions": sarif(), "python": sarif(), "gitleaks": sarif()}
+        with self.assertRaises(sink.SinkError) as raised:
+            sink.publish(
+                github, REPO, SHA, "refs/heads/main", files, sleep=lambda _: None
+            )
+        self.assertIn("codeql-actions (HTTP 403)", str(raised.exception))
+        self.assertIn("default setup", str(raised.exception))
+        # All three were attempted; the two that are not CodeQL were accepted.
+        self.assertEqual(3, len(github.made("POST", "/code-scanning/sarifs")))
+        self.assertEqual(
+            2, len([c for c in github.calls if "/code-scanning/sarifs/" in c[1]])
+        )
+
+    def test_any_other_refused_upload_still_fails_at_once(self) -> None:
+        github = FakeGitHub()
+        github.upload_status = 403
+        with self.assertRaises(sink.SinkError) as raised:
+            sink.publish(
+                github,
+                REPO,
+                SHA,
+                "refs/heads/main",
+                {"codeql-python": sarif(), "python": sarif()},
+                sleep=lambda _: None,
+            )
+        self.assertIn("refused the python upload", str(raised.exception))
+
+    def test_an_empty_retirement_run_never_takes_codeqls_driver(self) -> None:
+        github = FakeGitHub()
+        github.alerts = [alert(1, "l9-central/typescript/")]
+        codeql = sarif()
+        codeql["runs"][0]["tool"]["driver"]["name"] = "CodeQL"
+        retire = sink.retired(
+            sink.open_alerts(github, REPO),
+            {"codeql-actions": codeql, "python": sarif()},
+        )
+        self.assertEqual(
+            "Semgrep", retire["typescript"]["runs"][0]["tool"]["driver"]["name"]
+        )
+
 
 class RetireTests(unittest.TestCase):
     def tonight(self) -> dict[str, Any]:
@@ -282,6 +339,43 @@ class RatchetTests(unittest.TestCase):
             ("pass", [1, 2], {3: "w-1"}),
             (verdict["ratchet"], verdict["open"], verdict["waived"]),
         )
+
+    def test_an_advisory_category_is_listed_and_never_counted(self) -> None:
+        """Biome is advisory nightly: its first night, or a rise, never fails."""
+
+        def alert(category: str) -> dict[str, str]:
+            return {
+                "category": category,
+                "rule": "r",
+                "severity": "error",
+                "path": "a.js",
+                "line": "1",
+                "url": "https://example.invalid/1",
+            }
+
+        alerts = {
+            1: alert("l9-central/python/"),
+            2: alert("l9-central/biome/"),
+            3: alert("l9-central/biome/"),
+        }
+        advisory = sink.advisory_alerts(alerts)
+        self.assertEqual({2, 3}, advisory)
+        verdict = sink.judge(self.snapshot(1), alerts, {}, advisory)
+        self.assertEqual(
+            ("pass", [1], [2, 3], [], 1),
+            (
+                verdict["ratchet"],
+                verdict["open"],
+                verdict["advisory"],
+                verdict["new"],
+                len(verdict["accepted"]),
+            ),
+        )
+        rendered = sink.render(
+            "Quantum-L9/x", "a" * 40, [], alerts, verdict, "2026-11-22", ""
+        )
+        self.assertIn("- Advisory tools (reported, never counted): 2", rendered)
+        self.assertIn("### Advisory (not counted)", rendered)
 
 
 class LedgerTests(unittest.TestCase):
@@ -751,27 +845,25 @@ class CommandLineTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    """nightly-sink.yml is org-ci.yml's analyze steps, then the sink."""
+    """nightly-sink.yml is central-semgrep.yml's scan steps, then the sink."""
 
-    org_ci = (ROOT / ".github/workflows/org-ci.yml").read_text(encoding="utf-8")
-    security = (ROOT / sink.SECURITY).read_text(encoding="utf-8")
+    scan = (ROOT / sink.SCAN).read_text(encoding="utf-8")
+    org_ci = (ROOT / sink.ORG_CI).read_text(encoding="utf-8")
     committed = (ROOT / sink.WORKFLOW).read_text(encoding="utf-8")
 
     def test_committed_workflow_is_current(self) -> None:
-        self.assertEqual(
-            self.committed, sink.render_workflow(self.org_ci, self.security)
-        )
+        self.assertEqual(self.committed, sink.render_workflow(self.scan, self.org_ci))
 
     def sink_job_steps(self) -> list[dict[str, Any]]:
         import yaml  # noqa: PLC0415
 
         return yaml.safe_load(self.committed)["jobs"]["sink"]["steps"]
 
-    def test_the_dependency_audit_is_security_ymls_own_step(self) -> None:
-        """Reused, not copied: the nightly runs security.yml's script verbatim."""
+    def test_the_dependency_audit_is_the_pip_audit_checks_own_step(self) -> None:
+        """Reused, not copied: the nightly runs the `pip-audit` check's script."""
         import yaml  # noqa: PLC0415
 
-        security = yaml.safe_load(self.security)["jobs"]["security"]["steps"]
+        security = yaml.safe_load(self.org_ci)["jobs"]["pip-audit"]["steps"]
         steps = self.sink_job_steps()
         for name in sink.AUDIT_STEPS:
             [original] = [s for s in security if s.get("name") == name]
@@ -809,7 +901,14 @@ class WorkflowTests(unittest.TestCase):
         start = names.index("Fetch the sink tool (Core, this run's revision)")
         self.assertEqual(
             [
-                "${{ !cancelled() && steps.project_sarif.outcome == 'success' }}",
+                "${{ !cancelled() && steps.project_sarif.outcome == 'success'"
+                " && steps.biome_check.outcome != 'failure'"
+                " && steps.gitleaks.outcome != 'failure'"
+                " && steps.no_bytecode.outcome != 'failure'"
+                " && steps.sha_pins.outcome != 'failure'"
+                " && steps.codeql_analyze.outcome != 'failure'"
+                " && steps.actionlint_check.outcome != 'failure'"
+                " && steps.bandit.outcome != 'failure' }}",
                 "${{ !cancelled() && steps.sink_tool.outcome == 'success' }}",
                 "${{ !cancelled() && steps.sink_token.outcome == 'success' }}",
                 "${{ !cancelled() && steps.upload_sarif.outcome == 'success' }}",
@@ -835,22 +934,30 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn(flag, step["run"])
 
     def test_a_missing_security_step_is_refused(self) -> None:
-        moved = self.security.replace(
+        moved = self.org_ci.replace(
             "name: Python dependency audit (pip-audit)", "name: Audit"
         )
         with self.assertRaises(sink.SinkError):
-            sink.audit_steps(moved)
+            sink.audit_steps(sink.pip_audit_workflow(moved))
+
+    def test_a_missing_pip_audit_job_is_refused(self) -> None:
+        with self.assertRaises(sink.SinkError):
+            sink.pip_audit_workflow(
+                self.org_ci.replace("\n  pip-audit:\n", "\n  audit:\n")
+            )
 
     def test_scan_is_a_nightly_whole_tree_run_under_its_own_matrix_id(self) -> None:
-        steps = sink.sink_steps(self.org_ci)
+        steps = sink.sink_steps(self.scan)
         self.assertIn("          INPUT_EVENT: nightly\n", steps)
         self.assertIn("          INPUT_MATRIX_ID: nightly-${{ matrix.slug }}\n", steps)
         self.assertNotIn("inputs.event", steps)
         self.assertNotIn("canary-", steps)
 
-    def test_pull_request_enforcement_steps_are_not_run(self) -> None:
-        steps = sink.sink_steps(self.org_ci)
-        self.assertNotIn("Enforce repository verification", steps)
+    def test_the_scans_own_enforcement_is_not_run(self) -> None:
+        """The sink judges the findings (the ratchet), not the scan's gate."""
+        steps = sink.sink_steps(self.scan)
+        self.assertNotIn("Enforce central mode on SDK technical gate", steps)
+        self.assertIn("Enforce central mode on SDK technical gate", self.scan)
         self.assertNotIn("needs.", steps)
         self.assertIn("name: Project SARIF (SDK-owned)", steps)
 
@@ -882,17 +989,307 @@ class WorkflowTests(unittest.TestCase):
             workflow["jobs"]["plan"]["if"],
         )
 
-    def test_biome_runs_advisory_so_its_findings_cannot_stop_the_scan(self) -> None:
-        steps = sink.sink_steps(self.org_ci)
-        biome = steps[steps.index("- id: biome_check") :]
-        biome = biome[: biome.index("\n      - ")]
-        self.assertIn("mode: advisory", biome)
-        self.assertNotIn("mode: blocking", biome)
-        self.assertIn("mode: blocking", self.org_ci, "org-ci itself is unchanged")
+    def test_the_sink_runs_the_semgrep_scan_on_a_clean_checkout_only(self) -> None:
+        """No repository verification, Biome, scan tree or baseline: the
+        pull-request gate's own steps are not the sink's (docs/semgrep-runs-nightly.md)."""
+        steps = sink.sink_steps(self.scan)
+        for absent in (
+            "id: repository_verify",
+            "id: biome_check",
+            "id: scan_tree",
+            "id: baseline",
+            "baseline-commit",
+        ):
+            self.assertNotIn(absent, steps)
+        for present in ("id: instances", "id: aggregate", "operation: semgrep-run"):
+            self.assertIn(present, steps)
+
+    def test_biome_runs_nightly_on_the_whole_tree_advisory(self) -> None:
+        """The org-ci `Biome` check's own steps, after its checkout: a schedule
+        has no base, so the scope is the whole tree; findings go to code
+        scanning instead of failing the night (operator, 2026-11-21)."""
+        steps = self.sink_job_steps()
+        [scope] = [s for s in steps if s.get("id") == "biome_scope"]
+        [run] = [s for s in steps if s.get("id") == "biome_check"]
+        self.assertEqual("", scope["env"]["PR_BASE"])
+        self.assertEqual("", scope["env"]["PUSH_BEFORE"])
+        self.assertEqual("advisory", run["env"]["L9_BIOME_MODE"])
+        self.assertEqual("Run Biome check (advisory in the nightly sink)", run["name"])
+        names = [s.get("name") for s in steps]
+        self.assertEqual(1, names.count("Checkout immutable event revision"))
+        self.assertLess(
+            names.index("Run Biome check (advisory in the nightly sink)"),
+            names.index("Project Biome's SARIF for code scanning"),
+        )
+        self.assertLess(
+            names.index("Project Biome's SARIF for code scanning"),
+            names.index("Upload SARIF to code scanning"),
+        )
+
+    def test_biome_sarif_is_projected_with_repository_relative_uris(self) -> None:
+        [project] = [
+            s
+            for s in self.sink_job_steps()
+            if s.get("name") == "Project Biome's SARIF for code scanning"
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp, "work")
+            (workspace / "src").mkdir(parents=True)
+            runner = Path(tmp, "runner")
+            runner.mkdir()
+            sarif = {
+                "runs": [
+                    {
+                        "results": [
+                            {
+                                "locations": [
+                                    {
+                                        "physicalLocation": {
+                                            "artifactLocation": {
+                                                "uri": str(workspace / "src" / "a.js")
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+            (runner / "biome.sarif").write_text(json.dumps(sarif), encoding="utf-8")
+            subprocess.run(
+                ["bash", "-c", project["run"]],
+                cwd=workspace,
+                env={
+                    "PATH": os.environ["PATH"],
+                    "RUNNER_TEMP": str(runner),
+                    "GITHUB_WORKSPACE": str(workspace),
+                },
+                check=True,
+                capture_output=True,
+            )
+            out = json.loads((runner / "nightly-sarif" / "biome.sarif").read_text())
+        location = out["runs"][0]["results"][0]["locations"][0]
+        self.assertEqual(
+            "src/a.js", location["physicalLocation"]["artifactLocation"]["uri"]
+        )
+
+    def test_gitleaks_runs_nightly_on_the_whole_tree_and_reports(self) -> None:
+        """The check's own step, retargeted: whole tree, SARIF, never fails on findings."""
+        import yaml  # noqa: PLC0415
+
+        [scan] = [s for s in self.sink_job_steps() if s.get("id") == "gitleaks"]
+        [original] = [
+            s
+            for s in yaml.safe_load(self.org_ci)["jobs"]["gitleaks"]["steps"]
+            if s.get("id") == "gitleaks"
+        ]
+        self.assertEqual(original["run"], scan["run"], "reused verbatim")
+        self.assertEqual("${{ !cancelled() }}", scan["if"])
+        env = scan["env"]
+        self.assertEqual("dir", env["GITLEAKS_TARGET"])
+        self.assertEqual("false", env["GITLEAKS_FINDINGS_FAIL"])
+        self.assertEqual(sink.GITLEAKS_SARIF, env["GITLEAKS_SARIF"])
+        self.assertEqual("nightly", env["EVENT_NAME"])
+        self.assertEqual("", env["PR_BASE"])
+        self.assertEqual("${{ matrix.revision }}", env["EVENT_SHA"])
+        self.assertNotIn(
+            "gitleaks", sink.ADVISORY_CATEGORIES, "counted: it blocks on PRs"
+        )
+        self.assertNotIn("continue-on-error", scan)
+
+    def test_a_changed_gitleaks_mode_line_is_refused(self) -> None:
+        moved = self.org_ci.replace("GITLEAKS_TARGET: git\n", "GITLEAKS_TARGET: tree\n")
+        with self.assertRaises(sink.SinkError):
+            sink.gitleaks_steps(moved)
+        with self.assertRaises(sink.SinkError):
+            sink.gitleaks_steps(
+                self.org_ci.replace("\n  gitleaks:\n", "\n  secrets:\n")
+            )
+
+    def test_the_hygiene_checks_run_nightly_on_every_file_and_report(self) -> None:
+        import yaml  # noqa: PLC0415
+
+        steps = self.sink_job_steps()
+        jobs = yaml.safe_load(self.org_ci)["jobs"]
+        for job, identifier in sink.HYGIENE_CHECKS:
+            with self.subTest(check=job):
+                [original] = [
+                    s for s in jobs[job]["steps"] if s.get("id") == identifier
+                ]
+                [inlined] = [s for s in steps if s.get("id") == identifier]
+                self.assertEqual(original["run"], inlined["run"], "reused verbatim")
+                self.assertEqual("${{ !cancelled() }}", inlined["if"])
+                self.assertEqual("nightly", inlined["env"]["EVENT_NAME"])
+                self.assertEqual("", inlined["env"]["PR_BASE"])
+                self.assertEqual("false", inlined["env"]["FINDINGS_FAIL"])
+                self.assertEqual(
+                    f"${{{{ runner.temp }}}}/nightly-sarif/{job}.sarif",
+                    inlined["env"]["SARIF"],
+                )
+                self.assertNotIn(job, sink.ADVISORY_CATEGORIES)
+
+    def test_a_missing_hygiene_job_is_refused(self) -> None:
+        with self.assertRaises(sink.SinkError):
+            sink.hygiene_steps(self.org_ci.replace("\n  sha-pins:\n", "\n  pins:\n"))
+
+    def test_codeql_runs_nightly_on_the_whole_tree_as_the_check_does(self) -> None:
+        """The check's own scope, install and analyze steps, with no base."""
+        import yaml  # noqa: PLC0415
+
+        steps = self.sink_job_steps()
+        original = {
+            s.get("id"): s
+            for s in yaml.safe_load(self.org_ci)["jobs"]["codeql"]["steps"]
+        }
+        for identifier in sink.CODEQL_STEPS:
+            with self.subTest(step=identifier):
+                [inlined] = [s for s in steps if s.get("id") == identifier]
+                self.assertEqual(original[identifier]["run"], inlined["run"])
+                self.assertEqual("${{ !cancelled() }}", inlined["if"])
+        [scope] = [s for s in steps if s.get("id") == "codeql_scope"]
+        self.assertEqual("nightly", scope["env"]["EVENT_NAME"])
+        for key in ("PR_BASE", "MERGE_GROUP_BASE", "PUSH_BEFORE"):
+            self.assertEqual("", scope["env"][key], "no base: the whole tree")
+        self.assertFalse([s for s in steps if s.get("id") == "codeql_verdict"])
+        [project] = [
+            s
+            for s in steps
+            if s.get("name") == "Project CodeQL's SARIF for code scanning"
+        ]
+        self.assertIn('nightly-sarif/codeql-${language}.sarif"', project["run"])
+        self.assertTrue(project["run"].count("head-${language}.sarif"))
+        self.assertNotIn("codeql", sink.ADVISORY_CATEGORIES)
+
+    def test_a_missing_codeql_job_or_step_is_refused(self) -> None:
+        with self.assertRaises(sink.SinkError):
+            sink.codeql_steps(self.org_ci.replace("\n  codeql:\n", "\n  scanning:\n"))
+        with self.assertRaises(sink.SinkError):
+            sink.codeql_steps(
+                self.org_ci.replace("id: codeql_install\n", "id: install\n")
+            )
+
+    def test_actionlint_runs_nightly_on_every_workflow_and_reports(self) -> None:
+        """The check's own steps: no base, every workflow, SARIF, counted."""
+        import yaml  # noqa: PLC0415
+
+        steps = self.sink_job_steps()
+        original = {
+            s.get("id"): s
+            for s in yaml.safe_load(self.org_ci)["jobs"]["actionlint"]["steps"]
+        }
+        for identifier in sink.ACTIONLINT_STEPS:
+            with self.subTest(step=identifier):
+                [inlined] = [s for s in steps if s.get("id") == identifier]
+                self.assertEqual(original[identifier]["run"], inlined["run"])
+                self.assertIn("!cancelled()", inlined["if"])
+        [scope] = [s for s in steps if s.get("id") == "actionlint_scope"]
+        self.assertEqual("nightly", scope["env"]["EVENT_NAME"])
+        self.assertEqual("", scope["env"]["PR_BASE"])
+        [check] = [s for s in steps if s.get("id") == "actionlint_check"]
+        self.assertEqual("false", check["env"]["ACTIONLINT_FINDINGS_FAIL"])
+        self.assertEqual(sink.ACTIONLINT_SARIF, check["env"]["ACTIONLINT_SARIF"])
+        self.assertNotIn("actionlint", sink.ADVISORY_CATEGORIES)
+
+    def test_a_missing_actionlint_job_or_mode_line_is_refused(self) -> None:
+        with self.assertRaises(sink.SinkError):
+            sink.actionlint_steps(
+                self.org_ci.replace("\n  actionlint:\n", "\n  lint:\n")
+            )
+        with self.assertRaises(sink.SinkError):
+            sink.actionlint_steps(
+                self.org_ci.replace('ACTIONLINT_SARIF: ""', "ACTIONLINT_SARIF: x")
+            )
+
+    def test_bandit_runs_nightly_only_on_the_whole_tree_advisory(self) -> None:
+        steps = self.sink_job_steps()
+        [scan] = [s for s in steps if s.get("id") == "bandit"]
+        names = [s.get("name") for s in steps]
+        self.assertEqual(
+            "${{ !cancelled() && steps.detect.outputs.python == 'true' }}", scan["if"]
+        )
+        self.assertIn('"bandit[sarif]==1.8.6"', scan["run"])
+        self.assertIn(
+            "*/tests/*,*/test_*.py", scan["run"], "tests excluded at any depth"
+        )
+        self.assertIn('-f "${format}"', scan["run"])
+        self.assertNotIn("continue-on-error", scan)
+        self.assertNotIn("-l", scan["run"].split(), "every severity is reported")
+        [keep] = [s for s in steps if s.get("name") == "Keep bandit's full JSON report"]
+        self.assertEqual(names.index(scan["name"]) + 1, names.index(keep["name"]))
+        self.assertEqual("bandit-${{ matrix.slug }}", keep["with"]["name"])
+        self.assertEqual("${{ runner.temp }}/bandit.json", keep["with"]["path"])
+        self.assertEqual("error", keep["with"]["if-no-files-found"])
+        self.assertIn("bandit", sink.ADVISORY_CATEGORIES)
+        import yaml  # noqa: PLC0415
+
+        for job in yaml.safe_load(self.org_ci)["jobs"].values():
+            self.assertNotIn("bandit", yaml.safe_dump(job.get("steps", [])).lower())
+
+    def test_the_bandit_step_writes_json_and_sarif_and_skips_nested_tests(self) -> None:
+        """Runs the step's own script with the real scanner.
+
+        Skip condition: no ``bandit`` executable on PATH. The step installs
+        its pinned bandit at run time, which a unit test cannot (no network);
+        a fake scanner would test nothing. The wiring test above runs
+        everywhere; this one runs wherever bandit 1.8.6 is installed.
+        """
+        import shutil  # noqa: PLC0415
+
+        if shutil.which("bandit") is None:
+            self.skipTest("no bandit executable on PATH (see the docstring)")
+        [scan] = [s for s in self.sink_job_steps() if s.get("id") == "bandit"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("src/app.py", "pkg/tests/test_x.py", "pkg/test_y.py"):
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(
+                    "import subprocess\nsubprocess.call('ls', shell=True)\n",
+                    encoding="utf-8",
+                )
+            fake = root / ".bin" / "python"
+            fake.parent.mkdir()
+            fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake.chmod(0o755)
+            summary = root / ".summary"
+            temp = root / ".tmp"
+            temp.mkdir()
+            completed = subprocess.run(
+                ["bash", "-c", scan["run"]],
+                cwd=root,
+                env={
+                    "PATH": f"{fake.parent}:{os.environ['PATH']}",
+                    "RUNNER_TEMP": str(temp),
+                    "GITHUB_STEP_SUMMARY": str(summary),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            report = json.loads((temp / "bandit.json").read_text(encoding="utf-8"))
+            files = {r["filename"] for r in report["results"]}
+            self.assertEqual({"./src/app.py"}, files)
+            sarif_doc = json.loads(
+                (temp / "nightly-sarif" / "bandit.sarif").read_text(encoding="utf-8")
+            )
+            uris = {
+                loc["physicalLocation"]["artifactLocation"]["uri"]
+                for result in sarif_doc["runs"][0]["results"]
+                for loc in result["locations"]
+            }
+            self.assertEqual({"src/app.py"}, uris)
+            self.assertIn(
+                "- bandit (nightly, advisory): ", summary.read_text(encoding="utf-8")
+            )
+
+    def test_a_missing_biome_job_is_refused(self) -> None:
+        with self.assertRaises(sink.SinkError):
+            sink.biome_steps(self.org_ci.replace("\n  biome:\n", "\n  lint:\n"))
 
     def test_a_moved_cut_point_is_refused(self) -> None:
-        moved = self.org_ci.replace(
-            "- name: Enforce repository verification", "- name: Enforce it"
+        moved = self.scan.replace(
+            "- name: Enforce central mode on SDK technical gate", "- name: Enforce it"
         )
         with self.assertRaises(sink.SinkError):
             sink.sink_steps(moved)
@@ -901,10 +1298,8 @@ class WorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".github/workflows").mkdir(parents=True)
-            (root / ".github/workflows/org-ci.yml").write_text(
-                self.org_ci, encoding="utf-8"
-            )
-            (root / sink.SECURITY).write_text(self.security, encoding="utf-8")
+            (root / sink.SCAN).write_text(self.scan, encoding="utf-8")
+            (root / sink.ORG_CI).write_text(self.org_ci, encoding="utf-8")
             (root / sink.WORKFLOW).write_text("stale\n", encoding="utf-8")
             out = io.StringIO()
             with mock.patch.object(sink, "ROOT", root), redirect_stdout(out):

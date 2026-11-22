@@ -2,19 +2,21 @@
 
 The SDK's Semgrep provider runs ``semgrep scan --json-output <report>`` with
 the working directory set to ``--root`` and then checks ``<report>.exists()``
-from its own working directory. Once instances scan the clean scan tree
-(``.l9/runtime/<matrix>/scan-tree``) instead of the checkout, ``--root`` is
-not the working directory, so a relative ``--output`` lands under the scan
-tree, the SDK finds no report and the instance ends ``incomplete``
-(provider failure ``report_missing``, Semgrep exit 0). That is what failed the
-Cursor-Governance promotion-canary leg at 7804cea7 for the typescript and
-consumer instances while the primary language (absolute paths through
-invoke-sdk) passed.
+from its own working directory. Whenever ``--root`` is not the working
+directory, a relative ``--output`` lands under the scan root, the SDK finds no
+report and the instance ends ``incomplete`` (provider failure
+``report_missing``, Semgrep exit 0). That is what failed the
+Cursor-Governance promotion-canary leg at 7804cea7, when org-ci.yml still ran
+Semgrep against a scan root, for the typescript and consumer instances while
+the primary language (absolute paths through invoke-sdk) passed.
 
-These tests run each copy of the runner that scans the scan tree (org-ci.yml,
-nightly-sink.yml and the promotion canary's candidate legs) against a fake SDK
-that reproduces that chdir, and prove the fake catches the defect by running
-the same copies with the instance directory left relative.
+The runner now lives in central-semgrep.yml (Semgrep runs nightly, operator
+decision 2026-11-21, docs/semgrep-runs-nightly.md). These tests run
+every copy of it (central-semgrep.yml, nightly-sink.yml rendered from it, and
+the promotion canary's nightly-scan legs) against a fake SDK that reproduces
+that chdir, with a scan root that is not the working directory, and prove the
+fake catches the defect by running the same copies with the instance
+directory left relative.
 """
 
 from __future__ import annotations
@@ -38,9 +40,9 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
 ACTIONS = ROOT / ".github" / "actions"
 INVENTORY = ROOT / "tests" / "fixtures" / "capability-inventory" / "mixed.json"
-COPIES = ("org-ci.yml", "nightly-sink.yml", "promotion-canary.yml")
-# The canary's base leg is origin/main's org-ci.yml verbatim; it is judged
-# where it comes from and does not scan a scan tree.
+COPIES = ("central-semgrep.yml", "nightly-sink.yml", "promotion-canary.yml")
+# The canary's base legs are origin/main's workflows verbatim; they are judged
+# where they come from.
 BASE_LEG = re.compile(
     r"^ {2}# --- base pins leg: begin .*?^ {2}# --- base pins leg: end ---\n",
     re.MULTILINE | re.DOTALL,
@@ -83,7 +85,7 @@ report.write_text("{}", encoding="utf-8")
 
 
 def runners(name: str) -> list[str]:
-    """The embedded Python of every scan-tree instances step in a workflow."""
+    """The embedded Python of every scan-root instances step in a workflow."""
     text = BASE_LEG.sub("", (WORKFLOWS / name).read_text(encoding="utf-8"))
     document = yaml.safe_load(text)
     found = []
@@ -109,7 +111,7 @@ class ScanRootPathTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.directory = self.tmp / ".l9" / "runtime" / "m" / "required-instances"
         self.directory.mkdir(parents=True)
-        (self.tmp / ".l9" / "runtime" / "m" / "scan-tree").mkdir()
+        (self.tmp / ".l9" / "runtime" / "m" / "scan-root").mkdir()
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
         self.sdk = bin_dir / "l9-ci"
@@ -159,7 +161,7 @@ class ScanRootPathTests(unittest.TestCase):
             env={
                 "PATH": os.environ["PATH"],
                 "L9_INSTANCE_DIR": ".l9/runtime/m/required-instances",
-                "L9_SCAN_ROOT": ".l9/runtime/m/scan-tree",
+                "L9_SCAN_ROOT": ".l9/runtime/m/scan-root",
                 "L9_EXECUTABLE": str(self.sdk),
                 "L9_PROVIDER_EXECUTABLE": str(self.semgrep),
                 "L9_PRIMARY_LANGUAGE": "python",
@@ -203,7 +205,7 @@ class ScanRootPathTests(unittest.TestCase):
                 )
 
     def test_a_relative_instance_directory_reproduces_report_missing(self) -> None:
-        """The 7804cea7 defect: the report lands under the scan tree."""
+        """The 7804cea7 defect: the report lands under the scan root."""
         for name, index, source in self.copies():
             with self.subTest(workflow=name, copy=index):
                 relative = source.replace(RESOLVED_DIRECTORY, RELATIVE_DIRECTORY)
@@ -216,9 +218,9 @@ class ScanRootPathTests(unittest.TestCase):
                     "instance semgrep:consumer:quantum-l9.fixture: incomplete",
                     printed,
                 )
-                stray = self.tmp / ".l9/runtime/m/scan-tree/.l9/runtime/m"
-                self.assertTrue(stray.is_dir(), "Semgrep wrote under the scan tree")
-                shutil.rmtree(self.tmp / ".l9/runtime/m/scan-tree/.l9")
+                stray = self.tmp / ".l9/runtime/m/scan-root/.l9/runtime/m"
+                self.assertTrue(stray.is_dir(), "Semgrep wrote under the scan root")
+                shutil.rmtree(self.tmp / ".l9/runtime/m/scan-root/.l9")
 
 
 if __name__ == "__main__":

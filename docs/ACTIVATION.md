@@ -15,10 +15,18 @@ What the organization workflow does to a repository, in order:
 |---|---|---|---|
 | toolchain alignment | Core | consumer tool pins vs `toolchain-lock.json`, annotated `file:line` | advisory |
 | consumer metadata | Core | optional `.l9/ci.json` (`owner`, `repo_class`, `waiver_refs` only) | fatal if invalid |
-| Biome | Core | `biome ci` against the root `biome.json` / `biome.jsonc` | yes once `org-ci.yml` sets `mode: blocking` (`AGENTS.md` §16) |
+| Biome | Core | its own check, `Biome`: `biome ci` on the files a pull request or merge group changes (the whole tree nightly) against the root `biome.json` / `biome.jsonc`; no configuration or no changed file in scope is a success that says so ([decision](biome-check.md)) | yes (blocking); required once the ruleset lists `Biome` |
+| gitleaks | Core | its own check, `gitleaks`: the commits a pull request, merge group or push adds, Core preset plus `.gitleaks.toml`; findings named by file, line, rule and commit, never by value; nightly, the whole tree to code scanning ([decision](security-checks.md)) | yes (blocking); required once the ruleset lists `gitleaks` |
+| pip-audit | Core | its own check, `pip-audit`: the full resolved lock when a dependency manifest or lock changes; otherwise "dependencies unchanged"; no Python project is "not applicable" | yes (blocking); required once the ruleset lists `pip-audit` |
+| npm-audit | Core | its own check, `npm-audit`: opt-in (off), so it reports "not applicable"; when enabled, `npm audit --audit-level=high` when `package.json` / `package-lock.json` change | opt-in; blocking when enabled |
+| CodeQL | Core | its own check, `CodeQL`: the languages a repository contains (always `actions`), build-mode none, `security-extended`, at the revision and at the event's base; only results the base does not have are judged; nightly, the whole tree to code scanning ([decision](codeql-check.md)) | yes (blocking at error / high); required once the ruleset lists `CodeQL` |
+| actionlint | Core | its own check, `actionlint`: the workflow files a change touches (every workflow when an action definition changes, or nightly); the repository's `.github/actionlint.yaml` applies ([decision](actionlint-check.md)) | yes (blocking); required once the ruleset lists `actionlint` |
+| no-bytecode | Core | its own check: no tracked Python bytecode among the files a change brings in ([decision](hygiene-checks.md)) | yes (blocking); required once the ruleset lists it |
+| sha-pins | Core | its own check: every `uses:` in a changed workflow or action file pinned by full SHA (docker by digest; frozen Core tags `@v1`/`@v2`/`@v2.0.0`) | yes (blocking); required once the ruleset lists it |
+| bandit | Core | nightly only (`nightly-sink.yml`), the whole default branch; SARIF to code scanning and the full JSON report as an artifact | no (advisory, never a pull-request check) |
 | repository verification | Core | `.l9/repo-workflow.json` → `make setup → validate → check → test` | yes (every profile; a contract or infrastructure failure is fatal) |
 | Core stamp | Core | stamped Core-owned files byte-identical to Core (`.l9/core-stamp.json`) | yes in `required` mode, warning in `migration` |
-| Semgrep | SDK | provider run, canonical findings, technical gate | yes: every finding is blocking unless the central policy classifies its rule advisory |
+| Semgrep | SDK | not on pull requests: `central-semgrep.yml` scans the default branch every night, every planned instance, findings to code scanning and the "Nightly findings" issue ([decision](semgrep-runs-nightly.md)) | no merge verdict; the nightly ratchet fails the night when open findings rise |
 
 ## 1. Stamp every Core-owned file (one command)
 

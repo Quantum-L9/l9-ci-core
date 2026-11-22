@@ -29,8 +29,7 @@
     {
       "repository": "Quantum-L9/.github",
       "branch": "main",
-      "private": false,
-      "nightly": false
+      "private": false
     }
   ]
 }

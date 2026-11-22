@@ -30,6 +30,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
+CENTRAL_SEMGREP = ROOT / ".github" / "workflows" / "central-semgrep.yml"
 RUNNER = ROOT / ".github" / "actions" / "run-repository-verification" / "run.py"
 REGISTRY_FIXTURE = (
     ROOT / "tests" / "fixtures" / "repository-registry" / "repository_registry.yaml"
@@ -49,8 +50,8 @@ def _load_runner() -> Any:
 runner = _load_runner()
 
 
-def _step(name: str) -> dict[str, Any]:
-    steps = yaml.safe_load(ORG_CI.read_text(encoding="utf-8"))["jobs"]["analyze"][
+def _step(name: str, workflow: Path = ORG_CI) -> dict[str, Any]:
+    steps = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]["analyze"][
         "steps"
     ]
     [step] = [s for s in steps if s.get("name") == name]
@@ -302,7 +303,7 @@ class RequiredInstancesAreNamedTests(unittest.TestCase):
 
     def run_step(self, mode: str = "blocking") -> subprocess.CompletedProcess[str]:
         return _bash(
-            _step(self.STEP)["run"],
+            _step(self.STEP, CENTRAL_SEMGREP)["run"],
             self.dir,
             {
                 "GITHUB_STEP_SUMMARY": str(self.dir / "summary"),

@@ -331,7 +331,7 @@ class PushTargetProvenanceTests(unittest.TestCase):
         runtime = step_index(step_id="runtime")
         checkout = step_index(name="Checkout immutable event revision")
         governance = step_index(step_id="gov")
-        provider = step_index(name="Run + normalize Semgrep (SDK)")
+        provider = step_index(name="Run repository verification contract")
         self.assertLess(runtime, checkout)
         self.assertLess(runtime, governance)
         self.assertLess(runtime, provider)
@@ -353,8 +353,12 @@ class PushTargetProvenanceTests(unittest.TestCase):
             )
 
     def test_the_analysis_snapshot_is_the_event_sha(self) -> None:
+        """The central Semgrep scan (docs/semgrep-runs-nightly.md) analyses the revision it runs on."""
+        scan = ENTRYPOINT_PATH.parent / "central-semgrep.yml"
         invoke = None
-        for step in analyze_steps():
+        for step in yaml.safe_load(scan.read_text(encoding="utf-8"))["jobs"]["analyze"][
+            "steps"
+        ]:
             if step.get("name") == "Run + normalize Semgrep (SDK)":
                 invoke = step
         self.assertIsNotNone(invoke)

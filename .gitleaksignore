@@ -5,3 +5,7 @@ e596ff6cb96fbdec355370e85b8e9638cac7a2db:.claude/skills/l9-pr-remediation/refere
 e596ff6cb96fbdec355370e85b8e9638cac7a2db:.claude/skills/l9-pr-remediation/references/signal-ingestion.md:curl-auth-user:149
 e596ff6cb96fbdec355370e85b8e9638cac7a2db:.claude/skills/l9-pr-remediation/references/review-sources.md:curl-auth-user:91
 e596ff6cb96fbdec355370e85b8e9638cac7a2db:.claude/skills/l9-pr-remediation/references/review-sources.md:curl-auth-user:92
+# Reviewed false positive (2026-11-21): the l9-private-key-header test sample,
+# a bare header with no key, in the commit that added the Core rules (the
+# sample is built by concatenation since).
+aba5921a7a8a7594f3edab96e15b2f51f0f0ef49:tests/workflows/test_gitleaks_core_rules.py:l9-private-key-header:293
