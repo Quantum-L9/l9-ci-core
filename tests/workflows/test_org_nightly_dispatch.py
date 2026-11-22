@@ -801,7 +801,12 @@ class WorkflowContractTests(unittest.TestCase):
             },
             json.loads(REPO_WORKFLOW.read_text(encoding="utf-8")),
         )
-        steps = [step for job in load(ORG_CI)["jobs"].values() for step in job["steps"]]
+        # security is a reusable workflow call: it has no inline steps.
+        steps = [
+            step
+            for job in load(ORG_CI)["jobs"].values()
+            for step in job.get("steps", ())
+        ]
         for step in steps:
             if step.get("name") == "Judge pull-request test expense":
                 continue

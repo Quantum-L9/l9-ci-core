@@ -193,6 +193,20 @@ OPTIONAL_REPLACEMENTS = (
     # the consumer revision a leg checks out. A leg has no push predecessor,
     # so the expense fetch stays empty instead of reading the Core event.
     ("${{ github.event.before || '' }}", "''"),
+    # The judge's condition matches the Core pull_request that launched the
+    # canary. A leg's checkout is the consumer's main head, not a merge
+    # commit, so that judgment is PR_SCOPE_UNKNOWN for every repository.
+    # The step stays in the leg and does not run.
+    (
+        "        if: >-\n"
+        "          github.event_name == 'pull_request'\n"
+        "          || github.event_name == 'merge_group'\n"
+        "          || github.event_name == 'push'\n"
+        "          || steps.runtime.outputs.event-class == 'pull_request'\n"
+        "          || steps.runtime.outputs.event-class == 'merge'\n"
+        "          || steps.runtime.outputs.event-class == 'push'",
+        "        if: false",
+    ),
 )
 TARGET_SHAPED = re.compile(
     r"github\.(repository|sha|ref|head_ref|base_ref|event\.(?!_)[a-z_.]+)\b"

@@ -724,13 +724,7 @@ jobs:
       # does not call a consumer-relative copy and does not paste the module.
       # receipt=static is not a hosted test receipt.
       - name: Judge pull-request test expense
-        if: >-
-          github.event_name == 'pull_request'
-          || github.event_name == 'merge_group'
-          || github.event_name == 'push'
-          || steps.runtime.outputs.event-class == 'pull_request'
-          || steps.runtime.outputs.event-class == 'merge'
-          || steps.runtime.outputs.event-class == 'push'
+        if: false
         env:
           GH_EVENT: ${{ steps.runtime.outputs.event-class }}
           GUARD_BEFORE: ''
@@ -3148,13 +3142,7 @@ jobs:
       # does not call a consumer-relative copy and does not paste the module.
       # receipt=static is not a hosted test receipt.
       - name: Judge pull-request test expense
-        if: >-
-          github.event_name == 'pull_request'
-          || github.event_name == 'merge_group'
-          || github.event_name == 'push'
-          || steps.runtime.outputs.event-class == 'pull_request'
-          || steps.runtime.outputs.event-class == 'merge'
-          || steps.runtime.outputs.event-class == 'push'
+        if: false
         env:
           GH_EVENT: ${{ steps.runtime.outputs.event-class }}
           GUARD_BEFORE: ''
