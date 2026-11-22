@@ -660,6 +660,11 @@ def _classify_argv(
         or command.endswith((".sh", ".bash", ".py"))
         or command.startswith("./")
     ):
+        # A tool the job installed under the runner temp directory is not
+        # this repository's test suite. CodeQL and the canary provisioner
+        # both land there.
+        if "RUNNER_TEMP" in command or "runner.temp" in command:
+            return
         hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {command}"))
 
 

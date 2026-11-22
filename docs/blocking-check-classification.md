@@ -112,6 +112,19 @@ check succeeds with "not applicable: npm audit is opt-in and not enabled".
 | Checkout (full history) | PLUMBING | |
 | Node dependency audit (npm audit) | BLOCKING_SECURITY | When enabled: no `package.json` is not applicable; unchanged `package.json` / `package-lock.json` passes as "dependencies unchanged"; otherwise `npm audit --audit-level=high` fails on a high or critical advisory, and a manifest without a lock fails named |
 
+## CodeQL (`org-ci.yml` job `codeql`, the `CodeQL` check)
+
+Blocking at error / high. Always reports. Only what the event introduces
+([codeql-check.md](codeql-check.md)).
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | The base must be in the clone |
+| Resolve CodeQL's languages and base | PLUMBING | `actions` for workflow or action files, and each build-mode-none language by its files; the event's base, or none; a base outside the clone fails as INCOMPLETE |
+| Install CodeQL (checksum-pinned bundle) | PLUMBING | |
+| Analyze with CodeQL (security-extended) | PLUMBING | Head and base, build-mode none; a language with no source on one side has no results there; any other CodeQL failure fails as INCOMPLETE |
+| Judge new CodeQL results (blocking at error / high) | BLOCKING_SECURITY | A result the base does not have (rule, path, CodeQL line fingerprint) at level error or security severity 7.0+ fails, annotated at file and line; other new results are warnings; no base: nothing is new |
+
 ## bandit (nightly only)
 
 Advisory, not a pull-request check: `nightly-sink.yml` runs bandit 1.8.6 on the

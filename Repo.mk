@@ -88,6 +88,7 @@ REPO_TEST_MODULES := \
 	tests/workflows/test_org_ci_toolchain_drift_report.py \
 	tests/workflows/test_central_semgrep_required_instances.py \
 	tests/workflows/test_org_ci_biome_job.py \
+	tests/workflows/test_org_ci_codeql_job.py \
 	tests/workflows/test_instance_runner_scan_root_paths.py \
 	tests/workflows/test_security_consumer_scope.py \
 	tests/workflows/test_security_pip_audit_lockset.py \

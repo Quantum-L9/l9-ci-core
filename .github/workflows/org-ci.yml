@@ -692,6 +692,232 @@ jobs:
           fi
           exit "${status}"
 
+  # CodeQL is one org-wide check (operator, 2026-11-21; docs/codeql-check.md),
+  # replacing per-repository CodeQL workflows and default setup. Read-only,
+  # like every pull-request job here (L9-CI-CORE-005): nothing is uploaded on
+  # a pull request. The languages the revision contains are analyzed, always
+  # including `actions`, with build-mode none and the security-extended suite,
+  # once at the evaluated revision and once at the event's base; only results
+  # the base does not have are judged (rule, path and CodeQL's own
+  # primaryLocationLineHash), and a new result at error level or security
+  # severity high or above fails the check. An event with no base (a
+  # dispatch, the nightly sink, the promotion canary) has nothing new: it
+  # reports what it found and passes. The nightly sink runs the same steps on
+  # the whole default branch and sends the SARIF to code scanning.
+  codeql:
+    name: CodeQL
+    if: >-
+      github.event_name != 'push'
+      || inputs.event != ''
+      || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve CodeQL's languages and base
+        id: codeql_scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # Languages CodeQL analyzes without a build (build-mode none), by the
+          # files git tracks at the evaluated revision. `actions` runs in every
+          # repository with a workflow or action file, which is every governed
+          # one (org-ci reaches them through a workflow); CodeQL refuses a
+          # database for a language with no source, so a repository without
+          # one has no Actions code to scan.
+          languages=""
+          tracked="$(git ls-files)"
+          has() { grep -Eqi "$1" <<< "${tracked}"; }
+          if has '(^|/)\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$'; then languages="actions"; fi
+          if has '\.py$'; then languages="${languages} python"; fi
+          if has '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$'; then languages="${languages} javascript"; fi
+          if has '\.rb$'; then languages="${languages} ruby"; fi
+          if has '\.java$'; then languages="${languages} java"; fi
+          if has '\.cs$'; then languages="${languages} csharp"; fi
+          if has '\.rs$'; then languages="${languages} rust"; fi
+          case "${EVENT_NAME}" in
+            pull_request|pull_request_target) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            if ! git cat-file -e "${base}^{commit}" 2> /dev/null; then
+              echo "::error title=CodeQL::the event's base ${base} is not in this clone; the check cannot tell what is new"
+              exit 1
+            fi
+          else
+            base=""
+          fi
+          languages="${languages# }"
+          echo "languages=${languages}" >> "$GITHUB_OUTPUT"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "CodeQL languages: ${languages}; base: ${base:-none (nothing is new)}"
+      - name: Install CodeQL (checksum-pinned bundle)
+        id: codeql_install
+        run: |
+          set -euo pipefail
+          CODEQL_VERSION="2.27.5"
+          CODEQL_SHA256="141e6eb4e99c8498a1258e282e6f7b59c747b4b1a7eabc7cbf7d1aa92792edf0"
+          bundle="${RUNNER_TEMP}/codeql-bundle.tar.zst"
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${bundle}" \
+            "https://github.com/github/codeql-action/releases/download/codeql-bundle-v${CODEQL_VERSION}/codeql-bundle-linux64.tar.zst"
+          actual="$(sha256sum "${bundle}" | awk '{print $1}')"
+          if [ "${actual}" != "${CODEQL_SHA256}" ]; then
+            echo "::error title=CodeQL::bundle checksum mismatch: got ${actual}"
+            exit 1
+          fi
+          tar --zstd -xf "${bundle}" -C "${RUNNER_TEMP}"
+          rm -f "${bundle}"
+          "${RUNNER_TEMP}/codeql/codeql" version --format=terse
+          echo "executable=${RUNNER_TEMP}/codeql/codeql" >> "$GITHUB_OUTPUT"
+      - name: Analyze with CodeQL (security-extended)
+        id: codeql_analyze
+        env:
+          CODEQL: ${{ steps.codeql_install.outputs.executable }}
+          LANGUAGES: ${{ steps.codeql_scope.outputs.languages }}
+          BASE: ${{ steps.codeql_scope.outputs.base }}
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/codeql-results"
+          mkdir -p "${out}" "${RUNNER_TEMP}/codeql-db"
+          sides=("head=${PWD}")
+          if [ -n "${BASE}" ]; then
+            git worktree add --detach "${RUNNER_TEMP}/codeql-base" "${BASE}" > /dev/null
+            sides+=("base=${RUNNER_TEMP}/codeql-base")
+          fi
+          for side in "${sides[@]}"; do
+            name="${side%%=*}"
+            root="${side#*=}"
+            for language in ${LANGUAGES}; do
+              db="${RUNNER_TEMP}/codeql-db/${name}-${language}"
+              status=0
+              "${CODEQL}" database create "${db}" --language="${language}" \
+                --build-mode=none --source-root="${root}" --threads=0 --overwrite > /dev/null || status=$?
+              if [ "${status}" -eq 32 ]; then
+                # CodeQL's "no source code seen" exit: the language has no code
+                # on this side (a pull request adds the language): no results.
+                echo "CodeQL ${name} ${language}: no source on this side; no results"
+                printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"CodeQL","rules":[]}},"results":[]}]}\n' \
+                  > "${out}/${name}-${language}.sarif"
+                continue
+              elif [ "${status}" -ne 0 ]; then
+                echo "::error title=CodeQL::database create for ${language} (${name}) exited ${status}"
+                exit "${status}"
+              fi
+              "${CODEQL}" database analyze "${db}" \
+                "codeql/${language}-queries:codeql-suites/${language}-security-extended.qls" \
+                --format=sarif-latest --sarif-category="/language:${language}" \
+                --output="${out}/${name}-${language}.sarif" --threads=0 > /dev/null
+              echo "CodeQL ${name} ${language}: analyzed"
+            done
+          done
+          echo "directory=${out}" >> "$GITHUB_OUTPUT"
+      - name: Judge new CodeQL results (blocking at error / high)
+        id: codeql_verdict
+        env:
+          RESULTS: ${{ steps.codeql_analyze.outputs.directory }}
+          LANGUAGES: ${{ steps.codeql_scope.outputs.languages }}
+          BASE: ${{ steps.codeql_scope.outputs.base }}
+          L9_CODEQL_MODE: blocking
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import collections
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          results = Path(env["RESULTS"])
+          # SARIF message links ("[a user-provided value](1)") read as their text.
+          link = re.compile(r"\[([^\]]*)\]\(\d+\)")
+          base = env.get("BASE", "")
+          blocking = env.get("L9_CODEQL_MODE", "blocking") == "blocking"
+
+
+          def load(name):
+              run = json.loads((results / name).read_text(encoding="utf-8"))["runs"][0]
+              rules = {rule["id"]: rule for rule in run.get("tool", {}).get("driver", {}).get("rules", [])}
+              found = []
+              for result in run.get("results", []):
+                  rule = rules.get(result.get("ruleId", ""), {})
+                  location = (result.get("locations") or [{}])[0].get("physicalLocation", {})
+                  level = result.get("level") or rule.get("defaultConfiguration", {}).get("level", "warning")
+                  try:
+                      severity = float(rule.get("properties", {}).get("security-severity", 0))
+                  except (TypeError, ValueError):
+                      severity = 0.0
+                  found.append({
+                      "rule": result.get("ruleId", ""),
+                      "path": location.get("artifactLocation", {}).get("uri", ""),
+                      "line": location.get("region", {}).get("startLine", 1),
+                      "hash": result.get("partialFingerprints", {}).get("primaryLocationLineHash", ""),
+                      "message": link.sub(r"\1", " ".join(result.get("message", {}).get("text", "").split())),
+                      "level": level,
+                      "severity": severity,
+                      "blocks": level == "error" or severity >= 7.0,
+                  })
+              return found
+
+
+          new, total = [], 0
+          for language in env["LANGUAGES"].split():
+              head = load(f"head-{language}.sarif")
+              total += len(head)
+              if not base:
+                  continue
+              known = collections.Counter(
+                  (r["rule"], r["path"], r["hash"]) for r in load(f"base-{language}.sarif")
+              )
+              for result in head:
+                  key = (result["rule"], result["path"], result["hash"])
+                  if known[key]:
+                      known[key] -= 1
+                  else:
+                      new.append({**result, "language": language})
+
+          failing = [r for r in new if r["blocks"]]
+          for r in new:
+              kind = "error" if r["blocks"] and blocking else "warning"
+              path = r["path"].replace(",", "%2C").replace(":", "%3A")
+              print(f"::{kind} file={path},line={r['line']},title=CodeQL {r['rule']}::{r['message']}")
+          mode = "blocking at error / high" if blocking else "advisory"
+          if not base:
+              head_line = f"- CodeQL ({mode}): no base for this event, so nothing is new; {total} result(s) on the whole tree"
+          elif failing:
+              head_line = f"- CodeQL ({mode}): findings: {len(failing)} new result(s) at error / high or above ({len(new)} new in all)"
+          else:
+              head_line = f"- CodeQL ({mode}): pass: {len(new)} new result(s), none at error / high or above"
+          lines = [head_line, f"- languages: `{env['LANGUAGES']}`; base: `{base or 'none'}`"]
+          if new:
+              lines += ["", "| Severity | Rule | File | Line |", "|---|---|---|---|"]
+              for r in sorted(new, key=lambda r: (not r["blocks"], -r["severity"]))[:20]:
+                  grade = f"{r['level']} {r['severity']:g}" if r["severity"] else r["level"]
+                  lines.append(f"| {grade} | `{r['rule']}` | `{r['path']}` | {r['line']} |")
+              if len(new) > 20:
+                  lines.append(f"\n+{len(new) - 20} more: see the annotations")
+          with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(head_line)
+          if failing and blocking:
+              print(f"::error title=CodeQL::{len(failing)} new result(s) at error / high or above; each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
   # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
   # beside gitleaks, pip-audit, npm-audit and `analyze`, for every repository the organization
   # ruleset governs, and always reports: no biome.json / biome.jsonc is a

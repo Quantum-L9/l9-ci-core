@@ -2075,3 +2075,28 @@ Operator decisions ("same approach for all tools"; bandit option A). Record:
 
 Tests: `tests/workflows/test_org_ci_security_checks.py`,
 `tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`.
+
+## 50. CodeQL is one org-wide check, judging only what a change introduces (2026-11-21)
+
+Operator decision. Record: [`docs/codeql-check.md`](docs/codeql-check.md).
+
+- **Check.** `org-ci.yml` job `codeql`, named `CodeQL`, beside the other
+  checks; `contents: read` only (L9-CI-CORE-005), so it uploads nothing on a
+  pull request and does not use `codeql-action`. The CodeQL CLI comes from the
+  checksum-pinned official bundle (2.27.5).
+- **Only new results.** The revision and the event's base are both analyzed
+  (build-mode none, `security-extended`; `actions` for workflow or action
+  files, and python, javascript, ruby, java, csharp, rust by their files). A
+  result the base lacks (rule, path, `primaryLocationLineHash`) at level error
+  or security severity 7.0+ fails; other new results warn. No base (dispatch,
+  canary): nothing is new.
+- **Nightly.** `nightly-sink.yml` runs the check's steps on the whole tree and
+  publishes `l9-central/codeql-<language>/`, counted. Default setup blocks
+  CodeQL uploads: the sink publishes every other category first, then fails
+  the night naming the refused CodeQL categories.
+- **Migration.** (a) the check lands, (b) per-repository CodeQL files are
+  deleted, (c) default setup is turned off; file and click lists in the
+  record. Requiredness (ruleset 21895545) is the operator's.
+
+Tests: `tests/workflows/test_org_ci_codeql_job.py`,
+`tests/tools/test_nightly_sink.py`, `tests/workflows/test_promotion_canary.py`.
