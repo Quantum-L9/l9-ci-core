@@ -56,9 +56,9 @@ class OrgRuntimeContractTests(unittest.TestCase):
         # check, so push lives on the caller, not here.
         self.assertNotIn("\n  push:", header)
         self.assertNotIn("schedule:", header)
-        caller = (
-            ENTRYPOINT_PATH.parent / "org-ci-default-branch-push.yml"
-        ).read_text(encoding="utf-8")
+        caller = (ENTRYPOINT_PATH.parent / "org-ci-default-branch-push.yml").read_text(
+            encoding="utf-8"
+        )
         self.assertRegex(caller.split("permissions:", 1)[0], r"(?m)^\s{2}push:\s*$")
 
     def test_push_trigger_declares_no_branch_selector(self) -> None:
