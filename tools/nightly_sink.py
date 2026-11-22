@@ -1457,6 +1457,8 @@ def hygiene_steps(org_ci: str) -> str:
             f"      # --- org-ci.yml's {job} check, every file (generated) ---\n" + text
         )
     return "".join(out).rstrip("\n")
+
+
 CODEQL_JOB = "codeql"
 CODEQL_STEPS = ("codeql_scope", "codeql_install", "codeql_analyze")
 
@@ -1584,7 +1586,9 @@ def render_workflow(scan: str, org_ci: str) -> str:
     actionlint = actionlint_steps(org_ci)
     audit = audit_steps(pip_audit_workflow(org_ci))
     digest = hashlib.sha256(
-        (steps + biome + gitleaks + hygiene + codeql + actionlint + audit).encode("utf-8")
+        (steps + biome + gitleaks + hygiene + codeql + actionlint + audit).encode(
+            "utf-8"
+        )
     ).hexdigest()
     header = HEADER.replace("@@DIGEST@@", digest).replace("@@TIMEOUT@@", str(TIMEOUT))
     sink = (

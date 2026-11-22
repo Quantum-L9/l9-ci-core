@@ -1132,6 +1132,7 @@ class WorkflowTests(unittest.TestCase):
     def test_a_missing_hygiene_job_is_refused(self) -> None:
         with self.assertRaises(sink.SinkError):
             sink.hygiene_steps(self.org_ci.replace("\n  sha-pins:\n", "\n  pins:\n"))
+
     def test_codeql_runs_nightly_on_the_whole_tree_as_the_check_does(self) -> None:
         """The check's own scope, install and analyze steps, with no base."""
         import yaml  # noqa: PLC0415
