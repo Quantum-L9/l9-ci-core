@@ -108,9 +108,11 @@ claims:
     statement: >-
       Core asks the pinned SDK to detect repository capabilities and treats
       repo_class metadata only as a consistency assertion. Ambiguous or
-      conflicting language classification fails closed.
+      conflicting language classification fails closed. Since Semgrep left the
+      required check (docs/semgrep-runs-nightly.md) the SDK runs in
+      the central Semgrep scan, not in the entrypoint.
     evidence:
-      - .github/workflows/org-ci.yml
+      - .github/workflows/central-semgrep.yml
       - .l9/sdk-compatibility.yaml
       - tests/workflows/test_org_runtime_contract.py
     status: VALIDATED
@@ -166,9 +168,9 @@ claims:
 
   - id: blocking-result-remains-visible
     statement: >-
-      Core writes the central workflow summary before the final technical-gate
-      enforcement step, so a blocking failure remains visible while the job
-      conclusion correctly fails.
+      Core writes the central workflow summary before its enforcement steps
+      (repository verification, security scan), so a blocking failure remains
+      visible while the job conclusion correctly fails.
     evidence:
       - .github/workflows/org-ci.yml
       - tests/workflows/test_org_runtime_contract.py

@@ -27,7 +27,8 @@ ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / ".github" / "actions" / "resolve-governance" / "resolve.py"
 DEFAULTS_ROOT = ROOT / ".github" / "actions" / "resolve-governance" / "defaults"
 ANALYZE = ROOT / ".github" / "workflows" / "analyze-semgrep.yml"
-ORG_CI = ROOT / ".github" / "workflows" / "org-ci.yml"
+# Semgrep's central chain (docs/semgrep-runs-nightly.md).
+SCAN = ROOT / ".github" / "workflows" / "central-semgrep.yml"
 
 spec = importlib.util.spec_from_file_location("resolve_governance", MODULE_PATH)
 assert spec and spec.loader
@@ -146,12 +147,12 @@ class ReleaseProfileStrictTests(unittest.TestCase):
             enforce["run"],
         )
 
-    def test_org_ci_gives_strict_runs_the_staged_identity_map(self) -> None:
-        # org-ci.yml admits `release` by manual dispatch. A strict run without
-        # the identity map fails in the SDK (`unresolved_strict_contract`)
+    def test_the_central_scan_gives_strict_runs_the_staged_identity_map(self) -> None:
+        # The central Semgrep chain accepts `release` as its event. A strict run
+        # without the identity map fails in the SDK (`unresolved_strict_contract`)
         # instead of producing a policy verdict, so both entrypoints must pass
         # the same staged map.
-        document = yaml.safe_load(ORG_CI.read_text(encoding="utf-8"))
+        document = yaml.safe_load(SCAN.read_text(encoding="utf-8"))
         runs = [
             step
             for job in document["jobs"].values()

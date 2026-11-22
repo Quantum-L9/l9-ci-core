@@ -751,16 +751,14 @@ class CommandLineTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    """nightly-sink.yml is org-ci.yml's analyze steps, then the sink."""
+    """nightly-sink.yml is central-semgrep.yml's scan steps, then the sink."""
 
-    org_ci = (ROOT / ".github/workflows/org-ci.yml").read_text(encoding="utf-8")
+    scan = (ROOT / sink.SCAN).read_text(encoding="utf-8")
     security = (ROOT / sink.SECURITY).read_text(encoding="utf-8")
     committed = (ROOT / sink.WORKFLOW).read_text(encoding="utf-8")
 
     def test_committed_workflow_is_current(self) -> None:
-        self.assertEqual(
-            self.committed, sink.render_workflow(self.org_ci, self.security)
-        )
+        self.assertEqual(self.committed, sink.render_workflow(self.scan, self.security))
 
     def sink_job_steps(self) -> list[dict[str, Any]]:
         import yaml  # noqa: PLC0415
@@ -842,15 +840,17 @@ class WorkflowTests(unittest.TestCase):
             sink.audit_steps(moved)
 
     def test_scan_is_a_nightly_whole_tree_run_under_its_own_matrix_id(self) -> None:
-        steps = sink.sink_steps(self.org_ci)
+        steps = sink.sink_steps(self.scan)
         self.assertIn("          INPUT_EVENT: nightly\n", steps)
         self.assertIn("          INPUT_MATRIX_ID: nightly-${{ matrix.slug }}\n", steps)
         self.assertNotIn("inputs.event", steps)
         self.assertNotIn("canary-", steps)
 
-    def test_pull_request_enforcement_steps_are_not_run(self) -> None:
-        steps = sink.sink_steps(self.org_ci)
-        self.assertNotIn("Enforce repository verification", steps)
+    def test_the_scans_own_enforcement_is_not_run(self) -> None:
+        """The sink judges the findings (the ratchet), not the scan's gate."""
+        steps = sink.sink_steps(self.scan)
+        self.assertNotIn("Enforce central mode on SDK technical gate", steps)
+        self.assertIn("Enforce central mode on SDK technical gate", self.scan)
         self.assertNotIn("needs.", steps)
         self.assertIn("name: Project SARIF (SDK-owned)", steps)
 
@@ -882,17 +882,24 @@ class WorkflowTests(unittest.TestCase):
             workflow["jobs"]["plan"]["if"],
         )
 
-    def test_biome_runs_advisory_so_its_findings_cannot_stop_the_scan(self) -> None:
-        steps = sink.sink_steps(self.org_ci)
-        biome = steps[steps.index("- id: biome_check") :]
-        biome = biome[: biome.index("\n      - ")]
-        self.assertIn("mode: advisory", biome)
-        self.assertNotIn("mode: blocking", biome)
-        self.assertIn("mode: blocking", self.org_ci, "org-ci itself is unchanged")
+    def test_the_sink_runs_the_semgrep_scan_on_a_clean_checkout_only(self) -> None:
+        """No repository verification, Biome, scan tree or baseline: the
+        pull-request gate's own steps are not the sink's (docs/semgrep-runs-nightly.md)."""
+        steps = sink.sink_steps(self.scan)
+        for absent in (
+            "id: repository_verify",
+            "id: biome_check",
+            "id: scan_tree",
+            "id: baseline",
+            "baseline-commit",
+        ):
+            self.assertNotIn(absent, steps)
+        for present in ("id: instances", "id: aggregate", "operation: semgrep-run"):
+            self.assertIn(present, steps)
 
     def test_a_moved_cut_point_is_refused(self) -> None:
-        moved = self.org_ci.replace(
-            "- name: Enforce repository verification", "- name: Enforce it"
+        moved = self.scan.replace(
+            "- name: Enforce central mode on SDK technical gate", "- name: Enforce it"
         )
         with self.assertRaises(sink.SinkError):
             sink.sink_steps(moved)
@@ -901,9 +908,7 @@ class WorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".github/workflows").mkdir(parents=True)
-            (root / ".github/workflows/org-ci.yml").write_text(
-                self.org_ci, encoding="utf-8"
-            )
+            (root / sink.SCAN).write_text(self.scan, encoding="utf-8")
             (root / sink.SECURITY).write_text(self.security, encoding="utf-8")
             (root / sink.WORKFLOW).write_text("stale\n", encoding="utf-8")
             out = io.StringIO()

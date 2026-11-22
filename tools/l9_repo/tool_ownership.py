@@ -59,6 +59,10 @@ NON_TOOL_FILES: tuple[str, ...] = (".l9/repo-workflow.json", "Makefile")
 #: by the stamp; ``runs`` are ``(workflow, job, step name)`` triples that exist
 #: in Core's workflows (test-verified); ``formats`` / ``lints`` /
 #: ``type_checks`` feed ``languages``.
+#: The central Semgrep scan (docs/semgrep-runs-nightly.md): Semgrep left the
+#: required check, so its locked Python and Semgrep runs live there.
+SCAN_WORKFLOW = "central-semgrep.yml"
+
 TOOLS: Mapping[str, Mapping[str, Any]] = {
     "bandit": {
         "configs": (),
@@ -102,7 +106,11 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
     "python": {
         "configs": (".python-version",),
         "runs": (
-            ("org-ci.yml", "analyze", "Set up locked Python for the central toolchain"),
+            (
+                SCAN_WORKFLOW,
+                "analyze",
+                "Set up locked Python for the central toolchain",
+            ),
         ),
     },
     "ruff": {
@@ -121,8 +129,12 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
     "semgrep": {
         "configs": (),
         "runs": (
-            ("org-ci.yml", "analyze", "Install Semgrep (hash-locked central pin)"),
-            ("org-ci.yml", "analyze", "Run + normalize Semgrep (SDK)"),
+            (
+                SCAN_WORKFLOW,
+                "analyze",
+                "Install Semgrep (hash-locked central pin)",
+            ),
+            (SCAN_WORKFLOW, "analyze", "Run + normalize Semgrep (SDK)"),
         ),
     },
 }

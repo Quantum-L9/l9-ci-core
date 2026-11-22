@@ -17,7 +17,7 @@
     },
     {
       "path": "tools/l9_repo/tool_ownership.py",
-      "sha256": "sha256:abee8e2d26f30a509c67b9d199aab1c0a2ccc04a295a1ec257b5b4f8443361bc"
+      "sha256": "sha256:2a675b72fc699dde3c73cbdbd40acade9a6f6a486bb6652946c81c0207d7f621"
     }
   ],
   "profiles": [
@@ -184,7 +184,7 @@
       "pre_commit_hook_profiles": [],
       "runs": [
         {
-          "workflow": "org-ci.yml",
+          "workflow": "central-semgrep.yml",
           "job": "analyze",
           "step": "Set up locked Python for the central toolchain"
         }
@@ -225,12 +225,12 @@
       "pre_commit_hook_profiles": [],
       "runs": [
         {
-          "workflow": "org-ci.yml",
+          "workflow": "central-semgrep.yml",
           "job": "analyze",
           "step": "Install Semgrep (hash-locked central pin)"
         },
         {
-          "workflow": "org-ci.yml",
+          "workflow": "central-semgrep.yml",
           "job": "analyze",
           "step": "Run + normalize Semgrep (SDK)"
         }
