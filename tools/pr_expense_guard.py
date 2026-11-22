@@ -1327,8 +1327,21 @@ def _parse_makefile(
     if not path.is_file():
         raise GuardParseError(f"missing makefile {path}")
     current: str | None = None
+    defining = 0
     lines = _join_continuations(path.read_text(encoding="utf-8").splitlines())
     for raw in lines:
+        directive = _make_directive(raw)
+        # A define ... endef body is a variable's text, not rules or recipes.
+        if defining:
+            if directive == "endef":
+                defining -= 1
+            elif directive == "define":
+                defining += 1
+            continue
+        if directive == "define":
+            defining += 1
+            current = None
+            continue
         if raw.startswith("\t"):
             if current is None:
                 raise GuardParseError(f"{path.name} has a recipe outside a target")
@@ -1336,11 +1349,19 @@ def _parse_makefile(
                 _expand_make(raw[1:].lstrip("@+-"), variables)
             )
             continue
-        stripped = raw.strip()
+        stripped = _strip_assignment_modifiers(raw.strip())
         if stripped == "" or stripped.startswith("#"):
             continue
-        if stripped.startswith("include ") or stripped.startswith("-include "):
-            optional = stripped.startswith("-include ")
+        if directive in _MAKE_SKIPPED_DIRECTIVES:
+            # Conditionals are read on both branches (the judge sees every
+            # recipe either could run); export/unexport without an assignment,
+            # vpath and undefine select no recipe.
+            if directive == "undefine":
+                variables.pop(stripped.split(None, 1)[-1].strip(), None)
+            # A conditional inside a rule keeps that rule's recipe lines.
+            continue
+        if stripped.startswith(("include ", "-include ", "sinclude ")):
+            optional = stripped.startswith(("-include ", "sinclude "))
             name = stripped.split(None, 1)[1].strip()
             included = path.parent / name
             if not included.is_file() and optional:
@@ -1375,6 +1396,46 @@ def _parse_makefile(
         deps = _strip_make_comment(target.group(2)).split()
         targets[name] = _Target(deps=deps, recipe=[])
         current = name
+
+
+_MAKE_SKIPPED_DIRECTIVES = frozenset(
+    {"ifdef", "ifndef", "ifeq", "ifneq", "else", "endif", "vpath", "undefine"}
+)
+_ASSIGNMENT_MODIFIERS = ("override", "export", "unexport", "private")
+
+
+def _make_directive(raw: str) -> str:
+    """The GNU make directive a non-recipe line starts with, else ``""``.
+
+    ``export A`` / ``unexport A`` / a bare ``export`` (no assignment) are
+    reported as ``vpath``-like no-ops through ``_MAKE_SKIPPED_DIRECTIVES``.
+    """
+
+    if raw.startswith("\t"):
+        return ""
+    words = raw.split("#", 1)[0].split()
+    if not words:
+        return ""
+    head = words[0]
+    if head in {"define", "endef"} or head in _MAKE_SKIPPED_DIRECTIVES:
+        return head
+    if head in {"export", "unexport"}:
+        rest = raw.split(None, 1)[1] if len(words) > 1 else ""
+        if not re.search(r"(?::=|\?=|\+=|!=|=)", rest.split("#", 1)[0]):
+            return "vpath"
+    if head == "override" and len(words) > 1 and words[1] == "define":
+        return "define"
+    return ""
+
+
+def _strip_assignment_modifiers(text: str) -> str:
+    """Drop ``override``/``export``/``unexport``/``private`` before an assignment."""
+
+    words = text.split(None, 1)
+    while len(words) == 2 and words[0] in _ASSIGNMENT_MODIFIERS:
+        text = words[1].lstrip()
+        words = text.split(None, 1)
+    return text
 
 
 def _strip_make_comment(text: str) -> str:

@@ -401,6 +401,52 @@ class KnownBadCases(unittest.TestCase):
         decision = judge(self.root)
         self.assert_static(decision, "UNKNOWN_SCRIPT")
 
+    def test_gnu_make_directives_are_read_not_refused(self) -> None:
+        # l9-graphiti-memory: `export L9_SUITE_PROFILE` made the whole
+        # Makefile unreadable and every PR UNKNOWN_SCRIPT.
+        bounded_test(self.root)
+        write(
+            self.root,
+            "Makefile",
+            "L9_SUITE_PROFILE ?= local\n"
+            "export L9_SUITE_PROFILE\n"
+            "export A := 1\n"
+            "unexport B\n"
+            "export\n"
+            "override C = 1\n"
+            "private D = 2\n"
+            "vpath %.c src\n"
+            "undefine C\n"
+            "define HELP\n"
+            "usage: make test\n"
+            "\tnot a recipe\n"
+            "endef\n"
+            "ifdef CI\n"
+            "PY := python3\n"
+            "else\n"
+            "PY := python\n"
+            "endif\n"
+            "test:\n"
+            "\t$(PY) -m pytest tests/unit/test_a.py\n",
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_a_whole_tree_suite_inside_a_conditional_is_still_judged(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            "Makefile",
+            "test:\n"
+            "ifdef CI\n"
+            "\tpytest tests/\n"
+            "else\n"
+            "\tpytest tests/unit/test_a.py\n"
+            "endif\n",
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "REPO_TEST_FULL")
+
     def test_attached_pytest_report_characters_are_a_flag(self) -> None:
         bounded_test(self.root)
         write(
