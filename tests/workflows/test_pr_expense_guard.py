@@ -515,6 +515,58 @@ class KnownBadCases(unittest.TestCase):
         decision = judge(self.root)
         self.assert_static(decision, "REPO_TEST_FULL")
 
+    def test_a_checkout_path_working_directory_is_the_revision_root(self) -> None:
+        # l9-graphiti-memory: actions/checkout `path: memory`, then
+        # `working-directory: memory` with tests/unit/... paths read as
+        # ZERO_TESTS because the judge looked under <root>/memory.
+        bounded_test(self.root)
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow(
+                "  fast:\n    steps:\n"
+                "      - uses: actions/checkout@v4\n"
+                "        with:\n          path: memory\n"
+                "      - run: pytest -q tests/unit/test_a.py\n"
+                "        working-directory: memory\n"
+            ),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_another_repositorys_checkout_path_maps_nothing(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow(
+                "  fast:\n    steps:\n"
+                "      - uses: actions/checkout@v4\n"
+                "        with:\n          repository: other/repo\n          path: peer\n"
+                "      - run: pytest -q tests/unit/test_a.py\n"
+                "        working-directory: peer\n"
+            ),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "ZERO_TESTS")
+
+    def test_pytest_collect_only_is_not_a_suite_run(self) -> None:
+        # l9-graphiti-memory scripts/validate_release.sh:
+        # `n=$(cd x && pytest --collect-only -q)` counts tests, runs none.
+        bounded_test(self.root)
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow(
+                "  fast:\n    steps:\n"
+                "      - run: |\n"
+                "          n=$(cd . && python -m pytest --collect-only -q)\n"
+                "          pytest tests/unit/test_a.py\n"
+            ),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
     def test_attached_pytest_report_characters_are_a_flag(self) -> None:
         bounded_test(self.root)
         write(
