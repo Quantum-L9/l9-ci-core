@@ -756,7 +756,10 @@ def _python_arguments(args: Sequence[str]) -> bool:
     words = list(args)
     while words and words[0] in _PYTHON_FLAGS:
         words = words[1:]
-    return bool(words) and (words[0] in {"-m", "-c"} or words[0].endswith(".py"))
+    if not words:
+        return False
+    first = words[0]
+    return first in {"-m", "-c"} or first.endswith(".py")
 
 
 _TEST_NAME = re.compile(
