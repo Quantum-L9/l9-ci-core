@@ -136,6 +136,9 @@ on:
       L9_GITHUB_READ_TOKEN:
         description: Read-only org token for the private l9-ci-sdk (AGENTS.md §27). Optional.
         required: false
+      L9_EXTERNAL_READ_TOKEN:
+        description: Read-only token for a declared external checkout owned outside Quantum-L9 (cryptoxdog/IB-Odoo_19). Optional.
+        required: false
 # Keyed by repository, revision, and event family so a pull_request evaluation and
 # a push evaluation of the same tree never collapse into one another. Queued, never
 # cancelled: a canonical evaluation of an immutable SHA must complete and stay
@@ -2087,6 +2090,10 @@ jobs:
           # prefetch. Both run before and apart from the consumer's make
           # targets. The verify step does not receive the token.
           github-read-token: ${{ secrets.L9_GITHUB_READ_TOKEN }}
+          # A declared external checkout owned outside Quantum-L9
+          # (cryptoxdog/IB-Odoo_19) is read with this token; only the
+          # external checkout step receives it, before any consumer code.
+          external-read-token: ${{ secrets.L9_EXTERNAL_READ_TOKEN }}
           # Empty: the consumer's make runs under this run's own event. The
           # promotion canary sets push and the leg's branch, since its legs
           # check out a consumer's main head inside a Core pull_request run

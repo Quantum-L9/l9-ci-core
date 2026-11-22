@@ -1,8 +1,11 @@
 """Check out the one repository a consumer declares.
 
 The declaration is ``.l9/external-checkout.json`` in the consumer workspace.
-``L9_GITHUB_READ_TOKEN`` is removed from the process environment before git
-runs. It reaches git only as a per-command ``http.extraheader`` for
+``L9_GITHUB_READ_TOKEN`` reads Quantum-L9 repositories. A repository owned
+outside the organization (``cryptoxdog/IB-Odoo_19``) is read with
+``L9_EXTERNAL_READ_TOKEN``: a fine-grained token covers one resource owner, so
+the organization token cannot read it. Both are removed from the process
+environment before git runs. It reaches git only as a per-command ``http.extraheader`` for
 ``https://github.com/``, never as an argument, a remote URL, or a variable
 for a later step. A missing declaration does nothing unless
 ``L9_EXTERNAL_CHECKOUT_REQUIRED`` is true.
@@ -19,6 +22,8 @@ import sys
 from pathlib import Path
 
 READ_TOKEN_ENV = "L9_GITHUB_READ_TOKEN"
+EXTERNAL_TOKEN_ENV = "L9_EXTERNAL_READ_TOKEN"
+ORGANIZATION = "Quantum-L9"
 WORKSPACE_ENV = "L9_REPOSITORY_WORKSPACE"
 REQUIRED_ENV = "L9_EXTERNAL_CHECKOUT_REQUIRED"
 MANIFEST = Path(".l9") / "external-checkout.json"
@@ -128,6 +133,20 @@ def fetch_revision(
         raise CheckoutError("checked out revision does not match the declaration")
 
 
+def token_for(repository: str, org_token: str, external_token: str) -> str:
+    """The read token for ``owner/name``.
+
+    The organization token for a Quantum-L9 repository; the external token for
+    any other owner, falling back to the organization token when no external
+    token is configured (a public repository then still reads anonymously).
+    """
+
+    owner = repository.split("/", 1)[0]
+    if owner.lower() != ORGANIZATION.lower() and external_token:
+        return external_token
+    return org_token
+
+
 def publish(name: str, value: str) -> None:
     """Export ``name`` to later steps. The value is a directory path."""
     handle = os.environ.get("GITHUB_ENV")
@@ -138,13 +157,15 @@ def publish(name: str, value: str) -> None:
 
 
 def main() -> int:
-    token = os.environ.pop(READ_TOKEN_ENV, "").strip()
+    org_token = os.environ.pop(READ_TOKEN_ENV, "").strip()
+    external_token = os.environ.pop(EXTERNAL_TOKEN_ENV, "").strip()
     workspace = Path(os.environ.get(WORKSPACE_ENV) or ".").resolve()
     try:
         declared = load_declaration(workspace)
         if declared is None:
             return 0
         destination = workspace / declared["path"]
+        token = token_for(declared["repository"], org_token, external_token)
         fetch_revision(destination, declared["repository"], declared["ref"], token)
         publish(declared["env"], str(destination))
     except CheckoutError as exc:
