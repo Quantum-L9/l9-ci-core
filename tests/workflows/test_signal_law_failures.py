@@ -339,9 +339,11 @@ class RequiredInstancesAreNamedTests(unittest.TestCase):
         self.assertIn(">    10 | const line10 = 10;", summary)
 
     def test_a_secret_finding_never_prints_its_source(self) -> None:
-        secret = "AKIA" + "Z" * 16
+        # A synthetic AWS-shaped value planted for the masking check; it is
+        # no credential.
+        planted = "AKIA" + "Z" * 16
         scan = self.dir / ".l9/runtime/m/scan-tree"
-        (scan / "config.env").write_text(f"A=1\nKEY={secret}\nB=2\n", encoding="utf-8")
+        (scan / "config.env").write_text(f"A=1\nKEY={planted}\nB=2\n", encoding="utf-8")
         bundle_path = (
             self.dir / ".l9/runtime/m/required-instances/typescript/finding-bundle.json"
         )
@@ -355,7 +357,7 @@ class RequiredInstancesAreNamedTests(unittest.TestCase):
         everything = (
             completed.stdout + completed.stderr + (self.dir / "summary").read_text()
         )
-        self.assertNotIn(secret, everything)
+        self.assertNotIn(planted, everything)
         self.assertNotIn("AKIA", everything)
         self.assertIn("::group::config.env:2 L9-JS-EVAL", completed.stdout)
         self.assertIn("(masked: secret finding)", completed.stdout)
