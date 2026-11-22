@@ -14,7 +14,7 @@
 # apart from the target identity; the scan legs are the nightly sink's scan
 # without its publication, so a Semgrep change is proven before promotion.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 67d8b9bba65038034d22cd71630e9f2645c9a2a56c40dcf0fe8389fafbe57eff
+# worse. Head steps digest: 534fc59efe6dfd221a2b3b667f45a6300df83fe0592f454499488e2ba587adeb
 name: Promotion canary (Core)
 # One verdict per pushed head (row 22). `make pr` pushes and then edits the
 # pull request's body; that `edited` run used to cancel the push run, whose
@@ -562,7 +562,7 @@ jobs:
             }
             if export_lock all --all-groups --all-extras; then
               locked+=("${out}/all.txt")
-            elif python3 -I -c 'import sys, tomllib; sys.exit(0 if tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("uv", {}).get("conflicts") else 1)' 2> /dev/null; then
+            elif [ "$(python3 -I -c 'import tomllib; d = tomllib.load(open("pyproject.toml", "rb")); print("yes" if d.get("tool", {}).get("uv", {}).get("conflicts") else "no")' 2> /dev/null)" = yes ]; then
               # Declared conflicts ([tool.uv].conflicts) make the union of
               # every extra and group unresolvable by design. Each selection
               # is exported and audited on its own: the base set, then every
@@ -644,6 +644,9 @@ jobs:
           if [ -n "${PIP_AUDIT_REPORT:-}" ] && [ "${status}" -eq 1 ]; then
             echo "pip-audit: known vulnerabilities written to ${PIP_AUDIT_REPORT}; the caller judges them"
             exit 0
+          fi
+          if [ "${status}" -ne 0 ]; then
+            echo "::error title=pip-audit::pip-audit exited ${status}; the audit did not complete"
           fi
           exit "${status}"
       # The audit step ends cleanly on "vulnerabilities found" because it
@@ -1778,10 +1781,7 @@ jobs:
               counts = data["summary"]
               diagnostics = data.get("diagnostics", [])
           except (OSError, ValueError, KeyError) as error:
-              sys.exit(
-                  f"::error title=Biome::biome ci exited {code} and wrote no readable "
-                  f"report ({error}): `{' '.join(command[:2])} ...` failed before judging any file"
-              )
+              sys.exit(f"::error title=Biome::biome ci exited {code} and wrote no readable report ({error}): `{' '.join(command[:2])} ...` failed before judging any file")
           checked = int(counts.get("changed", 0)) + int(counts.get("unchanged", 0))
           errors = int(counts.get("errors", 0))
           warnings = int(counts.get("warnings", 0))
@@ -2080,36 +2080,36 @@ jobs:
               # required event input—not `workflow_call`—identifies this path.
               event_class = requested_event
               if event_class not in allowed:
-                  raise SystemExit(f"unsupported event class: {event_class}")
+                  raise SystemExit(f"::error::unsupported event class: {event_class}")
               expected_profile = fixed.get(event_class, event_class)
               profile = requested_profile or expected_profile
               if profile != expected_profile:
                   raise SystemExit(
-                      "reusable profile claim "
+                      "::error::reusable profile claim "
                       f"{profile!r} does not match event {event_class!r}; "
                       f"expected {expected_profile!r}"
                   )
           elif gh_event in native:
               event_class, profile = native[gh_event]
           elif gh_event == "workflow_call":
-              raise SystemExit("workflow_call requires event")
+              raise SystemExit("::error::workflow_call requires event")
           else:
-              raise SystemExit(f"unsupported trigger: {gh_event}")
+              raise SystemExit(f"::error::unsupported trigger: {gh_event}")
 
           if event_class not in allowed:
-              raise SystemExit(f"unsupported event class: {event_class}")
+              raise SystemExit(f"::error::unsupported event class: {event_class}")
           matrix_id = os.environ.get("INPUT_MATRIX_ID", "org-semgrep")
           if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", matrix_id):
-              raise SystemExit("invalid matrix-id")
+              raise SystemExit("::error::invalid matrix-id")
           sdk_revision = os.environ.get("INPUT_SDK_REVISION", "").strip()
           if sdk_revision and not re.fullmatch(r"[0-9a-f]{40}", sdk_revision):
-              raise SystemExit("sdk-revision must be a full 40-character lowercase SHA")
+              raise SystemExit("::error::sdk-revision must be a full 40-character lowercase SHA")
           semgrep_version = os.environ.get("INPUT_SEMGREP_VERSION", "1.186.0").strip()
           if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", semgrep_version):
-              raise SystemExit("semgrep-version must be an exact x.y.z version")
+              raise SystemExit("::error::semgrep-version must be an exact x.y.z version")
           retention = int(os.environ.get("INPUT_RETENTION", "14"))
           if not 1 <= retention <= 90:
-              raise SystemExit("artifact-retention-days must be between 1 and 90")
+              raise SystemExit("::error::artifact-retention-days must be between 1 and 90")
 
           outputs = {
               "event-class": event_class,
@@ -2152,6 +2152,10 @@ jobs:
               print("heavy=false")
               print("suite_pass=false")
               print("selected_suite=none")
+              if code:
+                  # Signal law: name the refusal, not only an exit code. Last, so
+                  # the first stdout line stays the status the caller reads.
+                  print(f"::error title=Pull-request scope::{status}")
               raise SystemExit(code)
 
 
@@ -2297,7 +2301,7 @@ jobs:
           applicable = {item for item in os.environ.get("APPLICABLE", "").split(",") if item}
           unknown = sorted(requested - applicable)
           if unknown:
-              raise SystemExit(f"consumer waiver_refs are not centrally applicable: {unknown}")
+              raise SystemExit(f"::error::consumer waiver_refs are not centrally applicable: {unknown}")
           PY
 
       # Repository verification runs the consumer's `make setup`, which may
@@ -2441,7 +2445,38 @@ jobs:
           case "${REPOSITORY_VERIFY_MODE}:${REPOSITORY_VERIFY_STATUS}" in
             migration:pass|migration:not_applicable|required:pass) ;;
             *)
-              echo "Blocking profile: repository verification did not pass (mode ${REPOSITORY_VERIFY_MODE:-unavailable}; status ${REPOSITORY_VERIFY_STATUS:-unavailable}; failure ${REPOSITORY_VERIFY_FAILURE:-unavailable})" >&2
+              # Signal law (L9-SIGNAL-001): name the phase, the command, its
+              # exit code and the tail of its output, not only a status.
+              # The verification step writes the failed command to a sidecar
+              # in RUNNER_TEMP (its typed outputs are frozen).
+              sidecar="${RUNNER_TEMP}/l9-repository-verification-failure.json"
+              tail_file="${RUNNER_TEMP}/l9-repository-verification-tail.txt"
+              subject="mode ${REPOSITORY_VERIFY_MODE:-unavailable}; status ${REPOSITORY_VERIFY_STATUS:-unavailable}; failure ${REPOSITORY_VERIFY_FAILURE:-unavailable}"
+              # The sidecar names this workspace's own failure, never one a
+              # test wrote while running the verifier on a temporary tree.
+              named=""
+              if [ -s "${sidecar}" ]; then
+                named="$(python3 -I -c 'import json,os,sys; d=json.load(open(sys.argv[1])); ok=os.path.realpath(d.get("workspace","")) == os.path.realpath(sys.argv[2]); print("phase %s: `%s` exited %s" % (d["phase"] or "unknown", d["command"], d["exit"]) if ok else "")' "${sidecar}" "${GITHUB_WORKSPACE:-${PWD}}")"
+              fi
+              if [ -n "${named}" ]; then
+                subject="${named} (${subject})"
+              else
+                subject="${subject}; the cause is named in the 'Run repository verification contract' step log"
+              fi
+              if [ -n "${named}" ] && [ -s "${tail_file}" ]; then
+                echo "Last lines of the failed command:"
+                cat -- "${tail_file}"
+                {
+                  echo "### Repository verification failed"
+                  echo
+                  echo "${subject}"
+                  echo
+                  echo "~~~~"
+                  cat -- "${tail_file}"
+                  echo "~~~~"
+                } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              fi
+              echo "::error title=Repository verification::${subject}"
               exit 1
               ;;
           esac
@@ -2496,7 +2531,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 67d8b9bba65038034d22cd71630e9f2645c9a2a56c40dcf0fe8389fafbe57eff
+          DIGEST: 534fc59efe6dfd221a2b3b667f45a6300df83fe0592f454499488e2ba587adeb
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ""
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -3171,14 +3206,135 @@ jobs:
           AGGREGATE_EXIT: ${{ steps.aggregate.outputs['exit-code'] }}
           ACCOUNTED: ${{ steps.aggregate.outputs.accounted }}
           MODE: ${{ steps.gov.outputs.mode }}
+          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
+          L9_PRIMARY_LANGUAGE: ${{ steps.language.outputs.language }}
         run: |
           set -euo pipefail
           status="${AGGREGATE_STATUS:-incomplete}"
           exit_code="${AGGREGATE_EXIT:-6}"
           echo "SDK technical gate (primary language): ${GATE_STATUS:-unavailable}"
           echo "Required instances: ${status} (exit ${exit_code}; accounted ${ACCOUNTED:-false}); central mode: ${MODE}"
+          if [ "${status}" != "pass" ]; then
+            # Signal law (L9-SIGNAL-001): name every instance that did not
+            # pass, its reasons, and each blocking finding by rule and
+            # file:line, so the verdict is actionable without a re-run.
+            python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          CAP = 20
+          env = os.environ
+          runtime = Path(".l9/runtime", env["L9_MATRIX_ID"])
+          instances = runtime / "required-instances"
+          primary = env.get("L9_PRIMARY_LANGUAGE", "")
+          lines = []
+
+
+          def escape(text, prop=False):
+              text = str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              return text.replace(":", "%3A").replace(",", "%2C") if prop else text
+
+
+          def load(path):
+              try:
+                  return json.loads(path.read_text(encoding="utf-8"))
+              except (OSError, ValueError):
+                  return None
+
+
+          def directory(instance):
+              kind, _, name = instance.partition(":")[2].partition(":")
+              if kind == "language" and name == primary:
+                  return runtime
+              return instances / (name if kind == "language" else kind + "-" + name)
+
+
+          def emit(props, message):
+              line = "::error " + ",".join(f"{k}={escape(v, True)}" for k, v in props.items()) + "::" + escape(message)
+              print(line)
+              lines.append(message)
+
+
+          # Providers whose findings are secrets: never print their source.
+          SENSITIVE = {"gitleaks", "trufflehog", "detect-secrets"}
+          snippets = []
+
+
+          def snippet(path, start, end, provider):
+              """The offending lines and 2 either side, numbered, marked."""
+              root = Path(env.get("L9_SCAN_ROOT") or ".")
+              try:
+                  source = (root / path).read_text(encoding="utf-8", errors="replace").splitlines()
+              except OSError:
+                  return [f"    (source unavailable: {path})"]
+              first, last = max(1, start - 2), min(len(source), end + 2)
+              rendered = []
+              for number in range(first, last + 1):
+                  marker = ">" if start <= number <= end else " "
+                  text = source[number - 1]
+                  if provider in SENSITIVE and marker == ">":
+                      text = "*" * 8 + " (masked: secret finding)"
+                  elif provider in SENSITIVE:
+                      continue
+                  rendered.append(f"{marker} {number:>5} | {text}")
+              return rendered
+
+
+          aggregate = load(instances / "aggregate.json") or {}
+          if not aggregate:
+              emit({"title": "Required instances"}, "no aggregate was written: the planned instances did not all run")
+          named = 0
+          hidden = 0
+          for instance in aggregate.get("instances", []):
+              if instance.get("status") == "pass":
+                  continue
+              ident = instance.get("id", "?")
+              emit({"title": f"Required instance {ident}"}, f"{instance.get('status')}: {instance.get('reason', '')}")
+              where = directory(ident)
+              gate = load(where / "gate-result.json") or {}
+              bundle = load(where / "finding-bundle.json") or {}
+              for reason in gate.get("reasons", []):
+                  emit({"title": f"Gate {ident}"}, reason)
+              for failure in bundle.get("provider_failures", []):
+                  emit({"title": f"Provider {failure.get('provider_id', '?')} ({ident})"},
+                       f"{failure.get('failure_type', '?')}: {failure.get('message', '')}")
+              findings = {f.get("finding_id"): f for f in bundle.get("findings", [])}
+              for kind in ("blocking_finding_ids", "unresolved_finding_ids"):
+                  for finding_id in gate.get(kind, []):
+                      if named >= CAP:
+                          hidden += 1
+                          continue
+                      finding = findings.get(finding_id, {})
+                      rule = finding.get("canonical_rule_id") or finding.get("provider_rule_id") or finding_id
+                      where_ = (finding.get("locations") or [{}])[0]
+                      props = {"title": f"{rule} ({kind.split('_')[0]}, {ident})"}
+                      path = where_.get("normalized_path")
+                      if path:
+                          start = int(where_.get("start_line") or 1)
+                          end = int(where_.get("end_line") or start)
+                          props = {"file": path, "line": start, "endLine": end, **props}
+                          provider = finding.get("provider_id", "")
+                          snippets.append((f"{path}:{start} {rule}", snippet(path, start, end, provider)))
+                      emit(props, finding.get("message") or finding_id)
+                      named += 1
+          if hidden:
+              emit({"title": "Required instances"}, f"+{hidden} more finding(s) not listed; see the instance bundles artifact")
+          for heading, body in snippets:
+              print(f"::group::{heading}")
+              print("\n".join(body))
+              print("::endgroup::")
+          summary = env.get("GITHUB_STEP_SUMMARY")
+          if summary and lines:
+              with open(summary, "a", encoding="utf-8") as stream:
+                  stream.write("\n### Why the required instances did not pass\n\n")
+                  stream.writelines(f"- {line}\n" for line in lines)
+                  for heading, body in snippets:
+                      stream.write(f"\n`{heading}`\n\n~~~~\n" + "\n".join(body) + "\n~~~~\n")
+          PY
+          fi
           if [ "${status}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
-            echo "Blocking mode: failing job on required instances '${status}'" >&2
+            echo "::error title=Required instances::${status} (exit ${exit_code}); the instances, reasons and findings are named above"
             exit "${exit_code}"
           fi
       # --- canary record (not part of org-ci.yml) ---
@@ -3186,7 +3342,7 @@ jobs:
         if: always()
         env:
           SIDE: scan
-          DIGEST: 67d8b9bba65038034d22cd71630e9f2645c9a2a56c40dcf0fe8389fafbe57eff
+          DIGEST: 534fc59efe6dfd221a2b3b667f45a6300df83fe0592f454499488e2ba587adeb
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ""
@@ -3871,14 +4027,135 @@ jobs:
           AGGREGATE_EXIT: ${{ steps.aggregate.outputs['exit-code'] }}
           ACCOUNTED: ${{ steps.aggregate.outputs.accounted }}
           MODE: ${{ steps.gov.outputs.mode }}
+          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
+          L9_PRIMARY_LANGUAGE: ${{ steps.language.outputs.language }}
         run: |
           set -euo pipefail
           status="${AGGREGATE_STATUS:-incomplete}"
           exit_code="${AGGREGATE_EXIT:-6}"
           echo "SDK technical gate (primary language): ${GATE_STATUS:-unavailable}"
           echo "Required instances: ${status} (exit ${exit_code}; accounted ${ACCOUNTED:-false}); central mode: ${MODE}"
+          if [ "${status}" != "pass" ]; then
+            # Signal law (L9-SIGNAL-001): name every instance that did not
+            # pass, its reasons, and each blocking finding by rule and
+            # file:line, so the verdict is actionable without a re-run.
+            python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          CAP = 20
+          env = os.environ
+          runtime = Path(".l9/runtime", env["L9_MATRIX_ID"])
+          instances = runtime / "required-instances"
+          primary = env.get("L9_PRIMARY_LANGUAGE", "")
+          lines = []
+
+
+          def escape(text, prop=False):
+              text = str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              return text.replace(":", "%3A").replace(",", "%2C") if prop else text
+
+
+          def load(path):
+              try:
+                  return json.loads(path.read_text(encoding="utf-8"))
+              except (OSError, ValueError):
+                  return None
+
+
+          def directory(instance):
+              kind, _, name = instance.partition(":")[2].partition(":")
+              if kind == "language" and name == primary:
+                  return runtime
+              return instances / (name if kind == "language" else kind + "-" + name)
+
+
+          def emit(props, message):
+              line = "::error " + ",".join(f"{k}={escape(v, True)}" for k, v in props.items()) + "::" + escape(message)
+              print(line)
+              lines.append(message)
+
+
+          # Providers whose findings are secrets: never print their source.
+          SENSITIVE = {"gitleaks", "trufflehog", "detect-secrets"}
+          snippets = []
+
+
+          def snippet(path, start, end, provider):
+              """The offending lines and 2 either side, numbered, marked."""
+              root = Path(env.get("L9_SCAN_ROOT") or ".")
+              try:
+                  source = (root / path).read_text(encoding="utf-8", errors="replace").splitlines()
+              except OSError:
+                  return [f"    (source unavailable: {path})"]
+              first, last = max(1, start - 2), min(len(source), end + 2)
+              rendered = []
+              for number in range(first, last + 1):
+                  marker = ">" if start <= number <= end else " "
+                  text = source[number - 1]
+                  if provider in SENSITIVE and marker == ">":
+                      text = "*" * 8 + " (masked: secret finding)"
+                  elif provider in SENSITIVE:
+                      continue
+                  rendered.append(f"{marker} {number:>5} | {text}")
+              return rendered
+
+
+          aggregate = load(instances / "aggregate.json") or {}
+          if not aggregate:
+              emit({"title": "Required instances"}, "no aggregate was written: the planned instances did not all run")
+          named = 0
+          hidden = 0
+          for instance in aggregate.get("instances", []):
+              if instance.get("status") == "pass":
+                  continue
+              ident = instance.get("id", "?")
+              emit({"title": f"Required instance {ident}"}, f"{instance.get('status')}: {instance.get('reason', '')}")
+              where = directory(ident)
+              gate = load(where / "gate-result.json") or {}
+              bundle = load(where / "finding-bundle.json") or {}
+              for reason in gate.get("reasons", []):
+                  emit({"title": f"Gate {ident}"}, reason)
+              for failure in bundle.get("provider_failures", []):
+                  emit({"title": f"Provider {failure.get('provider_id', '?')} ({ident})"},
+                       f"{failure.get('failure_type', '?')}: {failure.get('message', '')}")
+              findings = {f.get("finding_id"): f for f in bundle.get("findings", [])}
+              for kind in ("blocking_finding_ids", "unresolved_finding_ids"):
+                  for finding_id in gate.get(kind, []):
+                      if named >= CAP:
+                          hidden += 1
+                          continue
+                      finding = findings.get(finding_id, {})
+                      rule = finding.get("canonical_rule_id") or finding.get("provider_rule_id") or finding_id
+                      where_ = (finding.get("locations") or [{}])[0]
+                      props = {"title": f"{rule} ({kind.split('_')[0]}, {ident})"}
+                      path = where_.get("normalized_path")
+                      if path:
+                          start = int(where_.get("start_line") or 1)
+                          end = int(where_.get("end_line") or start)
+                          props = {"file": path, "line": start, "endLine": end, **props}
+                          provider = finding.get("provider_id", "")
+                          snippets.append((f"{path}:{start} {rule}", snippet(path, start, end, provider)))
+                      emit(props, finding.get("message") or finding_id)
+                      named += 1
+          if hidden:
+              emit({"title": "Required instances"}, f"+{hidden} more finding(s) not listed; see the instance bundles artifact")
+          for heading, body in snippets:
+              print(f"::group::{heading}")
+              print("\n".join(body))
+              print("::endgroup::")
+          summary = env.get("GITHUB_STEP_SUMMARY")
+          if summary and lines:
+              with open(summary, "a", encoding="utf-8") as stream:
+                  stream.write("\n### Why the required instances did not pass\n\n")
+                  stream.writelines(f"- {line}\n" for line in lines)
+                  for heading, body in snippets:
+                      stream.write(f"\n`{heading}`\n\n~~~~\n" + "\n".join(body) + "\n~~~~\n")
+          PY
+          fi
           if [ "${status}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
-            echo "Blocking mode: failing job on required instances '${status}'" >&2
+            echo "::error title=Required instances::${status} (exit ${exit_code}); the instances, reasons and findings are named above"
             exit "${exit_code}"
           fi
       # --- canary record (not part of org-ci.yml) ---
@@ -3886,7 +4163,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 67d8b9bba65038034d22cd71630e9f2645c9a2a56c40dcf0fe8389fafbe57eff
+          DIGEST: 534fc59efe6dfd221a2b3b667f45a6300df83fe0592f454499488e2ba587adeb
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ""
@@ -4682,18 +4959,12 @@ jobs:
           fi
           exit "${status}"
 
-  # CodeQL is one org-wide check (operator, 2026-11-21; docs/codeql-check.md),
-  # replacing per-repository CodeQL workflows and default setup. Read-only,
-  # like every pull-request job here (L9-CI-CORE-005): nothing is uploaded on
-  # a pull request. The languages the revision contains are analyzed, always
-  # including `actions`, with build-mode none and the security-extended suite,
-  # once at the evaluated revision and once at the event's base; only results
-  # the base does not have are judged (rule, path and CodeQL's own
-  # primaryLocationLineHash), and a new result at error level or security
-  # severity high or above fails the check. An event with no base (a
-  # dispatch, the nightly sink, the promotion canary) has nothing new: it
-  # reports what it found and passes. The nightly sink runs the same steps on
-  # the whole default branch and sends the SARIF to code scanning.
+  # no-bytecode and sha-pins are org-wide checks (operator, 2026-11-21;
+  # docs/hygiene-checks.md), blocking, always reporting: a pull request, merge
+  # group or push is judged on the files it adds or changes; an event with no
+  # base (a dispatch, the promotion canary) on every tracked file, reported,
+  # never failing; the nightly sink on every file, to code scanning.
+  # no-bytecode: no tracked *.pyc / *.pyo / *.pyd or __pycache__/ file.
       # --- inlined org-ci job npm-audit org-ci.yml: end ---
       - name: Record the npm-audit job result
         if: always()
@@ -4709,6 +4980,352 @@ jobs:
         with:
           name: canary-job-base-npm-audit-${{ matrix.slug }}
           path: ${{ runner.temp }}/canary-job/npm-audit.result
+          if-no-files-found: error
+          retention-days: 1
+
+  base__no-bytecode:
+    name: Canary ${{ matrix.repository }} no-bytecode job (base pins)
+    needs: plan
+    if: needs.plan.outputs.applies == 'true' && needs.plan.outputs.differential == 'true' && needs.plan.outputs['base-current'] == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      # --- inlined org-ci job no-bytecode org-ci.yml: begin ---
+      - name: Checkout (full history)
+        id: no-bytecode__s0
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.revision }}
+          token: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check for tracked Python bytecode (blocking)
+        id: no-bytecode__no_bytecode
+        env:
+          EVENT_NAME: push
+          PR_BASE: ''
+          MERGE_GROUP_BASE: ''
+          PUSH_BEFORE: ''
+          EVENT_SHA: ${{ matrix.revision }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to SARIF.
+          FINDINGS_FAIL: "true"
+          SARIF: ""
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          CHECK = "no-bytecode"
+          RULE = "Python bytecode is never tracked"
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+
+
+          def git(*args):
+              return subprocess.run(["git", *args], capture_output=True, text=True, check=False)
+
+
+          bases = {
+              "pull_request": "PR_BASE",
+              "pull_request_target": "PR_BASE",
+              "merge_group": "MERGE_GROUP_BASE",
+              "push": "PUSH_BEFORE",
+          }
+          base = env.get(bases.get(env.get("EVENT_NAME", ""), ""), "")
+          if not re.fullmatch(r"[0-9a-f]{40}", base) or not base.strip("0"):
+              base = ""
+          tracked = git("ls-files", "-z").stdout.split("\0")
+          if base:
+              if git("cat-file", "-e", f"{base}^{{commit}}").returncode != 0:
+                  print(f"::error title={CHECK}::the event's base {base} is not in this clone; the check cannot tell what changed")
+                  sys.exit(2)
+              diff = git("diff", "--name-only", "-z", "--diff-filter=AMR", base, env["EVENT_SHA"], "--")
+              if diff.returncode != 0:
+                  sys.exit(f"::error title={CHECK}::git diff against {base} failed: {diff.stderr.strip()}")
+              scope = [p for p in diff.stdout.split("\0") if p]
+              scope_text = f"the files {base[:12]}..{env['EVENT_SHA'][:12]} changes"
+          else:
+              scope = [p for p in tracked if p]
+              scope_text = "every tracked file"
+          nightly = env.get("FINDINGS_FAIL") == "false"
+          reported = nightly or not base
+          label = "nightly, reported" if nightly else ("reported: no base" if not base else "blocking")
+
+          bytecode = re.compile(r"(^|/)__pycache__/|\.py[cod]$")
+          findings = [
+              (path, 1, "Python bytecode is tracked; delete it from git (git rm --cached) and let .gitignore keep it out")
+              for path in scope
+              if bytecode.search(path)
+          ]
+          applicable = True
+          not_applicable = ""
+          passed = f"no tracked bytecode in {len(scope)} file(s)"
+
+
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          if not applicable:
+              line = f"- {CHECK} ({label}): {not_applicable}"
+          elif not findings:
+              line = f"- {CHECK} ({label}): pass: {passed} ({scope_text})"
+          else:
+              line = f"- {CHECK} ({label}): findings: {len(findings)} ({scope_text})"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Finding |", "|---|---|---|"]
+          for path, number, message in findings:
+              kind = "warning" if reported else "error"
+              safe = path.replace(",", "%2C").replace(":", "%3A")
+              print(f"::{kind} file={safe},line={number},title={CHECK}::{message}")
+          for path, number, message in findings[:20]:
+              lines.append(f"| `{path}` | {number} | {message.replace('|', chr(92) + '|')} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with summary.open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("SARIF"):
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {"name": CHECK, "informationUri": "https://github.com/Quantum-L9/l9-ci-core", "rules": [{"id": CHECK, "shortDescription": {"text": RULE}}]}},
+                      "results": [{
+                          "ruleId": CHECK,
+                          "level": "error",
+                          "message": {"text": message},
+                          "locations": [{"physicalLocation": {"artifactLocation": {"uri": path}, "region": {"startLine": number}}}],
+                      } for path, number, message in findings],
+                  }],
+              }
+              target = Path(env["SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title={CHECK}::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
+  # sha-pins: every `uses:` in a workflow file or action definition is pinned
+  # by a full 40-character commit SHA (a docker:// image by @sha256: digest),
+  # or is a documented, frozen Core major tag (Quantum-L9/l9-ci-core@v1, @v2,
+  # @v2.0.0); local ./ actions have no ref.
+      # --- inlined org-ci job no-bytecode org-ci.yml: end ---
+      - name: Record the no-bytecode job result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/canary-job"
+          printf '%s\n' "${JOB_STATUS}" > "${RUNNER_TEMP}/canary-job/no-bytecode.result"
+      - name: Upload the no-bytecode job result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canary-job-base-no-bytecode-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job/no-bytecode.result
+          if-no-files-found: error
+          retention-days: 1
+
+  base__sha-pins:
+    name: Canary ${{ matrix.repository }} sha-pins job (base pins)
+    needs: plan
+    if: needs.plan.outputs.applies == 'true' && needs.plan.outputs.differential == 'true' && needs.plan.outputs['base-current'] == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      # --- inlined org-ci job sha-pins org-ci.yml: begin ---
+      - name: Checkout (full history)
+        id: sha-pins__s0
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.0
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.revision }}
+          token: ${{ matrix.private && secrets.L9_GITHUB_READ_TOKEN || github.token }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check action pins (blocking)
+        id: sha-pins__sha_pins
+        env:
+          EVENT_NAME: push
+          PR_BASE: ''
+          MERGE_GROUP_BASE: ''
+          PUSH_BEFORE: ''
+          EVENT_SHA: ${{ matrix.revision }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to SARIF.
+          FINDINGS_FAIL: "true"
+          SARIF: ""
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          CHECK = "sha-pins"
+          RULE = "Every uses: is pinned by a full commit SHA or a documented frozen Core tag"
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+
+
+          def git(*args):
+              return subprocess.run(["git", *args], capture_output=True, text=True, check=False)
+
+
+          bases = {
+              "pull_request": "PR_BASE",
+              "pull_request_target": "PR_BASE",
+              "merge_group": "MERGE_GROUP_BASE",
+              "push": "PUSH_BEFORE",
+          }
+          base = env.get(bases.get(env.get("EVENT_NAME", ""), ""), "")
+          if not re.fullmatch(r"[0-9a-f]{40}", base) or not base.strip("0"):
+              base = ""
+          tracked = git("ls-files", "-z").stdout.split("\0")
+          if base:
+              if git("cat-file", "-e", f"{base}^{{commit}}").returncode != 0:
+                  print(f"::error title={CHECK}::the event's base {base} is not in this clone; the check cannot tell what changed")
+                  sys.exit(2)
+              diff = git("diff", "--name-only", "-z", "--diff-filter=AMR", base, env["EVENT_SHA"], "--")
+              if diff.returncode != 0:
+                  sys.exit(f"::error title={CHECK}::git diff against {base} failed: {diff.stderr.strip()}")
+              scope = [p for p in diff.stdout.split("\0") if p]
+              scope_text = f"the files {base[:12]}..{env['EVENT_SHA'][:12]} changes"
+          else:
+              scope = [p for p in tracked if p]
+              scope_text = "every tracked file"
+          nightly = env.get("FINDINGS_FAIL") == "false"
+          reported = nightly or not base
+          label = "nightly, reported" if nightly else ("reported: no base" if not base else "blocking")
+
+          # Workflow files, and action definitions (a composite action has uses: steps).
+          definition = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$")
+          files = [path for path in scope if definition.search(path) and Path(path).is_file()]
+          uses = re.compile(r"""^\s*(?:-\s+)?uses:\s*(['"]?)([^'"\s#]+)\1\s*(?:#.*)?$""")
+          sha = re.compile(r"[0-9a-f]{40}")
+          frozen = re.compile(r"v1|v2|v2\.0\.0")
+          findings, checked = [], 0
+          for path in files:
+              for number, text in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+                  match = uses.match(text)
+                  if not match:
+                      continue
+                  spec = match.group(2)
+                  if spec.startswith("./"):
+                      continue  # a local action: no ref to pin
+                  checked += 1
+                  if spec.startswith("docker://"):
+                      if "@sha256:" not in spec:
+                          findings.append((path, number, f"'{spec}' is not pinned by image digest (docker://image@sha256:...)"))
+                      continue
+                  if "@" not in spec:
+                      findings.append((path, number, f"'{spec}' names no ref; pin it by full 40-character commit SHA"))
+                      continue
+                  repository, ref = spec.rsplit("@", 1)
+                  if sha.fullmatch(ref):
+                      continue
+                  if repository.startswith("Quantum-L9/l9-ci-core") and frozen.fullmatch(ref):
+                      continue  # a documented, frozen Core major tag
+                  findings.append((path, number, f"floating ref '{ref}' on '{repository}'; pin it by full 40-character commit SHA"))
+          applicable = bool(files) or bool(base)
+          not_applicable = "not applicable: no workflow or action files"
+          if base and not files:
+              passed = "no changed workflow or action files"
+              applicable = True
+          else:
+              passed = f"{checked} uses: reference(s) in {len(files)} file(s) pinned"
+
+
+          summary = Path(env["GITHUB_STEP_SUMMARY"])
+          if not applicable:
+              line = f"- {CHECK} ({label}): {not_applicable}"
+          elif not findings:
+              line = f"- {CHECK} ({label}): pass: {passed} ({scope_text})"
+          else:
+              line = f"- {CHECK} ({label}): findings: {len(findings)} ({scope_text})"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Finding |", "|---|---|---|"]
+          for path, number, message in findings:
+              kind = "warning" if reported else "error"
+              safe = path.replace(",", "%2C").replace(":", "%3A")
+              print(f"::{kind} file={safe},line={number},title={CHECK}::{message}")
+          for path, number, message in findings[:20]:
+              lines.append(f"| `{path}` | {number} | {message.replace('|', chr(92) + '|')} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with summary.open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("SARIF"):
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {"name": CHECK, "informationUri": "https://github.com/Quantum-L9/l9-ci-core", "rules": [{"id": CHECK, "shortDescription": {"text": RULE}}]}},
+                      "results": [{
+                          "ruleId": CHECK,
+                          "level": "error",
+                          "message": {"text": message},
+                          "locations": [{"physicalLocation": {"artifactLocation": {"uri": path}, "region": {"startLine": number}}}],
+                      } for path, number, message in findings],
+                  }],
+              }
+              target = Path(env["SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title={CHECK}::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
+
+  # CodeQL is one org-wide check (operator, 2026-11-21; docs/codeql-check.md),
+  # replacing per-repository CodeQL workflows and default setup. Read-only,
+  # like every pull-request job here (L9-CI-CORE-005): nothing is uploaded on
+  # a pull request. The languages the revision contains are analyzed, always
+  # including `actions`, with build-mode none and the security-extended suite,
+  # once at the evaluated revision and once at the event's base; only results
+  # the base does not have are judged (rule, path and CodeQL's own
+  # primaryLocationLineHash), and a new result at error level or security
+  # severity high or above fails the check. An event with no base (a
+  # dispatch, the nightly sink, the promotion canary) has nothing new: it
+  # reports what it found and passes. The nightly sink runs the same steps on
+  # the whole default branch and sends the SARIF to code scanning.
+      # --- inlined org-ci job sha-pins org-ci.yml: end ---
+      - name: Record the sha-pins job result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/canary-job"
+          printf '%s\n' "${JOB_STATUS}" > "${RUNNER_TEMP}/canary-job/sha-pins.result"
+      - name: Upload the sha-pins job result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: canary-job-base-sha-pins-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job/sha-pins.result
           if-no-files-found: error
           retention-days: 1
 
@@ -5400,7 +6017,7 @@ jobs:
 
   base:
     name: Canary ${{ matrix.repository }} (base pins)
-    needs: [plan, base__gitleaks, base__pip-audit, base__npm-audit, base__codeql, base__actionlint, base__biome]
+    needs: [plan, base__gitleaks, base__pip-audit, base__npm-audit, base__no-bytecode, base__sha-pins, base__codeql, base__actionlint, base__biome]
     if: ${{ !cancelled() && (needs.plan.outputs.applies == 'true' && needs.plan.outputs.differential == 'true' && needs.plan.outputs['base-current'] == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -5481,6 +6098,54 @@ jobs:
             *) result=failure ;;
           esac
           echo "npm-audit job: ${result}"
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
+      # --- the no-bytecode job's result for this repository (not part of org-ci.yml) ---
+      - name: Download the no-bytecode job result
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # A pattern, not a name: a missing result downloads nothing (a name
+          # would fail the step), and the next step reads nothing as failure.
+          pattern: canary-job-base-no-bytecode-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job
+          merge-multiple: true
+      - name: Result of the no-bytecode job
+        id: no-bytecode__result
+        run: |
+          set -euo pipefail
+          file="${RUNNER_TEMP}/canary-job/no-bytecode.result"
+          result=""
+          if [ -f "${file}" ]; then
+            result="$(tr -d '[:space:]' < "${file}")"
+          fi
+          case "${result}" in
+            success|failure|cancelled) ;;
+            *) result=failure ;;
+          esac
+          echo "no-bytecode job: ${result}"
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
+      # --- the sha-pins job's result for this repository (not part of org-ci.yml) ---
+      - name: Download the sha-pins job result
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # A pattern, not a name: a missing result downloads nothing (a name
+          # would fail the step), and the next step reads nothing as failure.
+          pattern: canary-job-base-sha-pins-${{ matrix.slug }}
+          path: ${{ runner.temp }}/canary-job
+          merge-multiple: true
+      - name: Result of the sha-pins job
+        id: sha-pins__result
+        run: |
+          set -euo pipefail
+          file="${RUNNER_TEMP}/canary-job/sha-pins.result"
+          result=""
+          if [ -f "${file}" ]; then
+            result="$(tr -d '[:space:]' < "${file}")"
+          fi
+          case "${result}" in
+            success|failure|cancelled) ;;
+            *) result=failure ;;
+          esac
+          echo "sha-pins job: ${result}"
           echo "result=${result}" >> "$GITHUB_OUTPUT"
       # --- the codeql job's result for this repository (not part of org-ci.yml) ---
       - name: Download the codeql job result
@@ -6006,12 +6671,12 @@ jobs:
         if: always()
         env:
           SIDE: base
-          DIGEST: 87fdaef7f40732e3fbb981c8c3b4d46baaba14572c95c1c6c3b8561d1e116334
+          DIGEST: 67d8b9bba65038034d22cd71630e9f2645c9a2a56c40dcf0fe8389fafbe57eff
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ""
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
           # org-ci.yml's own checks beside analyze (Biome): job=result pairs.
-          INDEPENDENT: "gitleaks=${{ steps.gitleaks__result.outputs.result }},pip-audit=${{ steps.pip-audit__result.outputs.result }},npm-audit=${{ steps.npm-audit__result.outputs.result }},codeql=${{ steps.codeql__result.outputs.result }},actionlint=${{ steps.actionlint__result.outputs.result }},biome=${{ steps.biome__result.outputs.result }}"
+          INDEPENDENT: "gitleaks=${{ steps.gitleaks__result.outputs.result }},pip-audit=${{ steps.pip-audit__result.outputs.result }},npm-audit=${{ steps.npm-audit__result.outputs.result }},no-bytecode=${{ steps.no-bytecode__result.outputs.result }},sha-pins=${{ steps.sha-pins__result.outputs.result }},codeql=${{ steps.codeql__result.outputs.result }},actionlint=${{ steps.actionlint__result.outputs.result }},biome=${{ steps.biome__result.outputs.result }}"
           MATRIX_ID: canary-base-${{ matrix.slug }}
           SLUG: ${{ matrix.slug }}
           REPOSITORY: ${{ matrix.repository }}
@@ -6696,7 +7361,7 @@ jobs:
         if: always()
         env:
           SIDE: scanbase
-          DIGEST: 87fdaef7f40732e3fbb981c8c3b4d46baaba14572c95c1c6c3b8561d1e116334
+          DIGEST: 67d8b9bba65038034d22cd71630e9f2645c9a2a56c40dcf0fe8389fafbe57eff
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ""

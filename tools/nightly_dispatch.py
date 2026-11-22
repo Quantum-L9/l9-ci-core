@@ -117,6 +117,10 @@ def finish(status, code):
     print("heavy=false")
     print("suite_pass=false")
     print("selected_suite=none")
+    if code:
+        # Signal law: name the refusal, not only an exit code. Last, so
+        # the first stdout line stays the status the caller reads.
+        print(f"::error title=Pull-request scope::{status}")
     raise SystemExit(code)
 
 

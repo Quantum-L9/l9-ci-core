@@ -676,13 +676,134 @@ jobs:
           AGGREGATE_EXIT: ${{ steps.aggregate.outputs['exit-code'] }}
           ACCOUNTED: ${{ steps.aggregate.outputs.accounted }}
           MODE: ${{ steps.gov.outputs.mode }}
+          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
+          L9_PRIMARY_LANGUAGE: ${{ steps.language.outputs.language }}
         run: |
           set -euo pipefail
           status="${AGGREGATE_STATUS:-incomplete}"
           exit_code="${AGGREGATE_EXIT:-6}"
           echo "SDK technical gate (primary language): ${GATE_STATUS:-unavailable}"
           echo "Required instances: ${status} (exit ${exit_code}; accounted ${ACCOUNTED:-false}); central mode: ${MODE}"
+          if [ "${status}" != "pass" ]; then
+            # Signal law (L9-SIGNAL-001): name every instance that did not
+            # pass, its reasons, and each blocking finding by rule and
+            # file:line, so the verdict is actionable without a re-run.
+            python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          CAP = 20
+          env = os.environ
+          runtime = Path(".l9/runtime", env["L9_MATRIX_ID"])
+          instances = runtime / "required-instances"
+          primary = env.get("L9_PRIMARY_LANGUAGE", "")
+          lines = []
+
+
+          def escape(text, prop=False):
+              text = str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              return text.replace(":", "%3A").replace(",", "%2C") if prop else text
+
+
+          def load(path):
+              try:
+                  return json.loads(path.read_text(encoding="utf-8"))
+              except (OSError, ValueError):
+                  return None
+
+
+          def directory(instance):
+              kind, _, name = instance.partition(":")[2].partition(":")
+              if kind == "language" and name == primary:
+                  return runtime
+              return instances / (name if kind == "language" else kind + "-" + name)
+
+
+          def emit(props, message):
+              line = "::error " + ",".join(f"{k}={escape(v, True)}" for k, v in props.items()) + "::" + escape(message)
+              print(line)
+              lines.append(message)
+
+
+          # Providers whose findings are secrets: never print their source.
+          SENSITIVE = {"gitleaks", "trufflehog", "detect-secrets"}
+          snippets = []
+
+
+          def snippet(path, start, end, provider):
+              """The offending lines and 2 either side, numbered, marked."""
+              root = Path(env.get("L9_SCAN_ROOT") or ".")
+              try:
+                  source = (root / path).read_text(encoding="utf-8", errors="replace").splitlines()
+              except OSError:
+                  return [f"    (source unavailable: {path})"]
+              first, last = max(1, start - 2), min(len(source), end + 2)
+              rendered = []
+              for number in range(first, last + 1):
+                  marker = ">" if start <= number <= end else " "
+                  text = source[number - 1]
+                  if provider in SENSITIVE and marker == ">":
+                      text = "*" * 8 + " (masked: secret finding)"
+                  elif provider in SENSITIVE:
+                      continue
+                  rendered.append(f"{marker} {number:>5} | {text}")
+              return rendered
+
+
+          aggregate = load(instances / "aggregate.json") or {}
+          if not aggregate:
+              emit({"title": "Required instances"}, "no aggregate was written: the planned instances did not all run")
+          named = 0
+          hidden = 0
+          for instance in aggregate.get("instances", []):
+              if instance.get("status") == "pass":
+                  continue
+              ident = instance.get("id", "?")
+              emit({"title": f"Required instance {ident}"}, f"{instance.get('status')}: {instance.get('reason', '')}")
+              where = directory(ident)
+              gate = load(where / "gate-result.json") or {}
+              bundle = load(where / "finding-bundle.json") or {}
+              for reason in gate.get("reasons", []):
+                  emit({"title": f"Gate {ident}"}, reason)
+              for failure in bundle.get("provider_failures", []):
+                  emit({"title": f"Provider {failure.get('provider_id', '?')} ({ident})"},
+                       f"{failure.get('failure_type', '?')}: {failure.get('message', '')}")
+              findings = {f.get("finding_id"): f for f in bundle.get("findings", [])}
+              for kind in ("blocking_finding_ids", "unresolved_finding_ids"):
+                  for finding_id in gate.get(kind, []):
+                      if named >= CAP:
+                          hidden += 1
+                          continue
+                      finding = findings.get(finding_id, {})
+                      rule = finding.get("canonical_rule_id") or finding.get("provider_rule_id") or finding_id
+                      where_ = (finding.get("locations") or [{}])[0]
+                      props = {"title": f"{rule} ({kind.split('_')[0]}, {ident})"}
+                      path = where_.get("normalized_path")
+                      if path:
+                          start = int(where_.get("start_line") or 1)
+                          end = int(where_.get("end_line") or start)
+                          props = {"file": path, "line": start, "endLine": end, **props}
+                          provider = finding.get("provider_id", "")
+                          snippets.append((f"{path}:{start} {rule}", snippet(path, start, end, provider)))
+                      emit(props, finding.get("message") or finding_id)
+                      named += 1
+          if hidden:
+              emit({"title": "Required instances"}, f"+{hidden} more finding(s) not listed; see the instance bundles artifact")
+          for heading, body in snippets:
+              print(f"::group::{heading}")
+              print("\n".join(body))
+              print("::endgroup::")
+          summary = env.get("GITHUB_STEP_SUMMARY")
+          if summary and lines:
+              with open(summary, "a", encoding="utf-8") as stream:
+                  stream.write("\n### Why the required instances did not pass\n\n")
+                  stream.writelines(f"- {line}\n" for line in lines)
+                  for heading, body in snippets:
+                      stream.write(f"\n`{heading}`\n\n~~~~\n" + "\n".join(body) + "\n~~~~\n")
+          PY
+          fi
           if [ "${status}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
-            echo "Blocking mode: failing job on required instances '${status}'" >&2
+            echo "::error title=Required instances::${status} (exit ${exit_code}); the instances, reasons and findings are named above"
             exit "${exit_code}"
           fi

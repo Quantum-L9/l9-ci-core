@@ -23,7 +23,7 @@
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: 6b2b916e5e93ee1909cdd259782fc4a2fd5fda6f47cde4eb1614c3cafa808391
+# and issues: write. Analyze steps digest: f32fed26e7f192209aa14e33a57e8fba16b318274d13609b1542bf11c0728bcf
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -817,10 +817,7 @@ jobs:
               counts = data["summary"]
               diagnostics = data.get("diagnostics", [])
           except (OSError, ValueError, KeyError) as error:
-              sys.exit(
-                  f"::error title=Biome::biome ci exited {code} and wrote no readable "
-                  f"report ({error}): `{' '.join(command[:2])} ...` failed before judging any file"
-              )
+              sys.exit(f"::error title=Biome::biome ci exited {code} and wrote no readable report ({error}): `{' '.join(command[:2])} ...` failed before judging any file")
           checked = int(counts.get("changed", 0)) + int(counts.get("unchanged", 0))
           errors = int(counts.get("errors", 0))
           warnings = int(counts.get("warnings", 0))
@@ -1898,7 +1895,7 @@ jobs:
             }
             if export_lock all --all-groups --all-extras; then
               locked+=("${out}/all.txt")
-            elif python3 -I -c 'import sys, tomllib; sys.exit(0 if tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("uv", {}).get("conflicts") else 1)' 2> /dev/null; then
+            elif [ "$(python3 -I -c 'import tomllib; d = tomllib.load(open("pyproject.toml", "rb")); print("yes" if d.get("tool", {}).get("uv", {}).get("conflicts") else "no")' 2> /dev/null)" = yes ]; then
               # Declared conflicts ([tool.uv].conflicts) make the union of
               # every extra and group unresolvable by design. Each selection
               # is exported and audited on its own: the base set, then every
@@ -1980,6 +1977,9 @@ jobs:
           if [ -n "${PIP_AUDIT_REPORT:-}" ] && [ "${status}" -eq 1 ]; then
             echo "pip-audit: known vulnerabilities written to ${PIP_AUDIT_REPORT}; the caller judges them"
             exit 0
+          fi
+          if [ "${status}" -ne 0 ]; then
+            echo "::error title=pip-audit::pip-audit exited ${status}; the audit did not complete"
           fi
           exit "${status}"
       # The audit step ends cleanly on "vulnerabilities found" because it

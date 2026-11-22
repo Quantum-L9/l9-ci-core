@@ -338,6 +338,11 @@ jobs:
             1) echo "outcome=executed_fail" >> "$GITHUB_OUTPUT" ;;
             *) echo "outcome=not_executed" >> "$GITHUB_OUTPUT" ;;
           esac
+          case "${status}" in
+            0) ;;
+            1) echo "::error title=Secret scan (gitleaks)::gitleaks found secrets; each finding (rule, file, line, commit) is listed above, redacted" ;;
+            *) echo "::error title=Secret scan (gitleaks)::gitleaks exited ${status}: the scan did not complete; its error is above" ;;
+          esac
           exit "${status}"
       - name: Set up Python
         if: steps.detect.outputs.python == 'true'
@@ -496,6 +501,11 @@ jobs:
             echo "pip-audit: known vulnerabilities written to ${PIP_AUDIT_REPORT}; the caller judges them"
             exit 0
           fi
+          if [ "${status}" -eq 1 ]; then
+            echo "::error title=Python dependency audit (pip-audit)::known vulnerabilities in ${total} audited package(s); each package, version, advisory id and fixed version is listed above"
+          elif [ "${status}" -ne 0 ]; then
+            echo "::error title=Python dependency audit (pip-audit)::pip-audit exited ${status}: the audit did not complete; its error is above"
+          fi
           exit "${status}"
       # Advisory by existing policy: no Bandit result fails this job. The exit
       # code is still read, because "no findings", "findings" and "the scanner
@@ -546,6 +556,7 @@ jobs:
             echo "outcome=executed_pass" >> "$GITHUB_OUTPUT"
           else
             echo "outcome=executed_fail" >> "$GITHUB_OUTPUT"
+            echo "::error title=Node dependency audit (npm audit)::npm audit --audit-level=high exited ${status}; each advisory (package, severity, path) is listed above"
           fi
           exit "${status}"
       - name: Non-applicable gates

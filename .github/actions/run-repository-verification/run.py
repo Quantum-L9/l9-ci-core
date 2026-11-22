@@ -58,13 +58,16 @@ consumer-vendored code.
 from __future__ import annotations
 
 import base64
+import collections
+import contextlib
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
-from collections.abc import MutableMapping
+import threading
+from collections.abc import Iterator, MutableMapping
 from pathlib import Path
 
 CORE_ROOT = Path(__file__).resolve().parents[3]
@@ -610,6 +613,135 @@ def verify_v2(workspace: Path, mode: str = MIGRATION_MODE) -> None:
     check_stamp(workspace, mode)
 
 
+TAIL_LINES = 40
+TEE_JOIN_SECONDS = 10
+FAILURE_SIDECAR = "l9-repository-verification-failure.json"
+FAILURE_TAIL = "l9-repository-verification-tail.txt"
+
+
+class PhaseError(subprocess.CalledProcessError):
+    """A make phase that exited non-zero, with the tail of its output."""
+
+    def __init__(self, phase: str, argv: list[str], code: int, tail: list[str]):
+        super().__init__(code, argv, output="".join(tail))
+        self.phase = phase
+        self.tail = tail
+
+
+@contextlib.contextmanager
+def _tee_output(tail: collections.deque[str]) -> Iterator[None]:
+    """Copy everything written to fds 1 and 2 through, keeping the last lines.
+
+    The phase's own process inherits the redirected descriptors, so its
+    output still streams to the log as it arrives; nothing about how it is
+    started changes. The reader is joined with a timeout: a background
+    process a phase leaves running keeps the pipe open and must not hang the
+    step (the reader then keeps forwarding until that process exits).
+    """
+    sys.stdout.flush()
+    sys.stderr.flush()
+    read_fd, write_fd = os.pipe()
+    saved_out, saved_err = os.dup(1), os.dup(2)
+
+    def pump() -> None:
+        pending = b""
+        with os.fdopen(read_fd, "rb", buffering=0) as reader:
+            while chunk := reader.read(65536):
+                os.write(saved_out, chunk)
+                pending += chunk
+                *done, pending = pending.split(b"\n")
+                tail.extend(line.decode("utf-8", "replace") + "\n" for line in done)
+        if pending:
+            tail.append(pending.decode("utf-8", "replace") + "\n")
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    os.dup2(write_fd, 1)
+    os.dup2(write_fd, 2)
+    os.close(write_fd)
+    try:
+        yield
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(saved_out, 1)
+        os.dup2(saved_err, 2)
+        reader.join(timeout=TEE_JOIN_SECONDS)
+        os.close(saved_err)
+        if not reader.is_alive():
+            os.close(saved_out)
+
+
+def run_phase(phase: str, argv: list[str], workspace: Path) -> None:
+    """Run one phase exactly as before, keeping the last lines of its output.
+
+    The phase runs as ``subprocess.run(argv, cwd=workspace, check=True)``; a
+    non-zero exit is re-raised as :class:`PhaseError`, which names the phase
+    and carries the output tail so the failure is actionable without a
+    re-run (signal law, L9-SIGNAL-001).
+    """
+    tail: collections.deque[str] = collections.deque(maxlen=TAIL_LINES)
+    failure: subprocess.CalledProcessError | None = None
+    with _tee_output(tail):
+        try:
+            subprocess.run(argv, cwd=workspace, check=True)
+        except subprocess.CalledProcessError as exc:
+            failure = exc
+    if failure is not None:
+        raise PhaseError(phase, argv, failure.returncode, list(tail)) from failure
+
+
+def clear_failure_sidecar() -> None:
+    """Remove a sidecar a previous run (or a test inside this one) left."""
+    temp = os.environ.get("RUNNER_TEMP", "").strip()
+    if temp:
+        for name in (FAILURE_SIDECAR, FAILURE_TAIL):
+            Path(temp, name).unlink(missing_ok=True)
+
+
+def report_phase_failure(error: subprocess.CalledProcessError, workspace: Path) -> None:
+    """Name the failed command, its phase, exit code and output tail.
+
+    The sidecar records the workspace it describes; the enforcement step
+    trusts it only for its own GITHUB_WORKSPACE, so a sidecar written by a
+    test that runs this script on a temporary workspace (Core's own suite
+    runs inside its verification) can never name the wrong command.
+    """
+    command = (
+        " ".join(str(part) for part in error.cmd)
+        if isinstance(error.cmd, list)
+        else str(error.cmd)
+    )
+    phase = getattr(error, "phase", "")
+    tail = list(getattr(error, "tail", []))
+    where = f"phase {phase}: " if phase else ""
+    print(
+        f"::error title=Repository verification::{where}`{command}` exited "
+        f"{error.returncode}; the last {len(tail)} line(s) of its output follow"
+    )
+    if tail:
+        print(f"::group::last {len(tail)} line(s) of `{command}`")
+        sys.stdout.write("".join(tail))
+        print("::endgroup::")
+    # A sidecar, not an action output (the typed outputs are frozen): the
+    # enforcement step reads it to name the cause in its own error.
+    temp = os.environ.get("RUNNER_TEMP", "").strip()
+    if temp:
+        Path(temp, FAILURE_TAIL).write_text("".join(tail), encoding="utf-8")
+        Path(temp, FAILURE_SIDECAR).write_text(
+            json.dumps(
+                {
+                    "phase": phase,
+                    "command": command,
+                    "exit": error.returncode,
+                    "workspace": str(workspace.resolve()),
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+
 def v2_run_phases(facade: str, event_name: str) -> tuple[str, ...]:
     """The facade phases one verification run executes, in order.
 
@@ -630,10 +762,11 @@ def run_v2(workspace: Path, facade: str = "make-v1") -> None:
 
     The facade was verified byte-for-byte against this Core checkout before
     this runs, so each phase reaches exactly the repository's ``repo-<phase>``
-    leaf. ``subprocess.run(check=True)`` raises on the first non-zero phase,
-    so later phases never run. No consumer Python is imported. The event is
-    read after ``apply_event_context``, so a canary leg run as a push takes
-    the push phases. ``facade`` is the one ``verify_v2`` already validated.
+    leaf. The first non-zero phase raises :class:`PhaseError` (its command,
+    exit code and output tail), so later phases never run. No consumer
+    Python is imported. The event is read after ``apply_event_context``, so
+    a canary leg run as a push takes the push phases. ``facade`` is the one
+    ``verify_v2`` already validated.
     """
 
     materialize_inherited(workspace)
@@ -641,7 +774,7 @@ def run_v2(workspace: Path, facade: str = "make-v1") -> None:
     for phase in v2_run_phases(facade, event_name):
         argv = ["make", phase]
         print("+", " ".join(argv), flush=True)
-        subprocess.run(argv, cwd=workspace, check=True)
+        run_phase(phase, argv, workspace)
 
 
 COMPOSER_WORKFLOW = Path(".github/workflows/governance-pr.yml")
@@ -987,6 +1120,7 @@ def main() -> int:
         return 0
 
     version = CONTRACT_INVALID
+    clear_failure_sidecar()
     try:
         document = load_contract(contract)
         version = classify_contract(document)
@@ -1003,6 +1137,7 @@ def main() -> int:
     except subprocess.CalledProcessError as exc:
         failure = FAILURE_COMMAND
         detail: object = exc
+        report_phase_failure(exc, workspace)
     except (ContractError, WorkflowError) as exc:
         failure = FAILURE_CONTRACT
         detail = exc
