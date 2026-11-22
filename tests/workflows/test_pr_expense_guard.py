@@ -447,6 +447,42 @@ class KnownBadCases(unittest.TestCase):
         decision = judge(self.root)
         self.assert_static(decision, "REPO_TEST_FULL")
 
+    def test_a_workflow_level_working_directory_resolves_the_selection(self) -> None:
+        # Constellation.Gate: `defaults: run: working-directory:` at the top of
+        # the workflow made `pytest tests/integration` resolve from the
+        # repository root and read as ZERO_TESTS.
+        write(
+            self.root,
+            "pkg/tests/integration/test_a.py",
+            "def test_ok():\n    assert True\n",
+        )
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            "name: CI\non:\n  pull_request:\n"
+            "defaults:\n  run:\n    working-directory: pkg\n"
+            "jobs:\n  fast:\n    steps:\n      - run: pytest -q tests/integration\n",
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_a_job_working_directory_overrides_the_workflow_default(self) -> None:
+        write(
+            self.root,
+            "pkg/tests/integration/test_a.py",
+            "def test_ok():\n    assert True\n",
+        )
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            "name: CI\non:\n  pull_request:\n"
+            "defaults:\n  run:\n    working-directory: pkg\n"
+            "jobs:\n  fast:\n    defaults:\n      run:\n        working-directory: other\n"
+            "    steps:\n      - run: pytest -q tests/integration\n",
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "ZERO_TESTS")
+
     def test_attached_pytest_report_characters_are_a_flag(self) -> None:
         bounded_test(self.root)
         write(

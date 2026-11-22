@@ -310,9 +310,11 @@ def _walk_workflow(
         return
     workflow_name = str(document.get("name", path.name))
     judge_events = _judge_events(event)
+    workflow_workdir = _nested_workdir(document.get("defaults"))
     for job_id, job in jobs.items():
         if not isinstance(job, dict):
             raise GuardParseError(f"{path} job {job_id} is not a mapping")
+        job = _with_workflow_workdir(job, workflow_workdir)
         _walk_job(
             root,
             path,
@@ -556,6 +558,30 @@ def _workdir(step: Mapping[str, object], job: Mapping[str, object]) -> str:
         if isinstance(source, str) and source.strip() and "${{" not in source:
             return source.strip().strip("/")
     return ""
+
+
+def _with_workflow_workdir(
+    job: Mapping[str, object], workflow_workdir: object
+) -> Mapping[str, object]:
+    """A job seen with the workflow-level ``defaults.run.working-directory``.
+
+    GitHub applies step ``working-directory``, then job ``defaults``, then
+    workflow ``defaults``. Ignoring the last made a relative pytest path
+    resolve from the repository root and read as ZERO_TESTS.
+    """
+
+    if not isinstance(workflow_workdir, str) or not workflow_workdir.strip():
+        return job
+    if _nested_workdir(job.get("defaults")) is not None:
+        return job
+    defaults = job.get("defaults")
+    merged = dict(defaults) if isinstance(defaults, dict) else {}
+    run = merged.get("run")
+    merged["run"] = {
+        **(run if isinstance(run, dict) else {}),
+        "working-directory": workflow_workdir,
+    }
+    return {**job, "defaults": merged}
 
 
 def _nested_workdir(defaults: object) -> object:
