@@ -658,6 +658,7 @@ class DeclarationTests(unittest.TestCase):
                 "Quantum-L9/Enrichment.Inference.Engine",
                 "Quantum-L9/l9-ci-sdk",
                 "Quantum-L9/l9-ci-core",
+                "Quantum-L9/.github",
             ],
             names,
         )

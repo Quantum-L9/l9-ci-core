@@ -19,25 +19,23 @@
 # remains outside this untrusted PR trigger and can be reintroduced through a
 # trusted post-analysis lane when Assurance is the authoritative decision source.
 #
-# `push` is a first-class canonical event, declared without a `branches:` selector.
-# GitHub Actions cannot express "this repository's default branch" symbolically in
-# `on.push.branches`, and Quantum-L9 repositories do not all use `main`; hardcoding
-# a branch name here would silently exclude them.
+# `push` is not a trigger of this file. A job skipped by `if:` still creates a
+# check under that job's name, and this file's `analyze` job is the required
+# check. A feature-branch push that reached this workflow therefore left the
+# required check pending. The push trigger lives in
+# org-ci-default-branch-push.yml: it runs on every push and calls this workflow
+# with `event: push` only when `github.ref_name` is the repository's default
+# branch. A feature-branch push skips that caller, whose job is not the
+# required check. No branch name is written here: the caller compares the ref
+# to `github.event.repository.default_branch`, so a repository on `trunk` or
+# `master` is governed like one on `main`.
 #
-# The trigger is therefore broad and the ref decision is made at runtime, where the
-# repository's own `default_branch` is readable from the event payload. A push is
-# evaluated only on the branch that repository itself declares default, so a repo
-# on `trunk` or `master` is governed exactly like one on `main` and no branch name
-# is written into Core. Feature-branch pushes skip before a runner is claimed;
-# their pull_request evaluation is unaffected. This gates a ref against a property
-# the repository states about itself — it does not decide which repositories are
-# governed, which remains the organization ruleset's.
-#
-# A push resolves to event class `push` and execution profile `merge`, the same
-# analysis engine the merge queue uses. It carries no new authority: the job stays
-# `contents: read`, the target is `github.repository` at `github.sha` from the
-# GitHub event context only, and no caller-supplied repository, ref, or SHA can
-# redirect it. A push trigger is an evaluation lane, not a trusted write lane.
+# A called push resolves to event class `push` and execution profile `merge`,
+# the same analysis engine the merge queue uses. It carries no new authority:
+# the job stays `contents: read`, the target is `github.repository` at
+# `github.sha` from the GitHub event context only, and no caller-supplied
+# repository, ref, or SHA can redirect it. A push trigger is an evaluation
+# lane, not a trusted write lane.
 #
 # Core deliberately holds no lifecycle or genesis logic. Whether an observed push
 # run is a genesis attestation is decided by the birth control plane, by comparing
@@ -62,7 +60,6 @@ name: Organization CI (Core)
 # immutable head SHA. The cost is one analysis per edit, and the verdict is
 # never masked.
 on:
-  push:
   pull_request:
     types: [opened, synchronize, reopened, edited]
   merge_group:
