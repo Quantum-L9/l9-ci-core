@@ -19,25 +19,23 @@
 # remains outside this untrusted PR trigger and can be reintroduced through a
 # trusted post-analysis lane when Assurance is the authoritative decision source.
 #
-# `push` is a first-class canonical event, declared without a `branches:` selector.
-# GitHub Actions cannot express "this repository's default branch" symbolically in
-# `on.push.branches`, and Quantum-L9 repositories do not all use `main`; hardcoding
-# a branch name here would silently exclude them.
+# `push` is not a trigger of this file. A job skipped by `if:` still creates a
+# check under that job's name, and this file's `analyze` job is the required
+# check. A feature-branch push that reached this workflow therefore left the
+# required check pending. The push trigger lives in
+# org-ci-default-branch-push.yml: it runs on every push and calls this workflow
+# with `event: push` only when `github.ref_name` is the repository's default
+# branch. A feature-branch push skips that caller, whose job is not the
+# required check. No branch name is written here: the caller compares the ref
+# to `github.event.repository.default_branch`, so a repository on `trunk` or
+# `master` is governed like one on `main`.
 #
-# The trigger is therefore broad and the ref decision is made at runtime, where the
-# repository's own `default_branch` is readable from the event payload. A push is
-# evaluated only on the branch that repository itself declares default, so a repo
-# on `trunk` or `master` is governed exactly like one on `main` and no branch name
-# is written into Core. Feature-branch pushes skip before a runner is claimed;
-# their pull_request evaluation is unaffected. This gates a ref against a property
-# the repository states about itself — it does not decide which repositories are
-# governed, which remains the organization ruleset's.
-#
-# A push resolves to event class `push` and execution profile `merge`, the same
-# analysis engine the merge queue uses. It carries no new authority: the job stays
-# `contents: read`, the target is `github.repository` at `github.sha` from the
-# GitHub event context only, and no caller-supplied repository, ref, or SHA can
-# redirect it. A push trigger is an evaluation lane, not a trusted write lane.
+# A called push resolves to event class `push` and execution profile `merge`,
+# the same analysis engine the merge queue uses. It carries no new authority:
+# the job stays `contents: read`, the target is `github.repository` at
+# `github.sha` from the GitHub event context only, and no caller-supplied
+# repository, ref, or SHA can redirect it. A push trigger is an evaluation
+# lane, not a trusted write lane.
 #
 # Core deliberately holds no lifecycle or genesis logic. Whether an observed push
 # run is a genesis attestation is decided by the birth control plane, by comparing
@@ -62,7 +60,6 @@ name: Organization CI (Core)
 # immutable head SHA. The cost is one analysis per edit, and the verdict is
 # never masked.
 on:
-  push:
   pull_request:
     types: [opened, synchronize, reopened, edited]
   merge_group:
@@ -1292,6 +1289,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before || '' }}
         run: |
           set -euo pipefail
           git init .
@@ -1302,6 +1300,12 @@ jobs:
           # once origin is reset to an anonymous URL below.
           git -c protocol.version=2 fetch --depth=2 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
+          # A multi-commit push is not in that depth. Fetch the previous
+          # commit while the remote still has the checkout token, then drop
+          # the token. The expense judge only diffs objects already local.
+          if [[ "${BEFORE}" =~ ^[0-9a-f]{40}$ && "${BEFORE}" != 0000000000000000000000000000000000000000 ]]; then
+            git -c protocol.version=2 fetch --depth=1 origin "${BEFORE}"
+          fi
           git remote set-url origin "https://github.com/${REPOSITORY}.git"
 
       # Reports consumer declarations of Core-owned tools that drift from
@@ -1313,6 +1317,46 @@ jobs:
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
         uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2ee1720b9863bec15fdfebac13b220aeb699d781
+
+      # Trusted Core judge. The only source is this workflow revision's
+      # tools/pr_expense_guard.py, checked out beside the consumer. The step
+      # does not call a consumer-relative copy and does not paste the module.
+      # receipt=static is not a hosted test receipt.
+      - name: Judge pull-request test expense
+        if: >-
+          github.event_name == 'pull_request'
+          || github.event_name == 'merge_group'
+          || github.event_name == 'push'
+          || steps.runtime.outputs.event-class == 'pull_request'
+          || steps.runtime.outputs.event-class == 'merge'
+          || steps.runtime.outputs.event-class == 'push'
+        env:
+          GH_EVENT: ${{ steps.runtime.outputs.event-class }}
+          GUARD_BEFORE: ${{ github.event.before || '' }}
+          GUARD_WORKSPACE: ${{ github.workspace }}
+          CORE_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          sha_ok=false
+          case "${CORE_SHA}" in
+            *[!0-9a-f]* | "") sha_ok=false ;;
+            ????????????????????????????????????????) sha_ok=true ;;
+            *) sha_ok=false ;;
+          esac
+          if [ "${sha_ok}" != "true" ]; then
+            echo "::error::workflow SHA is not a full lowercase revision" >&2
+            exit 1
+          fi
+          core="${RUNNER_TEMP}/l9-ci-core-expense-guard"
+          rm -rf "${core}"
+          git init "${core}"
+          git -C "${core}" remote add origin https://github.com/Quantum-L9/l9-ci-core.git
+          git -C "${core}" -c protocol.version=2 fetch --depth=1 origin "${CORE_SHA}"
+          git -C "${core}" checkout --detach FETCH_HEAD
+          test -f "${core}/tools/pr_expense_guard.py"
+          CORE_GUARD="${core}/tools/pr_expense_guard.py"
+          export CORE_GUARD
+          python3 -c 'import os, runpy; runpy.run_path(os.environ["CORE_GUARD"], run_name="__main__")'
 
       - name: Validate native push event context
         if: github.event_name == 'push'

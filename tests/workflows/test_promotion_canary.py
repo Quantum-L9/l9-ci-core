@@ -677,6 +677,7 @@ class DeclarationTests(unittest.TestCase):
                 "Quantum-L9/Enrichment.Inference.Engine",
                 "Quantum-L9/l9-ci-sdk",
                 "Quantum-L9/l9-ci-core",
+                "Quantum-L9/.github",
             ],
             names,
         )
@@ -823,7 +824,7 @@ class PlanTests(unittest.TestCase):
             pc.steps_digest(self.changed, SCAN_TEXT), values["head-digest"]
         )
         legs = json.loads(values["matrix"])["include"]
-        self.assertEqual(5, len(legs))
+        self.assertEqual(len(pc.load_declaration(ROOT)), len(legs))
 
     def test_a_stale_embedded_base_is_reported_not_run(self) -> None:
         stale = self.org_ci + "      # main moved since the render\n"
