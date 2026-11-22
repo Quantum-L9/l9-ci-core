@@ -1820,7 +1820,7 @@ jobs:
       # does not call a consumer-relative copy and does not paste the module.
       # receipt=static is not a hosted test receipt.
       - name: Judge pull-request test expense
-        if: false
+        if: github.event_name == 'canary-does-not-judge'
         env:
           GH_EVENT: ${{ steps.runtime.outputs.event-class }}
           GUARD_BEFORE: ''
@@ -5216,7 +5216,7 @@ jobs:
       # does not call a consumer-relative copy and does not paste the module.
       # receipt=static is not a hosted test receipt.
       - name: Judge pull-request test expense
-        if: false
+        if: github.event_name == 'canary-does-not-judge'
         env:
           GH_EVENT: ${{ steps.runtime.outputs.event-class }}
           GUARD_BEFORE: ''
