@@ -211,7 +211,14 @@ def _collect(root: Path, event: str) -> list[_Hit]:
     _walk_make_test(root, hits)
     _walk_pre_commit(root, hits)
     workflows = _workflow_paths(root)
-    relevant = [path for path in workflows if _workflow_relevant(root, path, event)]
+    # promotion-canary.yml is the render of org-ci.yml and central-semgrep.yml,
+    # which are walked themselves. The render also runs a provisioner it
+    # downloaded under runner.temp; that path is not a test selection.
+    relevant = [
+        path
+        for path in workflows
+        if path.name != "promotion-canary.yml" and _workflow_relevant(root, path, event)
+    ]
     seen: set[Path] = set()
     for path in relevant:
         _walk_workflow(root, path, event, hits, seen, inherited=True)
@@ -407,7 +414,14 @@ def _local_workflow(uses: str) -> str | None:
     path = uses.split("@", 1)[0]
     if path.startswith("./"):
         path = path[2:]
-    if path.startswith(".github/workflows/") and path.endswith((".yml", ".yaml")):
+    marker = ".github/workflows/"
+    # org-ci.yml calls this repository's own workflow by
+    # Quantum-L9/l9-ci-core/.github/workflows/<name>@<sha>. The file in this
+    # checkout is that workflow.
+    index = path.find(marker)
+    if index > 0:
+        path = path[index:]
+    if path.startswith(marker) and path.endswith((".yml", ".yaml")):
         return path
     return None
 

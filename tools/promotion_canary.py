@@ -189,6 +189,9 @@ OPTIONAL_REPLACEMENTS = (
     ("event-ref: ''", "event-ref: refs/heads/${{ matrix.branch }}"),
     # A leg is never a merge group; its baseline is the first parent.
     ("${{ github.event.merge_group.base_sha }}", "''"),
+    # The expense judge reads the push predecessor. A leg is not that push;
+    # an empty predecessor keeps the expression from naming the Core event.
+    ("${{ github.event.before || '' }}", "''"),
 )
 TARGET_SHAPED = re.compile(
     r"github\.(repository|sha|ref|head_ref|base_ref|event\.(?!_)[a-z_.]+)\b"
