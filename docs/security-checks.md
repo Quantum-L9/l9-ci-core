@@ -36,9 +36,9 @@ callers (`self-security.yml`); `org-ci.yml` no longer calls it.
 
 ### Rules
 
-gitleaks' defaults, the Core rules and the repository's own `.gitleaks.toml`
-apply in every repository; a repository rule that reuses a default or Core
-rule id fails the check by name instead of silently replacing that rule
+gitleaks' defaults and the Core rules apply in every repository. A
+repository's `[allowlist]` is copied; its `[[rules]]` are not, so a rule id
+that matches a default cannot replace that default
 ([gitleaks-core-rules.md](gitleaks-core-rules.md)).
 
 ### Signal

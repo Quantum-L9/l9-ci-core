@@ -3,9 +3,9 @@
 Three behaviours the organization workflow relies on, each executed here
 rather than read from the YAML text:
 
-* gitleaks honours the consumer's own ``.gitleaks.toml`` on top of the Core
-  preset rules (gitleaks' defaults, ``presets/security/.gitleaks.toml``),
-  never instead of them;
+* gitleaks writes the Core preset (gitleaks' defaults via ``useDefault``,
+  ``presets/security/.gitleaks.toml``) plus the consumer's ``[allowlist]``;
+  a consumer's ``[[rules]]`` are not copied;
 * gitleaks scans the commit range the caller names, so a consumer is judged
   on what an event changes;
 * pip-audit audits the project's own dependencies, not the runner's
@@ -46,8 +46,8 @@ def _compose_source() -> str:
     return run[start : run.index("\nPY\n", start)] + "\n"
 
 
-#: A stand-in for gitleaks' default rules (the ids a repository rule must not
-#: reuse); tests/workflows/test_gitleaks_core_rules.py covers the collisions.
+#: A stand-in for gitleaks' default rules. The composer reads the file;
+#: tests/workflows/test_gitleaks_core_rules.py covers repository rules.
 DEFAULTS = '[[rules]]\nid = "openai-api-key"\nregex = "x"\n'
 
 
@@ -95,28 +95,31 @@ class GitleaksConfigLayeringTests(unittest.TestCase):
         self.assertEqual(0, code, output)
         parsed = tomllib.loads(produced)
         self.assertIs(True, parsed["extend"]["useDefault"])
-        self.assertEqual("consumer-token", parsed["rules"][0]["id"])
-        # The Core rules follow the repository's own.
         core = [rule["id"] for rule in tomllib.loads(_core_rules())["rules"]]
-        self.assertEqual(core, [rule["id"] for rule in parsed["rules"][1:]])
+        self.assertEqual(core, [rule["id"] for rule in parsed["rules"]])
+        self.assertNotIn("consumer-token", [rule["id"] for rule in parsed["rules"]])
         self.assertEqual(["fixtures/"], parsed["allowlist"]["paths"])
 
-    def test_the_core_preset_itself_passes_through_unchanged(self) -> None:
+    def test_the_core_preset_itself_scans_as_core_rules_only(self) -> None:
         preset = PRESET.read_text(encoding="utf-8")
         code, produced, output = self.compose(preset)
         self.assertEqual(0, code, output)
-        self.assertEqual(preset, produced)
+        parsed = tomllib.loads(produced)
+        self.assertIs(True, parsed["extend"]["useDefault"])
+        core = [rule["id"] for rule in tomllib.loads(_core_rules())["rules"]]
+        self.assertEqual(core, [rule["id"] for rule in parsed["rules"]])
+        self.assertNotIn("allowlist", parsed)
 
-    def test_an_extend_path_is_refused_not_scanned_with_fewer_rules(self) -> None:
+    def test_an_extend_path_is_not_copied(self) -> None:
         code, produced, output = self.compose('[extend]\npath = "base.toml"\n')
-        self.assertNotEqual(0, code)
-        self.assertEqual("", produced)
-        self.assertIn("cannot also extend the Core preset rules", output)
+        self.assertEqual(0, code, output)
+        parsed = tomllib.loads(produced)
+        self.assertEqual({"useDefault": True}, parsed["extend"])
 
-    def test_an_extend_that_drops_the_defaults_is_refused(self) -> None:
-        code, _, output = self.compose("[extend]\nuseDefault = false\n")
-        self.assertNotEqual(0, code)
-        self.assertIn("must set useDefault = true", output)
+    def test_an_extend_that_drops_the_defaults_is_replaced(self) -> None:
+        code, produced, output = self.compose("[extend]\nuseDefault = false\n")
+        self.assertEqual(0, code, output)
+        self.assertIs(True, tomllib.loads(produced)["extend"]["useDefault"])
 
     def test_invalid_toml_is_refused(self) -> None:
         code, _, output = self.compose("[extend\n")
@@ -375,11 +378,12 @@ class GitleaksInvocationTests(unittest.TestCase):
         self.assertIn("does not resolve in this clone", output)
         self.assertNotIn("outcome=", output)
 
-    def test_a_refused_config_never_scans_and_states_no_outcome(self) -> None:
+    def test_a_path_extend_still_scans_the_core_config(self) -> None:
         code, argv, output = self.scan({".gitleaks.toml": '[extend]\npath = "x"\n'}, "")
-        self.assertNotEqual(0, code)
-        self.assertEqual("", argv)
-        self.assertNotIn("outcome=", output)
+        self.assertEqual(0, code, output)
+        self.assertIn("--config", argv)
+        self.assertIn("outcome=executed_pass", output)
+        self.assertIn("0 repository rule(s) not copied", output)
 
 
 if __name__ == "__main__":

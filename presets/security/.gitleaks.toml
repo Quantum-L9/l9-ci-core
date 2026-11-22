@@ -6,9 +6,9 @@
 # plus the Core rules below: consumer rules that caught what the defaults miss,
 # moved here (docs/gitleaks-core-rules.md) so every repository has them with
 # no configuration of its own. Core's gitleaks check applies these rules to
-# every repository whatever its .gitleaks.toml says, and refuses a repository
-# rule whose id is a gitleaks default or a Core rule (gitleaks would replace
-# it silently). Every Core rule id starts with `l9-`. A reviewed false
+# every repository whatever its .gitleaks.toml says. A repository's [[rules]]
+# are not copied, so a default id cannot replace a default rule. Every Core
+# rule id starts with `l9-`. A reviewed false
 # positive is recorded by fingerprint in the repository's own .gitleaksignore,
 # never as a rule or path allowlist here.
 

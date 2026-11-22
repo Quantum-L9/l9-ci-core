@@ -23,7 +23,7 @@
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: a456c0d2b85b4da0a5c8127b7b9a57e6c23fa5d382094537489ec8607245ca06
+# and issues: write. Analyze steps digest: e51479c3d90d02f666a35099287e83f3e8385ea49b11041bd2840d251efc9b37
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -944,21 +944,17 @@ jobs:
               exit 2
               ;;
           esac
-          # Rules: gitleaks' own defaults (`[extend] useDefault = true`) plus the
-          # Core rules (presets/security/.gitleaks.toml, between its "Core
-          # rules" markers; docs/gitleaks-core-rules.md), for every repository,
-          # whatever its own configuration says. A repository's .gitleaks.toml
-          # is honoured on top: its rules and allowlists apply. A repository
-          # rule whose id is a gitleaks default or a Core rule would replace
-          # that rule silently, so the merge refuses it by name (and a rule
-          # defined twice). A config that extends another file by `path`
-          # cannot also extend the defaults, so it is refused. Reviewed false
-          # positives belong in .gitleaksignore, which gitleaks reads from the
-          # scanned tree.
+          # Rules written for the scan: `[extend] useDefault = true`, the Core
+          # rules (presets/security/.gitleaks.toml, between its "Core rules"
+          # markers; docs/gitleaks-core-rules.md), and the repository's
+          # `[allowlist]` when it has one. A repository's `[[rules]]` and an
+          # `[extend].path` are not copied and do not fail the job. Reviewed
+          # false positives belong in .gitleaksignore, which gitleaks reads
+          # from the scanned tree.
           GITLEAKS_VERSION="8.24.3"
           GITLEAKS_SHA256="9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
-          # gitleaks' default rules at that version, by id: the ids a
-          # repository rule must not reuse. Checksum-pinned like the binary.
+          # gitleaks' default rules at that version. Checksum-pinned like
+          # the binary. `[extend] useDefault = true` applies them.
           GITLEAKS_DEFAULTS_SHA256="8f393899dbdc67e4eae580909e496acab9cf3a75aacfb6fac56b6eb16bb9e051"
           config="${RUNNER_TEMP:-/tmp}/l9-gitleaks.toml"
           core_rules="${RUNNER_TEMP:-/tmp}/l9-gitleaks-core-rules.toml"
@@ -1042,78 +1038,63 @@ jobs:
           keywords = ["neo4j_password", "neo4j-password", "neo4jpassword"]
           TOML
           python3 -I - ".gitleaks.toml" "${defaults}" "${core_rules}" "${config}" <<'PY'
-          import re
           import sys
           import tomllib
           from pathlib import Path
 
+          def emit_scalar(value):
+              if isinstance(value, bool):
+                  return "true" if value else "false"
+              if isinstance(value, int):
+                  return str(value)
+              if isinstance(value, str):
+                  return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+              if isinstance(value, list):
+                  return "[" + ", ".join(emit_scalar(item) for item in value) + "]"
+              raise TypeError(type(value).__name__)
+
+          def emit_allowlist(table):
+              if not isinstance(table, dict):
+                  sys.exit("::error::.gitleaks.toml [allowlist] must be a table")
+              lines = ["[allowlist]"]
+              for key, value in table.items():
+                  try:
+                      lines.append(f"{key} = {emit_scalar(value)}")
+                  except TypeError as error:
+                      sys.exit(
+                          f"::error::.gitleaks.toml allowlist.{key} cannot be copied ({error})"
+                      )
+              return "\n".join(lines) + "\n"
+
           source, defaults, core_path, target = (Path(arg) for arg in sys.argv[1:5])
           core_text = core_path.read_text(encoding="utf-8")
+          if not core_text.endswith("\n"):
+              core_text += "\n"
           core = tomllib.loads(core_text)["rules"]
-          core_by_id = {rule["id"]: rule for rule in core}
-          core_blocks = {
-              tomllib.loads(block)["rules"][0]["id"]: block
-              for block in re.split(r"(?m)^(?=\[\[rules\]\])", core_text)
-              if block.startswith("[[rules]]")
-          }
-          default_ids = {rule["id"] for rule in tomllib.loads(defaults.read_text(encoding="utf-8"))["rules"]}
+          # The pinned defaults file is checksummed above. Read it so a missing file
+          # fails here too. [extend] useDefault applies those rules; they are not copied.
+          tomllib.loads(defaults.read_text(encoding="utf-8"))
           text = source.read_text(encoding="utf-8") if source.is_file() else ""
-          try:
-              data = tomllib.loads(text)
-          except tomllib.TOMLDecodeError as error:
-              sys.exit(f"::error::.gitleaks.toml is not valid TOML: {error}")
-          extend = data.get("extend")
-          if extend is None:
-              text += (
-                  "\n\n# Added by Core: keep gitleaks' default rules.\n[extend]\nuseDefault = true\n"
-              )
-          elif not isinstance(extend, dict) or "path" in extend:
-              sys.exit(
-                  "::error::.gitleaks.toml [extend] names a path; it cannot also"
-                  " extend the Core preset rules (gitleaks allows path or"
-                  " useDefault, not both). Inline the rules and use"
-                  " `useDefault = true`."
-              )
-          elif extend.get("useDefault") is not True:
-              sys.exit(
-                  "::error::.gitleaks.toml [extend] must set useDefault = true"
-                  " so the Core preset rules apply."
-              )
-          lines = text.splitlines()
-
-
-          def line_of(rule_id):
-              pattern = re.compile(r"\s*id\s*=\s*[\"']" + re.escape(rule_id) + r"[\"']")
-              return next((n for n, line in enumerate(lines, 1) if pattern.match(line)), 1)
-
-
-          seen, present, collisions = set(), set(), []
-          for rule in data.get("rules", []):
-              rule_id = str(rule.get("id", ""))
-              if core_by_id.get(rule_id) == rule and rule_id not in present:
-                  # The stamped Core preset carries a Core rule as Core wrote it.
-                  present.add(rule_id)
-              elif rule_id in seen or rule_id in present:
-                  collisions.append((rule_id, "is defined twice in .gitleaks.toml"))
-              elif rule_id in core_by_id:
-                  collisions.append((rule_id, "is a Core rule id (Core applies that rule to every repository)"))
-              elif rule_id in default_ids:
-                  collisions.append((rule_id, "is a gitleaks default rule id"))
-              seen.add(rule_id)
-          for rule_id, why in collisions:
-              print(
-                  f"::error file=.gitleaks.toml,line={line_of(rule_id)},title=gitleaks rule id collision::"
-                  f"rule '{rule_id}' {why}; gitleaks would replace one with the other silently."
-                  " Rename the repository rule, or delete it if a Core or default rule already covers it."
-              )
-          if collisions:
-              sys.exit(f"::error::{len(collisions)} gitleaks rule id collision(s) in .gitleaks.toml; nothing was scanned")
-          missing = [core_blocks[rule["id"]] for rule in core if rule["id"] not in present]
-          if missing:
-              text += "\n\n# Added by Core: the Core rules (presets/security/.gitleaks.toml).\n" + "".join(missing)
-          tomllib.loads(text)
-          target.write_text(text, encoding="utf-8")
-          print(f"gitleaks rules: defaults + {len(core)} Core rule(s) + {len(seen) - len(present)} repository rule(s)")
+          data = {}
+          if text.strip():
+              try:
+                  data = tomllib.loads(text)
+              except tomllib.TOMLDecodeError as error:
+                  sys.exit(f"::error::.gitleaks.toml is not valid TOML: {error}")
+          if not isinstance(data, dict):
+              sys.exit("::error::.gitleaks.toml must be a table")
+          parts = ["[extend]\nuseDefault = true\n\n", core_text]
+          allow = data.get("allowlist")
+          if allow:
+              parts.append("\n" + emit_allowlist(allow))
+          produced = "".join(parts)
+          tomllib.loads(produced)
+          target.write_text(produced, encoding="utf-8")
+          ignored = len(data.get("rules") or [])
+          print(
+              f"gitleaks rules: defaults + {len(core)} Core rule(s);"
+              f" {ignored} repository rule(s) not copied"
+          )
           PY
           config_args=(--config "${config}")
           case "${GITLEAKS_TARGET}" in
