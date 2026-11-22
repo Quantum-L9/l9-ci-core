@@ -1322,7 +1322,15 @@ class PlanTests(unittest.TestCase):
             matrix = sink.plan_matrix(ROOT, "", {})
         names = [leg["name"] for leg in matrix["include"]]
         self.assertIn("Cursor-Governance", names)
-        self.assertEqual(len(names), len(sink._canary().load_declaration(ROOT)))
+        nightly = [e for e in sink._canary().load_declaration(ROOT) if e["nightly"]]
+        self.assertEqual(len(names), len(nightly))
+
+    def test_a_canary_only_repository_is_not_scanned_nightly(self) -> None:
+        with mock.patch.object(sink._canary(), "resolve", self.resolved):
+            matrix = sink.plan_matrix(ROOT, "", {})
+        self.assertNotIn(".github", [leg["name"] for leg in matrix["include"]])
+        with self.assertRaises(sink.SinkError):
+            sink.plan_matrix(ROOT, "Quantum-L9/.github", {})
 
     def test_one_repository_narrows_the_plan(self) -> None:
         with mock.patch.object(sink._canary(), "resolve", self.resolved):

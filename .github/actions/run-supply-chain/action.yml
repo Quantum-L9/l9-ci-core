@@ -109,6 +109,9 @@ runs:
           python3 -I -c 'import json,sys; print("status=" + json.load(open(sys.argv[1]))["status"])' \
             "${report}" >> "${GITHUB_OUTPUT}"
         fi
+        if [ "${status}" -ne 0 ]; then
+          echo "::error title=Supply chain (licences)::the licence evaluation exited ${status}; each package and licence it refused is listed above and in ${report}"
+        fi
         exit "${status}"
 
     - name: Upload the SBOM and licence report
