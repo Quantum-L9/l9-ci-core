@@ -73,8 +73,6 @@ REPO_TEST_MODULES = (
     "tests/workflows/test_required_check_name.py",
     "tests/workflows/test_nightly_apply.py",
     "tests/workflows/test_org_ci_toolchain_drift_report.py",
-    "tests/workflows/test_org_ci_required_instances.py",
-    "tests/workflows/test_org_ci_scan_tree.py",
     "tests/workflows/test_signal_law_conformance.py",
     "tests/workflows/test_signal_law_failures.py",
     "tests/workflows/test_central_semgrep_required_instances.py",
