@@ -1007,6 +1007,7 @@ SINK = """\
           PY
 
 @@GITLEAKS@@
+@@HYGIENE@@
 @@CODEQL@@
 @@ACTIONLINT@@
       - name: Project CodeQL's SARIF for code scanning
@@ -1098,10 +1099,11 @@ SINK = """\
       # partial upload never writes a stale state into its snapshot.
       - id: sink_tool
         name: Fetch the sink tool (Core, this run's revision)
-        # A Biome, gitleaks, CodeQL, actionlint or bandit run that failed (not
-        # one with findings: here each reports findings instead of failing)
-        # would drop its category and so close its alerts: nothing publishes.
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.codeql_analyze.outcome != 'failure' && steps.actionlint_check.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
+        # A Biome, gitleaks, no-bytecode, sha-pins, CodeQL, actionlint or
+        # bandit run that failed (not one with findings: here each reports
+        # findings instead of failing) would drop its category and so close
+        # its alerts: nothing publishes.
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.no_bytecode.outcome != 'failure' && steps.sha_pins.outcome != 'failure' && steps.codeql_analyze.outcome != 'failure' && steps.actionlint_check.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
@@ -1403,6 +1405,60 @@ def gitleaks_steps(org_ci: str) -> str:
     )
 
 
+#: org-ci.yml's no-bytecode and sha-pins checks: (job, step id).
+HYGIENE_CHECKS = (("no-bytecode", "no_bytecode"), ("sha-pins", "sha_pins"))
+
+
+def hygiene_steps(org_ci: str) -> str:
+    """org-ci.yml's no-bytecode and sha-pins checks, on every file, reported.
+
+    Each check's own step, verbatim apart from the event (a night has no base,
+    so every tracked file is judged) and its mode: findings go to code
+    scanning as ``l9-central/<check>/`` (counted) instead of failing the step.
+    """
+    pc = _canary()
+    blocks = pc.job_blocks(org_ci)
+    out = []
+    for job, identifier in HYGIENE_CHECKS:
+        if job not in blocks:
+            raise SinkError(f"org-ci.yml has no `{job}` job to run nightly")
+        workflow = f"on:\n  workflow_call:\njobs:\n  {job}:\n" + blocks[job]
+        try:
+            steps, _, _ = pc._single_job(workflow, f"org-ci.yml job {job!r}")
+        except pc.CanaryError as error:
+            raise SinkError(str(error)) from error
+        items = re.split(r"(?m)^(?= {6}- )", steps)
+        found = [i for i in items if f"        id: {identifier}\n" in i]
+        if len(found) != 1:
+            raise SinkError(f"the {job} check no longer has one {identifier!r} step")
+        text = found[0].rstrip("\n") + "\n"
+        for old, new in (
+            ('          FINDINGS_FAIL: "true"\n', '          FINDINGS_FAIL: "false"\n'),
+            (
+                '          SARIF: ""\n',
+                f"          SARIF: ${{{{ runner.temp }}}}/nightly-sarif/{job}.sarif\n",
+            ),
+        ):
+            if text.count(old) != 1:
+                raise SinkError(f"the {job} step no longer sets {old.strip()!r} once")
+            text = text.replace(old, new)
+        text = text.replace("${{ github.event_name }}", "nightly")
+        text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", '""', text)
+        text = text.replace("${{ github.sha }}", "${{ matrix.revision }}")
+        head = re.match(r"      - name: [^\n]+\n", text)
+        if head is None or "${{ github." in text or "${{ inputs." in text:
+            raise SinkError(f"the {job} step cannot be run nightly as written")
+        text = (
+            text[: head.end()]
+            + "        if: ${{ !cancelled() }}\n"
+            + text[head.end() :]
+        )
+        out.append(
+            f"      # --- org-ci.yml's {job} check, every file (generated) ---\n" + text
+        )
+    return "".join(out).rstrip("\n")
+
+
 CODEQL_JOB = "codeql"
 CODEQL_STEPS = ("codeql_scope", "codeql_install", "codeql_analyze")
 
@@ -1525,17 +1581,21 @@ def render_workflow(scan: str, org_ci: str) -> str:
     steps = sink_steps(scan)
     biome = biome_steps(org_ci)
     gitleaks = gitleaks_steps(org_ci)
+    hygiene = hygiene_steps(org_ci)
     codeql = codeql_steps(org_ci)
     actionlint = actionlint_steps(org_ci)
     audit = audit_steps(pip_audit_workflow(org_ci))
     digest = hashlib.sha256(
-        (steps + biome + gitleaks + codeql + actionlint + audit).encode("utf-8")
+        (steps + biome + gitleaks + hygiene + codeql + actionlint + audit).encode(
+            "utf-8"
+        )
     ).hexdigest()
     header = HEADER.replace("@@DIGEST@@", digest).replace("@@TIMEOUT@@", str(TIMEOUT))
     sink = (
         SINK.replace("@@MATRIX_ID@@", MATRIX_ID)
         .replace("@@BIOME@@\n", biome + "\n")
         .replace("@@GITLEAKS@@\n", gitleaks + "\n")
+        .replace("@@HYGIENE@@\n", hygiene + "\n")
         .replace("@@CODEQL@@\n", codeql + "\n")
         .replace("@@ACTIONLINT@@\n", actionlint + "\n")
         .replace("@@AUDIT@@\n", audit + "\n")

@@ -2141,3 +2141,18 @@ Tests: `tests/workflows/test_org_ci_actionlint_job.py`,
 - **No base (amendment, same day).** A dispatch or a promotion-canary leg
   has no base: actionlint judges every workflow and reports the findings as
   warnings, never failing, as CodeQL does (§50). Changed files still block.
+
+## 53. no-bytecode and sha-pins are org-wide checks (2026-11-21)
+
+Operator-directed correction. Record: [`docs/hygiene-checks.md`](docs/hygiene-checks.md).
+
+- **Checks.** `org-ci.yml` jobs `no-bytecode` and `sha-pins`, blocking,
+  `contents: read`, always reporting: what a pull request, merge group or push
+  adds or changes; with no base (dispatch, canary) every file, reported; the
+  nightly sink every file, to code scanning, counted.
+- **sha-pins** ports `.github` `ops/audit-sha-pins.sh` (full 40-character SHA,
+  frozen Core tags `@v1`/`@v2`/`@v2.0.0`), adding action definitions and
+  docker digests. **no-bytecode** is new: the named `.github` script does not
+  exist.
+
+Tests: `tests/workflows/test_org_ci_hygiene_checks.py`, `tests/tools/test_nightly_sink.py`.
