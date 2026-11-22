@@ -405,6 +405,10 @@ def _walk_job_uses(
         return
     path = root / local
     if not path.is_file():
+        # owner/repo/.github/workflows/name.yml@sha is another repository.
+        # When that file is not in this checkout it is not this tree's tests.
+        if not uses.startswith("./"):
+            return
         hits.append(_Hit("UNKNOWN_SCRIPT", f"missing reusable workflow {local}"))
         return
     _walk_workflow(root, path, event, hits, seen, inherited=True)
@@ -1038,6 +1042,15 @@ def _classify_make(
 def _walk_make_test(root: Path, hits: list[_Hit]) -> None:
     makefile = root / "Makefile"
     if not makefile.is_file():
+        return
+    try:
+        targets, _variables = _parse_make_tree(makefile)
+    except GuardParseError as error:
+        hits.append(_Hit("UNKNOWN_SCRIPT", str(error)))
+        return
+    # A Makefile that does not define test has no make test suite. An
+    # explicit `make test` in a workflow still fails closed below.
+    if "test" not in targets:
         return
     _walk_make_target(root, "test", hits, "", set())
 
