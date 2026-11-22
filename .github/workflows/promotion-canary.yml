@@ -14,7 +14,7 @@
 # apart from the target identity; the scan legs are the nightly sink's scan
 # without its publication, so a Semgrep change is proven before promotion.
 # `Promotion canary (Core)` fails only when the pull request makes a repository
-# worse. Head steps digest: 534fc59efe6dfd221a2b3b667f45a6300df83fe0592f454499488e2ba587adeb
+# worse. Head steps digest: 466912079c583869170f12d50fa41d80cf4081f1c80e0026d93114a3e0e4e415
 name: Promotion canary (Core)
 # One verdict per pushed head (row 22). `make pr` pushes and then edits the
 # pull request's body; that `edited` run used to cancel the push run, whose
@@ -1723,7 +1723,7 @@ jobs:
           steps.biome__biome_scope.outputs.applies == 'true'
           && (steps.biome__biome_scope.outputs.scope == 'full' || steps.biome__biome_scope.outputs.changed != '0')
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-biome@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
 
       - name: Run Biome check (blocking)
         id: biome__biome_check
@@ -2205,7 +2205,7 @@ jobs:
       - id: toolchain
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
 
       # Trusted Core judge. The only source is this workflow revision's
       # tools/pr_expense_guard.py, checked out beside the consumer. The step
@@ -2275,12 +2275,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -2354,7 +2354,7 @@ jobs:
       - id: repository_verify
         name: Run repository verification contract
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/run-repository-verification@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           workspace: .
           # AGENTS.md §27: held only by the registry snapshot and the composer
@@ -2531,7 +2531,7 @@ jobs:
         if: always()
         env:
           SIDE: head
-          DIGEST: 534fc59efe6dfd221a2b3b667f45a6300df83fe0592f454499488e2ba587adeb
+          DIGEST: 466912079c583869170f12d50fa41d80cf4081f1c80e0026d93114a3e0e4e415
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ""
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -2733,12 +2733,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -2774,7 +2774,7 @@ jobs:
         name: Provision immutable SDK
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/provision-sdk@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           sdk-source: git
           sdk-repository: https://github.com/Quantum-L9/l9-ci-sdk.git
@@ -2787,7 +2787,7 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
@@ -2816,7 +2816,7 @@ jobs:
         name: Plan required instances (Core)
         if: steps.inventory.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           inventory: ${{ steps.inventory.outputs.path }}
           repository: ${{ matrix.repository }}
@@ -2843,14 +2843,14 @@ jobs:
         name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -2875,7 +2875,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -3057,7 +3057,7 @@ jobs:
         name: Aggregate required instances (Core)
         if: always() && steps.plan.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
           results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
@@ -3066,7 +3066,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -3077,7 +3077,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -3089,7 +3089,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -3111,7 +3111,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -3160,7 +3160,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}
@@ -3342,7 +3342,7 @@ jobs:
         if: always()
         env:
           SIDE: scan
-          DIGEST: 534fc59efe6dfd221a2b3b667f45a6300df83fe0592f454499488e2ba587adeb
+          DIGEST: 466912079c583869170f12d50fa41d80cf4081f1c80e0026d93114a3e0e4e415
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ""
@@ -3544,12 +3544,12 @@ jobs:
       - id: consumer
         name: Resolve optional consumer metadata
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-consumer-metadata@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
 
       - id: gov
         name: Resolve central governance
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/resolve-governance@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           profile: ${{ steps.runtime.outputs.profile }}
           provider: semgrep
@@ -3608,7 +3608,7 @@ jobs:
         name: Detect repository language (SDK)
         if: steps.gov.outputs.enabled == 'true'
         # CORE_ACTIONS_PIN — detect-language (#227 merge revision, AGENTS.md §18)
-        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/detect-language@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           repo-class: ${{ steps.consumer.outputs['repo-class'] }}
@@ -3637,7 +3637,7 @@ jobs:
         name: Plan required instances (Core)
         if: steps.inventory.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/plan-required-instances@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           inventory: ${{ steps.inventory.outputs.path }}
           repository: ${{ matrix.repository }}
@@ -3664,14 +3664,14 @@ jobs:
         name: Install Semgrep (hash-locked central pin)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN — verified executable is handed to the SDK provider run.
-        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/install-semgrep@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           semgrep-version: ${{ steps.runtime.outputs['semgrep-version'] }}
 
       - name: Run + normalize Semgrep (SDK)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: semgrep-run
@@ -3696,7 +3696,7 @@ jobs:
       - name: Validate canonical bundle
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/validate-bundle@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           bundle: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/finding-bundle.json
@@ -3878,7 +3878,7 @@ jobs:
         name: Aggregate required instances (Core)
         if: always() && steps.plan.outcome == 'success'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/aggregate-required-instances@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           plan: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/plan.json
           results-directory: .l9/runtime/${{ steps.runtime.outputs['matrix-id'] }}/required-instances/results
@@ -3887,7 +3887,7 @@ jobs:
       - name: Project agent-review payload
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-agent-payload
@@ -3898,7 +3898,7 @@ jobs:
       - name: Project SARIF (SDK-owned)
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/invoke-sdk@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           executable: ${{ steps.sdk.outputs.executable }}
           operation: bundle-project-sarif
@@ -3910,7 +3910,7 @@ jobs:
         name: Route artifacts
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/route-artifacts@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -3932,7 +3932,7 @@ jobs:
       - name: Build artifact manifest
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/build-artifact-manifest@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           provider: semgrep
           matrix-id: ${{ steps.runtime.outputs['matrix-id'] }}
@@ -3981,7 +3981,7 @@ jobs:
         name: Create artifact handoff descriptor
         if: steps.gov.outputs.enabled == 'true' && steps.language.outputs.language != 'none'
         # CORE_ACTIONS_PIN
-        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@2ee1720b9863bec15fdfebac13b220aeb699d781
+        uses: Quantum-L9/l9-ci-core/.github/actions/create-artifact-handoff@2308c2c4b1935e44ab0de6973a83a14b8fd0ebef
         with:
           artifact-id: ${{ steps.upload.outputs.artifact-id }}
           artifact-name: ${{ steps.names.outputs['artifact-name'] }}
@@ -4163,7 +4163,7 @@ jobs:
         if: always()
         env:
           SIDE: admitted
-          DIGEST: 534fc59efe6dfd221a2b3b667f45a6300df83fe0592f454499488e2ba587adeb
+          DIGEST: 466912079c583869170f12d50fa41d80cf4081f1c80e0026d93114a3e0e4e415
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ""
@@ -4737,7 +4737,7 @@ jobs:
             }
             if export_lock all --all-groups --all-extras; then
               locked+=("${out}/all.txt")
-            elif python3 -I -c 'import sys, tomllib; sys.exit(0 if tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("uv", {}).get("conflicts") else 1)' 2> /dev/null; then
+            elif [ "$(python3 -I -c 'import tomllib; d = tomllib.load(open("pyproject.toml", "rb")); print("yes" if d.get("tool", {}).get("uv", {}).get("conflicts") else "no")' 2> /dev/null)" = yes ]; then
               # Declared conflicts ([tool.uv].conflicts) make the union of
               # every extra and group unresolvable by design. Each selection
               # is exported and audited on its own: the base set, then every
@@ -4819,6 +4819,9 @@ jobs:
           if [ -n "${PIP_AUDIT_REPORT:-}" ] && [ "${status}" -eq 1 ]; then
             echo "pip-audit: known vulnerabilities written to ${PIP_AUDIT_REPORT}; the caller judges them"
             exit 0
+          fi
+          if [ "${status}" -ne 0 ]; then
+            echo "::error title=pip-audit::pip-audit exited ${status}; the audit did not complete"
           fi
           exit "${status}"
       # The audit step ends cleanly on "vulnerabilities found" because it
@@ -5953,10 +5956,7 @@ jobs:
               counts = data["summary"]
               diagnostics = data.get("diagnostics", [])
           except (OSError, ValueError, KeyError) as error:
-              sys.exit(
-                  f"::error title=Biome::biome ci exited {code} and wrote no readable "
-                  f"report ({error}): `{' '.join(command[:2])} ...` failed before judging any file"
-              )
+              sys.exit(f"::error title=Biome::biome ci exited {code} and wrote no readable report ({error}): `{' '.join(command[:2])} ...` failed before judging any file")
           checked = int(counts.get("changed", 0)) + int(counts.get("unchanged", 0))
           errors = int(counts.get("errors", 0))
           warnings = int(counts.get("warnings", 0))
@@ -6255,36 +6255,36 @@ jobs:
               # required event input—not `workflow_call`—identifies this path.
               event_class = requested_event
               if event_class not in allowed:
-                  raise SystemExit(f"unsupported event class: {event_class}")
+                  raise SystemExit(f"::error::unsupported event class: {event_class}")
               expected_profile = fixed.get(event_class, event_class)
               profile = requested_profile or expected_profile
               if profile != expected_profile:
                   raise SystemExit(
-                      "reusable profile claim "
+                      "::error::reusable profile claim "
                       f"{profile!r} does not match event {event_class!r}; "
                       f"expected {expected_profile!r}"
                   )
           elif gh_event in native:
               event_class, profile = native[gh_event]
           elif gh_event == "workflow_call":
-              raise SystemExit("workflow_call requires event")
+              raise SystemExit("::error::workflow_call requires event")
           else:
-              raise SystemExit(f"unsupported trigger: {gh_event}")
+              raise SystemExit(f"::error::unsupported trigger: {gh_event}")
 
           if event_class not in allowed:
-              raise SystemExit(f"unsupported event class: {event_class}")
+              raise SystemExit(f"::error::unsupported event class: {event_class}")
           matrix_id = os.environ.get("INPUT_MATRIX_ID", "org-semgrep")
           if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", matrix_id):
-              raise SystemExit("invalid matrix-id")
+              raise SystemExit("::error::invalid matrix-id")
           sdk_revision = os.environ.get("INPUT_SDK_REVISION", "").strip()
           if sdk_revision and not re.fullmatch(r"[0-9a-f]{40}", sdk_revision):
-              raise SystemExit("sdk-revision must be a full 40-character lowercase SHA")
+              raise SystemExit("::error::sdk-revision must be a full 40-character lowercase SHA")
           semgrep_version = os.environ.get("INPUT_SEMGREP_VERSION", "1.186.0").strip()
           if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", semgrep_version):
-              raise SystemExit("semgrep-version must be an exact x.y.z version")
+              raise SystemExit("::error::semgrep-version must be an exact x.y.z version")
           retention = int(os.environ.get("INPUT_RETENTION", "14"))
           if not 1 <= retention <= 90:
-              raise SystemExit("artifact-retention-days must be between 1 and 90")
+              raise SystemExit("::error::artifact-retention-days must be between 1 and 90")
 
           outputs = {
               "event-class": event_class,
@@ -6327,6 +6327,10 @@ jobs:
               print("heavy=false")
               print("suite_pass=false")
               print("selected_suite=none")
+              if code:
+                  # Signal law: name the refusal, not only an exit code. Last, so
+                  # the first stdout line stays the status the caller reads.
+                  print(f"::error title=Pull-request scope::{status}")
               raise SystemExit(code)
 
 
@@ -6472,7 +6476,7 @@ jobs:
           applicable = {item for item in os.environ.get("APPLICABLE", "").split(",") if item}
           unknown = sorted(requested - applicable)
           if unknown:
-              raise SystemExit(f"consumer waiver_refs are not centrally applicable: {unknown}")
+              raise SystemExit(f"::error::consumer waiver_refs are not centrally applicable: {unknown}")
           PY
 
       # Repository verification runs the consumer's `make setup`, which may
@@ -6616,7 +6620,38 @@ jobs:
           case "${REPOSITORY_VERIFY_MODE}:${REPOSITORY_VERIFY_STATUS}" in
             migration:pass|migration:not_applicable|required:pass) ;;
             *)
-              echo "Blocking profile: repository verification did not pass (mode ${REPOSITORY_VERIFY_MODE:-unavailable}; status ${REPOSITORY_VERIFY_STATUS:-unavailable}; failure ${REPOSITORY_VERIFY_FAILURE:-unavailable})" >&2
+              # Signal law (L9-SIGNAL-001): name the phase, the command, its
+              # exit code and the tail of its output, not only a status.
+              # The verification step writes the failed command to a sidecar
+              # in RUNNER_TEMP (its typed outputs are frozen).
+              sidecar="${RUNNER_TEMP}/l9-repository-verification-failure.json"
+              tail_file="${RUNNER_TEMP}/l9-repository-verification-tail.txt"
+              subject="mode ${REPOSITORY_VERIFY_MODE:-unavailable}; status ${REPOSITORY_VERIFY_STATUS:-unavailable}; failure ${REPOSITORY_VERIFY_FAILURE:-unavailable}"
+              # The sidecar names this workspace's own failure, never one a
+              # test wrote while running the verifier on a temporary tree.
+              named=""
+              if [ -s "${sidecar}" ]; then
+                named="$(python3 -I -c 'import json,os,sys; d=json.load(open(sys.argv[1])); ok=os.path.realpath(d.get("workspace","")) == os.path.realpath(sys.argv[2]); print("phase %s: `%s` exited %s" % (d["phase"] or "unknown", d["command"], d["exit"]) if ok else "")' "${sidecar}" "${GITHUB_WORKSPACE:-${PWD}}")"
+              fi
+              if [ -n "${named}" ]; then
+                subject="${named} (${subject})"
+              else
+                subject="${subject}; the cause is named in the 'Run repository verification contract' step log"
+              fi
+              if [ -n "${named}" ] && [ -s "${tail_file}" ]; then
+                echo "Last lines of the failed command:"
+                cat -- "${tail_file}"
+                {
+                  echo "### Repository verification failed"
+                  echo
+                  echo "${subject}"
+                  echo
+                  echo "~~~~"
+                  cat -- "${tail_file}"
+                  echo "~~~~"
+                } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              fi
+              echo "::error title=Repository verification::${subject}"
               exit 1
               ;;
           esac
@@ -6671,7 +6706,7 @@ jobs:
         if: always()
         env:
           SIDE: base
-          DIGEST: 67d8b9bba65038034d22cd71630e9f2645c9a2a56c40dcf0fe8389fafbe57eff
+          DIGEST: 534fc59efe6dfd221a2b3b667f45a6300df83fe0592f454499488e2ba587adeb
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ""
           REPOSITORY_VERIFY: ${{ steps.repository_verify.outputs.status }}
@@ -7346,14 +7381,135 @@ jobs:
           AGGREGATE_EXIT: ${{ steps.aggregate.outputs['exit-code'] }}
           ACCOUNTED: ${{ steps.aggregate.outputs.accounted }}
           MODE: ${{ steps.gov.outputs.mode }}
+          L9_MATRIX_ID: ${{ steps.runtime.outputs['matrix-id'] }}
+          L9_PRIMARY_LANGUAGE: ${{ steps.language.outputs.language }}
         run: |
           set -euo pipefail
           status="${AGGREGATE_STATUS:-incomplete}"
           exit_code="${AGGREGATE_EXIT:-6}"
           echo "SDK technical gate (primary language): ${GATE_STATUS:-unavailable}"
           echo "Required instances: ${status} (exit ${exit_code}; accounted ${ACCOUNTED:-false}); central mode: ${MODE}"
+          if [ "${status}" != "pass" ]; then
+            # Signal law (L9-SIGNAL-001): name every instance that did not
+            # pass, its reasons, and each blocking finding by rule and
+            # file:line, so the verdict is actionable without a re-run.
+            python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          CAP = 20
+          env = os.environ
+          runtime = Path(".l9/runtime", env["L9_MATRIX_ID"])
+          instances = runtime / "required-instances"
+          primary = env.get("L9_PRIMARY_LANGUAGE", "")
+          lines = []
+
+
+          def escape(text, prop=False):
+              text = str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              return text.replace(":", "%3A").replace(",", "%2C") if prop else text
+
+
+          def load(path):
+              try:
+                  return json.loads(path.read_text(encoding="utf-8"))
+              except (OSError, ValueError):
+                  return None
+
+
+          def directory(instance):
+              kind, _, name = instance.partition(":")[2].partition(":")
+              if kind == "language" and name == primary:
+                  return runtime
+              return instances / (name if kind == "language" else kind + "-" + name)
+
+
+          def emit(props, message):
+              line = "::error " + ",".join(f"{k}={escape(v, True)}" for k, v in props.items()) + "::" + escape(message)
+              print(line)
+              lines.append(message)
+
+
+          # Providers whose findings are secrets: never print their source.
+          SENSITIVE = {"gitleaks", "trufflehog", "detect-secrets"}
+          snippets = []
+
+
+          def snippet(path, start, end, provider):
+              """The offending lines and 2 either side, numbered, marked."""
+              root = Path(env.get("L9_SCAN_ROOT") or ".")
+              try:
+                  source = (root / path).read_text(encoding="utf-8", errors="replace").splitlines()
+              except OSError:
+                  return [f"    (source unavailable: {path})"]
+              first, last = max(1, start - 2), min(len(source), end + 2)
+              rendered = []
+              for number in range(first, last + 1):
+                  marker = ">" if start <= number <= end else " "
+                  text = source[number - 1]
+                  if provider in SENSITIVE and marker == ">":
+                      text = "*" * 8 + " (masked: secret finding)"
+                  elif provider in SENSITIVE:
+                      continue
+                  rendered.append(f"{marker} {number:>5} | {text}")
+              return rendered
+
+
+          aggregate = load(instances / "aggregate.json") or {}
+          if not aggregate:
+              emit({"title": "Required instances"}, "no aggregate was written: the planned instances did not all run")
+          named = 0
+          hidden = 0
+          for instance in aggregate.get("instances", []):
+              if instance.get("status") == "pass":
+                  continue
+              ident = instance.get("id", "?")
+              emit({"title": f"Required instance {ident}"}, f"{instance.get('status')}: {instance.get('reason', '')}")
+              where = directory(ident)
+              gate = load(where / "gate-result.json") or {}
+              bundle = load(where / "finding-bundle.json") or {}
+              for reason in gate.get("reasons", []):
+                  emit({"title": f"Gate {ident}"}, reason)
+              for failure in bundle.get("provider_failures", []):
+                  emit({"title": f"Provider {failure.get('provider_id', '?')} ({ident})"},
+                       f"{failure.get('failure_type', '?')}: {failure.get('message', '')}")
+              findings = {f.get("finding_id"): f for f in bundle.get("findings", [])}
+              for kind in ("blocking_finding_ids", "unresolved_finding_ids"):
+                  for finding_id in gate.get(kind, []):
+                      if named >= CAP:
+                          hidden += 1
+                          continue
+                      finding = findings.get(finding_id, {})
+                      rule = finding.get("canonical_rule_id") or finding.get("provider_rule_id") or finding_id
+                      where_ = (finding.get("locations") or [{}])[0]
+                      props = {"title": f"{rule} ({kind.split('_')[0]}, {ident})"}
+                      path = where_.get("normalized_path")
+                      if path:
+                          start = int(where_.get("start_line") or 1)
+                          end = int(where_.get("end_line") or start)
+                          props = {"file": path, "line": start, "endLine": end, **props}
+                          provider = finding.get("provider_id", "")
+                          snippets.append((f"{path}:{start} {rule}", snippet(path, start, end, provider)))
+                      emit(props, finding.get("message") or finding_id)
+                      named += 1
+          if hidden:
+              emit({"title": "Required instances"}, f"+{hidden} more finding(s) not listed; see the instance bundles artifact")
+          for heading, body in snippets:
+              print(f"::group::{heading}")
+              print("\n".join(body))
+              print("::endgroup::")
+          summary = env.get("GITHUB_STEP_SUMMARY")
+          if summary and lines:
+              with open(summary, "a", encoding="utf-8") as stream:
+                  stream.write("\n### Why the required instances did not pass\n\n")
+                  stream.writelines(f"- {line}\n" for line in lines)
+                  for heading, body in snippets:
+                      stream.write(f"\n`{heading}`\n\n~~~~\n" + "\n".join(body) + "\n~~~~\n")
+          PY
+          fi
           if [ "${status}" != "pass" ] && [ "${MODE}" = "blocking" ]; then
-            echo "Blocking mode: failing job on required instances '${status}'" >&2
+            echo "::error title=Required instances::${status} (exit ${exit_code}); the instances, reasons and findings are named above"
             exit "${exit_code}"
           fi
       # --- canary record (not part of org-ci.yml) ---
@@ -7361,7 +7517,7 @@ jobs:
         if: always()
         env:
           SIDE: scanbase
-          DIGEST: 67d8b9bba65038034d22cd71630e9f2645c9a2a56c40dcf0fe8389fafbe57eff
+          DIGEST: 534fc59efe6dfd221a2b3b667f45a6300df83fe0592f454499488e2ba587adeb
           JOB_STATUS: ${{ job.status }}
           AGGREGATE_STATUS: ${{ steps.aggregate.outputs.status }}
           REPOSITORY_VERIFY: ""
