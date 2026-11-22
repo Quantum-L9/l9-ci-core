@@ -250,6 +250,64 @@ class KnownBadCases(unittest.TestCase):
         decision = judge(self.root)
         self.assert_static(decision, "BOUNDED_FAST")
 
+    def test_make_function_beside_bounded_pytest_is_not_unknown(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            "Makefile",
+            "REPO_PY := $(if $(wildcard $(VENV)/bin/python),$(VENV)/bin/python,python3)\n"
+            "test:\n"
+            "\tpytest tests/unit/test_a.py\n",
+        )
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow("  fast:\n    steps:\n      - run: pytest tests/unit/test_a.py\n"),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+        self.assertFalse(
+            any(item.startswith("UNKNOWN_SCRIPT") for item in decision.findings)
+        )
+
+    def test_missing_docs_script_is_not_a_test_command(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow(
+                "  fast:\n"
+                "    steps:\n"
+                "      - run: pytest tests/unit/test_a.py\n"
+                "  docs:\n"
+                "    steps:\n"
+                "      - run: python scripts/docs_sync/validate_api_docs.py\n"
+            ),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+        self.assertFalse(
+            any("validate_api_docs.py" in item for item in decision.findings)
+        )
+
+    def test_missing_test_recipe_script_stays_unknown(self) -> None:
+        write(
+            self.root,
+            "Makefile",
+            "test:\n\tpython scripts/run_the_tests.py\n",
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "UNKNOWN_SCRIPT")
+
+    def test_pytest_with_no_paths_still_fails(self) -> None:
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow("  fast:\n    steps:\n      - run: pytest\n"),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "FULL_PYTEST")
+
 
 class ScopeResolutionTests(unittest.TestCase):
     def test_a_single_parent_commit_does_not_become_the_whole_tree(self) -> None:

@@ -573,6 +573,7 @@ def _scan_shell(
     directory: str,
     depth: int,
     seen: set[str],
+    test_recipe: bool = False,
 ) -> None:
     if depth > 8:
         hits.append(_Hit("UNKNOWN_SCRIPT", "nested script depth exceeded"))
@@ -595,6 +596,7 @@ def _scan_shell(
                 directory=directory,
                 depth=depth,
                 seen=seen,
+                test_recipe=test_recipe,
             )
 
 
@@ -607,6 +609,7 @@ def _classify_argv(
     directory: str,
     depth: int,
     seen: set[str],
+    test_recipe: bool = False,
 ) -> None:
     command = argv[0]
     if "=" in command and not command.startswith(("./", "/")):
@@ -624,6 +627,7 @@ def _classify_argv(
             directory=directory,
             depth=depth,
             seen=seen,
+            test_recipe=test_recipe,
         )
         return
     if base == "coverage" and "pytest" in argv:
@@ -642,6 +646,7 @@ def _classify_argv(
             directory=directory,
             depth=depth,
             seen=seen,
+            test_recipe=test_recipe,
         )
         return
     if command.startswith("./") or command.endswith((".sh", ".bash", ".py")):
@@ -653,6 +658,7 @@ def _classify_argv(
             directory=directory,
             depth=depth,
             seen=seen,
+            test_recipe=test_recipe,
         )
         return
     if "$" in command and (
@@ -689,6 +695,7 @@ def _classify_python(
     directory: str,
     depth: int,
     seen: set[str],
+    test_recipe: bool = False,
 ) -> None:
     if "-c" in argv:
         return
@@ -712,6 +719,7 @@ def _classify_python(
                 directory=directory,
                 depth=depth,
                 seen=seen,
+                test_recipe=test_recipe,
             )
         return
 
@@ -864,6 +872,13 @@ def _safe_path(root: Path, token: str, directory: str) -> Path | None:
     return path
 
 
+def _missing_script_is_a_test(token: str) -> bool:
+    name = Path(token).name
+    if name.startswith("test_") or name.endswith("_test.py"):
+        return True
+    return token.endswith((".sh", ".bash"))
+
+
 def _file_is_test(path: Path) -> bool:
     name = path.name
     if name.startswith("test_") or name.endswith("_test.py"):
@@ -892,6 +907,7 @@ def _follow_shell(
     directory: str,
     depth: int,
     seen: set[str],
+    test_recipe: bool = False,
 ) -> None:
     command = argv[0]
     args = argv[1:]
@@ -908,6 +924,7 @@ def _follow_shell(
             directory=directory,
             depth=depth,
             seen=seen,
+            test_recipe=test_recipe,
         )
         return
     if len(args) < 1:
@@ -921,6 +938,7 @@ def _follow_shell(
         directory=directory,
         depth=depth,
         seen=seen,
+        test_recipe=test_recipe,
     )
 
 
@@ -933,6 +951,7 @@ def _follow_path(
     directory: str,
     depth: int,
     seen: set[str],
+    test_recipe: bool = False,
 ) -> None:
     if "$" in token:
         hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {token}"))
@@ -945,7 +964,8 @@ def _follow_path(
     if key in seen:
         return
     if not path.is_file():
-        hits.append(_Hit("UNKNOWN_SCRIPT", f"missing script {token}"))
+        if test_recipe or _missing_script_is_a_test(token):
+            hits.append(_Hit("UNKNOWN_SCRIPT", f"missing script {token}"))
         return
     seen.add(key)
     text = path.read_text(encoding="utf-8")
@@ -1092,6 +1112,7 @@ def _walk_make_target(
             directory=directory,
             depth=0,
             seen=set(),
+            test_recipe=_is_test_target(name),
         )
 
 
@@ -1119,6 +1140,7 @@ def _walk_loaded_target(
             directory=directory,
             depth=0,
             seen=set(),
+            test_recipe=_is_test_target(name),
         )
 
 
@@ -1197,19 +1219,73 @@ def _strip_make_comment(text: str) -> str:
     return text.split("#", 1)[0]
 
 
+_MAKE_FUNCTIONS = frozenset({"if", "wildcard", "shell"})
+
+
+def _is_test_target(name: str) -> bool:
+    return name in {"test", "repo-test", "test-deep"} or name.startswith("repo-")
+
+
+def _is_make_function(name: str) -> bool:
+    head = name.split(None, 1)[0] if name else ""
+    return " " in name or head in _MAKE_FUNCTIONS
+
+
 def _expand_make(value: str, variables: Mapping[str, str], depth: int = 0) -> str:
     if depth > 12:
         raise GuardParseError("makefile variable expansion is too deep")
-
-    def replace(match: re.Match[str]) -> str:
-        name = (match.group(1) or match.group(2)).strip()
-        if name.startswith("shell ") or name.startswith("wildcard ") or " " in name:
-            raise GuardParseError(f"makefile function {name} is unresolved")
+    output: list[str] = []
+    index = 0
+    while index < len(value):
+        if value[index] != "$" or index + 1 >= len(value):
+            output.append(value[index])
+            index += 1
+            continue
+        opener = value[index + 1]
+        if opener == "$":
+            output.append("$")
+            index += 1
+            continue
+        if opener not in "({":
+            output.append(value[index])
+            index += 1
+            continue
+        closer = ")" if opener == "(" else "}"
+        end = _matching_closer(value, index + 2, opener, closer)
+        if end is None:
+            output.append(value[index])
+            index += 1
+            continue
+        name = value[index + 2 : end].strip()
+        if _is_make_function(name):
+            index = end + 1
+            continue
         if name not in variables:
-            return match.group(0)
-        return _expand_make(variables[name], variables, depth + 1)
+            output.append(value[index : end + 1])
+        else:
+            output.append(_expand_make(variables[name], variables, depth + 1))
+        index = end + 1
+    return "".join(output)
 
-    return re.sub(r"\$\(([^)]+)\)|\$\{([^}]+)\}", replace, value)
+
+def _matching_closer(value: str, start: int, opener: str, closer: str) -> int | None:
+    depth = 1
+    index = start
+    while index < len(value):
+        if (
+            value[index] == "$"
+            and index + 1 < len(value)
+            and value[index + 1] == opener
+        ):
+            depth += 1
+            index += 2
+            continue
+        if value[index] == closer:
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
 
 
 def _walk_pre_commit(root: Path, hits: list[_Hit]) -> None:
