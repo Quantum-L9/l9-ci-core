@@ -339,6 +339,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before || '' }}
         run: |
           set -euo pipefail
           git init .
@@ -349,6 +350,12 @@ jobs:
           # once origin is reset to an anonymous URL below.
           git -c protocol.version=2 fetch --depth=2 origin "${REVISION}"
           git checkout --detach FETCH_HEAD
+          # A multi-commit push is not in that depth. Fetch the previous
+          # commit while the remote still has the checkout token, then drop
+          # the token. The expense judge only diffs objects already local.
+          if [[ "${BEFORE}" =~ ^[0-9a-f]{40}$ && "${BEFORE}" != 0000000000000000000000000000000000000000 ]]; then
+            git -c protocol.version=2 fetch --depth=1 origin "${BEFORE}"
+          fi
           git remote set-url origin "https://github.com/${REPOSITORY}.git"
 
       # Reports consumer declarations of Core-owned tools that drift from
@@ -360,6 +367,46 @@ jobs:
         name: Report toolchain alignment (advisory)
         # CORE_ACTIONS_PIN — toolchain SSOT actions (#227 merge revision, AGENTS.md §18)
         uses: Quantum-L9/l9-ci-core/.github/actions/check-toolchain-alignment@2ee1720b9863bec15fdfebac13b220aeb699d781
+
+      # Trusted Core judge. The only source is this workflow revision's
+      # tools/pr_expense_guard.py, checked out beside the consumer. The step
+      # does not call a consumer-relative copy and does not paste the module.
+      # receipt=static is not a hosted test receipt.
+      - name: Judge pull-request test expense
+        if: >-
+          github.event_name == 'pull_request'
+          || github.event_name == 'merge_group'
+          || github.event_name == 'push'
+          || steps.runtime.outputs.event-class == 'pull_request'
+          || steps.runtime.outputs.event-class == 'merge'
+          || steps.runtime.outputs.event-class == 'push'
+        env:
+          GH_EVENT: ${{ steps.runtime.outputs.event-class }}
+          GUARD_BEFORE: ${{ github.event.before || '' }}
+          GUARD_WORKSPACE: ${{ github.workspace }}
+          CORE_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          sha_ok=false
+          case "${CORE_SHA}" in
+            *[!0-9a-f]* | "") sha_ok=false ;;
+            ????????????????????????????????????????) sha_ok=true ;;
+            *) sha_ok=false ;;
+          esac
+          if [ "${sha_ok}" != "true" ]; then
+            echo "::error::workflow SHA is not a full lowercase revision" >&2
+            exit 1
+          fi
+          core="${RUNNER_TEMP}/l9-ci-core-expense-guard"
+          rm -rf "${core}"
+          git init "${core}"
+          git -C "${core}" remote add origin https://github.com/Quantum-L9/l9-ci-core.git
+          git -C "${core}" -c protocol.version=2 fetch --depth=1 origin "${CORE_SHA}"
+          git -C "${core}" checkout --detach FETCH_HEAD
+          test -f "${core}/tools/pr_expense_guard.py"
+          CORE_GUARD="${core}/tools/pr_expense_guard.py"
+          export CORE_GUARD
+          python3 -c 'import os, runpy; runpy.run_path(os.environ["CORE_GUARD"], run_name="__main__")'
 
       - name: Validate native push event context
         if: github.event_name == 'push'
