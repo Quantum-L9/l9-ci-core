@@ -66,6 +66,12 @@ SCAN_WORKFLOW = "central-semgrep.yml"
 ORG_CI_WORKFLOW = "org-ci.yml"
 
 TOOLS: Mapping[str, Mapping[str, Any]] = {
+    # The org-wide actionlint check (docs/actionlint-check.md). A repository's
+    # own .github/actionlint.yaml is its own, so Core stamps no config.
+    "actionlint": {
+        "configs": (),
+        "runs": ((ORG_CI_WORKFLOW, "actionlint", "Run actionlint (blocking)"),),
+    },
     "bandit": {
         "configs": (),
         "runs": (("security.yml", "security", "Python static security scan (bandit)"),),
@@ -145,11 +151,6 @@ TOOLS: Mapping[str, Mapping[str, Any]] = {
 #: (``AGENTS.md`` §26). A tool moves to ``TOOLS`` only together with a lock key
 #: and something Core runs.
 NOT_OWNED: Mapping[str, Mapping[str, str]] = {
-    "actionlint": {
-        "decision": "not locked: no Core workflow or stamped profile runs it",
-        "evidence": "l9-ci-sdk runs actionlint in its own reusable workflow, not enforced",
-        "adopt_when": "Core runs actionlint in a workflow or a stamped hook",
-    },
     "eslint": {
         "decision": "not locked: Biome is the organization's JS/TS linter and formatter",
         "evidence": (

@@ -5,11 +5,11 @@
   "sources": [
     {
       "path": ".github/actions/install-consumer-ci/toolchain-lock.json",
-      "sha256": "sha256:4f1b5398098780f4a3c9cd416d6a724615c280e15a0719e719fa0a9210b013e2"
+      "sha256": "sha256:ef38f6b4333b9e1428823fd066f533f8e9a3d474f743fb78bf4b1249dc63f181"
     },
     {
       "path": ".github/actions/install-consumer-ci/core-owned-tools.json",
-      "sha256": "sha256:95d4a73781e8cc2147c5094f6145c80c882501da3b1fb31272730314079416b6"
+      "sha256": "sha256:475b4fab77c61619ae47c17a1f162aa26b4b76f0f36924fb3b46974101336387"
     },
     {
       "path": "tools/l9_repo/stamp.py",
@@ -17,7 +17,7 @@
     },
     {
       "path": "tools/l9_repo/tool_ownership.py",
-      "sha256": "sha256:59c24e9aa4b56d322f6e0f487085445846844cf171f4ab0f6b0c75148d164e79"
+      "sha256": "sha256:b487e450d3db1e6bb2c29bf2180eae0887009c89565ade41303fb7fab8bf5463"
     }
   ],
   "profiles": [
@@ -36,6 +36,20 @@
     "phases": "setup validate check test"
   },
   "tools": [
+    {
+      "name": "actionlint",
+      "version": "1.7.12",
+      "configs": [],
+      "profiles": [],
+      "pre_commit_hook_profiles": [],
+      "runs": [
+        {
+          "workflow": "org-ci.yml",
+          "job": "actionlint",
+          "step": "Run actionlint (blocking)"
+        }
+      ]
+    },
     {
       "name": "bandit",
       "version": "1.8.6",
@@ -282,11 +296,6 @@
     "markdown": "Core runs no Markdown formatter or linter (see not_owned.prettier)"
   },
   "not_owned": {
-    "actionlint": {
-      "decision": "not locked: no Core workflow or stamped profile runs it",
-      "evidence": "l9-ci-sdk runs actionlint in its own reusable workflow, not enforced",
-      "adopt_when": "Core runs actionlint in a workflow or a stamped hook"
-    },
     "eslint": {
       "decision": "not locked: Biome is the organization's JS/TS linter and formatter",
       "evidence": "org-ci.yml runs only Biome; l9-meta-injector runs ESLint as a repository-local check beside blocking Biome (its ADR-095, Proposed)",

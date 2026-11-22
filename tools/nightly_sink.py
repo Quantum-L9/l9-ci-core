@@ -1008,6 +1008,7 @@ SINK = """\
 
 @@GITLEAKS@@
 @@CODEQL@@
+@@ACTIONLINT@@
       - name: Project CodeQL's SARIF for code scanning
         if: ${{ !cancelled() && steps.codeql_analyze.outcome == 'success' }}
         env:
@@ -1097,10 +1098,10 @@ SINK = """\
       # partial upload never writes a stale state into its snapshot.
       - id: sink_tool
         name: Fetch the sink tool (Core, this run's revision)
-        # A Biome, gitleaks, CodeQL or bandit run that failed (not one with
-        # findings: here each reports findings instead of failing) would drop
-        # its category and so close its alerts: nothing publishes.
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.codeql_analyze.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
+        # A Biome, gitleaks, CodeQL, actionlint or bandit run that failed (not
+        # one with findings: here each reports findings instead of failing)
+        # would drop its category and so close its alerts: nothing publishes.
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.codeql_analyze.outcome != 'failure' && steps.actionlint_check.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}
@@ -1217,6 +1218,8 @@ def sink_steps(scan: str) -> str:
     ):
         cut -= 1
     kept = "".join(lines[:cut]).rstrip("\n") + "\n"
+    # The sink declares only `repository`: every other input is its default.
+    kept = pc.undeclared_defaults(kept, frozenset({"repository"}))
     left = [
         line.strip()
         for line in kept.splitlines()
@@ -1447,14 +1450,86 @@ def codeql_steps(org_ci: str) -> str:
     return "      # --- org-ci.yml's CodeQL check, whole tree (generated) ---\n" + text
 
 
+ACTIONLINT_JOB = "actionlint"
+ACTIONLINT_STEPS = ("actionlint_scope", "actionlint_install", "actionlint_check")
+ACTIONLINT_SARIF = "${{ runner.temp }}/nightly-sarif/actionlint.sarif"
+# The check's PR-mode settings, each replaced once by its nightly value.
+ACTIONLINT_NIGHTLY = (
+    (
+        '          ACTIONLINT_FINDINGS_FAIL: "true"\n',
+        '          ACTIONLINT_FINDINGS_FAIL: "false"\n',
+    ),
+    (
+        '          ACTIONLINT_SARIF: ""\n',
+        f"          ACTIONLINT_SARIF: {ACTIONLINT_SARIF}\n",
+    ),
+)
+
+
+def actionlint_steps(org_ci: str) -> str:
+    """org-ci.yml's actionlint check, on every workflow, reported.
+
+    The check's own scope, install and run steps, verbatim apart from the
+    event (a night has no base, so every workflow is judged) and its mode:
+    findings are written as SARIF (``l9-central/actionlint/``, counted)
+    instead of failing the step. A run that does not complete still fails it.
+    """
+    pc = _canary()
+    blocks = pc.job_blocks(org_ci)
+    if ACTIONLINT_JOB not in blocks:
+        raise SinkError("org-ci.yml has no `actionlint` job to run nightly")
+    workflow = "on:\n  workflow_call:\njobs:\n  actionlint:\n" + blocks[ACTIONLINT_JOB]
+    try:
+        steps, _, _ = pc._single_job(workflow, "org-ci.yml job 'actionlint'")
+    except pc.CanaryError as error:
+        raise SinkError(str(error)) from error
+    items = re.split(r"(?m)^(?= {6}- )", steps)
+    chosen = []
+    for identifier in ACTIONLINT_STEPS:
+        found = [i for i in items if f"        id: {identifier}\n" in i]
+        if len(found) != 1:
+            raise SinkError(
+                f"the actionlint check no longer has one {identifier!r} step"
+            )
+        chosen.append(found[0].rstrip("\n") + "\n")
+    text = "".join(chosen)
+    # Run whatever an earlier, unrelated step concluded (as the other
+    # inlined checks do): a skipped check would drop its category tonight.
+    gate = "        if: steps.actionlint_scope.outputs.applies == 'true'\n"
+    if text.count(gate) != 2:
+        raise SinkError("the actionlint steps no longer gate on their scope twice")
+    text = text.replace(
+        gate,
+        "        if: ${{ !cancelled() && steps.actionlint_scope.outputs.applies == 'true' }}\n",
+    )
+    scope = "        id: actionlint_scope\n"
+    text = text.replace(scope, "        if: ${{ !cancelled() }}\n" + scope, 1)
+    for old, new in ACTIONLINT_NIGHTLY:
+        if text.count(old) != 1:
+            raise SinkError(f"the actionlint step no longer sets {old.strip()!r} once")
+        text = text.replace(old, new)
+    text = text.replace("${{ github.event_name }}", "nightly")
+    text = re.sub(r"\$\{\{\s*github\.event\.[a-z_.]+\s*\}\}", '""', text)
+    text = text.replace("${{ github.sha }}", "${{ matrix.revision }}")
+    if "${{ github." in text or "${{ inputs." in text:
+        raise SinkError(
+            "the actionlint steps read an event value the sink cannot supply"
+        )
+    return (
+        "      # --- org-ci.yml's actionlint check, every workflow (generated) ---\n"
+        + text
+    )
+
+
 def render_workflow(scan: str, org_ci: str) -> str:
     steps = sink_steps(scan)
     biome = biome_steps(org_ci)
     gitleaks = gitleaks_steps(org_ci)
     codeql = codeql_steps(org_ci)
+    actionlint = actionlint_steps(org_ci)
     audit = audit_steps(pip_audit_workflow(org_ci))
     digest = hashlib.sha256(
-        (steps + biome + gitleaks + codeql + audit).encode("utf-8")
+        (steps + biome + gitleaks + codeql + actionlint + audit).encode("utf-8")
     ).hexdigest()
     header = HEADER.replace("@@DIGEST@@", digest).replace("@@TIMEOUT@@", str(TIMEOUT))
     sink = (
@@ -1462,6 +1537,7 @@ def render_workflow(scan: str, org_ci: str) -> str:
         .replace("@@BIOME@@\n", biome + "\n")
         .replace("@@GITLEAKS@@\n", gitleaks + "\n")
         .replace("@@CODEQL@@\n", codeql + "\n")
+        .replace("@@ACTIONLINT@@\n", actionlint + "\n")
         .replace("@@AUDIT@@\n", audit + "\n")
     )
     return header + steps + "\n" + sink

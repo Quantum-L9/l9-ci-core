@@ -7,6 +7,12 @@
   "tools": [
     {
       "ecosystems": {
+        "pre-commit": ["https://github.com/rhysd/actionlint"]
+      },
+      "name": "actionlint"
+    },
+    {
+      "ecosystems": {
         "pip": ["bandit"],
         "pre-commit": ["https://github.com/PyCQA/bandit"],
         "uv": ["bandit"]

@@ -28,7 +28,9 @@ and where every Semgrep finding a repository carries goes.
    base), one SARIF per language as `l9-central/codeql-<language>/`, counted;
    a CodeQL upload that code scanning refuses (CodeQL default setup still on)
    fails the night by name after every other category is published
-   ([codeql-check.md](codeql-check.md)). bandit runs here and nowhere else (it is not a
+   ([codeql-check.md](codeql-check.md)). org-ci.yml's `actionlint` check runs
+   on every workflow, findings as `l9-central/actionlint/`, counted
+   ([actionlint-check.md](actionlint-check.md)). bandit runs here and nowhere else (it is not a
    pull-request check; [security-checks.md](security-checks.md)): the whole
    tree, every severity, tests excluded at any depth, SARIF as category
    `l9-central/bandit/`, and the full JSON report kept as the run's

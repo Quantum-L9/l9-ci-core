@@ -23,7 +23,7 @@
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: e6006eb7c92e3de48ab60c7bc9a22aed9b9a03a5ef0ce6691f81ac443176b2a4
+# and issues: write. Analyze steps digest: 3c092756735b1f1524b7c13e2d4f3fb4744546612c2d66656ae98d7d055503bc
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -80,11 +80,11 @@ jobs:
         env:
           GH_EVENT: ${{ github.event_name }}
           INPUT_EVENT: nightly
-          INPUT_PROFILE: ${{ inputs.profile || '' }}
+          INPUT_PROFILE: ""
           INPUT_MATRIX_ID: nightly-${{ matrix.slug }}
-          INPUT_SDK_REVISION: ${{ inputs.sdk-revision || '' }}
-          INPUT_SEMGREP_VERSION: ${{ inputs.semgrep-version || '1.186.0' }}
-          INPUT_RETENTION: ${{ inputs.artifact-retention-days || 14 }}
+          INPUT_SDK_REVISION: ""
+          INPUT_SEMGREP_VERSION: "1.186.0"
+          INPUT_RETENTION: "14"
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -1221,6 +1221,191 @@ jobs:
           done
           echo "directory=${out}" >> "$GITHUB_OUTPUT"
 
+      # --- org-ci.yml's actionlint check, every workflow (generated) ---
+      - name: Resolve actionlint's scope
+        if: ${{ !cancelled() }}
+        id: actionlint_scope
+        env:
+          EVENT_NAME: nightly
+          PR_BASE: ""
+          MERGE_GROUP_BASE: ""
+          PUSH_BEFORE: ""
+          EVENT_SHA: ${{ matrix.revision }}
+        run: |
+          set -euo pipefail
+          workflows='^\.github/workflows/[^/]+\.ya?ml$'
+          actions='(^|/)action\.ya?ml$'
+          list="${RUNNER_TEMP}/actionlint-files"
+          git ls-files | grep -E "${workflows}" > "${list}.all" || true
+          if [ ! -s "${list}.all" ]; then
+            echo "applies=false" >> "$GITHUB_OUTPUT"
+            echo "actionlint: not applicable: no workflow files"
+            echo "- actionlint (blocking): not applicable: no workflow files" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          case "${EVENT_NAME}" in
+            pull_request|pull_request_target) base="${PR_BASE}" ;;
+            merge_group) base="${MERGE_GROUP_BASE}" ;;
+            push) base="${PUSH_BEFORE}" ;;
+            *) base="" ;;
+          esac
+          scope="every workflow"
+          judge="report"
+          cp "${list}.all" "${list}"
+          if [[ "${base}" =~ ^[0-9a-f]{40}$ ]] && [ -n "${base//0/}" ]; then
+            judge="block"
+            if ! changed="$(git diff --name-only --diff-filter=d "${base}" "${EVENT_SHA}" --)"; then
+              echo "::error title=actionlint::the event's base ${base} is not in this clone; the check cannot tell what changed"
+              exit 1
+            fi
+            if grep -Eq "${actions}" <<< "${changed}"; then
+              scope="every workflow (an action definition changed)"
+            else
+              grep -E "${workflows}" <<< "${changed}" > "${list}" || true
+              scope="the workflow files ${base:0:12}..${EVENT_SHA:0:12} changes"
+              if [ ! -s "${list}" ]; then
+                echo "applies=false" >> "$GITHUB_OUTPUT"
+                echo "actionlint: no changed workflow or action files"
+                echo "- actionlint (blocking): pass: no changed workflow or action files" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+          fi
+          {
+            echo "applies=true"
+            echo "files=${list}"
+            echo "scope=${scope}"
+            echo "judge=${judge}"
+          } >> "$GITHUB_OUTPUT"
+          echo "actionlint: $(wc -l < "${list}") workflow file(s): ${scope}"
+      - name: Install actionlint (toolchain-locked)
+        id: actionlint_install
+        if: ${{ !cancelled() && steps.actionlint_scope.outputs.applies == 'true' }}
+        run: |
+          set -euo pipefail
+          ACTIONLINT_VERSION="1.7.12"
+          ACTIONLINT_SHA256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+          archive="${RUNNER_TEMP}/actionlint.tar.gz"
+          # HTTPS only, on every redirect too (the release redirects to a CDN).
+          curl --proto '=https' --tlsv1.2 -sSfL -o "${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          actual="$(sha256sum "${archive}" | awk '{print $1}')"
+          if [ "${actual}" != "${ACTIONLINT_SHA256}" ]; then
+            echo "::error title=actionlint::checksum mismatch: got ${actual}"
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/actionlint-bin"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/actionlint-bin" actionlint
+          echo "executable=${RUNNER_TEMP}/actionlint-bin/actionlint" >> "$GITHUB_OUTPUT"
+      - name: Run actionlint (blocking)
+        id: actionlint_check
+        if: ${{ !cancelled() && steps.actionlint_scope.outputs.applies == 'true' }}
+        env:
+          ACTIONLINT: ${{ steps.actionlint_install.outputs.executable }}
+          FILES: ${{ steps.actionlint_scope.outputs.files }}
+          SCOPE: ${{ steps.actionlint_scope.outputs.scope }}
+          JUDGE: ${{ steps.actionlint_scope.outputs.judge }}
+          # The nightly sink inlines this step with findings reported rather
+          # than failing, written as SARIF to ACTIONLINT_SARIF.
+          ACTIONLINT_FINDINGS_FAIL: "false"
+          ACTIONLINT_SARIF: ${{ runner.temp }}/nightly-sarif/actionlint.sarif
+        run: |
+          set -euo pipefail
+          report="${RUNNER_TEMP}/actionlint.json"
+          mapfile -t files < "${FILES}"
+          status=0
+          # The repository's own .github/actionlint.yaml applies (actionlint
+          # finds it from the working directory).
+          "${ACTIONLINT}" -shellcheck= -pyflakes= -format '{{json .}}' "${files[@]}" > "${report}" || status=$?
+          if [ "${status}" -gt 1 ]; then
+            echo "::error title=actionlint::actionlint exited ${status}: the check did not complete"
+            cat "${report}"
+            exit "${status}"
+          fi
+          STATUS="${status}" REPORT="${report}" COUNT="${#files[@]}" python3 -I - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          env = os.environ
+          try:
+              findings = json.loads(Path(env["REPORT"]).read_text(encoding="utf-8") or "[]")
+          except ValueError as error:
+              sys.exit(f"::error title=actionlint::unreadable report ({error})")
+          # Findings block only what an event brings in (a base exists); with
+          # no base, and in the nightly sink, they are reported.
+          nightly = env.get("ACTIONLINT_FINDINGS_FAIL") == "false"
+          reported = nightly or env.get("JUDGE") != "block"
+          label = "nightly, reported" if nightly else ("reported: no base" if reported else "blocking")
+          scope = env["SCOPE"]
+          if not findings:
+              line = f"- actionlint ({label}): pass: {env['COUNT']} workflow file(s), {scope}"
+          else:
+              line = f"- actionlint ({label}): findings: {len(findings)} in {env['COUNT']} workflow file(s), {scope}"
+          lines = [line]
+          if findings:
+              lines += ["", "| File | Line | Kind | Message |", "|---|---|---|---|"]
+          for item in findings:
+              path = str(item.get("filepath", "")).replace(",", "%2C").replace(":", "%3A")
+              message = " ".join(str(item.get("message", "")).split())
+              print(
+                  f"::{'warning' if reported else 'error'} file={path},line={item.get('line', 1)},col={item.get('column', 1)},"
+                  f"title=actionlint {item.get('kind', '')}::{message}"
+              )
+          for item in findings[:20]:
+              message = " ".join(str(item.get("message", "")).split()).replace("|", "\\|")
+              lines.append(f"| `{item.get('filepath', '')}` | {item.get('line', '')} | `{item.get('kind', '')}` | {message} |")
+          if len(findings) > 20:
+              lines.append(f"\n+{len(findings) - 20} more: see the annotations")
+          with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          print(line)
+          if env.get("ACTIONLINT_SARIF"):
+              kinds = sorted({str(item.get("kind", "")) for item in findings})
+              sarif = {
+                  "version": "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "runs": [{
+                      "tool": {"driver": {
+                          "name": "actionlint",
+                          "informationUri": "https://github.com/rhysd/actionlint",
+                          "rules": [{"id": kind, "shortDescription": {"text": f"actionlint {kind} check"}} for kind in kinds],
+                      }},
+                      "results": [{
+                          "ruleId": str(item.get("kind", "")),
+                          "level": "error",
+                          "message": {"text": " ".join(str(item.get("message", "")).split())},
+                          "locations": [{"physicalLocation": {
+                              "artifactLocation": {"uri": str(item.get("filepath", "")).removeprefix("./")},
+                              "region": {
+                                  "startLine": max(int(item.get("line") or 1), 1),
+                                  "startColumn": max(int(item.get("column") or 1), 1),
+                              },
+                          }}],
+                      } for item in findings],
+                  }],
+              }
+              target = Path(env["ACTIONLINT_SARIF"])
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(json.dumps(sarif, indent=2) + "\n", encoding="utf-8")
+          if findings and not reported:
+              print(f"::error title=actionlint::{len(findings)} finding(s); each is annotated at its file and line")
+              sys.exit(1)
+          PY
+
+  # Biome is its own check (operator, 2026-11-21; docs/biome-check.md). It runs
+  # beside gitleaks, pip-audit, npm-audit and `analyze`, for every repository the organization
+  # ruleset governs, and always reports: no biome.json / biome.jsonc is a
+  # success that says "not applicable: no biome configuration"; a pull request
+  # that changes no file in Biome's scope is a success that says so. A pull
+  # request and a merge group are judged on the files they change, never on
+  # the code already there (incoming code only); a push of the default branch
+  # on the files the push changes; any other event (a dispatch, the nightly
+  # sink, the promotion canary) on the whole tree. Findings are annotated at
+  # their file and line by Biome's GitHub reporter, counted in the job summary
+  # with the first of them, and fail the job: the mode is blocking.
+
       - name: Project CodeQL's SARIF for code scanning
         if: ${{ !cancelled() && steps.codeql_analyze.outcome == 'success' }}
         env:
@@ -1490,10 +1675,10 @@ jobs:
       # partial upload never writes a stale state into its snapshot.
       - id: sink_tool
         name: Fetch the sink tool (Core, this run's revision)
-        # A Biome, gitleaks, CodeQL or bandit run that failed (not one with
-        # findings: here each reports findings instead of failing) would drop
-        # its category and so close its alerts: nothing publishes.
-        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.codeql_analyze.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
+        # A Biome, gitleaks, CodeQL, actionlint or bandit run that failed (not
+        # one with findings: here each reports findings instead of failing)
+        # would drop its category and so close its alerts: nothing publishes.
+        if: ${{ !cancelled() && steps.project_sarif.outcome == 'success' && steps.biome_check.outcome != 'failure' && steps.gitleaks.outcome != 'failure' && steps.codeql_analyze.outcome != 'failure' && steps.actionlint_check.outcome != 'failure' && steps.bandit.outcome != 'failure' }}
         env:
           REVISION: ${{ github.sha }}
           TOKEN: ${{ github.token }}

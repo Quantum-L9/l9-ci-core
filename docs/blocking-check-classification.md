@@ -125,6 +125,18 @@ Blocking at error / high. Always reports. Only what the event introduces
 | Analyze with CodeQL (security-extended) | PLUMBING | Head and base, build-mode none; a language with no source on one side has no results there; any other CodeQL failure fails as INCOMPLETE |
 | Judge new CodeQL results (blocking at error / high) | BLOCKING_SECURITY | A result the base does not have (rule, path, CodeQL line fingerprint) at level error or security severity 7.0+ fails, annotated at file and line; other new results are warnings; no base: nothing is new |
 
+## actionlint (`org-ci.yml` job `actionlint`, the `actionlint` check)
+
+Blocking. Always reports. The workflow files the event changes
+([actionlint-check.md](actionlint-check.md)).
+
+| Step | Class | Why |
+|---|---|---|
+| Checkout (full history) | PLUMBING | The base must be in the clone |
+| Resolve actionlint's scope | PLUMBING | The changed workflow files, every workflow when an action definition changed or there is no base; none changed is a pass that says so, no workflow files is not applicable; an unresolvable base fails as INCOMPLETE |
+| Install actionlint (toolchain-locked) | PLUMBING | |
+| Run actionlint (blocking) | BLOCKING_CORRECTNESS | A finding in a changed file fails, annotated at file, line and column; with no base (dispatch, canary) findings are warnings; an actionlint failure is never a pass |
+
 ## bandit (nightly only)
 
 Advisory, not a pull-request check: `nightly-sink.yml` runs bandit 1.8.6 on the
