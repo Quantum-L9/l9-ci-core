@@ -686,7 +686,30 @@ def _classify_argv(
         hits.append(_Hit("UNKNOWN_SCRIPT", f"unresolved script {command}"))
 
 
-_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
+_ENV_VALUE_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})
+
+
+def _unreadable_assignment(word: str) -> bool:
+    """An array append or a command-substitution assignment.
+
+    The tokenizer cannot split nested quotes in a substitution, so such a
+    statement is not read as a command; this is what the judge did before
+    prefix assignments were stripped.
+    """
+
+    if "+=" in word.split("=", 1)[0] + "=":
+        return True
+    return bool(_ASSIGNMENT.match(word)) and ("$(" in word or "`" in word)
+
+
+def _drop_env_wrapper(words: list[str]) -> list[str]:
+    """Drop ``env`` and its options; ``-u NAME`` and ``-C DIR`` take a value."""
+
+    rest = words[1:]
+    while rest and rest[0].startswith("-"):
+        rest = rest[2:] if rest[0] in _ENV_VALUE_OPTIONS else rest[1:]
+    return rest
 
 
 def _strip_command_prefix(argv: Sequence[str]) -> list[str]:
@@ -697,26 +720,15 @@ def _strip_command_prefix(argv: Sequence[str]) -> list[str]:
     """
 
     words = list(argv)
-    if words and (
-        "+=" in words[0].split("=", 1)[0] + "="
-        or (_ASSIGNMENT.match(words[0]) and ("$(" in words[0] or "`" in words[0]))
-    ):
-        # An array append or a command-substitution assignment. The
-        # tokenizer cannot split nested quotes in a substitution, so the
-        # statement is not read as a command; this is what the judge did
-        # before prefix assignments were stripped.
+    if words and _unreadable_assignment(words[0]):
         return []
     while words:
         if _ASSIGNMENT.match(words[0]):
             words = words[1:]
-            continue
-        if words[0] == "env":
-            words = words[1:]
-            while words and words[0].startswith("-"):
-                takes_value = words[0] in {"-u", "--unset", "-C", "--chdir"}
-                words = words[2:] if takes_value else words[1:]
-            continue
-        break
+        elif words[0] == "env":
+            words = _drop_env_wrapper(words)
+        else:
+            break
     return words
 
 
