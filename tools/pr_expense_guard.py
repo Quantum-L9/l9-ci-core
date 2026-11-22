@@ -374,9 +374,13 @@ def _walk_job(
     if not isinstance(steps, list):
         raise GuardParseError(f"{workflow} steps are not a list")
     skipped_test = False
+    checkout_paths: set[str] = set()
     for step in steps:
         if not isinstance(step, dict):
             raise GuardParseError(f"{workflow} has a step that is not a mapping")
+        checkout_path = _own_checkout_path(step)
+        if checkout_path:
+            checkout_paths.add(checkout_path)
         step_if = _text(step.get("if"))
         step_name = str(step.get("name", ""))
         step_sonar = (
@@ -389,7 +393,7 @@ def _walk_job(
             continue
         run = step.get("run")
         if isinstance(run, str):
-            directory = _workdir(step, job)
+            directory = _under_checkout(_workdir(step, job), checkout_paths)
             _scan_shell(
                 root,
                 run,
@@ -566,6 +570,48 @@ def _workdir(step: Mapping[str, object], job: Mapping[str, object]) -> str:
         if isinstance(source, str) and source.strip() and "${{" not in source:
             return source.strip().strip("/")
     return ""
+
+
+def _own_checkout_path(step: Mapping[str, object]) -> str:
+    """The ``path:`` an ``actions/checkout`` step puts *this* repository at.
+
+    A checkout of another repository (``with.repository``) is not this
+    revision, so it maps nothing.
+    """
+
+    uses = step.get("uses")
+    if not isinstance(uses, str) or not uses.startswith("actions/checkout@"):
+        return ""
+    options = step.get("with")
+    if not isinstance(options, dict):
+        return ""
+    repository = options.get("repository")
+    if (
+        isinstance(repository, str)
+        and repository.strip()
+        and ("github.repository" not in repository)
+    ):
+        return ""
+    path = options.get("path")
+    if not isinstance(path, str) or "${{" in path:
+        return ""
+    return path.strip().strip("/")
+
+
+def _under_checkout(directory: str, checkout_paths: set[str]) -> str:
+    """A working directory inside the checkout path, made revision-relative.
+
+    ``actions/checkout`` with ``path: memory`` puts the revision at
+    ``memory/``; a step with ``working-directory: memory`` runs at the
+    revision root, not at ``<root>/memory``.
+    """
+
+    for prefix in sorted(checkout_paths, key=len, reverse=True):
+        if directory == prefix:
+            return ""
+        if directory.startswith(prefix + "/"):
+            return directory[len(prefix) + 1 :]
+    return directory
 
 
 def _with_workflow_workdir(
@@ -882,6 +928,9 @@ def _classify_python(
 
 
 def _classify_pytest(root: Path, args: Sequence[str], directory: str) -> _Hit:
+    if any(arg in {"--collect-only", "--co"} for arg in args):
+        # Collection lists the tests and runs none of them: not a suite run.
+        return _Hit("COLLECT_ONLY", "pytest --collect-only runs no test")
     positionals: list[str] = []
     index = 0
     values = list(args)
