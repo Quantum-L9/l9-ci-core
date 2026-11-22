@@ -136,6 +136,9 @@ on:
       L9_GITHUB_READ_TOKEN:
         description: Read-only org token for the private l9-ci-sdk (AGENTS.md §27). Optional.
         required: false
+      L9_EXTERNAL_READ_TOKEN:
+        description: Read-only token for a declared external checkout owned outside Quantum-L9 (cryptoxdog/IB-Odoo_19). Optional.
+        required: false
 # Keyed by repository, revision, and event family so a pull_request evaluation and
 # a push evaluation of the same tree never collapse into one another. Queued, never
 # cancelled: a canonical evaluation of an immutable SHA must complete and stay

@@ -14,6 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / ".github" / "actions" / "checkout-external" / "checkout.py"
 TOKEN = "ghs_test_token_not_a_real_secret"
+ODOO_REPOSITORY = "cryptoxdog/IB-Odoo_19"
+SDK_REPOSITORY = "Quantum-L9/l9-ci-sdk"
 
 
 def _load():
@@ -85,18 +87,13 @@ class ExternalCheckoutTests(unittest.TestCase):
     def test_an_out_of_org_repository_uses_the_external_token(self) -> None:
         # A fine-grained token covers one resource owner, so the organization
         # token cannot read cryptoxdog/IB-Odoo_19 (CEG's declared checkout).
-        org, external = "org-token", "external-token"
-        self.assertEqual(
-            external, self.module.token_for("cryptoxdog/IB-Odoo_19", org, external)
-        )
-        self.assertEqual(
-            org, self.module.token_for("Quantum-L9/l9-ci-sdk", org, external)
-        )
-        self.assertEqual(
-            org, self.module.token_for("quantum-l9/l9-ci-sdk", org, external)
-        )
+        org, external = "placeholder-org", "placeholder-external"
+        pick = self.module.token_for
+        self.assertEqual(external, pick(ODOO_REPOSITORY, org, external))
+        self.assertEqual(org, pick(SDK_REPOSITORY, org, external))
+        self.assertEqual(org, pick(SDK_REPOSITORY.lower(), org, external))
         # No external token configured: fall back to the organization token.
-        self.assertEqual(org, self.module.token_for("cryptoxdog/IB-Odoo_19", org, ""))
+        self.assertEqual(org, pick(ODOO_REPOSITORY, org, ""))
 
     def test_main_fetches_with_the_external_token_and_clears_both(self) -> None:
         fetched: list[str] = []
@@ -121,8 +118,8 @@ class ExternalCheckoutTests(unittest.TestCase):
                 encoding="utf-8",
             )
             env = {
-                self.module.READ_TOKEN_ENV: "org-token",
-                self.module.EXTERNAL_TOKEN_ENV: "external-token",
+                self.module.READ_TOKEN_ENV: "placeholder-org",
+                self.module.EXTERNAL_TOKEN_ENV: "placeholder-external",
                 self.module.WORKSPACE_ENV: tmp,
                 "GITHUB_ENV": str(Path(tmp) / "github-env"),
             }
@@ -131,7 +128,7 @@ class ExternalCheckoutTests(unittest.TestCase):
                 unittest.mock.patch.object(self.module, "fetch_revision", fake_fetch),
             ):
                 self.assertEqual(0, self.module.main())
-        self.assertEqual(["external-token"], fetched)
+        self.assertEqual(["placeholder-external"], fetched)
         self.assertNotIn(self.module.READ_TOKEN_ENV, seen_env[0])
         self.assertNotIn(self.module.EXTERNAL_TOKEN_ENV, seen_env[0])
 
