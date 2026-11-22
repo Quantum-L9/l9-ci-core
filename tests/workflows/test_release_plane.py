@@ -245,12 +245,17 @@ class ReleasePlaneAgreesWithSiblingContractsTests(unittest.TestCase):
         triggers = workflow_triggers(ORG_CI)
         for event in self.plane["events"]["organization_ruleset"]:
             self.assertIn(event, triggers, event)
-        self.assertIn(
+        self.assertNotIn(
             "push",
             triggers,
-            "native push stays declared for Core's own repository; it is "
-            "not ruleset fanout",
+            "org-ci.yml must not run on push; a skipped required job still "
+            "creates the required check",
         )
+        caller = workflow_triggers(
+            ROOT / ".github" / "workflows" / "org-ci-default-branch-push.yml"
+        )
+        self.assertIn("push", caller)
+        self.assertNotIn("pull_request", caller)
 
     def test_release_validation_reads_the_version_from_repo_spec(self) -> None:
         validation = self.plane["core_release"]["validation"]

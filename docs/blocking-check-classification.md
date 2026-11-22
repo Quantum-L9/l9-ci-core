@@ -39,6 +39,7 @@ Classes:
 |---|---|---|
 | Resolve central runtime class | PLUMBING | Selects the evaluation profile |
 | Refuse a pull-request full-suite fallback | BLOCKING_CORRECTNESS | A pull request must be judged on its own event, never a substitute |
+| Judge pull-request test expense | BLOCKING_CORRECTNESS | A pull request is judged on the tests it would run; an unreadable guard or a non-literal suite blocks |
 | Checkout immutable event revision | PLUMBING | Fixes the evaluated revision |
 | Report toolchain alignment (advisory) | HOUSEKEEPING | Tool-version drift; a consumer finding never fails the job, only an unreadable Core lock does |
 | Validate native push event context | BLOCKING_CORRECTNESS | A push evaluation must name the revision it judges |
