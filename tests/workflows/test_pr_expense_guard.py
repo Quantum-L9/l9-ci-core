@@ -299,6 +299,99 @@ class KnownBadCases(unittest.TestCase):
         decision = judge(self.root)
         self.assert_static(decision, "UNKNOWN_SCRIPT")
 
+    # Cursor-Governance: the required organization check failed every PR on
+    # five constructs the judge misread as unknown scripts.
+
+    def test_include_expands_a_variable_naming_several_fragments(self) -> None:
+        bounded_test(self.root)
+        write(self.root, "Makefile", "include Repo.mk\ntest: repo-test\n")
+        write(
+            self.root,
+            "Repo.mk",
+            "FRAGMENTS := \\\n\tops/make/a.mk \\\n\tops/make/b.mk\n"
+            "include $(FRAGMENTS)\n",
+        )
+        write(self.root, "ops/make/a.mk", "repo-test: inner\n")
+        write(self.root, "ops/make/b.mk", "inner:\n\tpytest tests/unit\n")
+        decision = judge(self.root, changed_files=("engine/a.py",))
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_an_unresolved_include_word_stays_unknown(self) -> None:
+        write(self.root, "Makefile", "include $(NOT_SET)\ntest:\n\tpytest tests\n")
+        decision = judge(self.root, changed_files=("engine/a.py",))
+        self.assert_static(decision, "UNKNOWN_SCRIPT")
+
+    def test_a_top_level_make_diagnostic_is_not_an_unreadable_line(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            "Makefile",
+            "ifneq ($(PLAN),)\n$(error make campaign accepts one plan path)\nendif\n"
+            "$(warning legacy target)\n"
+            "test:\n\tpytest tests/unit\n",
+        )
+        decision = judge(self.root, changed_files=("engine/a.py",))
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_curdir_is_the_repository_root(self) -> None:
+        bounded_test(self.root)
+        write(self.root, "scripts/run.sh", "#!/bin/bash\npytest tests/unit\n")
+        write(self.root, "Makefile", 'test:\n\tbash "$(CURDIR)/scripts/run.sh"\n')
+        decision = judge(self.root, changed_files=("engine/a.py",))
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_argparse_help_text_is_not_a_command(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            "scripts/runner.py",
+            "import argparse, subprocess\n"
+            "parser = argparse.ArgumentParser(description='pytest wrapper')\n"
+            "parser.add_argument('rest', nargs='*', help='pytest args after --')\n"
+            "subprocess.run(['pytest', 'tests/unit'], check=True)\n",
+        )
+        text = workflow("  fast:\n    steps:\n      - run: python scripts/runner.py\n")
+        write(self.root, ".github/workflows/ci.yml", text)
+        decision = judge(self.root)
+        self.assertNotIn(
+            "UNKNOWN_SCRIPT unclassified pytest option --", decision.findings
+        )
+
+    def test_a_variable_assigned_one_literal_path_is_a_literal_selection(self) -> None:
+        bounded_test(self.root)
+        text = workflow(
+            "  fast:\n    steps:\n      - run: |\n"
+            "          t=tests/unit/test_a.py\n"
+            '          [ -f "$t" ] || exit 1\n'
+            '          python3 -m pytest -q "$t"\n'
+        )
+        write(self.root, ".github/workflows/ci.yml", text)
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_a_variable_assigned_twice_stays_unresolved(self) -> None:
+        bounded_test(self.root)
+        text = workflow(
+            "  fast:\n    steps:\n      - run: |\n"
+            "          t=tests/unit/test_a.py\n"
+            "          t=tests\n"
+            '          pytest "$t"\n'
+        )
+        write(self.root, ".github/workflows/ci.yml", text)
+        decision = judge(self.root)
+        self.assert_static(decision, "UNKNOWN_SCRIPT")
+
+    def test_a_variable_from_a_substitution_stays_unresolved(self) -> None:
+        bounded_test(self.root)
+        text = workflow(
+            "  fast:\n    steps:\n      - run: |\n"
+            "          t=$(cat selection.txt)\n"
+            '          pytest "$t"\n'
+        )
+        write(self.root, ".github/workflows/ci.yml", text)
+        decision = judge(self.root)
+        self.assert_static(decision, "UNKNOWN_SCRIPT")
+
     def _make_v1_repo_test(self, recipe: str) -> None:
         write(self.root, "Makefile", "include Repo.mk\ntest: repo-test\n")
         write(
