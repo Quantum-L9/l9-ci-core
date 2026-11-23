@@ -507,6 +507,11 @@ class WiringTests(unittest.TestCase):
         install = next(s for s in self.steps if s.get("id") == "environment")
         self.assertIn("--locked", install["run"])
         self.assertIn("--no-default-groups", install["run"])
+        self.assertIn("--no-build", install["run"])
+        self.assertIn(
+            "pip install --quiet --disable-pip-version-check --only-binary :all: -r requirements.txt",
+            install["run"],
+        )
 
     def test_no_step_hides_a_failure(self) -> None:
         for step in self.steps:
