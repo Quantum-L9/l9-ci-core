@@ -665,6 +665,7 @@ def _scan_shell(
     stripped = _strip_shell_comments(stripped)
     arrays = _parse_arrays(stripped)
     stripped = _strip_arrays(stripped)
+    arrays = {**_parse_literal_scalars(stripped), **arrays}
     logical = _join_continuations(stripped.splitlines())
     for line in logical:
         for statement in _split_statements(line):
@@ -1245,9 +1246,19 @@ def _looks_like_test_command(constant: str) -> bool:
     return False
 
 
+_DOCUMENTATION_KEYWORDS = frozenset({"help", "description", "epilog", "usage"})
+
+
 def _call_strings(node: ast.Call) -> list[str]:
     found: list[str] = []
-    for item in list(node.args) + [keyword.value for keyword in node.keywords]:
+    # help=/description=/epilog=/usage= text documents a command line; it is
+    # never run (argparse `help="pytest args after --"`).
+    keywords = [
+        keyword.value
+        for keyword in node.keywords
+        if keyword.arg not in _DOCUMENTATION_KEYWORDS
+    ]
+    for item in list(node.args) + keywords:
         if isinstance(item, ast.Constant) and isinstance(item.value, str):
             found.append(item.value)
     return found
@@ -1470,13 +1481,22 @@ def _parse_makefile(
                 variables.pop(stripped.split(None, 1)[-1].strip(), None)
             # A conditional inside a rule keeps that rule's recipe lines.
             continue
+        if re.match(r"^\$[({](?:error|warning|info)\s", stripped):
+            # A top-level diagnostic call stops or reports; it defines no
+            # target and selects no recipe.
+            continue
         if stripped.startswith(("include ", "-include ", "sinclude ")):
             optional = stripped.startswith(("-include ", "sinclude "))
-            name = stripped.split(None, 1)[1].strip()
-            included = path.parent / name
-            if not included.is_file() and optional:
-                continue
-            _parse_makefile(included, targets, variables, [*stack, resolved])
+            # include takes a word list and expands variables:
+            # `include $(MAKE_FRAGMENTS)` names every fragment in it.
+            names = _expand_make(stripped.split(None, 1)[1].strip(), variables)
+            for name in names.split():
+                if "$" in name:
+                    raise GuardParseError(f"unresolved makefile include {name}")
+                included = path.parent / name
+                if not included.is_file() and optional:
+                    continue
+                _parse_makefile(included, targets, variables, [*stack, resolved])
             current = None
             continue
         assignment = re.match(
@@ -1602,7 +1622,10 @@ def _expand_make(value: str, variables: Mapping[str, str], depth: int = 0) -> st
             output.append(_expand_make_function(name, variables, depth))
             index = end + 1
             continue
-        if name not in variables:
+        if name == "CURDIR" and name not in variables:
+            # make's working directory: the repository root the judge reads.
+            output.append(".")
+        elif name not in variables:
             output.append(value[index : end + 1])
         else:
             output.append(_expand_make(variables[name], variables, depth + 1))
@@ -1770,6 +1793,40 @@ def _strip_arrays(script: str) -> str:
     )
 
 
+def _parse_literal_scalars(script: str) -> dict[str, list[str]]:
+    """Variables a script assigns exactly once, to one literal word.
+
+    `t=tests/x.py` then `pytest "$t"` selects tests/x.py. A value with an
+    expansion, a command substitution or a glob, or a name assigned more
+    than once, stays unresolved, so the judge still fails closed on it.
+    """
+
+    seen: dict[str, list[str]] = {}
+    counts: dict[str, int] = {}
+    for line in _join_continuations(script.splitlines()):
+        for statement in _split_statements(line):
+            match = re.fullmatch(
+                r"(?:export\s+|local\s+|readonly\s+)?([A-Za-z_][A-Za-z0-9_]*)=(\S*)",
+                statement,
+            )
+            if match is None:
+                # Any other mention that may assign (read, for, +=) poisons
+                # the name.
+                for name in re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\+?=", statement):
+                    counts[name] = counts.get(name, 0) + 2
+                for name in re.findall(
+                    r"\b(?:read|for)\s+(?:-\w+\s+)*([A-Za-z_][A-Za-z0-9_]*)", statement
+                ):
+                    counts[name] = counts.get(name, 0) + 2
+                continue
+            name, raw = match.group(1), match.group(2)
+            counts[name] = counts.get(name, 0) + 1
+            words = _tokenize(raw)
+            if len(words) == 1 and not re.search(r"[$`*?\[\]{}()]", words[0]):
+                seen[name] = words
+    return {name: value for name, value in seen.items() if counts.get(name) == 1}
+
+
 def _parse_arrays(script: str) -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
     for match in re.finditer(
@@ -1872,13 +1929,15 @@ def _tokenize(text: str) -> list[str]:
 
 def _expand_tokens(tokens: Sequence[str], arrays: Mapping[str, list[str]]) -> list[str]:
     expanded: list[str] = []
-    pattern = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\[@\]\}$")
+    pattern = re.compile(
+        r"^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)(?:\[@\])?\}|([A-Za-z_][A-Za-z0-9_]*))$"
+    )
     for token in tokens:
         match = pattern.match(token)
         if match is None:
             expanded.append(token)
             continue
-        name = match.group(1)
+        name = match.group(1) or match.group(2)
         if name not in arrays:
             expanded.append(token)
             continue
