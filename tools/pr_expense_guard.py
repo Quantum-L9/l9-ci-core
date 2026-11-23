@@ -1793,6 +1793,16 @@ def _strip_arrays(script: str) -> str:
     )
 
 
+_SHELL_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
+_LITERAL_ASSIGNMENT = re.compile(
+    rf"(?:export\s+|local\s+|readonly\s+)?({_SHELL_NAME})=(\S*)"
+)
+_OTHER_ASSIGNMENTS = (
+    re.compile(rf"\b({_SHELL_NAME})\+?="),
+    re.compile(rf"\b(?:read|for)\s+(?:-\w+\s+)*({_SHELL_NAME})"),
+)
+
+
 def _parse_literal_scalars(script: str) -> dict[str, list[str]]:
     """Variables a script assigns exactly once, to one literal word.
 
@@ -1805,26 +1815,25 @@ def _parse_literal_scalars(script: str) -> dict[str, list[str]]:
     counts: dict[str, int] = {}
     for line in _join_continuations(script.splitlines()):
         for statement in _split_statements(line):
-            match = re.fullmatch(
-                r"(?:export\s+|local\s+|readonly\s+)?([A-Za-z_][A-Za-z0-9_]*)=(\S*)",
-                statement,
-            )
-            if match is None:
-                # Any other mention that may assign (read, for, +=) poisons
-                # the name.
-                for name in re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\+?=", statement):
-                    counts[name] = counts.get(name, 0) + 2
-                for name in re.findall(
-                    r"\b(?:read|for)\s+(?:-\w+\s+)*([A-Za-z_][A-Za-z0-9_]*)", statement
-                ):
-                    counts[name] = counts.get(name, 0) + 2
-                continue
-            name, raw = match.group(1), match.group(2)
-            counts[name] = counts.get(name, 0) + 1
-            words = _tokenize(raw)
-            if len(words) == 1 and not re.search(r"[$`*?\[\]{}()]", words[0]):
-                seen[name] = words
+            _count_assignment(statement, seen, counts)
     return {name: value for name, value in seen.items() if counts.get(name) == 1}
+
+
+def _count_assignment(
+    statement: str, seen: dict[str, list[str]], counts: dict[str, int]
+) -> None:
+    match = _LITERAL_ASSIGNMENT.fullmatch(statement)
+    if match is None:
+        # Any other statement that may assign (read, for, +=) poisons the name.
+        for pattern in _OTHER_ASSIGNMENTS:
+            for name in pattern.findall(statement):
+                counts[name] = counts.get(name, 0) + 2
+        return
+    name, raw = match.group(1), match.group(2)
+    counts[name] = counts.get(name, 0) + 1
+    words = _tokenize(raw)
+    if len(words) == 1 and not re.search(r"[$`*?\[\]{}()]", words[0]):
+        seen[name] = words
 
 
 def _parse_arrays(script: str) -> dict[str, list[str]]:
