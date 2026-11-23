@@ -69,12 +69,16 @@ runs:
           # Runtime dependencies and every extra: what the project ships. Dev
           # and other default groups are tools, not shipped code; dependency
           # review still checks every changed dependency on a pull request.
+          # --no-build refuses source distributions, so a dependency cannot run
+          # its setup script during this install (githubactions:S8541). A
+          # consumer that must build one pinned package allows that package
+          # on its own job with --no-binary-package.
           UV_PROJECT_ENVIRONMENT="${PWD}/${target}" python3 -m uv sync --locked \
-            --no-install-project --all-extras --no-default-groups
+            --no-install-project --all-extras --no-default-groups --no-build
           echo "path=${target}" >> "${GITHUB_OUTPUT}"
         elif [ -f requirements.txt ]; then
           python3 -m venv "${target}"
-          "${target}/bin/python" -m pip install --quiet --disable-pip-version-check -r requirements.txt
+          "${target}/bin/python" -m pip install --quiet --disable-pip-version-check --only-binary :all: -r requirements.txt
           echo "path=${target}" >> "${GITHUB_OUTPUT}"
         elif [ -f pyproject.toml ]; then
           python3 -m venv "${target}"
