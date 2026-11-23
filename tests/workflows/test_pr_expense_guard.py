@@ -299,7 +299,7 @@ class KnownBadCases(unittest.TestCase):
         decision = judge(self.root)
         self.assert_static(decision, "UNKNOWN_SCRIPT")
 
-    # Cursor-Governance (the required organization check failed every PR,
+    # Cursor-Governance: the required organization check failed every PR on
     # five constructs the judge misread as unknown scripts.
 
     def test_include_expands_a_variable_naming_several_fragments(self) -> None:
