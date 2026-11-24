@@ -120,9 +120,25 @@ class PythonUvReleaseTests(ReleaseCase):
         self.assertIn(sums, release["body"])
         self.assertEqual(
             sorted(
-                [*(line.split("  ")[1] for line in sums.splitlines()), "SHA256SUMS"]
+                [
+                    *(line.split("  ")[1] for line in sums.splitlines()),
+                    "SHA256SUMS",
+                    "l9-release.json",
+                ]
             ),
             sorted(asset["name"] for asset in release["assets"]),
+        )
+        identity_asset = next(
+            asset for asset in release["assets"] if asset["name"] == "l9-release.json"
+        )
+        identity = json.loads(self.github.blobs[identity_asset["id"]])
+        self.assertEqual("l9.release-identity/v1", identity["schema"])
+        self.assertEqual(head, identity["commit"])
+        self.assertEqual("v1.0.0", identity["tag"])
+        self.assertEqual("v1", identity["channel"])
+        self.assertEqual(
+            {line.split("  ")[1]: line.split("  ")[0] for line in sums.splitlines()},
+            identity["files"],
         )
         self.assertIsNone(self.fixture.remote_tag("v1"))  # not declared
 

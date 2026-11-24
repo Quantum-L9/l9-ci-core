@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Quantum-L9/l9-ci-core/.l9/bindings.schema.json",
+  "title": "l9.bindings/v1",
+  "description": "A consumer's declared edges to released producers (.l9/bindings.yaml). The consumer says what it pins, where the pin is written, and what must happen before the pin may move. Core's converge engine decides when. Closed: unknown fields fail closed, because a binding that silently ignores a policy key is worse than no binding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "consumer", "bindings"],
+  "properties": {
+    "schema": { "const": "l9.bindings/v1" },
+    "consumer": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+      "description": "The repository that owns this file, owner/name."
+    },
+    "bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/binding" }
+    }
+  },
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "producer", "channel", "class"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Stable identifier, unique within the file; appears in branch names and pull request titles."
+        },
+        "producer": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "channel": {
+          "type": "string",
+          "pattern": "^v[0-9]+$",
+          "description": "Moving major channel. The head is the newest vMAJOR.MINOR.PATCH in it."
+        },
+        "class": {
+          "enum": ["library", "deployed", "contract"],
+          "description": "library: a lock file moves and the consumer's checks gate it. deployed: l9-deploy owns the environment; no pull request exists. contract: named fields in a document plus a proof workflow; never auto-merged."
+        },
+        "description": { "type": "string" },
+        "file": {
+          "type": "string",
+          "description": "Repository-relative path of the JSON document holding the pin (contract class)."
+        },
+        "fields": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "version": { "$ref": "#/$defs/destination" },
+            "revision": { "$ref": "#/$defs/destination" },
+            "digest": { "$ref": "#/$defs/destination" },
+            "revision_note": { "$ref": "#/$defs/destination" }
+          }
+        },
+        "artifact": {
+          "type": "string",
+          "description": "Glob naming the one published file the digest field pins, e.g. '*.whl'. Required when fields.digest is declared."
+        },
+        "lock": { "type": "string", "description": "Repository-relative lock path (library class)." },
+        "package": { "type": "string", "description": "Distribution name inside that lock (library class)." },
+        "refresh": {
+          "type": "string",
+          "description": "The command that moves the lock. Must name {package} and {version}; may name {lock}."
+        },
+        "environment": {
+          "type": "string",
+          "description": "Deployment target owned by l9-deploy (deployed class)."
+        },
+        "proof": {
+          "type": "string",
+          "description": "The consumer's proof workflow that must be green before a contract pin may merge."
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "auto_pr": { "type": "boolean", "default": true },
+            "auto_merge": { "type": "boolean", "default": false },
+            "requires_proof": { "type": "boolean", "default": false }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "class": { "const": "library" } } },
+          "then": { "required": ["lock", "package", "refresh"] },
+          "else": { "not": { "required": ["refresh"] } }
+        },
+        {
+          "if": { "properties": { "class": { "const": "contract" } } },
+          "then": { "required": ["file", "fields", "proof"] },
+          "else": { "not": { "required": ["file"] } }
+        },
+        {
+          "if": { "properties": { "class": { "const": "deployed" } } },
+          "then": { "required": ["environment"] }
+        },
+        {
+          "if": { "required": ["fields"] },
+          "then": {
+            "properties": { "fields": { "required": ["version", "revision"] } }
+          }
+        },
+        {
+          "if": { "properties": { "fields": { "required": ["digest"] } } },
+          "then": { "required": ["artifact"] }
+        }
+      ]
+    },
+    "destination": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path"],
+          "properties": {
+            "path": { "type": "string", "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$" },
+            "template": {
+              "type": "string",
+              "description": "revision_note only. Tokens: {tag} {commit} {object} {version} {channel}."
+            }
+          }
+        }
+      ]
+    }
+  }
+}
