@@ -133,6 +133,23 @@ retired before CURSOR_CANARY_PASS.**
   - `l9-canonical-identity-projection.yml`, every 6 h. It is a projection
     refresh against `.github`.
 
+### Quantum-L9/l9-ci-debt-intelligence, l9-ci-debt-lsp, l9-ci-debt-resolver (admitted 2026-11-24, `dispatch`)
+
+- Entry point `.github/workflows/deep-plan.yml` in each repository: dispatch
+  only, the five string inputs in contract order, the contract `run-name`, SHA
+  and key admission before any heavy step, `mode=plan` running nothing,
+  `mode=apply` running `make setup` then `make test` under the v2 facade.
+- Contracts: `intelligence-deep/v1`, `lsp-deep/v1`, `resolver-deep/v1`.
+- Replaces the former `l9-nightly.yml` call to `nightly.yml@0d3d8d3`. That pin is
+  dead: the called workflow was invalid for every caller (its `analyze` job
+  granted `checks: write` above its own workflow-level grant) and has since been
+  removed from Core main, where `nightly-deep.yml` is Core's own self-test and
+  carries no `workflow_call` trigger.
+- Semgrep analysis is not part of these entry points. It stays in
+  `l9-analysis.yml`, which runs on pull requests and main; mixing SARIF analysis
+  into the nightly is what forced `checks: write` and `security-events: write`
+  into the nightly caller in the first place.
+
 ### Quantum-L9/.github (no entry point, none needed)
 
 Every schedule is an organization-wide, time-based governance check. None
