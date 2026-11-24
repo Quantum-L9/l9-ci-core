@@ -35,7 +35,10 @@ CONTRACT = {
             "file": "ops/config/memory-binding.json",
             "artifact": "*.whl",
             "fields": {
-                "version": "expected_package_version",
+                "version": [
+                    "expected_package_version",
+                    "release_evidence.package_version",
+                ],
                 "revision": "source.ref",
                 "digest": "release_evidence.artifact_sha256",
                 "revision_note": {
@@ -74,9 +77,14 @@ class ModelTests(unittest.TestCase):
         self.assertTrue(binding.policy.auto_pr)
         self.assertFalse(binding.policy.auto_merge)
         self.assertTrue(binding.policy.requires_proof)
-        self.assertEqual(binding.fields["revision"].path, "source.ref")
+        self.assertEqual(binding.fields["revision"].paths, ("source.ref",))
         self.assertEqual(
-            binding.fields["digest"].path, "release_evidence.artifact_sha256"
+            binding.fields["digest"].paths,
+            ("release_evidence.artifact_sha256",),
+        )
+        self.assertEqual(
+            binding.fields["version"].paths,
+            ("expected_package_version", "release_evidence.package_version"),
         )
 
     def test_unknown_key_fails_closed(self) -> None:
@@ -165,7 +173,10 @@ class ApplyTests(unittest.TestCase):
                 {
                     "expected_package_version": "3.0.1",
                     "source": {"ref": "96ed99eb", "ref_note": "old"},
-                    "release_evidence": {"artifact_sha256": "4822"},
+                    "release_evidence": {
+                        "artifact_sha256": "4822",
+                        "package_version": "3.0.1",
+                    },
                     "invariant": "must survive",
                 },
                 indent=2,
@@ -193,6 +204,7 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(before["version"], "3.0.1")
         self.assertEqual(after["version"], "3.0.2")
         self.assertEqual(document["expected_package_version"], "3.0.2")
+        self.assertEqual(document["release_evidence"]["package_version"], "3.0.2")
         self.assertEqual(document["source"]["ref"], "a" * 40)
         self.assertEqual(document["invariant"], "must survive")
         self.assertEqual(
@@ -328,7 +340,10 @@ class VerdictTests(unittest.TestCase):
                 {
                     "expected_package_version": "3.0.2",
                     "source": {"ref": "d" * 40},
-                    "release_evidence": {"artifact_sha256": "1"},
+                    "release_evidence": {
+                        "artifact_sha256": "1",
+                        "package_version": "3.0.2",
+                    },
                 }
             ),
             encoding="utf-8",

@@ -119,10 +119,13 @@ def rewrite(
     after: dict[str, str] = {}
     changed = False
     for name, field in binding.fields.items():
-        try:
-            before[name] = str(get_dotted(document, field.path))
-        except ApplyError:
-            before[name] = "<absent>"
+        previous: list[str] = []
+        for destination in field.paths:
+            try:
+                previous.append(str(get_dotted(document, destination)))
+            except ApplyError:
+                previous.append("<absent>")
+        before[name] = ", ".join(dict.fromkeys(previous))
         if field.template is not None:
             value = render(field.template, values)
         else:
@@ -132,7 +135,8 @@ def rewrite(
                     "was resolved for it"
                 )
             value = values[name]
-        changed = set_dotted(document, field.path, value) or changed
+        for destination in field.paths:
+            changed = set_dotted(document, destination, value) or changed
         after[name] = value
     if changed:
         path.write_text(

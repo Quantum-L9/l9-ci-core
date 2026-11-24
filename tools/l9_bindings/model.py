@@ -57,9 +57,16 @@ class BindingsInvalid(Exception):
 
 @dataclass(frozen=True)
 class Field:
-    """One destination for a resolved identity value."""
+    """Every destination for one resolved identity value.
 
-    path: str
+    A value frequently appears twice in a binding document — the version in a
+    ``package_version`` field and again in a ``release_evidence`` block — and a
+    rewrite that moves one and not the other leaves the document contradicting
+    itself. The model therefore carries a tuple, and a drift check reads all of
+    them.
+    """
+
+    paths: tuple[str, ...]
     template: str | None = None
 
 
@@ -129,15 +136,15 @@ def _fields(raw: object, where: str) -> dict[str, Field]:
     parsed: dict[str, Field] = {}
     for name, value in raw.items():
         at = f"{where}.{name}"
-        if isinstance(value, str):
-            parsed[name] = Field(path=_string(value, at))
+        if isinstance(value, (str, list)):
+            parsed[name] = Field(paths=_paths(value, at))
             continue
         if not isinstance(value, dict):
             raise _fail(at, "must be a dotted path or a mapping with path")
         extra = sorted(set(value) - {"path", "template"})
         if extra:
             raise _fail(at, f"names unknown key(s) {extra}")
-        path = _string(value.get("path"), f"{at}.path")
+        paths = _paths(value.get("path"), f"{at}.path")
         template = value.get("template")
         if template is not None:
             template = _string(template, f"{at}.template")
@@ -152,8 +159,18 @@ def _fields(raw: object, where: str) -> dict[str, Field]:
                 )
             if not used:
                 raise _fail(at, "template names no known token")
-        parsed[name] = Field(path=path, template=template)
+        parsed[name] = Field(paths=paths, template=template)
     return parsed
+
+
+def _paths(raw: object, where: str) -> tuple[str, ...]:
+    if isinstance(raw, str):
+        return (_string(raw, where),)
+    if isinstance(raw, list) and raw:
+        return tuple(
+            _string(entry, f"{where}[{index}]") for index, entry in enumerate(raw)
+        )
+    raise _fail(where, "must be a dotted path or a non-empty list of them")
 
 
 def _policy(raw: object, klass: str, where: str) -> Policy:
@@ -257,10 +274,9 @@ def _check_class(binding: Binding, where: str) -> None:
         if binding.file or binding.fields or binding.lock:
             raise _fail(where, "a deployed binding dispatches; it writes no file")
     for name, entry in binding.fields.items():
-        if not _DOTTED.match(entry.path):
-            raise _fail(
-                f"{where}.fields.{name}", f"{entry.path!r} is not a dotted path"
-            )
+        for path in entry.paths:
+            if not _DOTTED.match(path):
+                raise _fail(f"{where}.fields.{name}", f"{path!r} is not a dotted path")
     if "digest" in binding.fields and not binding.artifact:
         raise _fail(
             where,

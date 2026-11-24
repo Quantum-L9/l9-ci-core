@@ -121,38 +121,38 @@ def evaluate(binding: Binding, workspace: pathlib.Path, token: str | None) -> Ve
         document = writer.read_document(workspace / binding.file)
         version_field = binding.fields.get("version")
         revision_field = binding.fields.get("revision")
-        current_version = (
-            str(writer.get_dotted(document, version_field.path))
-            if version_field
-            else None
-        )
-        current_revision = (
-            str(writer.get_dotted(document, revision_field.path))
-            if revision_field
-            else None
-        )
-        if current_version != identity.version:
-            return Verdict(
-                binding,
-                DRIFTED,
-                f"{binding.file} pins {current_version}, "
-                f"{head.tag} is {identity.version}",
-                current=current_version,
-                target=identity.version,
-                head=head,
-                identity=identity,
-            )
-        if current_revision is not None and current_revision != identity.commit:
-            return Verdict(
-                binding,
-                DRIFTED,
-                f"{binding.file} pins {current_version} at {current_revision[:8]}, "
-                f"but {head.tag} peels to {identity.commit[:8]}",
-                current=current_version,
-                target=identity.version,
-                head=head,
-                identity=identity,
-            )
+        current_version: str | None = None
+        if version_field is not None:
+            for path in version_field.paths:
+                pinned = str(writer.get_dotted(document, path))
+                current_version = current_version or pinned
+                if pinned != identity.version:
+                    return Verdict(
+                        binding,
+                        DRIFTED,
+                        f"{binding.file} {path} pins {pinned}, "
+                        f"{head.tag} is {identity.version}",
+                        current=pinned,
+                        target=identity.version,
+                        head=head,
+                        identity=identity,
+                    )
+        current_revision: str | None = None
+        if revision_field is not None:
+            for path in revision_field.paths:
+                pinned_revision = str(writer.get_dotted(document, path))
+                current_revision = current_revision or pinned_revision
+                if pinned_revision != identity.commit:
+                    return Verdict(
+                        binding,
+                        DRIFTED,
+                        f"{binding.file} {path} pins {pinned_revision[:8]}, "
+                        f"but {head.tag} peels to {identity.commit[:8]}",
+                        current=current_version,
+                        target=identity.version,
+                        head=head,
+                        identity=identity,
+                    )
         return Verdict(
             binding,
             CONVERGED,
