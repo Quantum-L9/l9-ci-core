@@ -30,6 +30,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -365,6 +366,32 @@ class LibraryConvergeTests(Fixture):
             "| `lock` | `1.3.3` | `l9-ci-sdk==1.3.4` |", pull.call_args.args[5]
         )
         merge.assert_called_once_with(CONSUMER, "token", "PR_NODE")
+
+    def test_the_commit_carries_its_own_identity(self) -> None:
+        # A hosted runner has no ``user.email``. The engine must not inherit
+        # one: it authors the commit, so the identity travels with the command.
+        # Without that, every converge on a clean runner dies at ``git commit``
+        # with exit 128 and the binding blocks for a reason no reviewer can fix.
+        environment = {
+            "HOME": tempfile.mkdtemp(prefix="l9-no-identity-"),
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+        }
+        with mock.patch.dict(os.environ, environment):
+            for name in (
+                "GIT_AUTHOR_NAME",
+                "GIT_AUTHOR_EMAIL",
+                "GIT_COMMITTER_NAME",
+                "GIT_COMMITTER_EMAIL",
+            ):
+                os.environ.pop(name, None)
+            verdicts, _, _ = self._converge()
+        self.assertEqual([verdict.state for verdict in verdicts], [converge.PROPOSED])
+        author = git(
+            self.work, "log", "-1", "--format=%an <%ae>", "l9/binding/sdk/1.3.4"
+        )
+        self.assertEqual(author.strip(), "core <core@invalid>")
 
     def test_a_refresh_that_changes_nothing_blocks_rather_than_converging(
         self,

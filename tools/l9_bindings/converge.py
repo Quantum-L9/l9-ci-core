@@ -50,6 +50,12 @@ PROPOSED = "proposed"
 BLOCKED = "blocked"
 DELEGATED = "delegated"
 
+# The engine authors its own commits, so it carries the identity to make them.
+# A hosted runner has no ``user.email`` configured, and inheriting one would
+# attribute a machine-generated lock refresh to whoever happens to own the
+# host. ``core <core@invalid>`` is the identity the org's workflows already use.
+IDENTITY = ("-c", "user.name=core", "-c", "user.email=core@invalid")
+
 
 @dataclass(frozen=True)
 class Verdict:
@@ -398,6 +404,7 @@ def converge(
             _git(workspace, "add", "--all")
             _git(
                 workspace,
+                *IDENTITY,
                 "commit",
                 "-m",
                 f"chore(binding): {binding.id} -> {verdict.identity.version} "
