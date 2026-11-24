@@ -23,7 +23,7 @@
 # (l9.finding-waivers/v1, the file the scan itself was given) matches are not
 # counted. Writes use the
 # l9-nightly-dispatch App, minted per repository with security-events: write
-# and issues: write. Analyze steps digest: f5bc88fb141a8b23f0930696e85de0755996f92785282af07fb8e8d9bcc39f7b
+# and issues: write. Analyze steps digest: 5a69f0eb32e999e07c3f4c1cc67607b56bbd6063f25dbe15e0e105adbae0e9f8
 name: Nightly findings sink (Core)
 on:
   schedule:
@@ -1925,8 +1925,17 @@ jobs:
             fi
           elif [ -f "requirements.txt" ]; then
             locked=("requirements.txt")
+          elif compgen -G "requirements/*.lock" > /dev/null; then
+            # pip-tools projects keep one hash-locked file per environment
+            # instead of a single requirements.txt. Every lock is a fully
+            # pinned set and they are compiled against one another, so the
+            # union carries one version per shared package and is audited as
+            # a whole, exactly as the uv exports above are.
+            for file in requirements/*.lock; do
+              locked+=("${file}")
+            done
           else
-            echo "::error::pip-audit: a Python project with no uv.lock or requirements.txt has no locked set to audit; the audit is incomplete"
+            echo "::error::pip-audit: a Python project with no uv.lock, requirements.txt or requirements/*.lock has no locked set to audit; the audit is incomplete"
             echo "outcome=not_executed (no lock file)" >> "$GITHUB_OUTPUT"
             exit 1
           fi
