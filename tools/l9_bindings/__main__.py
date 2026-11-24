@@ -5,6 +5,7 @@ requests drift requires), ``discover`` (list the repositories that declare a
 binding), ``validate`` (parse the declaration). Exit codes: 0 converged or
 proposed, 3 drift remains, 2 blocked or remote failure, 1 invalid bindings.
 """
+
 from __future__ import annotations
 
 import sys
