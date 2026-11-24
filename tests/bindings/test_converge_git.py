@@ -104,6 +104,17 @@ for line in path.read_text().splitlines():
 path.write_text("\\n".join(out) + "\\n")
 """
 
+STALE = """\
+import pathlib
+
+# A refresh that runs, exits 0, and leaves the lock on the wrong release.
+path = pathlib.Path("uv.lock")
+path.write_text(
+    'version = 1\\n\\n[[package]]\\nname = "l9-ci-sdk"\\nversion = "1.0.0"\\n',
+    encoding="utf-8",
+)
+"""
+
 
 def run(cwd: pathlib.Path, *command: str) -> str:
     completed = subprocess.run(
@@ -305,6 +316,7 @@ class LibraryConvergeTests(Fixture):
         "uv.lock": 'version = 1\n\n[[package]]\nname = "l9-ci-sdk"\nversion = "1.3.3"\n',
         "relock.py": RELOCK,
         "noop.py": "import sys\n\nassert sys.argv[1:]\n",
+        "stale.py": STALE,
     }
 
     def setUp(self) -> None:
@@ -354,10 +366,13 @@ class LibraryConvergeTests(Fixture):
         )
         merge.assert_called_once_with(CONSUMER, "token", "PR_NODE")
 
-    def test_a_refresh_that_changes_nothing_is_converged_not_proposed(self) -> None:
+    def test_a_refresh_that_changes_nothing_blocks_rather_than_converging(
+        self,
+    ) -> None:
         # The lock still drifts (so the engine takes the write path) but the
-        # declared refresh writes nothing: the branch is created, nothing is
-        # committed, and the binding is reported converged rather than proposed.
+        # declared refresh writes nothing. Nothing is committed and the binding
+        # is blocked: a no-op refresh has not converged anything, and calling
+        # it converged is how a drifted consumer stays drifted in silence.
         self.write(
             ".l9/bindings.yaml",
             yaml.safe_dump(
@@ -378,8 +393,8 @@ class LibraryConvergeTests(Fixture):
         self.bindings = model.load(self.work)
         assert self.bindings is not None
         verdicts, pull, merge = self._converge()
-        self.assertEqual([verdict.state for verdict in verdicts], [converge.CONVERGED])
-        self.assertEqual(verdicts[0].detail, "the refresh produced no change")
+        self.assertEqual([verdict.state for verdict in verdicts], [converge.BLOCKED])
+        self.assertIn("pinning 1.3.3, not 1.3.4", verdicts[0].detail)
         self.assertEqual(self.origin_refs(), {"refs/heads/main"})
         pull.assert_not_called()
         merge.assert_not_called()
@@ -416,6 +431,34 @@ class LibraryConvergeTests(Fixture):
         verdicts, pull, _ = self._converge()
         self.assertEqual([verdict.state for verdict in verdicts], [converge.BLOCKED])
         self.assertIn("missing.py", verdicts[0].detail)
+        pull.assert_not_called()
+        self.assertEqual(self.origin_refs(), {"refs/heads/main"})
+
+    def test_a_refresh_that_leaves_the_wrong_version_blocks(self) -> None:
+        # The command succeeds but the lock does not reach the release, so the
+        # pull request would claim a version the consumer does not pin.
+        self.write(
+            ".l9/bindings.yaml",
+            yaml.safe_dump(
+                {
+                    "schema": "l9.bindings/v1",
+                    "consumer": CONSUMER,
+                    "bindings": [
+                        {
+                            **LIBRARY_BINDING,
+                            "refresh": "python3 stale.py {package} {version}",
+                        }
+                    ],
+                },
+                sort_keys=False,
+            ),
+        )
+        self.commit("test: a refresh that leaves the wrong version")
+        self.bindings = model.load(self.work)
+        assert self.bindings is not None
+        verdicts, pull, _ = self._converge()
+        self.assertEqual([verdict.state for verdict in verdicts], [converge.BLOCKED])
+        self.assertIn("pinning 1.0.0, not 1.3.4", verdicts[0].detail)
         pull.assert_not_called()
         self.assertEqual(self.origin_refs(), {"refs/heads/main"})
 

@@ -67,7 +67,7 @@
         "package": { "type": "string", "description": "Distribution name inside that lock (library class)." },
         "refresh": {
           "type": "string",
-          "description": "The command that moves the lock. Must name {package} and {version}; may name {lock}."
+          "description": "The command that moves the lock. Must name {package}; may name {version} and {lock}. The engine re-reads the lock afterwards and blocks unless it pins the release version, so a command that cannot take the version (a moving tag) is still safe."
         },
         "environment": {
           "type": "string",

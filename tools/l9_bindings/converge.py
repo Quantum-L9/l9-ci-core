@@ -354,6 +354,18 @@ def converge(
             _git(workspace, "switch", "-C", branch)
             if binding.klass == "library":
                 command = writer.refresh(workspace, binding, verdict.identity.version)
+                # The refresh is a declared command, not a guaranteed one. Read
+                # the lock back: a command that moved the wrong package, or
+                # followed a tag that has not moved, must not produce a pull
+                # request claiming a version the lock does not pin.
+                assert binding.lock is not None and binding.package is not None
+                pinned = locks.pinned(workspace, binding.lock, binding.package)
+                if pinned != verdict.identity.version:
+                    raise writer.ApplyError(
+                        f"binding {binding.id}: {command!r} left {binding.lock} "
+                        f"pinning {pinned or 'nothing'}, not "
+                        f"{verdict.identity.version}"
+                    )
                 before = {"lock": verdict.current or ""}
                 after = {"lock": f"{binding.package}=={verdict.identity.version}"}
                 detail = f"`{command}`"
@@ -363,8 +375,8 @@ def converge(
             if not _git(workspace, "status", "--porcelain"):
                 verdicts[position] = Verdict(
                     binding,
-                    CONVERGED,
-                    "the refresh produced no change",
+                    BLOCKED,
+                    "the refresh produced no change, so the lock still drifts",
                     current=verdict.current,
                     target=verdict.target,
                     head=verdict.head,
@@ -402,7 +414,7 @@ def converge(
                 head=verdict.head,
                 identity=verdict.identity,
             )
-        except writer.ApplyError as error:
+        except (writer.ApplyError, locks.LockUnreadable) as error:
             verdicts[position] = Verdict(
                 binding,
                 BLOCKED,

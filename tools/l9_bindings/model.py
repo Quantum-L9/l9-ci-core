@@ -258,9 +258,16 @@ def _check_class(binding: Binding, where: str) -> None:
             if getattr(binding, name) is None:
                 raise _fail(where, f"a library binding requires {name}")
         refresh = binding.refresh or ""
-        for token in ("package", "version"):
-            if "{" + token + "}" not in refresh:
-                raise _fail(f"{where}.refresh", f"must name {{{token}}}")
+        # The command must name the package it moves. It need not name the
+        # version: a consumer that follows a moving tag resolves the version
+        # *from* the tag (``uv lock --upgrade-package X`` has no way to accept
+        # one), so requiring the token would force every such consumer to wrap
+        # the command in a script. What the token was standing in for — that
+        # the lock ends up on the release the pull request claims — is checked
+        # directly: ``converge`` re-reads the lock after the refresh and blocks
+        # unless it pins the resolved version.
+        if "{package}" not in refresh:
+            raise _fail(f"{where}.refresh", "must name {package}")
         if binding.file or binding.fields or binding.environment:
             raise _fail(where, "a library binding names a lock, not a file or target")
     elif binding.klass == "contract":

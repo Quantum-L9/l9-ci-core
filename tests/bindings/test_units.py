@@ -107,12 +107,21 @@ class ModelTests(unittest.TestCase):
             model.parse(document)
         self.assertIn("artifact", str(caught.exception))
 
-    def test_library_refresh_must_name_its_tokens(self) -> None:
+    def test_library_refresh_must_name_the_package_it_moves(self) -> None:
         document = json.loads(json.dumps(LIBRARY))
         document["bindings"][0]["refresh"] = "uv lock --upgrade"
         with self.assertRaises(model.BindingsInvalid) as caught:
             model.parse(document)
-        self.assertIn("must name", str(caught.exception))
+        self.assertIn("must name {package}", str(caught.exception))
+
+    def test_a_refresh_that_follows_a_tag_need_not_name_the_version(self) -> None:
+        # A consumer that follows a moving tag resolves the version *from* the
+        # tag; converge verifies the lock afterwards instead of passing a
+        # version the command could not accept.
+        document = json.loads(json.dumps(LIBRARY))
+        document["bindings"][0]["refresh"] = "uv lock --upgrade-package {package}"
+        binding = model.parse(document).bindings[0]
+        self.assertEqual(binding.refresh, "uv lock --upgrade-package {package}")
 
     def test_library_parses_and_keeps_auto_merge(self) -> None:
         binding = model.parse(LIBRARY).bindings[0]
