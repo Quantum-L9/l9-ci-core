@@ -141,7 +141,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry-run }}
         working-directory: core
         run: |
-          args=(converge --workspace "$WORKSPACE" --token "$TOKEN")
+          args=(--workspace "$WORKSPACE" --token "$TOKEN" converge)
           if [ "$DRY_RUN" = "true" ]; then
             args+=(--dry-run)
           fi
