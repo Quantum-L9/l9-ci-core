@@ -4,7 +4,7 @@
   "source": {
     "repository": "Quantum-L9/.github",
     "path": "semantics/repository_registry.yaml",
-    "commit": "08b2d072651083011a708c1ffd07497fc0d0e6b3",
+    "commit": "d0d292721046cc5e6e5083ee798aa652728d9af1",
     "sha256": "ee2d03e6d4fc80184e5d428888db026fc4b12a013c44950e8752a129cf595afd",
     "artifact_id": "l9.repository-registry/global@1"
   },
