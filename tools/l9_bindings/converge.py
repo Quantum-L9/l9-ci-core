@@ -169,15 +169,23 @@ def evaluate(binding: Binding, workspace: pathlib.Path, token: str | None) -> Ve
 def _values(verdict: Verdict) -> dict[str, str]:
     assert verdict.head is not None and verdict.identity is not None
     head, identity = verdict.head, verdict.identity
-    return {
+    values = {
         "version": identity.version,
         "revision": identity.commit,
         "commit": identity.commit,
         "tag": head.tag,
         "channel": head.channel,
         "object": head.object_sha or identity.commit,
-        "digest": writer.digest_for(verdict.binding, identity.files),
     }
+    # The digest is resolved only where the document pins one. A library
+    # binding names no digest, and a producer whose release publishes no
+    # artifact (a tag with no release object) has none to resolve; requiring
+    # one would block a lock-only converge on a fact it never reads. A
+    # declared digest field still fails closed: ``rewrite`` refuses a field
+    # with no resolved value.
+    if "digest" in verdict.binding.fields:
+        values["digest"] = writer.digest_for(verdict.binding, identity.files)
+    return values
 
 
 def _git(workspace: pathlib.Path, *arguments: str) -> str:
@@ -458,7 +466,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("bindings: converge needs a token", file=sys.stderr)
             return 2
         verdicts = converge(
-            bindings, arguments.workspace, token, dry_run=arguments.dry_run
+            bindings,
+            arguments.workspace,
+            token,
+            dry_run=arguments.dry_run,
         )
     if arguments.json:
         print(json.dumps([verdict.as_dict() for verdict in verdicts], indent=2))
