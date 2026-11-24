@@ -33,7 +33,11 @@ from dataclasses import dataclass
 
 API = "https://api.github.com"
 _VERSION = re.compile(r"^v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$")
-_TOKEN = "L9_GIT_TOKEN"
+# The *name* of the environment variable that carries the token, never a
+# token. Named for what it is: an assignment to a variable called ``_TOKEN``
+# reads to a credential scanner as a hardcoded secret, and Core's required
+# ``L9-PYTHON-HARDCODED-CREDENTIAL`` rule accepts no inline suppression.
+_TOKEN_VARIABLE = "L9_GIT_TOKEN"
 
 
 class RemoteError(Exception):
@@ -78,7 +82,9 @@ def _git(
     command = ["git"]
     if token:
         helper = (
-            '!f() { echo username=x-access-token; echo "password=$' + _TOKEN + '"; }; f'
+            '!f() { echo username=x-access-token; echo "password=$'
+            + _TOKEN_VARIABLE
+            + '"; }; f'
         )
         command += ["-c", "credential.helper=", "-c", f"credential.helper={helper}"]
     command += arguments
@@ -86,7 +92,7 @@ def _git(
     return subprocess.run(
         command,
         cwd=cwd,
-        env={**os.environ, **environment, _TOKEN: token or ""},
+        env={**os.environ, **environment, _TOKEN_VARIABLE: token or ""},
         capture_output=True,
         text=True,
         check=False,
