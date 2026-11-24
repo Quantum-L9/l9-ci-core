@@ -25,6 +25,24 @@
       "workflow": ".github/workflows/sonarcloud.yml",
       "contract": "cursor-governance-deep/v1",
       "scheduling": "dispatch"
+    },
+    {
+      "repository": "Quantum-L9/l9-ci-debt-intelligence",
+      "workflow": ".github/workflows/deep-plan.yml",
+      "contract": "intelligence-deep/v1",
+      "scheduling": "dispatch"
+    },
+    {
+      "repository": "Quantum-L9/l9-ci-debt-lsp",
+      "workflow": ".github/workflows/deep-plan.yml",
+      "contract": "lsp-deep/v1",
+      "scheduling": "dispatch"
+    },
+    {
+      "repository": "Quantum-L9/l9-ci-debt-resolver",
+      "workflow": ".github/workflows/deep-plan.yml",
+      "contract": "resolver-deep/v1",
+      "scheduling": "dispatch"
     }
   ]
 }

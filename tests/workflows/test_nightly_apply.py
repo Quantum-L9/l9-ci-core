@@ -648,14 +648,19 @@ class EntrypointLoaderTests(unittest.TestCase):
 
     def test_committed_entrypoints_load(self) -> None:
         entries = nightly.load_entrypoints()
-        self.assertEqual(
-            ["self", "dispatch", "dispatch", "dispatch"],
-            [entry.scheduling for entry in entries],
+        self.assertEqual("self", entries[0].scheduling)
+        self.assertEqual("Quantum-L9/l9-ci-core", entries[0].repository)
+        self.assertTrue(
+            all(entry.scheduling == "dispatch" for entry in entries[1:]),
+            "only Core may schedule its own deep suite",
         )
-        self.assertEqual(
-            ("Quantum-L9/Cursor-Governance", ".github/workflows/sonarcloud.yml"),
-            (entries[-1].repository, entries[-1].workflow),
-        )
+        admitted = {(entry.repository, entry.workflow) for entry in entries}
+        for repository in (
+            "Quantum-L9/l9-ci-debt-intelligence",
+            "Quantum-L9/l9-ci-debt-lsp",
+            "Quantum-L9/l9-ci-debt-resolver",
+        ):
+            self.assertIn((repository, ".github/workflows/deep-plan.yml"), admitted)
 
     def test_malformed_entrypoints_are_refused(self) -> None:
         good = {
