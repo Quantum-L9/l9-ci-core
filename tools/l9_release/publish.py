@@ -25,6 +25,10 @@ from .config import ReleaseConfig
 from .errors import ReleaseRefused
 from .github import GitHubReleases
 from .identity import changelog_section, parse_version, read_version, release_identity
+from .identity_document import NAME as IDENTITY_NAME
+from .identity_document import encode as encode_identity
+from .identity_document import identity_document
+from .identity_document import validate as validate_identity
 from .plan import Plan
 from .plan import plan as make_plan
 
@@ -142,6 +146,18 @@ def publish(
     )
     local = load_build(dist, commit, decided.version)
     epoch = gitops.commit_epoch(workspace, commit)
+    document = encode_identity(
+        identity_document(
+            releases.repository,
+            decided.version,
+            identity.exact_tag,
+            identity.major_tag,
+            commit,
+            config.adapter,
+            local.sums,
+            epoch,
+        )
+    )
 
     if decided.create_tag:
         gitops.create_exact_tag(
@@ -173,11 +189,16 @@ def publish(
         print(f"publish: created GitHub Release {identity.exact_tag}")
 
     present = {asset.name for asset in release.assets}
-    uploads = [*sorted(local.files), SUMS]
+    uploads = [*sorted(local.files), IDENTITY_NAME, SUMS]
     for name in uploads:
         if name in present:
             continue  # verify proves its bytes; an existing asset is never replaced
-        data = local.sums_text.encode("utf-8") if name == SUMS else local.files[name]
+        if name == SUMS:
+            data = local.sums_text.encode("utf-8")
+        elif name == IDENTITY_NAME:
+            data = document
+        else:
+            data = local.files[name]
         releases.upload_asset(release, name, data)
         print(f"publish: uploaded {name}")
 
@@ -187,7 +208,7 @@ def publish(
         )
         print(f"publish: {decided.major_tag} -> {commit} ({decided.major_verdict})")
 
-    verify(workspace, config, commit, remote, releases, dist)
+    verify(workspace, config, commit, remote, releases, dist, require_identity=True)
     return decided
 
 
@@ -198,6 +219,7 @@ def verify(
     remote: str,
     releases: GitHubReleases,
     dist: pathlib.Path | None = None,
+    require_identity: bool = False,
 ) -> None:
     commit = gitops.resolve_commit(workspace, commit)
     version = read_version(
@@ -226,11 +248,33 @@ def verify(
     if dist is not None and (dist / SUMS).is_file():
         if (dist / SUMS).read_text(encoding="utf-8") != sums_text:
             raise ReleaseRefused(f"published {SUMS} differs from the local build")
-    extra = sorted(set(assets) - set(sums) - {SUMS})
+    extra = sorted(set(assets) - set(sums) - {SUMS, IDENTITY_NAME})
     missing = sorted(set(sums) - set(assets))
     if missing or extra:
         raise ReleaseRefused(
             f"release assets disagree with {SUMS}: missing {missing}, extra {extra}"
+        )
+    if IDENTITY_NAME in assets:
+        try:
+            document = json.loads(
+                releases.download_asset(assets[IDENTITY_NAME]).decode("utf-8")
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ReleaseRefused(f"published {IDENTITY_NAME} is not JSON: {error}")
+        validate_identity(
+            document,
+            repository=releases.repository,
+            tag=identity.exact_tag,
+            version=version,
+            commit=commit,
+            channel=identity.major_tag,
+            sums=sums,
+        )
+        print(f"{IDENTITY_NAME}: OK")
+    elif require_identity:
+        raise ReleaseRefused(
+            f"release {identity.exact_tag} has no {IDENTITY_NAME}; a release "
+            "published by this engine always carries its identity document"
         )
     for name, digest in sorted(sums.items()):
         actual = sha256(releases.download_asset(assets[name]))

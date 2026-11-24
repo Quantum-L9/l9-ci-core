@@ -1,0 +1,158 @@
+# Core-owned binding convergence (docs/CONVERGENCE.md; .l9/bindings.schema.json).
+#
+# A consumer declares its edges in .l9/bindings.yaml. This workflow resolves
+# each producer's channel head and either reports the drift or opens the pull
+# request the drift requires. Every line of logic lives in
+# tools/l9_bindings; this file only supplies the trigger, the credential and
+# the matrix.
+#
+# It is a reusable workflow, and it is SCHEDULED by the repository that holds
+# the organization's repo-birth App credential (environment `repo-birth`, main
+# only), exactly like release-runner.yml: no new App, secret or environment
+# exists for convergence. GitHub resolves the environment, its vars and its
+# secrets in the CALLER repository, so the caller passes BIRTH_APP_PRIVATE_KEY
+# by name.
+#
+# Authority: GITHUB_TOKEN stays contents:read. Every write uses an installation
+# token of the repo-birth App, minted per consumer and scoped to that one
+# repository. A pull request opened with GITHUB_TOKEN triggers no workflows and
+# could never be green, which is why the App token is not optional here.
+name: Binding converge (Core)
+on:
+  workflow_call:
+    inputs:
+      core-ref:
+        description: >-
+          The exact Core commit to run. Core refuses a checkout that differs.
+        type: string
+        required: true
+      consumer:
+        description: >-
+          Converge only this repository now (name or owner/name). Empty
+          converges every organization repository that declares a binding.
+        type: string
+        required: false
+        default: ""
+      environment:
+        description: >-
+          The caller-repository environment that holds vars.BIRTH_APP_ID and
+          secrets.BIRTH_APP_PRIVATE_KEY.
+        type: string
+        required: false
+        default: repo-birth
+      dry-run:
+        description: Report drift without opening any pull request.
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      BIRTH_APP_PRIVATE_KEY:
+        description: >-
+          Pass by name from the caller. Never `secrets: inherit`: this workflow
+          declares exactly the one secret it needs.
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: binding-converge-${{ inputs.consumer || 'all' }}
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      consumers: ${{ steps.list.outputs.consumers }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.core-ref }}
+          persist-credentials: false
+      - name: Prove the checkout is the requested Core commit
+        env:
+          REQUESTED: ${{ inputs.core-ref }}
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$REQUESTED" ]; then
+            echo "::error::checked out $actual, not the requested $REQUESTED"
+            exit 1
+          fi
+      - name: Mint an organization read token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.BIRTH_APP_ID }}
+          private-key: ${{ secrets.BIRTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+      - name: Resolve the consumer list
+        id: list
+        env:
+          TOKEN: ${{ steps.app.outputs.token }}
+          TARGET: ${{ inputs.consumer }}
+        run: |
+          if [ -n "$TARGET" ]; then
+            python3 -c 'import json,os; print(json.dumps([os.environ["TARGET"]]))' \
+              > consumers.json
+          else
+            python3 -m tools.l9_bindings discover \
+              --org "${GITHUB_REPOSITORY_OWNER}" --token "$TOKEN" > consumers.json
+          fi
+          echo "consumers=$(cat consumers.json)" >> "$GITHUB_OUTPUT"
+          cat consumers.json
+  converge:
+    needs: plan
+    if: needs.plan.outputs.consumers != '[]'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    strategy:
+      fail-fast: false
+      matrix:
+        consumer: ${{ fromJSON(needs.plan.outputs.consumers) }}
+    steps:
+      - name: Name the consumer repository
+        id: name
+        env:
+          CONSUMER: ${{ matrix.consumer }}
+        run: echo "repo=${CONSUMER#*/}" >> "$GITHUB_OUTPUT"
+      - name: Mint a write token for this consumer only
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.BIRTH_APP_ID }}
+          private-key: ${{ secrets.BIRTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.name.outputs.repo }}
+      - name: Check out the consumer
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: ${{ matrix.consumer }}
+          token: ${{ steps.app.outputs.token }}
+          persist-credentials: true
+          path: consumer
+      - name: Check out Core at the requested commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.core-ref }}
+          persist-credentials: false
+          path: core
+      - name: Converge
+        env:
+          TOKEN: ${{ steps.app.outputs.token }}
+          WORKSPACE: ${{ github.workspace }}/consumer
+          DRY_RUN: ${{ inputs.dry-run }}
+        working-directory: core
+        run: |
+          args=(--workspace "$WORKSPACE" --token "$TOKEN" converge)
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          set +e
+          python3 -m tools.l9_bindings "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          status=${PIPESTATUS[0]}
+          set -e
+          case "$status" in
+            0|3) exit 0 ;;
+            *)
+              echo "::error::binding-converge failed for ${{ matrix.consumer }} (exit $status)"
+              exit "$status"
+              ;;
+          esac

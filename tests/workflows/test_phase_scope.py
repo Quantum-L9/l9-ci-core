@@ -65,6 +65,11 @@ EXPECTED_WORKFLOWS = {
     # Core-hosted release runner: releases every registry member that declares
     # .l9/release.json (daily schedule + one-repository dispatch). Never part
     # of the org-CI required workflow (docs/RELEASING.md).
+    # Core-hosted binding convergence: resolves every declared consumer edge
+    # against its producer's channel head and opens the pull request drift
+    # requires (.l9/bindings.schema.json, tools/l9_bindings). Scheduled by the
+    # factory with the repo-birth App, like release-runner.yml.
+    "binding-converge.yml",
     "release-runner.yml",
     # Core-hosted GitHub settings runner: plans (and, only on an explicit
     # dry-run=false dispatch, applies) the settings Quantum-L9/.github declares

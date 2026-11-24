@@ -56,6 +56,8 @@ UNIT_TEST_MODULES = (
     "tests/artifacts/test_artifact_protocol.py",
     "tests/artifacts/test_retrieve_action.py",
     "tests/artifacts/test_route_artifacts.py",
+    "tests/bindings/test_units.py",
+    "tests/bindings/test_converge_git.py",
     "tests/governance/test_constellation_scope.py",
     "tests/governance/test_consumer_metadata.py",
     "tests/governance/test_finding_waiver_ledger.py",
