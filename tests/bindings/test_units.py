@@ -171,6 +171,22 @@ class LockTests(unittest.TestCase):
         with self.assertRaises(locks.LockUnreadable):
             locks.pinned(self.directory, "uv.lock", "l9-ci-sdk")
 
+    def test_an_archive_pin_is_read_as_the_commit_it_resolved_to(self) -> None:
+        # A hash-locked requirements file records the object a git channel
+        # resolved to, because pip cannot hash-verify a ref.
+        (self.directory / "requirements.lock").write_text(
+            "l9-ci-sdk @ https://github.com/o/r/archive/"
+            + "a" * 40
+            + ".tar.gz \\\n    --hash=sha256:"
+            + "0" * 64
+            + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            locks.pinned(self.directory, "requirements.lock", "l9-ci-sdk"),
+            "a" * 40,
+        )
+
 
 class ApplyTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -364,6 +380,37 @@ class VerdictTests(unittest.TestCase):
         ):
             verdict = converge.evaluate(binding, self.directory, None)
         self.assertEqual(verdict.state, converge.CONVERGED)
+
+    def test_a_lock_that_pins_the_release_commit_is_converged(self) -> None:
+        document = json.loads(json.dumps(LIBRARY))
+        document["bindings"][0]["lock"] = "requirements.lock"
+        (self.directory / "requirements.lock").write_text(
+            "l9-ci-sdk @ https://github.com/o/r/archive/" + "d" * 40 + ".tar.gz\n",
+            encoding="utf-8",
+        )
+        binding = model.parse(document).bindings[0]
+        with (
+            mock.patch.object(converge, "channel_head", return_value=self.head),
+            mock.patch.object(converge, "fetch_identity", return_value=self.identity),
+        ):
+            verdict = converge.evaluate(binding, self.directory, None)
+        self.assertEqual(verdict.state, converge.CONVERGED)
+        self.assertEqual(verdict.current, "d" * 40)
+
+    def test_a_lock_pinned_to_another_commit_drifts(self) -> None:
+        document = json.loads(json.dumps(LIBRARY))
+        document["bindings"][0]["lock"] = "requirements.lock"
+        (self.directory / "requirements.lock").write_text(
+            "l9-ci-sdk @ https://github.com/o/r/archive/" + "e" * 40 + ".tar.gz\n",
+            encoding="utf-8",
+        )
+        binding = model.parse(document).bindings[0]
+        with (
+            mock.patch.object(converge, "channel_head", return_value=self.head),
+            mock.patch.object(converge, "fetch_identity", return_value=self.identity),
+        ):
+            verdict = converge.evaluate(binding, self.directory, None)
+        self.assertEqual(verdict.state, converge.DRIFTED)
 
 
 if __name__ == "__main__":

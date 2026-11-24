@@ -15,6 +15,13 @@ import re
 import tomllib
 
 _REQUIREMENT = re.compile(r"^(?P<name>[A-Za-z0-9_.-]+)\s*==\s*(?P<version>[^\s;\\]+)")
+# A git dependency rewritten to the source archive of the commit the channel
+# resolved to: `name @ https://github.com/<org>/<repo>/archive/<sha>.tar.gz`.
+# pip cannot hash-verify a git ref, so a hash-locked requirements file records
+# the object instead of the version. That object *is* the pin.
+_ARCHIVE = re.compile(
+    r"^(?P<name>[A-Za-z0-9_.-]+)\s*@\s*\S*/archive/(?P<commit>[0-9a-f]{40})\.tar\.gz"
+)
 
 
 class LockUnreadable(Exception):
@@ -92,7 +99,11 @@ def _requirements(path: pathlib.Path, package: str) -> str | None:
         raise LockUnreadable(f"{path} is not readable text: {error}") from error
     wanted = normalise(package)
     for line in text.splitlines():
-        match = _REQUIREMENT.match(line.strip())
+        stripped = line.strip()
+        match = _REQUIREMENT.match(stripped)
         if match and normalise(match.group("name")) == wanted:
             return match.group("version")
+        archived = _ARCHIVE.match(stripped)
+        if archived and normalise(archived.group("name")) == wanted:
+            return archived.group("commit")
     return None

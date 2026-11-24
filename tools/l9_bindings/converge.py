@@ -76,6 +76,18 @@ class Verdict:
         }
 
 
+def _satisfied(pinned: str | None, identity: ReleaseIdentity) -> bool:
+    """Whether a lock's pin is the release the channel resolves to.
+
+    A lock names one or the other. An index or ``uv`` lock records the
+    version; a hash-locked requirements file that follows a git channel
+    records the commit it resolved to, because pip cannot hash-verify a ref.
+    Both are the same claim — "this is the release at the channel head" — so
+    both satisfy it, and nothing else does.
+    """
+    return pinned is not None and pinned in {identity.version, identity.commit}
+
+
 def evaluate(binding: Binding, workspace: pathlib.Path, token: str | None) -> Verdict:
     try:
         head = channel_head(binding.producer, binding.channel, token)
@@ -96,7 +108,7 @@ def evaluate(binding: Binding, workspace: pathlib.Path, token: str | None) -> Ve
             if binding.lock is None or binding.package is None:
                 return Verdict(binding, BLOCKED, "the binding names no lock")
             current = locks.pinned(workspace, binding.lock, binding.package)
-            if current == identity.version:
+            if _satisfied(current, identity):
                 return Verdict(
                     binding,
                     CONVERGED,
@@ -360,7 +372,7 @@ def converge(
                 # request claiming a version the lock does not pin.
                 assert binding.lock is not None and binding.package is not None
                 pinned = locks.pinned(workspace, binding.lock, binding.package)
-                if pinned != verdict.identity.version:
+                if not _satisfied(pinned, verdict.identity):
                     raise writer.ApplyError(
                         f"binding {binding.id}: {command!r} left {binding.lock} "
                         f"pinning {pinned or 'nothing'}, not "
