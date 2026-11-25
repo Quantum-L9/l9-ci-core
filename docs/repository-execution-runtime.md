@@ -54,8 +54,13 @@ repository-owned Repo.mk
   publication or Governance target and no dispatcher variable. In Core,
   regenerate it with `python3 -m tools.l9_repo reconcile`; that command is
   one-directional (facade specification to `Makefile`), idempotent, and never
-  writes `Repo.mk`. A consumer receives the facade from the Factory install;
-  Core never writes into a consumer, it only verifies the bytes at admission.
+  writes `Repo.mk`. `reconcile --facade <facade>` is the one exception to
+  "`Makefile` only": it also rewrites the Core-owned contract, because moving a
+  repository onto another released facade (§make-v2) is a Core operation and
+  never a hand edit. It refuses unless `Repo.mk` already implements the target
+  facade's leaves, so a refused migration writes nothing. A consumer receives
+  the facade from the Factory install; Core never writes into a consumer, it
+  only verifies the bytes at admission.
 - **`Repo.mk`** is repository-owned: hand-maintained, never generated, never
   carrying generated provenance, never requiring an extension file. It must
   declare the four `repo-*` leaves unconditionally (a leaf only inside a
@@ -135,7 +140,9 @@ interpreter running the tool) or one of the pinned toolchain `ruff`, `mypy`,
   ahead/behind, and remote freshness. No pull-request state: that lives on the
   publication plane.
 - `make reconcile`: regenerate `Makefile` from the released facade under the
-  single-flight lock. Never touches `Repo.mk`.
+  single-flight lock. Never touches `Repo.mk`. `python3 -m tools.l9_repo
+  --workspace <consumer> reconcile --facade <facade>` also moves the contract
+  to that released facade (§make-v2), after proving `Repo.mk` implements it.
 - `python3 -m tools.l9_repo --workspace <consumer> stamp --profile
   <python|typescript|python+typescript>`: write every Core-owned consumer file
   for the profile plus the stamp record `.l9/core-stamp.json`
@@ -373,10 +380,19 @@ without `test-fast`, or a contract the judge cannot read, is `UNKNOWN_SCRIPT`.
 `test` remains the whole suite under make-v2 and is not run by the required
 check on a judged event.
 
-A make-v1 consumer whose `repo-test` is a whole-tree suite adopts make-v2 by
-setting `"facade": "make-v2"` and the five-phase `required_phases` in
-`.l9/repo-workflow.json`, regenerating `Makefile` (`reconcile`, or
-`stamp --facade make-v2` for a stamped repository; a later re-stamp keeps the
-declared facade), and adding `repo-test-fast` to `Repo.mk`. The phase selection
-lives in `run-repository-verification`, so it takes effect for consumers at the
-§16 pin advance.
+A make-v1 consumer whose `repo-test` is a whole-tree suite adopts make-v2 in
+three steps, in this order, because each step is what the next one proves:
+
+1. add `repo-test-fast` (and the selection it runs) to `Repo.mk`;
+2. `python3 -m tools.l9_repo --workspace <repo> reconcile --facade make-v2`,
+   which rewrites the contract and `Makefile` together and refuses — writing
+   nothing — when `Repo.mk` does not yet implement the target facade;
+3. `python3 -m tools.l9_repo --workspace <repo> validate`, then a judged
+   `pull_request` run, which now reads `test-fast`.
+
+A stamped repository may use `stamp --profile <profile> --facade make-v2`
+instead of step 2 when it is re-stamping anyway; a later re-stamp keeps the
+declared facade. `reconcile --facade` refreshes the stamp record's digests for
+the two files it rewrote, so the migration is not reported as a consumer edit.
+The phase selection lives in `run-repository-verification`, so it takes effect
+for consumers at the §16 pin advance.
