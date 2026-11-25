@@ -43,6 +43,24 @@
       "workflow": ".github/workflows/deep-plan.yml",
       "contract": "resolver-deep/v1",
       "scheduling": "dispatch"
+    },
+    {
+      "repository": "Quantum-L9/l9-assurance",
+      "workflow": ".github/workflows/deep-plan.yml",
+      "contract": "assurance-deep/v1",
+      "scheduling": "dispatch"
+    },
+    {
+      "repository": "Quantum-L9/l9-harness",
+      "workflow": ".github/workflows/deep-plan.yml",
+      "contract": "harness-deep/v1",
+      "scheduling": "dispatch"
+    },
+    {
+      "repository": "Quantum-L9/l9-observability-core",
+      "workflow": ".github/workflows/deep-plan.yml",
+      "contract": "observability-deep/v1",
+      "scheduling": "dispatch"
     }
   ]
 }
