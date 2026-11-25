@@ -8,6 +8,7 @@ temporary files.
 
 from __future__ import annotations
 
+import datetime
 import json
 import pathlib
 import subprocess
@@ -21,7 +22,7 @@ if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
 from l9_bindings import apply as writer  # noqa: E402
-from l9_bindings import converge, locks, model, remote  # noqa: E402
+from l9_bindings import converge, dispatch, locks, model, remote  # noqa: E402
 
 CONTRACT = {
     "schema": "l9.bindings/v1",
@@ -411,6 +412,314 @@ class VerdictTests(unittest.TestCase):
         ):
             verdict = converge.evaluate(binding, self.directory, None)
         self.assertEqual(verdict.state, converge.DRIFTED)
+
+
+DEPLOYED = {
+    "schema": "l9.bindings/v1",
+    "consumer": "Quantum-L9/Cursor-Governance",
+    "bindings": [
+        {
+            "id": "c1",
+            "producer": "Quantum-L9/l9-graphiti-memory",
+            "channel": "v3",
+            "class": "deployed",
+            "environment": "c1",
+        }
+    ],
+}
+COMMIT = "d" * 40
+IMAGE = "ghcr.io/quantum-l9/l9-graphiti-memory"
+IMAGE_DIGEST = "sha256:" + "a" * 64
+
+
+def deployment_request(**overrides: object) -> dict[str, object]:
+    """A request shaped exactly like ``container-release`` publishes one."""
+
+    document: dict[str, object] = {
+        "schema": "l9.deployment-request/v2",
+        "request_id": "6f1e2d3c-4b5a-4978-8796-a5b4c3d2e1f0",
+        "idempotency_key": f"release:Quantum-L9/l9-graphiti-memory:{COMMIT}:c1-staging",
+        "source": {
+            "repository": "Quantum-L9/l9-graphiti-memory",
+            "commit_sha": COMMIT,
+            "ref": "refs/tags/v3.0.2",
+            "run_id": 44388642735,
+        },
+        "artifact": {
+            "image": IMAGE,
+            "digest": IMAGE_DIGEST,
+            "image_ref": f"{IMAGE}@{IMAGE_DIGEST}",
+            "architecture": "linux/amd64",
+        },
+        "profile": {"path": ".l9/deployment.yaml", "digest": "sha256:" + "b" * 64},
+        "evidence": {
+            "schema": "l9.release-evidence-reference/v1",
+            "schema_version": "2.0.0",
+            "sdk_version": "1.4.0",
+            "bundle_digest": "sha256:" + "c" * 64,
+            "workflow_run_id": 44388642735,
+            "artifact_name": "release-evidence",
+            "bundle_path": "finding-bundle.json",
+            "provenance_reference": f"oci://{IMAGE}@{IMAGE_DIGEST}#provenance",
+            "sbom_reference": f"oci://{IMAGE}@{IMAGE_DIGEST}#sbom",
+            "gate_binding_digest": "sha256:" + "e" * 64,
+            "gate_binding_path": "ci-gate-binding.json",
+            "artifact_binding_digest": "sha256:" + "f" * 64,
+            "artifact_binding_path": "release-artifact-binding.json",
+        },
+        "target": {"environment": "c1-staging"},
+        "requested_by": "release-workflow",
+        "requested_at": "2026-11-24T00:00:00Z",
+    }
+    document.update(overrides)
+    return document
+
+
+class DeploymentRequestTests(unittest.TestCase):
+    """``l9.deployment-request/v2``: proved against the release, then re-bound."""
+
+    def test_a_request_for_the_release_validates(self) -> None:
+        document = deployment_request()
+        self.assertEqual(
+            document,
+            dispatch.validate(
+                document,
+                producer="Quantum-L9/l9-graphiti-memory",
+                commit=COMMIT,
+            ),
+        )
+
+    def test_a_request_about_another_commit_is_refused(self) -> None:
+        with self.assertRaisesRegex(dispatch.DispatchError, "commit_sha"):
+            dispatch.validate(
+                deployment_request(),
+                producer="Quantum-L9/l9-graphiti-memory",
+                commit="e" * 40,
+            )
+
+    def test_a_request_from_another_repository_is_refused(self) -> None:
+        with self.assertRaisesRegex(dispatch.DispatchError, "source.repository"):
+            dispatch.validate(
+                deployment_request(),
+                producer="Quantum-L9/Constellation.Gate",
+                commit=COMMIT,
+            )
+
+    def test_an_unknown_field_is_refused(self) -> None:
+        document = deployment_request(extra="not in the contract")
+        with self.assertRaisesRegex(dispatch.DispatchError, "unknown field"):
+            dispatch.validate(
+                document,
+                producer="Quantum-L9/l9-graphiti-memory",
+                commit=COMMIT,
+            )
+
+    def test_an_image_ref_that_disagrees_with_image_and_digest_is_refused(self) -> None:
+        document = json.loads(json.dumps(deployment_request()))
+        document["artifact"]["image_ref"] = f"{IMAGE}@sha256:" + "0" * 64
+        with self.assertRaisesRegex(dispatch.DispatchError, "image_ref"):
+            dispatch.validate(
+                document,
+                producer="Quantum-L9/l9-graphiti-memory",
+                commit=COMMIT,
+            )
+
+    def test_a_request_without_evidence_is_refused(self) -> None:
+        document = json.loads(json.dumps(deployment_request()))
+        del document["evidence"]
+        with self.assertRaisesRegex(dispatch.DispatchError, "missing field"):
+            dispatch.validate(
+                document,
+                producer="Quantum-L9/l9-graphiti-memory",
+                commit=COMMIT,
+            )
+
+    def test_bind_rebinds_identity_and_environment(self) -> None:
+        binding = model.parse(DEPLOYED).bindings[0]
+        payload = dispatch.bind(
+            deployment_request(),
+            consumer="Quantum-L9/Cursor-Governance",
+            binding=binding,
+            producer=binding.producer,
+            commit=COMMIT,
+            now=datetime.datetime(2026, 11, 24, 12, 0, tzinfo=datetime.UTC),
+        )
+        self.assertEqual({"environment": "c1"}, payload["target"])
+        self.assertEqual(
+            f"release:{binding.producer}:{COMMIT}:c1", payload["idempotency_key"]
+        )
+        self.assertEqual("Quantum-L9/Cursor-Governance (c1)", payload["requested_by"])
+        self.assertEqual("2026-11-24T12:00:00Z", payload["requested_at"])
+        # Everything the producer proved is copied, not recomputed.
+        self.assertEqual(deployment_request()["artifact"], payload["artifact"])
+        self.assertEqual(deployment_request()["evidence"], payload["evidence"])
+
+    def test_two_environments_are_two_distinct_requests(self) -> None:
+        document = json.loads(json.dumps(DEPLOYED))
+        document["bindings"].append(
+            {
+                "id": "c1-staging",
+                "producer": "Quantum-L9/l9-graphiti-memory",
+                "channel": "v3",
+                "class": "deployed",
+                "environment": "c1-staging",
+            }
+        )
+        bindings = model.parse(document)
+        first, second = (
+            dispatch.bind(
+                deployment_request(),
+                consumer=bindings.consumer,
+                binding=binding,
+                producer=binding.producer,
+                commit=COMMIT,
+            )
+            for binding in bindings.bindings
+        )
+        self.assertNotEqual(first["request_id"], second["request_id"])
+        self.assertNotEqual(first["idempotency_key"], second["idempotency_key"])
+
+    def test_emit_dispatches_the_rebound_payload(self) -> None:
+        binding = model.parse(DEPLOYED).bindings[0]
+        with mock.patch.object(dispatch, "_post") as post:
+            payload = dispatch.emit(
+                deployment_request(),
+                consumer="Quantum-L9/Cursor-Governance",
+                binding=binding,
+                producer=binding.producer,
+                commit=COMMIT,
+                token="t",
+            )
+        url, token, body = post.call_args.args
+        self.assertEqual(
+            "https://api.github.com/repos/Quantum-L9/l9-deploy/dispatches", url
+        )
+        self.assertEqual("t", token)
+        self.assertEqual("l9.release.requested.v2", body["event_type"])
+        self.assertEqual(payload, body["client_payload"])
+        self.assertEqual("c1", body["client_payload"]["target"]["environment"])
+
+    def test_emit_refuses_a_request_it_cannot_prove(self) -> None:
+        binding = model.parse(DEPLOYED).bindings[0]
+        with mock.patch.object(dispatch, "_post") as post:
+            with self.assertRaises(dispatch.DispatchError):
+                dispatch.emit(
+                    deployment_request(),
+                    consumer="Quantum-L9/Cursor-Governance",
+                    binding=binding,
+                    producer=binding.producer,
+                    commit="e" * 40,
+                    token="t",
+                )
+        post.assert_not_called()
+
+
+class DeployedConvergeTests(unittest.TestCase):
+    """A deployed binding converges by dispatching, and only when asked."""
+
+    def setUp(self) -> None:
+        self.directory = pathlib.Path(tempfile.mkdtemp())
+        self.head = remote.ChannelHead("v3", "v3.0.2", "3.0.2", COMMIT, None)
+        self.identity = remote.ReleaseIdentity(
+            "Quantum-L9/l9-graphiti-memory",
+            "v3",
+            "v3.0.2",
+            "3.0.2",
+            COMMIT,
+            {"x.whl": "1"},
+            "document",
+            None,
+        )
+        self.bindings = model.parse(DEPLOYED)
+
+    def evaluate(self) -> converge.Verdict:
+        with (
+            mock.patch.object(converge, "channel_head", return_value=self.head),
+            mock.patch.object(converge, "fetch_identity", return_value=self.identity),
+        ):
+            return converge.evaluate(self.bindings.bindings[0], self.directory, "t")
+
+    def test_a_release_without_a_published_request_stays_delegated(self) -> None:
+        with mock.patch.object(remote, "release_asset", return_value=None):
+            verdict = self.evaluate()
+        self.assertEqual(converge.DELEGATED, verdict.state)
+        self.assertIsNone(verdict.request)
+        self.assertIn("publishes no deployment-request.json", verdict.detail)
+
+    def test_a_published_request_is_proved_before_it_can_be_dispatched(self) -> None:
+        body = json.dumps(deployment_request()).encode()
+        with mock.patch.object(remote, "release_asset", return_value=body):
+            verdict = self.evaluate()
+        self.assertEqual(converge.DELEGATED, verdict.state)
+        assert verdict.request is not None
+        self.assertEqual("c1-staging", verdict.request["target"]["environment"])
+
+    def test_an_invalid_published_request_blocks(self) -> None:
+        body = json.dumps(deployment_request(source={"repository": "o/r"})).encode()
+        with mock.patch.object(remote, "release_asset", return_value=body):
+            verdict = self.evaluate()
+        self.assertEqual(converge.BLOCKED, verdict.state)
+        self.assertIn("source", verdict.detail)
+
+    def test_plan_never_dispatches(self) -> None:
+        body = json.dumps(deployment_request()).encode()
+        with (
+            mock.patch.object(converge, "channel_head", return_value=self.head),
+            mock.patch.object(converge, "fetch_identity", return_value=self.identity),
+            mock.patch.object(remote, "release_asset", return_value=body),
+            mock.patch.object(dispatch, "_post") as post,
+        ):
+            verdicts = converge.converge(
+                self.bindings, self.directory, "t", dry_run=True, dispatch=True
+            )
+        post.assert_not_called()
+        self.assertEqual(converge.DELEGATED, verdicts[0].state)
+
+    def test_converge_dispatches_the_declared_environment(self) -> None:
+        body = json.dumps(deployment_request()).encode()
+        with (
+            mock.patch.object(converge, "channel_head", return_value=self.head),
+            mock.patch.object(converge, "fetch_identity", return_value=self.identity),
+            mock.patch.object(remote, "release_asset", return_value=body),
+            mock.patch.object(dispatch, "_post") as post,
+        ):
+            verdicts = converge.converge(
+                self.bindings, self.directory, "t", dry_run=False, dispatch=True
+            )
+        self.assertEqual(converge.REQUESTED, verdicts[0].state)
+        payload = post.call_args.args[2]["client_payload"]
+        self.assertEqual({"environment": "c1"}, payload["target"])
+        self.assertEqual(COMMIT, payload["source"]["commit_sha"])
+
+    def test_converge_without_dispatch_emits_nothing(self) -> None:
+        body = json.dumps(deployment_request()).encode()
+        with (
+            mock.patch.object(converge, "channel_head", return_value=self.head),
+            mock.patch.object(converge, "fetch_identity", return_value=self.identity),
+            mock.patch.object(remote, "release_asset", return_value=body),
+            mock.patch.object(dispatch, "_post") as post,
+        ):
+            verdicts = converge.converge(
+                self.bindings, self.directory, "t", dry_run=False
+            )
+        post.assert_not_called()
+        self.assertEqual(converge.DELEGATED, verdicts[0].state)
+
+    def test_a_failed_dispatch_is_blocked_not_silent(self) -> None:
+        body = json.dumps(deployment_request()).encode()
+        with (
+            mock.patch.object(converge, "channel_head", return_value=self.head),
+            mock.patch.object(converge, "fetch_identity", return_value=self.identity),
+            mock.patch.object(remote, "release_asset", return_value=body),
+            mock.patch.object(
+                dispatch, "_post", side_effect=dispatch.DispatchError("HTTP 403")
+            ),
+        ):
+            verdicts = converge.converge(
+                self.bindings, self.directory, "t", dry_run=False, dispatch=True
+            )
+        self.assertEqual(converge.BLOCKED, verdicts[0].state)
+        self.assertIn("HTTP 403", verdicts[0].detail)
 
 
 if __name__ == "__main__":

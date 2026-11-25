@@ -10,9 +10,14 @@ answer, under the policy the binding declares:
 * ``contract`` — rewrite the declared fields, open a pull request, never
   auto-merge. The proof workflow the binding names is the gate, and it runs in
   the consumer against the consumer's code.
-* ``deployed`` — no pull request exists to open. The binding is reported as
-  delegated; ``l9-deploy`` owns the environment, and pretending otherwise would
-  make a rollback require a source change.
+* ``deployed`` — no pull request exists to open. ``l9-deploy`` owns the
+  environment, and pretending otherwise would make a rollback require a source
+  change. The engine's whole job is to ask for the deployment: it proves the
+  producer published an ``l9.deployment-request/v2`` with the release
+  (``dispatch.py``), re-binds it to this binding's environment and dispatches
+  ``l9.release.requested.v2``. A release with no published request stays
+  ``delegated`` and says so; emission is opt-in (``converge --dispatch``), so a
+  ``plan`` can never deploy.
 
 A blocked binding is never a silent pass: an unreachable producer, a channel
 with no release, a release whose identity disagrees with its tag, or a lock
@@ -33,7 +38,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from . import apply as writer
-from . import locks, model
+from . import dispatch as broker
+from . import locks, model, remote
 from .model import Binding, Bindings
 from .remote import (
     API,
@@ -49,6 +55,7 @@ DRIFTED = "drifted"
 PROPOSED = "proposed"
 BLOCKED = "blocked"
 DELEGATED = "delegated"
+REQUESTED = "requested"
 
 # The engine authors its own commits, so it carries the identity to make them.
 # A hosted runner has no ``user.email`` configured, and inheriting one would
@@ -66,6 +73,7 @@ class Verdict:
     target: str | None = None
     head: ChannelHead | None = None
     identity: ReleaseIdentity | None = None
+    request: dict[str, object] | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -78,6 +86,8 @@ class Verdict:
             "target": self.target,
             "tag": self.head.tag if self.head else None,
             "commit": self.identity.commit if self.identity else None,
+            "environment": self.binding.environment,
+            "request_id": (self.request or {}).get("request_id"),
             "detail": self.detail,
         }
 
@@ -101,14 +111,45 @@ def evaluate(binding: Binding, workspace: pathlib.Path, token: str | None) -> Ve
             return Verdict(binding, BLOCKED, "the channel holds no release")
         identity = fetch_identity(binding.producer, head, token)
         if binding.klass == "deployed":
+            body = remote.release_asset(
+                binding.producer, head.tag, broker.REQUEST_ASSET, token
+            )
+            if body is None:
+                return Verdict(
+                    binding,
+                    DELEGATED,
+                    f"environment {binding.environment} is owned by l9-deploy; "
+                    f"{head.tag} publishes no {broker.REQUEST_ASSET}, so there is "
+                    "no request to dispatch",
+                    target=identity.version,
+                    head=head,
+                    identity=identity,
+                )
+            try:
+                document = json.loads(body)
+                broker.validate(
+                    document, producer=binding.producer, commit=identity.commit
+                )
+            except (json.JSONDecodeError, broker.DispatchError) as error:
+                return Verdict(
+                    binding,
+                    BLOCKED,
+                    f"{head.tag} {broker.REQUEST_ASSET} is not a request this "
+                    f"release can prove: {error}",
+                    target=identity.version,
+                    head=head,
+                    identity=identity,
+                )
             return Verdict(
                 binding,
                 DELEGATED,
                 f"environment {binding.environment} is owned by l9-deploy; "
-                "the release is dispatched, not pinned here",
+                f"{head.tag} publishes a valid {broker.REQUEST_ASSET} "
+                "(dispatch is opt-in: converge --dispatch)",
                 target=identity.version,
                 head=head,
                 identity=identity,
+                request=document,
             )
         if binding.klass == "library":
             if binding.lock is None or binding.package is None:
@@ -180,7 +221,12 @@ def evaluate(binding: Binding, workspace: pathlib.Path, token: str | None) -> Ve
             head=head,
             identity=identity,
         )
-    except (RemoteError, locks.LockUnreadable, writer.ApplyError) as error:
+    except (
+        RemoteError,
+        broker.DispatchError,
+        locks.LockUnreadable,
+        writer.ApplyError,
+    ) as error:
         return Verdict(binding, BLOCKED, str(error))
 
 
@@ -354,13 +400,60 @@ def discover(org: str, token: str) -> list[str]:
 
 
 def converge(
-    bindings: Bindings, workspace: pathlib.Path, token: str, *, dry_run: bool
+    bindings: Bindings,
+    workspace: pathlib.Path,
+    token: str,
+    *,
+    dry_run: bool,
+    dispatch: bool = False,
+    dispatch_token: str | None = None,
+    deploy_repository: str = broker.DEPLOY_REPOSITORY,
 ) -> list[Verdict]:
     verdicts: list[Verdict] = []
     for binding in bindings.bindings:
         verdicts.append(evaluate(binding, workspace, token))
     if dry_run:
         return verdicts
+    if dispatch:
+        for position, verdict in enumerate(list(verdicts)):
+            binding = verdict.binding
+            if binding.klass != "deployed" or verdict.request is None:
+                continue
+            assert verdict.identity is not None
+            try:
+                payload = broker.emit(
+                    verdict.request,
+                    consumer=bindings.consumer,
+                    binding=binding,
+                    producer=binding.producer,
+                    commit=verdict.identity.commit,
+                    token=dispatch_token or token,
+                    repository=deploy_repository,
+                )
+            except broker.DispatchError as error:
+                verdicts[position] = Verdict(
+                    binding,
+                    BLOCKED,
+                    str(error),
+                    current=verdict.current,
+                    target=verdict.target,
+                    head=verdict.head,
+                    identity=verdict.identity,
+                    request=verdict.request,
+                )
+                continue
+            environment = str(payload["target"]["environment"])
+            verdicts[position] = Verdict(
+                binding,
+                REQUESTED,
+                f"dispatched {environment} for {verdict.identity.version} "
+                f"({payload['idempotency_key']})",
+                current=verdict.current,
+                target=verdict.target,
+                head=verdict.head,
+                identity=verdict.identity,
+                request=payload,
+            )
     for position, verdict in enumerate(list(verdicts)):
         if verdict.state != DRIFTED or not verdict.binding.policy.auto_pr:
             continue
@@ -457,6 +550,27 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--json", action="store_true")
     run = stages.add_parser("converge", help="open the pull requests drift requires")
     run.add_argument("--dry-run", action="store_true")
+    run.add_argument(
+        "--dispatch",
+        action="store_true",
+        help=(
+            "also emit l9.release.requested.v2 for deployed bindings whose "
+            "release publishes a valid deployment-request.json"
+        ),
+    )
+    run.add_argument(
+        "--dispatch-token",
+        default=None,
+        help=(
+            "token authorized to dispatch to the deployment repository "
+            "(default: --token; it needs contents: write on that repository)"
+        ),
+    )
+    run.add_argument(
+        "--deploy-repository",
+        default=broker.DEPLOY_REPOSITORY,
+        help=f"the repository that executes requests (default: {broker.DEPLOY_REPOSITORY})",
+    )
     run.add_argument("--json", action="store_true")
     found = stages.add_parser(
         "discover", help="list the repositories that declare a binding"
@@ -501,6 +615,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.workspace,
             token,
             dry_run=arguments.dry_run,
+            dispatch=arguments.dispatch,
+            dispatch_token=arguments.dispatch_token,
+            deploy_repository=arguments.deploy_repository,
         )
     if arguments.json:
         print(json.dumps([verdict.as_dict() for verdict in verdicts], indent=2))

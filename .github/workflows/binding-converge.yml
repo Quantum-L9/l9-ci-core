@@ -17,6 +17,13 @@
 # token of the repo-birth App, minted per consumer and scoped to that one
 # repository. A pull request opened with GITHUB_TOKEN triggers no workflows and
 # could never be green, which is why the App token is not optional here.
+#
+# A `deployed` binding owns no file: converging it means dispatching
+# l9.release.requested.v2 to the deployment repository, and that needs a token
+# scoped to THAT repository (repository_dispatch is a contents:write call on
+# the target). The per-consumer App token cannot reach it, so emission takes a
+# second, optional credential and is off unless `dispatch: true`. Without it a
+# deployed binding still resolves and reports; it just dispatches nothing.
 name: Binding converge (Core)
 on:
   workflow_call:
@@ -45,12 +52,30 @@ on:
         type: boolean
         required: false
         default: false
+      dispatch:
+        description: >-
+          Emit l9.release.requested.v2 for every deployed binding. Off by
+          default: a run reports what a deployed binding asks for and
+          dispatches nothing unless the caller opts in.
+        type: boolean
+        required: false
+        default: false
+      deploy-repository:
+        description: The repository that executes a release request.
+        type: string
+        required: false
+        default: Quantum-L9/l9-deploy
     secrets:
       BIRTH_APP_PRIVATE_KEY:
         description: >-
           Pass by name from the caller. Never `secrets: inherit`: this workflow
-          declares exactly the one secret it needs.
+          declares exactly the credentials it needs and nothing else.
         required: true
+      DEPLOY_DISPATCH_TOKEN:
+        description: >-
+          Authorized to dispatch to `deploy-repository` (contents:write there).
+          Required only when `dispatch` is true.
+        required: false
 permissions:
   contents: read
 concurrency:
@@ -138,12 +163,23 @@ jobs:
         env:
           TOKEN: ${{ steps.app.outputs.token }}
           WORKSPACE: ${{ github.workspace }}/consumer
+          DISPATCH_TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
+          DISPATCH: ${{ inputs.dispatch }}
+          DEPLOY_REPOSITORY: ${{ inputs.deploy-repository }}
           DRY_RUN: ${{ inputs.dry-run }}
         working-directory: core
         run: |
           args=(--workspace "$WORKSPACE" --token "$TOKEN" converge)
           if [ "$DRY_RUN" = "true" ]; then
             args+=(--dry-run)
+          fi
+          if [ "$DISPATCH" = "true" ]; then
+            if [ -z "$DISPATCH_TOKEN" ]; then
+              echo "::error::dispatch requested but DEPLOY_DISPATCH_TOKEN is empty"
+              exit 1
+            fi
+            args+=(--dispatch --dispatch-token "$DISPATCH_TOKEN")
+            args+=(--deploy-repository "$DEPLOY_REPOSITORY")
           fi
           set +e
           python3 -m tools.l9_bindings "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
