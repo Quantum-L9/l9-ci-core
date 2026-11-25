@@ -150,6 +150,27 @@ retired before CURSOR_CANARY_PASS.**
   into the nightly is what forced `checks: write` and `security-events: write`
   into the nightly caller in the first place.
 
+### Quantum-L9/l9-assurance, l9-harness, l9-observability-core (admitted 2026-11-24, `dispatch`)
+
+- Entry point `.github/workflows/deep-plan.yml` in each repository: dispatch
+  only, the five string inputs in contract order, the contract `run-name`, SHA
+  and key admission before any heavy step, `mode=plan` running nothing,
+  `mode=apply` running the repository's locked uv sync and its pytest suite.
+- Contracts: `assurance-deep/v1`, `harness-deep/v1`,
+  `observability-deep/v1`.
+- Replaces the former `l9-nightly.yml` call to `nightly.yml@0d3d8d3` in all
+  three. It is the same dead pin the debt repositories carried: the called
+  workflow was invalid for every caller and has been removed from Core main.
+- Suites: `uv sync --locked --no-build --extra dev` then `uv run pytest`
+  (assurance); `uv sync --locked --group dev` then `uv run pytest` (harness);
+  `uv sync --locked --extra dev` then `uv run pytest` (observability-core).
+- Analysis is not part of these entry points. `l9-assurance` keeps its
+  `l9-analysis.yml` on the Core main pin. `l9-harness` and
+  `l9-observability-core` carry no per-repository analysis workflow; whether
+  the organization's required-workflow ruleset covers them is an
+  organization-admin question, not a repository one, and nothing here asserts
+  an answer to it.
+
 ### Quantum-L9/.github (no entry point, none needed)
 
 Every schedule is an organization-wide, time-based governance check. None
