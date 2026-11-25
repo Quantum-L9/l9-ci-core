@@ -113,6 +113,64 @@ class KnownBadCases(unittest.TestCase):
         self.assert_static(decision, "BOUNDED_FAST")
         self.assertTrue(decision.selected_suite.startswith("bounded:"))
 
+    def test_uv_run_wrapping_a_full_suite_still_blocks(self) -> None:
+        # uv run is a runner, not a shield: the wrapped command is the
+        # selection, and pytest with no paths is the whole suite.
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow("  fast:\n    steps:\n      - run: uv run pytest\n"),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "FULL_PYTEST")
+
+    def test_uv_run_with_a_bounded_selection_passes(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow("  fast:\n    steps:\n      - run: uv run pytest tests/unit\n"),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_uv_run_options_before_the_command_are_skipped(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow(
+                "  fast:\n    steps:\n"
+                "      - run: uv run --with pytest==9.0.2 pytest tests/unit\n"
+            ),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_uvx_wrapping_a_bounded_selection_passes(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow("  fast:\n    steps:\n      - run: uvx pytest tests/unit\n"),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
+    def test_uv_sync_is_not_a_test_selection(self) -> None:
+        bounded_test(self.root)
+        write(
+            self.root,
+            ".github/workflows/ci.yml",
+            workflow(
+                "  fast:\n    steps:\n"
+                "      - run: uv sync --locked\n"
+                "      - run: pytest tests/unit\n"
+            ),
+        )
+        decision = judge(self.root)
+        self.assert_static(decision, "BOUNDED_FAST")
+
     def test_repo_test_indirection_blocks_without_a_workflow_pytest_string(
         self,
     ) -> None:
