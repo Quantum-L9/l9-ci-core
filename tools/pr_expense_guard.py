@@ -832,11 +832,64 @@ def _strip_subshell(argv: list[str]) -> list[str]:
     return words
 
 
+_UV_VALUE_OPTIONS = frozenset(
+    {
+        "--with",
+        "--with-editable",
+        "--with-requirements",
+        "--extra",
+        "--group",
+        "--python",
+        "--directory",
+        "--project",
+        "--env-file",
+        "--index",
+        "--index-url",
+        "--extra-index-url",
+        "--find-links",
+        "--config-file",
+        "--cache-dir",
+        "--color",
+        "--no-binary",
+        "--only-binary",
+        "--resolution",
+        "--prerelease",
+        "--from",
+    }
+)
+
+
+def _drop_tool_run(words: Sequence[str], command_index: int) -> list[str]:
+    """Drop ``uv run`` / ``uvx`` and their options, keeping the wrapped command.
+
+    ``uv run pytest tests/unit`` runs pytest exactly as ``pytest tests/unit``
+    does. Without this the judge saw no selection at all in a uv-managed
+    repository and returned ``ZERO_TESTS`` for a bounded fast suite. An option
+    that takes a value consumes the next word; ``--opt=value`` is one word.
+    """
+
+    rest = list(words[command_index:])
+    while rest:
+        token = rest[0]
+        if token == "--":
+            return rest[1:]
+        if token in _UV_VALUE_OPTIONS:
+            rest = rest[2:]
+            continue
+        if token.startswith("-"):
+            rest = rest[1:]
+            continue
+        return rest
+    return []
+
+
 def _strip_command_prefix(argv: Sequence[str]) -> list[str]:
-    """Drop leading ``NAME=value`` words and an ``env`` wrapper.
+    """Drop leading ``NAME=value`` words, an ``env`` wrapper and a tool runner.
 
     ``PYTHONPATH=. pytest tests/`` runs pytest. Dropping the whole statement
     because its first word is an assignment made the judge blind to it.
+    ``uv run`` and ``uvx`` are the same blind spot in a uv-managed repository:
+    the wrapped command is the test selection and is judged as written.
     """
 
     words = list(argv)
@@ -847,6 +900,10 @@ def _strip_command_prefix(argv: Sequence[str]) -> list[str]:
             words = words[1:]
         elif words[0] == "env":
             words = _drop_env_wrapper(words)
+        elif words[0] == "uv" and len(words) > 1 and words[1] == "run":
+            words = _drop_tool_run(words, 2)
+        elif words[0] == "uvx":
+            words = _drop_tool_run(words, 1)
         else:
             break
     return words
