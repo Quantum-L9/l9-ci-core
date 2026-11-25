@@ -47,6 +47,13 @@ outputs:
     value: ${{ steps.build.outputs.image-ref }}
   deployment-request-id:
     value: ${{ steps.evidence.outputs.deployment-request-id }}
+  deployment-request-path:
+    description: >-
+      The l9.deployment-request/v2 document this run built. Upload it as a
+      release asset named deployment-request.json: a `deployed` binding
+      re-emits exactly this document for another environment, and can only
+      prove it from the release (tools/l9_bindings/dispatch.py).
+    value: .l9/release/deployment-request.json
   release-evidence-artifact:
     value: ${{ steps.evidence.outputs.artifact-name }}
 runs:

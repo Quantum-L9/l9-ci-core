@@ -220,6 +220,23 @@ def _sums(body: bytes, tag: str) -> dict[str, str]:
     return entries
 
 
+def release_asset(
+    repository: str, tag: str, name: str, token: str | None = None
+) -> bytes | None:
+    """One named asset of a release, or ``None`` when either is absent.
+
+    A producer that publishes no release object and one that publishes a
+    release without this asset are the same answer to the caller ("there is
+    nothing to read"), and neither is an error: the caller decides whether
+    the absence blocks it.
+    """
+
+    release = _release(repository, tag, token)
+    if release is None:
+        return None
+    return _asset(release, name, token)
+
+
 def fetch_identity(
     repository: str,
     head: ChannelHead,
