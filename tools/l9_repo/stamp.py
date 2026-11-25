@@ -597,6 +597,20 @@ def migrate_facade(root: pathlib.Path, facade: str) -> list[str]:
         CONTRACT_PATH.as_posix(): render_contract(facade),
         MAKEFILE_PATH.as_posix(): render_facade(facade),
     }
+    # The record is refreshed from the bytes this call is about to write, so it
+    # joins the same pass as the two Core-owned files: one place decides what
+    # changed, one place writes it, and a migration that changes nothing writes
+    # nothing.
+    record = _refreshed_record(
+        root,
+        {
+            relative: data
+            for relative, data in outputs.items()
+            if _differs(root, relative, data)
+        },
+    )
+    if record is not None:
+        outputs[STAMP_RECORD_PATH.as_posix()] = record
     changed: list[str] = []
     for relative, data in outputs.items():
         path = _destination(root, relative)
@@ -607,22 +621,33 @@ def migrate_facade(root: pathlib.Path, facade: str) -> list[str]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         changed.append(relative)
-    migrated = {relative: outputs[relative] for relative in changed}
-    if _refresh_migrated_digests(root, migrated):
-        changed.append(STAMP_RECORD_PATH.as_posix())
     return changed
 
 
-def _refresh_migrated_digests(
+def _differs(root: pathlib.Path, relative: str, data: bytes) -> bool:
+    """Whether writing ``data`` would change ``relative``; a non-file is refused."""
+
+    path = _destination(root, relative)
+    if path.exists() and not path.is_file():
+        _fail(f"refusing to replace a non-file: {relative}")
+    return not path.is_file() or path.read_bytes() != data
+
+
+def _refreshed_record(
     root: pathlib.Path, rendered: Mapping[str, bytes]
-) -> bool:
-    """Keep a stamp record truthful about the paths a migration rewrote."""
+) -> bytes | None:
+    """Keep a stamp record truthful about the paths a migration rewrites.
+
+    Returns the record's new bytes, or ``None`` when the repository carries no
+    record or every digest already matches — a migration that changes nothing
+    must not rewrite the record either.
+    """
 
     if not rendered:
-        return False
+        return None
     record = load_stamp_record(root)
     if record is None:
-        return False
+        return None
     files: dict[str, Any] = record["files"]
     changed = False
     for relative, data in rendered.items():
@@ -631,10 +656,8 @@ def _refresh_migrated_digests(
             files[relative] = digest
             changed = True
     if not changed:
-        return False
-    path = _destination(root, STAMP_RECORD_PATH.as_posix())
-    path.write_bytes((json.dumps(record, indent=2) + "\n").encode("utf-8"))
-    return True
+        return None
+    return (json.dumps(record, indent=2) + "\n").encode("utf-8")
 
 
 def verify_stamp(root: pathlib.Path) -> tuple[dict[str, Any] | None, list[str]]:
