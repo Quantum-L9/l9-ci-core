@@ -508,7 +508,11 @@ Everything else in it is this repository's business: Core keeps `test-deep`,
 `core-validate`, `reconcile`, `attest-control-plane`, and
 `check-release-writers` there as Core-local targets outside the portable ABI.
 `python3 -m tools.l9_repo reconcile` regenerates only `Makefile`,
-idempotently; it never writes `Repo.mk`.
+idempotently; it never writes `Repo.mk`. Its one widening is
+`reconcile --facade <facade>`: it also rewrites the Core-owned contract when a
+repository moves onto another released facade, and it refuses without writing
+anything unless `Repo.mk` already implements that facade's leaves
+(`docs/repository-execution-runtime.md` §make-v2).
 
 ### Core-local policy
 

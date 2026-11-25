@@ -7,6 +7,8 @@ checks are regression tripwires on top of that.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import pathlib
@@ -42,11 +44,14 @@ from l9_repo.contract import (  # noqa: E402
     validate_v2_contract_data,
 )
 from l9_repo.stamp import (  # noqa: E402
+    migrate_facade,
     render_contract,
     render_profile,
     stamp,
     verify_stamp,
 )
+
+from l9_repo.__main__ import main  # noqa: E402
 
 sys.path.insert(0, str(ROOT / ".github" / "actions" / "run-repository-verification"))
 sys.path.insert(0, str(ROOT / "tools"))
@@ -442,6 +447,108 @@ class MakeV2StampTests(unittest.TestCase):
             self.assertEqual([], findings)
             self.assertEqual([], stamp(root, "python", REVISION))
             self.assertEqual(render_facade("make-v2"), (root / "Makefile").read_bytes())
+
+
+class FacadeMigrationTests(unittest.TestCase):
+    """``migrate_facade`` / ``reconcile --facade``: change facade as Core does.
+
+    The contract and the ``Makefile`` are Core-owned, so the migration is the
+    only correct way to move a repository between released facades: it proves
+    the repository can implement the target before it rewrites anything.
+    """
+
+    def test_migration_writes_the_contract_and_the_makefile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            write_consumer(root, repo_mk=v2_repo_mk("pytest tests/unit"))
+            changed = migrate_facade(root, "make-v2")
+            self.assertEqual([".l9/repo-workflow.json", "Makefile"], changed)
+            self.assertEqual(
+                render_contract("make-v2"),
+                (root / ".l9" / "repo-workflow.json").read_bytes(),
+            )
+            self.assertEqual(render_facade("make-v2"), (root / "Makefile").read_bytes())
+            self.assertEqual("make-v2", RepositoryExecution(root).facade())
+            RepositoryExecution(root).validate()
+
+    def test_migration_refuses_a_repo_mk_that_cannot_implement_the_facade(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            write_consumer(root)
+            contract = (root / ".l9" / "repo-workflow.json").read_bytes()
+            makefile = (root / "Makefile").read_bytes()
+            with self.assertRaisesRegex(ContractError, "repo-test-fast"):
+                migrate_facade(root, "make-v2")
+            # Nothing was written: the refusal is the proof, not a half state.
+            self.assertEqual(
+                contract, (root / ".l9" / "repo-workflow.json").read_bytes()
+            )
+            self.assertEqual(makefile, (root / "Makefile").read_bytes())
+            self.assertEqual("", git(root, "status", "--porcelain"))
+            self.assertEqual("make-v1", RepositoryExecution(root).facade())
+
+    def test_migration_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            write_consumer(root, repo_mk=v2_repo_mk("pytest tests/unit"))
+            self.assertTrue(migrate_facade(root, "make-v2"))
+            self.assertEqual(
+                [".l9/repo-workflow.json", "Makefile"],
+                git(root, "diff", "--name-only").split(),
+            )
+            git(root, "commit", "-qam", "migrate to make-v2")
+            self.assertEqual([], migrate_facade(root, "make-v2"))
+            self.assertEqual("", git(root, "status", "--porcelain"))
+
+    def test_migration_back_to_make_v1_keeps_the_bounded_leaf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            write_consumer(root, repo_mk=v2_repo_mk("pytest tests/unit"))
+            migrate_facade(root, "make-v2")
+            self.assertEqual(
+                [".l9/repo-workflow.json", "Makefile"], migrate_facade(root, "make-v1")
+            )
+            self.assertEqual("make-v1", RepositoryExecution(root).facade())
+            # make-v1 does not own test-fast, so the leaf is the repository's
+            # business and validation still passes.
+            RepositoryExecution(root).validate()
+            self.assertIn(
+                "repo-test-fast", (root / "Repo.mk").read_text(encoding="utf-8")
+            )
+
+    def test_migration_refreshes_a_stamp_record_it_rewrites(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            write_consumer(root, repo_mk=v2_repo_mk("pytest tests/unit"))
+            stamp(root, "python", REVISION)
+            self.assertEqual([], verify_stamp(root)[1])
+            changed = migrate_facade(root, "make-v2")
+            self.assertIn(".l9/core-stamp.json", changed)
+            record, findings = verify_stamp(root)
+            self.assertEqual([], findings)
+            assert record is not None
+            self.assertEqual(REVISION, record["core"]["revision"])
+
+    def test_cli_reconcile_facade_reports_the_migration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            write_consumer(root, repo_mk=v2_repo_mk("pytest tests/unit"))
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = main(
+                    ["--workspace", str(root), "reconcile", "--facade", "make-v2"]
+                )
+            self.assertEqual(0, code)
+            self.assertIn("facade migrated to make-v2", output.getvalue())
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(
+                    0,
+                    main(
+                        ["--workspace", str(root), "reconcile", "--facade", "make-v2"]
+                    ),
+                )
 
 
 if __name__ == "__main__":

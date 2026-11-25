@@ -79,10 +79,12 @@ from .contract import (
     CONTRACT_PATH,
     FACADE_TEMPLATES,
     MAKEFILE_PATH,
+    REPO_MK_PATH,
     V2_SCHEMA_NAME,
     ContractError,
     facade_phases,
     render_facade,
+    validate_repo_mk_text,
 )
 
 CORE_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -563,6 +565,99 @@ def load_stamp_record(root: pathlib.Path) -> dict[str, Any] | None:
             if relative in files:
                 _fail(f"stamp record both carries and inherits {relative}")
     return data
+
+
+def migrate_facade(root: pathlib.Path, facade: str) -> list[str]:
+    """Move a repository onto another released facade: contract and Makefile.
+
+    Both files are Core-owned, so changing the facade a repository declares is
+    a Core operation, never a hand edit of a Core-owned file. The repository's
+    own ``Repo.mk`` must already implement the target facade's leaves: the ABI
+    is validated *before* anything is written, so a repository that has not yet
+    added ``repo-test-fast`` is refused and keeps its current facade.
+
+    Returns the paths whose bytes changed, contract first, ``Makefile`` second.
+    Idempotent: a second call for the same facade writes nothing. When the
+    repository carries a stamp record, the digests it holds for the migrated
+    paths are refreshed (the record's revision, profile and every other file
+    are left as stamped), because a stale digest would report the migration as
+    a consumer edit at the next ``validate``.
+    """
+
+    root = root.resolve()
+    if not root.is_dir():
+        _fail(f"workspace is not a directory: {root}")
+    # An unknown facade fails here, before anything is read or written.
+    render_facade(facade)
+    repo_mk = root / REPO_MK_PATH
+    if repo_mk.is_symlink() or not repo_mk.is_file():
+        _fail(f"missing repository implementation: {REPO_MK_PATH}")
+    validate_repo_mk_text(repo_mk.read_text(encoding="utf-8", errors="replace"), facade)
+    outputs = {
+        CONTRACT_PATH.as_posix(): render_contract(facade),
+        MAKEFILE_PATH.as_posix(): render_facade(facade),
+    }
+    # The record is refreshed from the bytes this call is about to write, so it
+    # joins the same pass as the two Core-owned files: one place decides what
+    # changed, one place writes it, and a migration that changes nothing writes
+    # nothing.
+    record = _refreshed_record(
+        root,
+        {
+            relative: data
+            for relative, data in outputs.items()
+            if _differs(root, relative, data)
+        },
+    )
+    if record is not None:
+        outputs[STAMP_RECORD_PATH.as_posix()] = record
+    changed: list[str] = []
+    for relative, data in outputs.items():
+        path = _destination(root, relative)
+        if path.exists() and not path.is_file():
+            _fail(f"refusing to replace a non-file: {relative}")
+        if path.is_file() and path.read_bytes() == data:
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        changed.append(relative)
+    return changed
+
+
+def _differs(root: pathlib.Path, relative: str, data: bytes) -> bool:
+    """Whether writing ``data`` would change ``relative``; a non-file is refused."""
+
+    path = _destination(root, relative)
+    if path.exists() and not path.is_file():
+        _fail(f"refusing to replace a non-file: {relative}")
+    return not path.is_file() or path.read_bytes() != data
+
+
+def _refreshed_record(
+    root: pathlib.Path, rendered: Mapping[str, bytes]
+) -> bytes | None:
+    """Keep a stamp record truthful about the paths a migration rewrites.
+
+    Returns the record's new bytes, or ``None`` when the repository carries no
+    record or every digest already matches — a migration that changes nothing
+    must not rewrite the record either.
+    """
+
+    if not rendered:
+        return None
+    record = load_stamp_record(root)
+    if record is None:
+        return None
+    files: dict[str, Any] = record["files"]
+    changed = False
+    for relative, data in rendered.items():
+        digest = _digest(data)
+        if relative in files and files[relative] != digest:
+            files[relative] = digest
+            changed = True
+    if not changed:
+        return None
+    return (json.dumps(record, indent=2) + "\n").encode("utf-8")
 
 
 def verify_stamp(root: pathlib.Path) -> tuple[dict[str, Any] | None, list[str]]:

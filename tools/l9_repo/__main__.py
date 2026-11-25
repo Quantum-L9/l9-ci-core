@@ -64,7 +64,14 @@ from .contract_wiring import ContractWiringError, validate_contract_wiring
 from .locking import LockBusy, single_flight
 from .reporting import StepEvidence, redact_text, write_reports
 from .inherited_config import materialize, resolve
-from .stamp import CORE_ROOT, PROFILES, inherited_paths, stamp, verify_stamp
+from .stamp import (
+    CORE_ROOT,
+    PROFILES,
+    inherited_paths,
+    migrate_facade,
+    stamp,
+    verify_stamp,
+)
 
 CORE_POLICY_PATH = pathlib.Path(".l9/core-repo-policy.json")
 CORE_POLICY_SCHEMA = "l9.core-repository-policy/v1"
@@ -979,21 +986,37 @@ class CoreRepositoryExecution(RepositoryExecution):
             path = (self.root / path).resolve()
         return path, lock["stale_after_seconds"]
 
-    def locked_reconcile(self) -> None:
-        """Regenerate the facade under Core's single-flight lock when policy exists."""
+    def locked_reconcile(self, facade: str | None = None) -> None:
+        """Regenerate the facade under Core's single-flight lock when policy exists.
+
+        Without ``--facade`` only ``Makefile`` is written, for the facade the
+        repository already declares. With it, the Core-owned contract and
+        ``Makefile`` both move to that released facade, and ``Repo.mk`` must
+        already implement its leaves (``migrate_facade``).
+        """
 
         self._ensure_repository_root()
+
+        def run_reconcile() -> None:
+            if facade is None:
+                changed = self.reconcile()
+                print("Makefile reconciled" if changed else "Makefile already current")
+                return
+            migrated = migrate_facade(self.root, facade)
+            if migrated:
+                print(f"facade migrated to {facade}: {', '.join(migrated)}")
+            else:
+                print(f"facade already {facade}")
+
         if not self.has_policy():
-            changed = self.reconcile()
-            print("Makefile reconciled" if changed else "Makefile already current")
+            run_reconcile()
             return
         path, stale_after = self._lock_settings()
         try:
             with single_flight(path, stale_after=stale_after):
-                changed = self.reconcile()
+                run_reconcile()
         except LockBusy as error:
             _fail(str(error))
-        print("Makefile reconciled" if changed else "Makefile already current")
 
 
 # ---------------------------------------------------------------------------
@@ -1204,9 +1227,10 @@ def build_parser() -> argparse.ArgumentParser:
         choices=sorted(FACADE_TEMPLATES),
         default=None,
         help=(
-            "stamp only: render the contract and Makefile for this released "
-            "facade (default: the facade the repository already declares, "
-            "else make-v1)"
+            "stamp and reconcile: render the contract and Makefile for this "
+            "released facade (stamp default: the facade the repository already "
+            "declares, else make-v1; reconcile default: keep the declared "
+            "facade and write only Makefile)"
         ),
     )
     parser.add_argument("command", choices=COMMANDS)
@@ -1243,7 +1267,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif arguments.command == "materialize":
             materialize_inherited(core.root)
         elif arguments.command == "reconcile":
-            core.locked_reconcile()
+            core.locked_reconcile(arguments.facade)
         elif arguments.command == "core-validate":
             core.core_validate()
         elif arguments.command in {"change-policy", "agent-check"}:
